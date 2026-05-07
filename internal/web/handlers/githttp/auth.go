@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package githttp
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/password"
+)
+
+// resolvedAuth carries the resolved identity for a git-over-HTTPS
+// request. Anonymous = true is the "no Authorization header" case;
+// callers decide whether anonymous is allowed (yes for pulling a public
+// repo, no for everything else).
+type resolvedAuth struct {
+	Anonymous bool
+	UserID    int64
+	Username  string
+	ViaPAT    bool
+}
+
+// errBadCredentials is the catch-all for "creds were sent but didn't
+// resolve." We DON'T distinguish the failure reasons (wrong username,
+// wrong password, revoked PAT, etc.) so the response is identical to
+// "no creds at all" — preventing username probes via timing/messaging.
+var errBadCredentials = errors.New("githttp: bad credentials")
+
+// resolveBasicAuth parses the Authorization header and resolves it
+// against the DB. Three outcomes:
+//
+//	Anonymous=true, err=nil         — no credentials supplied
+//	Anonymous=false, err=nil         — credentials matched a real user
+//	Anonymous=false, err!=nil        — credentials present but invalid
+//
+// PAT path is preferred when the secret carries the canonical
+// `shithub_pat_` prefix; password path is the fallback. A failed PAT
+// lookup falls through to password — if a user happens to set their
+// account password to a string that starts with our PAT prefix, we
+// still try to authenticate them.
+func (h *Handlers) resolveBasicAuth(ctx context.Context, header string) (resolvedAuth, error) {
+	if header == "" {
+		return resolvedAuth{Anonymous: true}, nil
+	}
+	scheme, rest, ok := strings.Cut(header, " ")
+	if !ok || !strings.EqualFold(scheme, "Basic") {
+		return resolvedAuth{}, errBadCredentials
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(rest))
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	user, secret, ok := strings.Cut(string(decoded), ":")
+	if !ok {
+		return resolvedAuth{}, errBadCredentials
+	}
+
+	if strings.HasPrefix(secret, pat.Prefix) {
+		if got, err := h.resolveViaPAT(ctx, secret); err == nil {
+			return got, nil
+		}
+		// Fall through — a non-matching PAT prefix could still be a
+		// user-chosen password.
+	}
+	return h.resolveViaPassword(ctx, user, secret)
+}
+
+// resolveViaPAT looks up the token by its sha256 hash, checks
+// revoked/expired/suspended, and returns the owning user. Returns
+// errBadCredentials on any failure (no leak about which check failed).
+func (h *Handlers) resolveViaPAT(ctx context.Context, raw string) (resolvedAuth, error) {
+	hash, err := pat.HashOf(raw)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	row, err := h.uq.GetUserTokenByHash(ctx, h.d.Pool, hash)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	if row.RevokedAt.Valid {
+		return resolvedAuth{}, errBadCredentials
+	}
+	if row.ExpiresAt.Valid && time.Now().After(row.ExpiresAt.Time) {
+		return resolvedAuth{}, errBadCredentials
+	}
+	user, err := h.uq.GetUserByID(ctx, h.d.Pool, row.UserID)
+	if err != nil || user.SuspendedAt.Valid {
+		return resolvedAuth{}, errBadCredentials
+	}
+	return resolvedAuth{
+		UserID: user.ID, Username: user.Username, ViaPAT: true,
+	}, nil
+}
+
+// resolveViaPassword verifies the supplied secret against the user's
+// argon2id hash. The username supplied in the Basic header is taken at
+// face value here — git's credential prompt typically asks "Username
+// for shithub:" and the user types their shithub username.
+//
+// Constant-time discipline: when the username doesn't exist we still
+// run VerifyAgainstDummy so the response time is the same as a wrong
+// password.
+func (h *Handlers) resolveViaPassword(ctx context.Context, username, secret string) (resolvedAuth, error) {
+	if username == "" {
+		// No way to look up; still burn time on a dummy to avoid timing leaks.
+		password.VerifyAgainstDummy(secret)
+		return resolvedAuth{}, errBadCredentials
+	}
+	user, err := h.uq.GetUserByUsername(ctx, h.d.Pool, username)
+	if err != nil {
+		password.VerifyAgainstDummy(secret)
+		return resolvedAuth{}, errBadCredentials
+	}
+	if user.SuspendedAt.Valid || user.DeletedAt.Valid {
+		password.VerifyAgainstDummy(secret)
+		return resolvedAuth{}, errBadCredentials
+	}
+	ok, err := password.Verify(secret, user.PasswordHash)
+	if err != nil || !ok {
+		return resolvedAuth{}, errBadCredentials
+	}
+	return resolvedAuth{
+		UserID: user.ID, Username: user.Username, ViaPAT: false,
+	}, nil
+}
+
