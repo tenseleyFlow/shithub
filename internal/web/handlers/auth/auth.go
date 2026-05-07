@@ -121,16 +121,19 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Post("/verify-email/resend", h.verifyResendSubmit)
 
 		// Settings — require an authenticated user.
-		if h.d.SecretBox != nil {
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireUser)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireUser)
+			r.Get("/settings/keys", h.sshKeysList)
+			r.Post("/settings/keys", h.sshKeysAdd)
+			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
+			if h.d.SecretBox != nil {
 				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
 				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)
 				r.Get("/settings/security/2fa/disable", h.twoFactorDisableForm)
 				r.Post("/settings/security/2fa/disable", h.twoFactorDisableSubmit)
 				r.Post("/settings/security/2fa/regenerate", h.twoFactorRegenerateSubmit)
-			})
-		}
+			}
+		})
 	})
 }
 

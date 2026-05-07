@@ -1,0 +1,43 @@
+{{ define "page" -}}
+<section class="shithub-auth shithub-auth-wide">
+  <h1>SSH keys</h1>
+  <p>SSH keys let you push and clone over SSH without typing a password. Generate one with <code>ssh-keygen -t ed25519</code> and paste the contents of the <code>.pub</code> file below.</p>
+
+  {{ if .Keys }}
+  <ul class="shithub-key-list">
+    {{ range .Keys }}
+    <li class="shithub-key-row">
+      <div>
+        <strong>{{ .Title }}</strong>
+        <span class="shithub-key-meta">{{ .KeyType }}{{ if .KeyBits }} · {{ .KeyBits }} bits{{ end }}</span>
+        <code class="shithub-key-fp">{{ .FingerprintSha256 }}</code>
+        {{ if .LastUsedAt.Valid }}<span class="shithub-key-last">last used {{ .LastUsedAt.Time.Format "2006-01-02" }}</span>{{ end }}
+      </div>
+      <form method="POST" action="/settings/keys/{{ .ID }}/delete" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+      </form>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-key-empty">No SSH keys yet.</p>
+  {{ end }}
+
+  <h2>Add a key</h2>
+  {{ with .AddError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <form method="POST" action="/settings/keys" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Title</span>
+      <input type="text" name="title" maxlength="80" required value="{{ .AddTitle }}">
+    </label>
+    <label>
+      <span>Public key</span>
+      <textarea name="public_key" rows="4" required spellcheck="false"
+                placeholder="ssh-ed25519 AAAA...">{{ .AddBlob }}</textarea>
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Add SSH key</button>
+  </form>
+</section>
+{{- end }}

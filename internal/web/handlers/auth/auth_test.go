@@ -157,6 +157,7 @@ func authTemplatesFS() fs.FS {
 	tfaEnable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">SECRET={{.Secret}}</form>{{ end }}`
 	tfaDisable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"></form>{{ end }}`
 	tfaRecovery := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .RecoveryCodes }}CODES={{ range .RecoveryCodes }}{{.}};{{ end }}{{ end }}</form>{{ end }}`
+	keysTpl := `{{ define "page" }}<form>{{ with .AddError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">KEYS={{ range .Keys }}{{.ID}}:{{.FingerprintSha256}};{{ end }}</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":               {Data: []byte(layout)},
@@ -170,6 +171,7 @@ func authTemplatesFS() fs.FS {
 		"settings/2fa_enable.html":   {Data: []byte(tfaEnable)},
 		"settings/2fa_disable.html":  {Data: []byte(tfaDisable)},
 		"settings/2fa_recovery.html": {Data: []byte(tfaRecovery)},
+		"settings/keys.html":         {Data: []byte(keysTpl)},
 		"errors/404.html":            {Data: []byte(errorPage)},
 		"errors/403.html":            {Data: []byte(errorPage)},
 		"errors/429.html":            {Data: []byte(errorPage)},
