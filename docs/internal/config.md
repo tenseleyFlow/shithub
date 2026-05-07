@@ -47,6 +47,14 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `session.key_b64` | string | `""` | Base64 32-byte AEAD key. Aliased by `SHITHUB_SESSION_KEY`. |
 | `session.max_age` | duration | `720h` | Cookie session lifetime (30 days). |
 | `session.secure` | bool | `false` | Set `Secure` cookie attribute. Enable under TLS (S37 deploy). |
+| `storage.repos_root` | string | `/data/repos` | Filesystem root for bare repos. Required. |
+| `storage.s3.endpoint` | string | `""` | S3-compatible endpoint host[:port], no scheme. Empty disables S3. |
+| `storage.s3.region` | string | `us-east-1` | Region for SigV4 signing. |
+| `storage.s3.access_key_id` | string | `""` | |
+| `storage.s3.secret_access_key` | string | `""` | Redacted by `config print`. |
+| `storage.s3.bucket` | string | `""` | Single bucket per environment. |
+| `storage.s3.use_ssl` | bool | `false` | True for Spaces, false for local MinIO. |
+| `storage.s3.force_path_style` | bool | `true` | True for MinIO, false for Spaces. |
 
 ## Env-var examples
 

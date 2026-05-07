@@ -35,6 +35,7 @@ type Config struct {
 	Tracing        TracingConfig        `toml:"tracing"`
 	ErrorReporting ErrorReportingConfig `toml:"error_reporting"`
 	Session        SessionConfig        `toml:"session"`
+	Storage        StorageConfig        `toml:"storage"`
 }
 
 // WebConfig holds HTTP server settings.
@@ -88,6 +89,25 @@ type SessionConfig struct {
 	Secure bool          `toml:"secure"`
 }
 
+// StorageConfig configures repo filesystem storage and S3-compatible
+// object storage. The S3 block targets MinIO in dev/test and DigitalOcean
+// Spaces in prod (force_path_style true for MinIO, false for Spaces).
+type StorageConfig struct {
+	ReposRoot string          `toml:"repos_root"` // filesystem root for bare repos
+	S3        S3StorageConfig `toml:"s3"`
+}
+
+// S3StorageConfig holds the S3-compatible endpoint settings.
+type S3StorageConfig struct {
+	Endpoint        string `toml:"endpoint"`          // host[:port], no scheme
+	Region          string `toml:"region"`            // e.g. "us-east-1", "nyc3"
+	AccessKeyID     string `toml:"access_key_id"`     //
+	SecretAccessKey string `toml:"secret_access_key"` //
+	Bucket          string `toml:"bucket"`            // e.g. "shithub-dev"
+	UseSSL          bool   `toml:"use_ssl"`           // true for Spaces, false for local MinIO
+	ForcePathStyle  bool   `toml:"force_path_style"`  // true for MinIO, false for Spaces
+}
+
 // Defaults returns the zero-config baseline.
 func Defaults() Config {
 	return Config{
@@ -118,6 +138,13 @@ func Defaults() Config {
 		Session: SessionConfig{
 			MaxAge: 30 * 24 * time.Hour,
 			Secure: false,
+		},
+		Storage: StorageConfig{
+			ReposRoot: "/data/repos",
+			S3: S3StorageConfig{
+				Region:         "us-east-1",
+				ForcePathStyle: true,
+			},
 		},
 	}
 }
@@ -188,6 +215,38 @@ func Validate(c *Config) error {
 	}
 	if c.Tracing.SampleRate < 0 || c.Tracing.SampleRate > 1 {
 		return fmt.Errorf("config: tracing.sample_rate: must be in [0, 1], got %v", c.Tracing.SampleRate)
+	}
+	if c.Storage.ReposRoot == "" {
+		return errors.New("config: storage.repos_root is required")
+	}
+	if err := validateS3(c.Storage.S3); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateS3 enforces all-or-nothing on the S3 block: if any of
+// endpoint/bucket/access keys are set, all must be set.
+func validateS3(s S3StorageConfig) error {
+	any := s.Endpoint != "" || s.Bucket != "" || s.AccessKeyID != "" || s.SecretAccessKey != ""
+	if !any {
+		return nil
+	}
+	missing := []string{}
+	if s.Endpoint == "" {
+		missing = append(missing, "endpoint")
+	}
+	if s.Bucket == "" {
+		missing = append(missing, "bucket")
+	}
+	if s.AccessKeyID == "" {
+		missing = append(missing, "access_key_id")
+	}
+	if s.SecretAccessKey == "" {
+		missing = append(missing, "secret_access_key")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("config: storage.s3: incomplete configuration, missing: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }
