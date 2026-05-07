@@ -1,0 +1,37 @@
+version: "2"
+run:
+  timeout: 5m
+  tests: true
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - revive
+  settings:
+    gosec:
+      excludes:
+        - G304 # file inclusion via variable; we audit these manually
+    revive:
+      rules:
+        - name: var-naming
+        - name: package-comments
+          disabled: true
+        - name: exported
+          disabled: true
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/tenseleyFlow/shithub
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

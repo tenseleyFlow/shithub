@@ -1,0 +1,18 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/shithubd ./cmd/shithubd"
+  bin = "./tmp/shithubd"
+  full_bin = "./tmp/shithubd web"
+  include_ext = ["go", "html", "tmpl", "css", "js"]
+  exclude_dir = ["bin", "tmp", "vendor", ".git", ".docs", ".refs", "node_modules", "internal/web/static/primer"]
+  delay = 200
+  send_interrupt = true
+  kill_delay = "1s"
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true
