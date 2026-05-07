@@ -103,3 +103,12 @@ to the pusher's terminal. Latency budget: <100ms p99.
   and abort the push. Operators recover with `hooks reinstall`.
 * **Stale shim from previous shithubd version**: `Install` is
   idempotent and overwrites; re-running on a deploy is the right move.
+
+## Deferred: hook DB role split
+
+S14's spec calls for the hook to connect with a least-privilege Postgres
+role distinct from the one the web server uses. S14 ships the dev path
+(single role) and defers the split to S37 deploy automation. The full
+GRANT recipe and the planned config plumbing live in
+[`db-roles.md`](./db-roles.md), and the bullet is on the S37
+deliverables list so it doesn't fall off.
