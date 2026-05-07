@@ -51,7 +51,7 @@ func TestVerify_RejectsMalformed(t *testing.T) {
 	cases := []string{
 		"",
 		"not-a-phc-string",
-		"$bcrypt$v=10$xxx",                                       // wrong algo
+		"$bcrypt$v=10$xxx", // wrong algo
 		"$argon2id$v=18$m=65536,t=3,p=2$AAAAAAAAAAAAAAAA$AAAAAA", // version mismatch
 		"$argon2id$v=19$bad-params$AAAAAAAAAAAAAAAA$AAAAAA",
 	}

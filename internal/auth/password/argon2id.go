@@ -149,7 +149,9 @@ func decode(s string) (Params, []byte, []byte, error) {
 	if err != nil {
 		return Params{}, nil, nil, fmt.Errorf("password: key: %w", err)
 	}
+	//nolint:gosec // G115: lengths are bounded by encoded byte slices (max ~1KB total).
 	p.SaltLen = uint32(len(salt))
+	//nolint:gosec // G115: see above.
 	p.KeyLen = uint32(len(key))
 	return p, salt, key, nil
 }
