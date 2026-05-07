@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,8 +38,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
@@ -63,6 +66,11 @@ type Deps struct {
 	Argon2                   password.Params
 	Limiter                  *throttle.Limiter
 	RequireEmailVerification bool
+	// SecretBox encrypts at-rest TOTP secrets. May be nil; when nil, the
+	// 2FA enrollment endpoints are not registered.
+	SecretBox *secretbox.Box
+	// Audit records security-relevant events (2fa state changes, etc.).
+	Audit *audit.Recorder
 }
 
 // Handlers is the registered handler set. Construct with New.
@@ -85,6 +93,9 @@ func New(d Deps) (*Handlers, error) {
 	if d.Limiter == nil {
 		d.Limiter = throttle.NewLimiter()
 	}
+	if d.Audit == nil {
+		d.Audit = audit.NewRecorder()
+	}
 	password.MustGenerateDummy(d.Argon2)
 	return &Handlers{d: d, q: usersdb.New()}, nil
 }
@@ -98,6 +109,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Post("/signup", h.signupSubmit)
 		r.Get("/login", h.loginForm)
 		r.Post("/login", h.loginSubmit)
+		r.Get("/login/2fa", h.twoFactorChallengeForm)
+		r.Post("/login/2fa", h.twoFactorChallengeSubmit)
 		r.Post("/logout", h.logoutSubmit)
 		r.Get("/password/reset", h.resetRequestForm)
 		r.Post("/password/reset", h.resetRequestSubmit)
@@ -106,6 +119,18 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Get("/verify-email/{token}", h.verifyEmail)
 		r.Get("/verify-email/resend", h.verifyResendForm)
 		r.Post("/verify-email/resend", h.verifyResendSubmit)
+
+		// Settings — require an authenticated user.
+		if h.d.SecretBox != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
+				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)
+				r.Get("/settings/security/2fa/disable", h.twoFactorDisableForm)
+				r.Post("/settings/security/2fa/disable", h.twoFactorDisableSubmit)
+				r.Post("/settings/security/2fa/regenerate", h.twoFactorRegenerateSubmit)
+			})
+		}
 	})
 }
 
@@ -352,6 +377,27 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// Forgive prior failed-attempt counter on success.
 	_ = h.d.Limiter.Reset(r.Context(), h.d.Pool, "login", throttleKey)
 
+	// If 2FA is enrolled and confirmed, redirect to the challenge step.
+	// Pre-2FA marker carries user_id intent without granting full session.
+	if t, terr := h.q.GetUserTOTP(r.Context(), h.d.Pool, user.ID); terr == nil && t.ConfirmedAt.Valid {
+		s := middleware.SessionFromContext(r.Context())
+		s.UserID = 0
+		s.Pre2FAUserID = user.ID
+		s.IssuedAt = time.Now().Unix()
+		if err := h.d.SessionStore.Save(w, r, s); err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "login: save pre-2fa session", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		dest := "/login/2fa"
+		if next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+			dest = "/login/2fa?next=" + url.QueryEscape(next)
+		}
+		//nolint:gosec // G710: dest is whitelisted to /login/2fa with sanitized next.
+		http.Redirect(w, r, dest, http.StatusSeeOther)
+		return
+	}
+
 	if err := h.q.TouchUserLastLogin(r.Context(), h.d.Pool, user.ID); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "login: touch last_login_at", "error", err)
 	}
@@ -360,6 +406,7 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// AEAD store re-encrypts on every Save, producing a fresh ciphertext.
 	s := middleware.SessionFromContext(r.Context())
 	s.UserID = user.ID
+	s.Pre2FAUserID = 0
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "login: save session", "error", err)
