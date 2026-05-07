@@ -117,8 +117,11 @@ func (h *Handlers) twoFactorChallengeSubmit(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Upgrade session: drop pre-2FA marker, set UserID, reissue.
+	// Recent2FAAt timestamps the just-completed challenge so the recent-
+	// auth gate (PAT creation, etc.) can verify a fresh second factor.
 	s.Pre2FAUserID = 0
 	s.UserID = userID
+	s.Recent2FAAt = time.Now().Unix()
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "2fa: save session", "error", err)
@@ -284,6 +287,12 @@ func (h *Handlers) twoFactorEnableSubmit(w http.ResponseWriter, r *http.Request)
 	if err := tx.Commit(r.Context()); err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
+	}
+
+	// Just verified a fresh TOTP — gate-passing window starts now.
+	if s := middleware.SessionFromContext(r.Context()); s != nil {
+		s.Recent2FAAt = time.Now().Unix()
+		_ = h.d.SessionStore.Save(w, r, s)
 	}
 
 	h.notifyUser(r.Context(), user.ID, "2fa_enabled")
