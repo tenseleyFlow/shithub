@@ -36,6 +36,7 @@ type Config struct {
 	ErrorReporting ErrorReportingConfig `toml:"error_reporting"`
 	Session        SessionConfig        `toml:"session"`
 	Storage        StorageConfig        `toml:"storage"`
+	Auth           AuthConfig           `toml:"auth"`
 }
 
 // WebConfig holds HTTP server settings.
@@ -97,6 +98,39 @@ type StorageConfig struct {
 	S3        S3StorageConfig `toml:"s3"`
 }
 
+// AuthConfig configures the email/password auth surface.
+type AuthConfig struct {
+	RequireEmailVerification bool           `toml:"require_email_verification"`
+	BaseURL                  string         `toml:"base_url"` // e.g. https://shithub.example
+	SiteName                 string         `toml:"site_name"`
+	EmailFrom                string         `toml:"email_from"`
+	EmailBackend             string         `toml:"email_backend"` // stdout | smtp | postmark
+	SMTP                     SMTPConfig     `toml:"smtp"`
+	Postmark                 PostmarkConfig `toml:"postmark"`
+	Argon2                   Argon2Config   `toml:"argon2"`
+}
+
+// SMTPConfig holds plain-SMTP backend settings (e.g. MailHog in dev).
+type SMTPConfig struct {
+	Addr     string `toml:"addr"` // host:port
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+}
+
+// PostmarkConfig holds Postmark transactional API settings.
+type PostmarkConfig struct {
+	ServerToken string `toml:"server_token"`
+}
+
+// Argon2Config tunes the password hasher's cost. Defaults match the
+// internal/auth/password Defaults() — operators bump these on faster
+// hardware to keep the per-hash cost in the 100–300 ms band.
+type Argon2Config struct {
+	MemoryKiB uint32 `toml:"memory_kib"`
+	Time      uint32 `toml:"time"`
+	Threads   uint8  `toml:"threads"`
+}
+
 // S3StorageConfig holds the S3-compatible endpoint settings.
 type S3StorageConfig struct {
 	Endpoint        string `toml:"endpoint"`          // host[:port], no scheme
@@ -144,6 +178,21 @@ func Defaults() Config {
 			S3: S3StorageConfig{
 				Region:         "us-east-1",
 				ForcePathStyle: true,
+			},
+		},
+		Auth: AuthConfig{
+			RequireEmailVerification: true,
+			BaseURL:                  "http://127.0.0.1:8080",
+			SiteName:                 "shithub",
+			EmailFrom:                "shithub <noreply@shithub.local>",
+			EmailBackend:             "stdout",
+			SMTP: SMTPConfig{
+				Addr: "127.0.0.1:1025",
+			},
+			Argon2: Argon2Config{
+				MemoryKiB: 64 * 1024,
+				Time:      3,
+				Threads:   2,
 			},
 		},
 	}
@@ -221,6 +270,26 @@ func Validate(c *Config) error {
 	}
 	if err := validateS3(c.Storage.S3); err != nil {
 		return err
+	}
+	switch c.Auth.EmailBackend {
+	case "stdout", "smtp", "postmark":
+	default:
+		return fmt.Errorf("config: auth.email_backend: must be stdout|smtp|postmark, got %q", c.Auth.EmailBackend)
+	}
+	if c.Auth.EmailBackend == "smtp" && c.Auth.SMTP.Addr == "" {
+		return errors.New("config: auth.smtp.addr is required when email_backend=smtp")
+	}
+	if c.Auth.EmailBackend == "postmark" && c.Auth.Postmark.ServerToken == "" {
+		return errors.New("config: auth.postmark.server_token is required when email_backend=postmark")
+	}
+	if c.Auth.BaseURL == "" {
+		return errors.New("config: auth.base_url is required (used in email links)")
+	}
+	if c.Auth.SiteName == "" {
+		return errors.New("config: auth.site_name is required")
+	}
+	if c.Auth.EmailFrom == "" {
+		return errors.New("config: auth.email_from is required")
 	}
 	return nil
 }
