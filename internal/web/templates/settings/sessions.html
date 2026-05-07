@@ -1,0 +1,29 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Sessions</h1>
+
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>This session</h2>
+      <p>The browser you're using right now.</p>
+      <dl class="shithub-session-meta">
+        <dt>Signed in</dt><dd>{{ .Issued.Format "2006-01-02 15:04 MST" }}</dd>
+        <dt>From</dt><dd><code>{{ .ClientIP }}</code></dd>
+        <dt>User agent</dt><dd><code>{{ .UserAgent }}</code></dd>
+      </dl>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Sign out of all other sessions</h2>
+      <p>Use this if you've signed in on a device you no longer have, or if you suspect your account is compromised. Your current browser stays signed in.</p>
+      <form method="POST" action="/settings/sessions/logout-everywhere" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-danger">Sign out everywhere else</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

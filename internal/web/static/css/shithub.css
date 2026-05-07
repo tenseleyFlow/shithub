@@ -631,3 +631,12 @@ code {
 .shithub-notif-row.required { background: rgba(56, 139, 253, 0.06); }
 .shithub-notif-row strong { display: block; font-size: 0.95rem; }
 .shithub-notif-row small { display: block; color: var(--fg-muted); font-size: 0.85rem; }
+
+.shithub-session-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+.shithub-session-meta dt { color: var(--fg-muted); font-weight: 500; }
+.shithub-session-meta dd { margin: 0; word-break: break-all; }
