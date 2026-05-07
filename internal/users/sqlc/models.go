@@ -5,10 +5,54 @@
 package usersdb
 
 import (
+	"database/sql/driver"
+	"fmt"
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type RepoVisibility string
+
+const (
+	RepoVisibilityPublic  RepoVisibility = "public"
+	RepoVisibilityPrivate RepoVisibility = "private"
+)
+
+func (e *RepoVisibility) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RepoVisibility(s)
+	case string:
+		*e = RepoVisibility(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RepoVisibility: %T", src)
+	}
+	return nil
+}
+
+type NullRepoVisibility struct {
+	RepoVisibility RepoVisibility
+	Valid          bool // Valid is true if RepoVisibility is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRepoVisibility) Scan(value interface{}) error {
+	if value == nil {
+		ns.RepoVisibility, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RepoVisibility.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRepoVisibility) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RepoVisibility), nil
+}
 
 type AuthAuditLog struct {
 	ID         int64
@@ -50,6 +94,27 @@ type PasswordReset struct {
 	ExpiresAt pgtype.Timestamptz
 	UsedAt    pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type Repo struct {
+	ID              int64
+	OwnerUserID     pgtype.Int8
+	OwnerOrgID      pgtype.Int8
+	Name            string
+	Description     string
+	Visibility      RepoVisibility
+	DefaultBranch   string
+	IsArchived      bool
+	ArchivedAt      pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
+	DiskUsedBytes   int64
+	ForkOfRepoID    pgtype.Int8
+	LicenseKey      pgtype.Text
+	PrimaryLanguage pgtype.Text
+	HasIssues       bool
+	HasPulls        bool
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 type User struct {
