@@ -1,0 +1,313 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Package config owns the layered configuration loader.
+//
+// Precedence (lowest → highest):
+//
+//  1. Built-in defaults (this file)
+//  2. TOML file (path from $SHITHUB_CONFIG, falling back to /etc/shithub/config.toml)
+//  3. Environment variables (SHITHUB_<area>_<key>; nested keys joined with "__")
+//  4. CLI flag overrides handed in by the caller
+//
+// The Config struct is the single source of truth for what is configurable.
+// Every consumer reads from this struct rather than from os.Getenv directly.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/BurntSushi/toml"
+)
+
+// Config is the typed root.
+type Config struct {
+	Env            string               `toml:"env"` // "dev", "staging", "prod"
+	Web            WebConfig            `toml:"web"`
+	DB             DBConfig             `toml:"db"`
+	Log            LogConfig            `toml:"log"`
+	Metrics        MetricsConfig        `toml:"metrics"`
+	Tracing        TracingConfig        `toml:"tracing"`
+	ErrorReporting ErrorReportingConfig `toml:"error_reporting"`
+	Session        SessionConfig        `toml:"session"`
+}
+
+// WebConfig holds HTTP server settings.
+type WebConfig struct {
+	Addr            string        `toml:"addr"`
+	ReadTimeout     time.Duration `toml:"read_timeout"`
+	WriteTimeout    time.Duration `toml:"write_timeout"`
+	ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
+}
+
+// DBConfig holds Postgres settings.
+type DBConfig struct {
+	URL            string        `toml:"url"`
+	MaxConns       int           `toml:"max_conns"`
+	MinConns       int           `toml:"min_conns"`
+	ConnectTimeout time.Duration `toml:"connect_timeout"`
+}
+
+// LogConfig holds slog settings.
+type LogConfig struct {
+	Level  string `toml:"level"`  // debug | info | warn | error
+	Format string `toml:"format"` // text (dev) | json (prod)
+}
+
+// MetricsConfig configures the /metrics endpoint.
+type MetricsConfig struct {
+	Enabled       bool   `toml:"enabled"`
+	BasicAuthUser string `toml:"basic_auth_user"`
+	BasicAuthPass string `toml:"basic_auth_pass"`
+}
+
+// TracingConfig configures the OpenTelemetry exporter.
+type TracingConfig struct {
+	Enabled     bool    `toml:"enabled"`
+	Endpoint    string  `toml:"endpoint"` // OTLP HTTP endpoint
+	SampleRate  float64 `toml:"sample_rate"`
+	ServiceName string  `toml:"service_name"`
+}
+
+// ErrorReportingConfig configures the Sentry/GlitchTip-protocol DSN.
+type ErrorReportingConfig struct {
+	DSN         string `toml:"dsn"`
+	Environment string `toml:"environment"`
+	Release     string `toml:"release"`
+}
+
+// SessionConfig configures the cookie session store.
+type SessionConfig struct {
+	KeyB64 string        `toml:"key_b64"`
+	MaxAge time.Duration `toml:"max_age"`
+	Secure bool          `toml:"secure"`
+}
+
+// Defaults returns the zero-config baseline.
+func Defaults() Config {
+	return Config{
+		Env: "dev",
+		Web: WebConfig{
+			Addr:            ":8080",
+			ReadTimeout:     30 * time.Second,
+			WriteTimeout:    30 * time.Second,
+			ShutdownTimeout: 10 * time.Second,
+		},
+		DB: DBConfig{
+			MaxConns:       10,
+			MinConns:       0,
+			ConnectTimeout: 5 * time.Second,
+		},
+		Log: LogConfig{
+			Level:  "info",
+			Format: "text",
+		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+		},
+		Tracing: TracingConfig{
+			Enabled:     false,
+			SampleRate:  0.05,
+			ServiceName: "shithubd",
+		},
+		Session: SessionConfig{
+			MaxAge: 30 * 24 * time.Hour,
+			Secure: false,
+		},
+	}
+}
+
+// Load resolves configuration in the documented precedence order. CLI
+// overrides may be nil. The TOML file is optional — its absence is not an
+// error; its existence with bad syntax IS.
+func Load(cliOverrides map[string]string) (Config, error) {
+	cfg := Defaults()
+	if err := mergeFile(&cfg); err != nil {
+		return cfg, err
+	}
+	if err := mergeEnv(&cfg, os.Environ()); err != nil {
+		return cfg, err
+	}
+	if err := mergeFlags(&cfg, cliOverrides); err != nil {
+		return cfg, err
+	}
+	applyAliases(&cfg)
+	if err := Validate(&cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// applyAliases honors well-known env-var aliases that don't follow the
+// nested-key convention. SHITHUB_DATABASE_URL is the S01-era name for
+// db.url and remains supported.
+func applyAliases(cfg *Config) {
+	if cfg.DB.URL == "" {
+		if v := os.Getenv("SHITHUB_DATABASE_URL"); v != "" {
+			cfg.DB.URL = v
+		}
+	}
+	if cfg.Session.KeyB64 == "" {
+		if v := os.Getenv("SHITHUB_SESSION_KEY"); v != "" {
+			cfg.Session.KeyB64 = v
+		}
+	}
+}
+
+// Validate enforces invariants. Errors are precise enough to point at the
+// offending key.
+func Validate(c *Config) error {
+	switch strings.ToLower(c.Env) {
+	case "dev", "staging", "prod":
+		c.Env = strings.ToLower(c.Env)
+	default:
+		return fmt.Errorf("config: env: must be dev|staging|prod, got %q", c.Env)
+	}
+	switch strings.ToLower(c.Log.Level) {
+	case "debug", "info", "warn", "error":
+		c.Log.Level = strings.ToLower(c.Log.Level)
+	default:
+		return fmt.Errorf("config: log.level: must be debug|info|warn|error, got %q", c.Log.Level)
+	}
+	switch strings.ToLower(c.Log.Format) {
+	case "text", "json":
+		c.Log.Format = strings.ToLower(c.Log.Format)
+	default:
+		return fmt.Errorf("config: log.format: must be text|json, got %q", c.Log.Format)
+	}
+	if c.Web.Addr == "" {
+		return errors.New("config: web.addr is required")
+	}
+	if c.Tracing.Enabled && c.Tracing.Endpoint == "" {
+		return errors.New("config: tracing.endpoint is required when tracing.enabled=true")
+	}
+	if c.Tracing.SampleRate < 0 || c.Tracing.SampleRate > 1 {
+		return fmt.Errorf("config: tracing.sample_rate: must be in [0, 1], got %v", c.Tracing.SampleRate)
+	}
+	return nil
+}
+
+// mergeFile reads the TOML file (when present) over cfg.
+func mergeFile(cfg *Config) error {
+	path := os.Getenv("SHITHUB_CONFIG")
+	if path == "" {
+		path = "/etc/shithub/config.toml"
+	}
+	body, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	if _, err := toml.Decode(string(body), cfg); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	return nil
+}
+
+// mergeEnv overrides cfg from environment variables. Naming convention:
+// SHITHUB_<area>__<key> (double-underscore separates nested levels).
+// Single-segment keys also accept SHITHUB_<key>.
+func mergeEnv(cfg *Config, environ []string) error {
+	envMap := make(map[string]string, len(environ))
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "SHITHUB_") {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		key := strings.TrimPrefix(kv[:eq], "SHITHUB_")
+		envMap[key] = kv[eq+1:]
+	}
+	return walkAndApply(reflect.ValueOf(cfg).Elem(), reflect.TypeOf(*cfg), "", envMap)
+}
+
+// mergeFlags applies CLI overrides. Keys use TOML notation
+// ("web.addr", "tracing.endpoint", etc.).
+func mergeFlags(cfg *Config, overrides map[string]string) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	envStyle := make(map[string]string, len(overrides))
+	for k, v := range overrides {
+		envStyle[strings.ToUpper(strings.ReplaceAll(k, ".", "__"))] = v
+	}
+	return walkAndApply(reflect.ValueOf(cfg).Elem(), reflect.TypeOf(*cfg), "", envStyle)
+}
+
+// walkAndApply walks struct fields recursively, applying values from src
+// keyed by uppercased dot-then-double-underscore-joined paths.
+func walkAndApply(v reflect.Value, t reflect.Type, prefix string, src map[string]string) error {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("toml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		fieldPath := strings.ToUpper(tag)
+		if prefix != "" {
+			fieldPath = prefix + "__" + fieldPath
+		}
+		fv := v.Field(i)
+
+		if field.Type.Kind() == reflect.Struct && field.Type != reflect.TypeOf(time.Duration(0)) {
+			if err := walkAndApply(fv, field.Type, fieldPath, src); err != nil {
+				return err
+			}
+			continue
+		}
+
+		raw, ok := src[fieldPath]
+		if !ok {
+			continue
+		}
+		if err := setField(fv, field.Type, raw); err != nil {
+			return fmt.Errorf("config: %s: %w", strings.ReplaceAll(strings.ToLower(fieldPath), "__", "."), err)
+		}
+	}
+	return nil
+}
+
+func setField(v reflect.Value, t reflect.Type, raw string) error {
+	switch t.Kind() {
+	case reflect.String:
+		v.SetString(raw)
+	case reflect.Bool:
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("invalid bool: %w", err)
+		}
+		v.SetBool(b)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if t == reflect.TypeOf(time.Duration(0)) {
+			d, err := time.ParseDuration(raw)
+			if err != nil {
+				return fmt.Errorf("invalid duration: %w", err)
+			}
+			v.SetInt(int64(d))
+			return nil
+		}
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid int: %w", err)
+		}
+		v.SetInt(n)
+	case reflect.Float32, reflect.Float64:
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return fmt.Errorf("invalid float: %w", err)
+		}
+		v.SetFloat(f)
+	default:
+		return fmt.Errorf("unsupported field kind %s", t.Kind())
+	}
+	return nil
+}
