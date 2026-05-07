@@ -106,6 +106,17 @@ func (h *Handlers) settingsPasswordSubmit(w http.ResponseWriter, r *http.Request
 		h.d.Logger.WarnContext(r.Context(), "password: audit", "error", err)
 	}
 
+	// Sync the *current* session's epoch with the post-bump value so the
+	// user staying on this browser doesn't get signed out by their own
+	// password change.
+	if epoch, err := h.q.GetUserSessionEpoch(r.Context(), h.d.Pool, user.ID); err == nil {
+		s := middleware.SessionFromContext(r.Context())
+		s.Epoch = epoch
+		if err := h.d.SessionStore.Save(w, r, s); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "password: re-issue session", "error", err)
+		}
+	}
+
 	h.renderPasswordForm(w, r, "", "Password updated. Other sessions have been signed out.")
 }
 

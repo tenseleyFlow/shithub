@@ -119,8 +119,16 @@ func (h *Handlers) twoFactorChallengeSubmit(w http.ResponseWriter, r *http.Reque
 	// Upgrade session: drop pre-2FA marker, set UserID, reissue.
 	// Recent2FAAt timestamps the just-completed challenge so the recent-
 	// auth gate (PAT creation, etc.) can verify a fresh second factor.
+	// Epoch snapshot powers "log out everywhere".
+	epoch, err := h.q.GetUserSessionEpoch(r.Context(), h.d.Pool, userID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "2fa: load epoch", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
 	s.Pre2FAUserID = 0
 	s.UserID = userID
+	s.Epoch = epoch
 	s.Recent2FAAt = time.Now().Unix()
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {

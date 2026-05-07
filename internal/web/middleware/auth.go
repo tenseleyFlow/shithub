@@ -20,26 +20,44 @@ type CurrentUser struct {
 // IsAnonymous reports whether this is an unauthenticated request.
 func (u CurrentUser) IsAnonymous() bool { return u.ID == 0 }
 
+// UserLookup resolves a user_id into the data the auth middleware needs.
+// epoch is the users.session_epoch column; the middleware compares it to
+// the session's recorded epoch on every request so "log out everywhere"
+// (which bumps the column) invalidates stale cookies on the next hit.
+type UserLookup func(ctx context.Context, userID int64) (username string, epoch int32, err error)
+
 // OptionalUser populates CurrentUser into context from the loaded session
 // when present. Does not redirect or reject — pages that don't need a
 // user (homepage, public repo views) just ignore an empty CurrentUser.
 //
-// Lookup is the function that resolves a user_id to a username. Pass nil
-// to skip the lookup (CurrentUser.Username will be empty); handlers that
-// need the username supply Lookup.
-func OptionalUser(lookup func(ctx context.Context, userID int64) (string, error)) func(http.Handler) http.Handler {
+// When lookup returns successfully and the user's current session_epoch
+// does NOT match the session's recorded epoch, the binding is skipped so
+// the request looks anonymous. The stale cookie itself isn't actively
+// cleared — RequireUser will redirect the next protected hit to /login,
+// at which point a fresh session is minted with the current epoch.
+//
+// Pass nil to skip the lookup entirely (CurrentUser.Username will be
+// empty and epoch checks are bypassed).
+func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			s := SessionFromContext(ctx)
 			if s.UserID != 0 {
 				u := CurrentUser{ID: s.UserID}
+				bind := true
 				if lookup != nil {
-					if name, err := lookup(ctx, s.UserID); err == nil {
-						u.Username = name
+					if name, epoch, err := lookup(ctx, s.UserID); err == nil {
+						if epoch != s.Epoch {
+							bind = false
+						} else {
+							u.Username = name
+						}
 					}
 				}
-				ctx = context.WithValue(ctx, currentUserKey, u)
+				if bind {
+					ctx = context.WithValue(ctx, currentUserKey, u)
+				}
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

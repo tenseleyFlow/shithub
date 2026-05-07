@@ -123,17 +123,21 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
 	r.Use(middleware.SessionLoader(store, logger))
-	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, error) {
-		// Cheap username lookup against the test pool — RequireUser only
-		// checks ID == 0, but settings handlers use the username.
+	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, int32, error) {
+		// Cheap lookup against the test pool — settings handlers use the
+		// username, and the epoch comparison enforces log-out-everywhere
+		// across the same suite.
 		u, err := pool.Acquire(ctx)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		defer u.Release()
 		var name string
-		err = u.QueryRow(ctx, "SELECT username FROM users WHERE id = $1", id).Scan(&name)
-		return name, err
+		var epoch int32
+		err = u.QueryRow(ctx,
+			"SELECT username, session_epoch FROM users WHERE id = $1", id,
+		).Scan(&name, &epoch)
+		return name, epoch, err
 	}))
 	csrf := middleware.CSRF(middleware.CSRFConfig{
 		FailureHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +179,7 @@ func authTemplatesFS() fs.FS {
 	apprTpl := `{{ define "page" }}<h1>Appearance</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/appearance" method=POST><input name=csrf_token value="{{.CSRFToken}}">THEME={{.CurrentTheme}};</form>{{ end }}`
 	emailsTpl := `{{ define "page" }}<h1>Emails</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/emails" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>EMAILS={{ range .Emails }}{{.ID}}:{{.Email}}:p={{.IsPrimary}}:v={{.Verified}};{{ end }}{{ end }}`
 	notifTpl := `{{ define "page" }}<h1>Notifications</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/notifications" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHANNELS={{ range .Channels }}{{.Key}}:e={{.Enabled}}:r={{.Required}};{{ end }}</form>{{ end }}`
+	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":                {Data: []byte(layout)},
@@ -196,6 +201,7 @@ func authTemplatesFS() fs.FS {
 		"settings/appearance.html":    {Data: []byte(apprTpl)},
 		"settings/emails.html":        {Data: []byte(emailsTpl)},
 		"settings/notifications.html": {Data: []byte(notifTpl)},
+		"settings/sessions.html":      {Data: []byte(sessTpl)},
 		"errors/404.html":             {Data: []byte(errorPage)},
 		"errors/403.html":             {Data: []byte(errorPage)},
 		"errors/429.html":             {Data: []byte(errorPage)},

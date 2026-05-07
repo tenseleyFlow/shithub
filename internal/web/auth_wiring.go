@@ -42,14 +42,16 @@ func buildAPIHandlers(pool *pgxpool.Pool) (*apih.Handlers, error) {
 }
 
 // usernameLookup returns the lookup function consumed by middleware.OptionalUser.
-func usernameLookup(pool *pgxpool.Pool) func(context.Context, int64) (string, error) {
+// It resolves both the username and the user's current session_epoch so the
+// auth middleware can refuse stale cookies (bumped by "log out everywhere").
+func usernameLookup(pool *pgxpool.Pool) func(context.Context, int64) (string, int32, error) {
 	q := usersdb.New()
-	return func(ctx context.Context, id int64) (string, error) {
+	return func(ctx context.Context, id int64) (string, int32, error) {
 		u, err := q.GetUserByID(ctx, pool, id)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
-		return u.Username, nil
+		return u.Username, u.SessionEpoch, nil
 	}
 }
 

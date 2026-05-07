@@ -72,15 +72,18 @@ func newTokenServer(t *testing.T) (srv *httptest.Server, cli *client, captor *ca
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
 	r.Use(middleware.SessionLoader(store, logger))
-	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, error) {
+	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, int32, error) {
 		c, err := pool.Acquire(ctx)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		defer c.Release()
 		var name string
-		err = c.QueryRow(ctx, "SELECT username FROM users WHERE id = $1", id).Scan(&name)
-		return name, err
+		var epoch int32
+		err = c.QueryRow(ctx,
+			"SELECT username, session_epoch FROM users WHERE id = $1", id,
+		).Scan(&name, &epoch)
+		return name, epoch, err
 	}))
 	csrf := middleware.CSRF(middleware.CSRFConfig{
 		FailureHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

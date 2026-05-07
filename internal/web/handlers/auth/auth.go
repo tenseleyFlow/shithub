@@ -147,6 +147,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/emails/{id}/remove", h.settingsEmailsRemove)
 			r.Get("/settings/notifications", h.settingsNotificationsForm)
 			r.Post("/settings/notifications", h.settingsNotificationsSubmit)
+			r.Get("/settings/sessions", h.settingsSessionsList)
+			r.Post("/settings/sessions/logout-everywhere", h.settingsSessionsLogoutAll)
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
@@ -434,9 +436,12 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Session-fixation defense: bind user_id and re-issue cookie. The
 	// AEAD store re-encrypts on every Save, producing a fresh ciphertext.
+	// Epoch snapshotting is what powers "log out everywhere": this cookie
+	// is invalidated the moment users.session_epoch advances past it.
 	s := middleware.SessionFromContext(r.Context())
 	s.UserID = user.ID
 	s.Pre2FAUserID = 0
+	s.Epoch = user.SessionEpoch
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "login: save session", "error", err)

@@ -28,14 +28,20 @@ const DefaultMaxAge = 30 * 24 * time.Hour
 // Session is the data carried in a cookie. The shape is intentionally
 // small; anything that doesn't fit a few hundred bytes belongs server-side.
 type Session struct {
-	UserID       int64             `json:"uid,omitempty"`
-	Pre2FAUserID int64             `json:"p2,omitempty"` // set after password OK, before TOTP step
-	Recent2FAAt  int64             `json:"r2,omitempty"` // unix-seconds of last successful 2FA challenge
-	CSRFToken    string            `json:"csrf,omitempty"`
-	Theme        string            `json:"theme,omitempty"`
-	Flashes      []string          `json:"flashes,omitempty"`
-	Extras       map[string]string `json:"extras,omitempty"`
-	IssuedAt     int64             `json:"iat,omitempty"`
+	UserID       int64 `json:"uid,omitempty"`
+	Pre2FAUserID int64 `json:"p2,omitempty"` // set after password OK, before TOTP step
+	Recent2FAAt  int64 `json:"r2,omitempty"` // unix-seconds of last successful 2FA challenge
+	// Epoch is the users.session_epoch value at issue time. The session
+	// loader compares it against the current DB value on every request;
+	// "log out everywhere" bumps the column, invalidating every cookie
+	// that still carries the old epoch. Zero is the unbumped baseline
+	// and matches the migration's column default.
+	Epoch     int32             `json:"e,omitempty"`
+	CSRFToken string            `json:"csrf,omitempty"`
+	Theme     string            `json:"theme,omitempty"`
+	Flashes   []string          `json:"flashes,omitempty"`
+	Extras    map[string]string `json:"extras,omitempty"`
+	IssuedAt  int64             `json:"iat,omitempty"`
 }
 
 // IsAnonymous returns true when no user is bound to the session.
