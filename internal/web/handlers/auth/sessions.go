@@ -46,6 +46,8 @@ func (h *Handlers) settingsSessionsLogoutAll(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	h.notifyState(r.Context(), user.ID, "log_out_everywhere")
+
 	h.renderSessionsList(w, r, "Signed out of every other session.")
 }
 

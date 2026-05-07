@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -84,11 +85,38 @@ func (h *Handlers) settingsDangerDelete(w http.ResponseWriter, r *http.Request) 
 		h.d.Logger.WarnContext(r.Context(), "danger: audit", "error", err)
 	}
 
+	// notifyState's user-lookup filters out deleted_at — and we just
+	// soft-deleted this row — so fall through to a direct send using
+	// the address we captured before the transaction (`row.PrimaryEmailID`).
+	h.notifyDeletedAccount(r, row.ID, row.Username)
+
 	// Sign out THIS browser. Even if the cookie weren't cleared, the
 	// epoch bump above would invalidate it on the next request.
 	h.d.SessionStore.Clear(w)
 
 	http.Redirect(w, r, "/?notice=account-deleted", http.StatusSeeOther)
+}
+
+// notifyDeletedAccount sends the deletion-initiated email by addressing
+// the captured primary email directly. We can't use notifyState here
+// because the standard user lookup filters out soft-deleted rows.
+func (h *Handlers) notifyDeletedAccount(r *http.Request, userID int64, username string) {
+	row, err := h.q.GetUserIncludingDeleted(r.Context(), h.d.Pool, userID)
+	if err != nil || !row.PrimaryEmailID.Valid {
+		return
+	}
+	em, err := h.q.GetUserEmailByID(r.Context(), h.d.Pool, row.PrimaryEmailID.Int64)
+	if err != nil {
+		return
+	}
+	msg, err := email.NoticeMessage(h.d.Branding, string(em.Email), username, "account_deletion_initiated")
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "danger: build email", "error", err)
+		return
+	}
+	if err := h.d.Email.Send(r.Context(), msg); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "danger: send email", "error", err)
+	}
 }
 
 // renderDangerForm is the shared render path.

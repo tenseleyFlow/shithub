@@ -106,6 +106,8 @@ func (h *Handlers) settingsPasswordSubmit(w http.ResponseWriter, r *http.Request
 		h.d.Logger.WarnContext(r.Context(), "password: audit", "error", err)
 	}
 
+	h.notifyState(r.Context(), user.ID, "password_changed")
+
 	// Sync the *current* session's epoch with the post-bump value so the
 	// user staying on this browser doesn't get signed out by their own
 	// password change.

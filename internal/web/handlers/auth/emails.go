@@ -199,6 +199,9 @@ func (h *Handlers) settingsEmailsSetPrimary(w http.ResponseWriter, r *http.Reque
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+
+	h.notifyState(r.Context(), user.ID, "primary_email_changed")
+
 	h.renderEmailsList(w, r, "", "Primary email is now "+string(em.Email)+".")
 }
 

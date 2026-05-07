@@ -117,6 +117,8 @@ func (h *Handlers) settingsAccountUsername(w http.ResponseWriter, r *http.Reques
 		h.d.Logger.WarnContext(r.Context(), "account: audit rename", "error", err)
 	}
 
+	h.notifyState(r.Context(), user.ID, "username_changed")
+
 	h.renderAccountForm(w, r, "", "Username updated to "+desired+".")
 }
 
