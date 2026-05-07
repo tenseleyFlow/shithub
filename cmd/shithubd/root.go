@@ -34,8 +34,7 @@ func init() {
 	// Stubs for subcommands implemented in later sprints. They surface in
 	// `--help` so the operator-facing interface is discoverable from day one.
 	rootCmd.AddCommand(stubCmd("worker", "Run background workers", "S14"))
-	rootCmd.AddCommand(stubCmd("ssh-authkeys", "AuthorizedKeysCommand handler", "S07"))
-	rootCmd.AddCommand(stubCmd("ssh-shell", "Forced SSH shell dispatcher", "S07/S13"))
+	// ssh-authkeys and ssh-shell are registered in cmd/shithubd/ssh.go.
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(stubCmd("hook", "Git hook entrypoint", "S14"))
 	rootCmd.AddCommand(adminCmd)
