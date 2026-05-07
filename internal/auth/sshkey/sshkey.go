@@ -8,7 +8,7 @@
 package sshkey
 
 import (
-	"crypto/dsa"   //nolint:staticcheck // DSA detection only — never accepted.
+	"crypto/dsa" //nolint:staticcheck // DSA detection only — never accepted.
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"

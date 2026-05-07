@@ -35,7 +35,8 @@ func TestParse_AcceptsEd25519(t *testing.T) {
 	}
 	// Cross-check against ssh-keygen if available — defensive.
 	if _, err := exec.LookPath("ssh-keygen"); err == nil {
-		out, err := exec.Command("ssh-keygen", "-E", "sha256", "-lf",
+		// G204: argv is a static list with a fixed test fixture path.
+		out, err := exec.Command("ssh-keygen", "-E", "sha256", "-lf", //nolint:gosec
 			filepath.Join("testdata", "ed25519.pub")).Output()
 		if err != nil {
 			t.Fatalf("ssh-keygen: %v", err)
