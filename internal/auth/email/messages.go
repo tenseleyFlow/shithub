@@ -121,6 +121,73 @@ then contact support.`,
 <p>Sign in and re-enable 2FA as soon as you can.</p>
 <p>If you did NOT request this, sign in immediately and reset your password, then contact support.</p>`,
 	},
+	"password_changed": {
+		Subject: "Your {{.SiteName}} password was changed",
+		Text: `Hi {{.Username}},
+
+Your {{.SiteName}} password was just changed from the account settings.
+All other sessions have been signed out as a precaution.
+
+If this wasn't you, reset your password immediately at /password/reset
+and review the security log under /settings.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Your {{.SiteName}} password was just changed from the account settings. All other sessions have been signed out as a precaution.</p>
+<p>If this wasn't you, reset your password immediately and review your security log.</p>`,
+	},
+	"log_out_everywhere": {
+		Subject: "All other sessions signed out — {{.SiteName}}",
+		Text: `Hi {{.Username}},
+
+You signed out of every other session on your {{.SiteName}} account.
+Your current browser stays signed in.
+
+If this wasn't you, change your password immediately and review your
+security settings.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>You signed out of every other session on your {{.SiteName}} account. Your current browser stays signed in.</p>
+<p>If this wasn't you, change your password immediately and review your security settings.</p>`,
+	},
+	"username_changed": {
+		Subject: "Your {{.SiteName}} username was changed",
+		Text: `Hi {{.Username}},
+
+Your {{.SiteName}} username was just changed. The old name now redirects
+to the new one for 30 days, then is released.
+
+If this wasn't you, sign in and review your account immediately.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Your {{.SiteName}} username was just changed. The old name now redirects to the new one for 30 days, then is released.</p>
+<p>If this wasn't you, sign in and review your account immediately.</p>`,
+	},
+	"primary_email_changed": {
+		Subject: "Primary email changed on your {{.SiteName}} account",
+		Text: `Hi {{.Username}},
+
+The primary email on your {{.SiteName}} account was just changed.
+This is the address account-related notifications go to from now on.
+
+If this wasn't you, sign in and review your security settings.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>The primary email on your {{.SiteName}} account was just changed. This is the address account-related notifications go to from now on.</p>
+<p>If this wasn't you, sign in and review your security settings.</p>`,
+	},
+	"account_deletion_initiated": {
+		Subject: "Your {{.SiteName}} account was scheduled for deletion",
+		Text: `Hi {{.Username}},
+
+Your {{.SiteName}} account has been deleted. You have 14 days to undo this
+by signing in again with your existing username and password — that
+restores the account in place.
+
+After 14 days the account stays permanently deleted.
+
+If this wasn't you, sign in immediately to restore the account and then
+change your password.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Your {{.SiteName}} account has been deleted. You have <strong>14 days</strong> to undo this by signing in again with your existing username and password — that restores the account in place.</p>
+<p>After 14 days the account stays permanently deleted.</p>
+<p>If this wasn't you, sign in immediately to restore the account and then change your password.</p>`,
+	},
 }
 
 // TokenCreatedMessage notifies the user that a new PAT was minted on
