@@ -123,6 +123,49 @@ then contact support.`,
 	},
 }
 
+// TokenCreatedMessage notifies the user that a new PAT was minted on
+// their account. Helps detect compromise — a token they didn't make is a
+// big red flag.
+func TokenCreatedMessage(b Branding, to, username, name, prefix, ip string) (Message, error) {
+	const text = `Hi {{.Username}},
+
+A new personal access token was created on your {{.SiteName}} account.
+
+  Name: {{.Name}}
+  Prefix: {{.Prefix}}…
+{{if .IP}}  IP: {{.IP}}
+{{end}}
+If this wasn't you, sign in immediately, revoke the token at
+{{.BaseURL}}/settings/tokens, and reset your password.`
+	const html = `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>A new personal access token was created on your {{.SiteName}} account.</p>
+<ul>
+  <li><strong>Name:</strong> {{.Name}}</li>
+  <li><strong>Prefix:</strong> <code>{{.Prefix}}…</code></li>
+  {{if .IP}}<li><strong>IP:</strong> {{.IP}}</li>{{end}}
+</ul>
+<p>If this wasn't you, sign in immediately, revoke the token at
+<a href="{{.BaseURL}}/settings/tokens">your tokens settings</a>, and reset your password.</p>`
+	data := struct{ SiteName, BaseURL, Username, Name, Prefix, IP string }{
+		b.SiteName, b.BaseURL, username, name, prefix, ip,
+	}
+	txt, err := renderText(textTemplate.Must(textTemplate.New("token_added.txt").Parse(text)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	htmlBody, err := renderHTML(template.Must(template.New("token_added.html").Parse(html)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{
+		From:    b.From,
+		To:      to,
+		Subject: fmt.Sprintf("New personal access token on your %s account", b.SiteName),
+		Text:    txt,
+		HTML:    htmlBody,
+	}, nil
+}
+
 // SSHKeyAddedMessage builds the new-key notification email. Sent on
 // successful key add — title/fingerprint/IP help the user spot a
 // compromise quickly.
