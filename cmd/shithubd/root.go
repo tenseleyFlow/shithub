@@ -28,11 +28,11 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(webCmd)
+	rootCmd.AddCommand(migrateCmd)
+	rootCmd.AddCommand(seedCmd)
 
 	// Stubs for subcommands implemented in later sprints. They surface in
 	// `--help` so the operator-facing interface is discoverable from day one.
-	rootCmd.AddCommand(stubCmd("migrate", "Run database migrations", "S01"))
-	rootCmd.AddCommand(stubCmd("seed", "Load development seed data", "S01"))
 	rootCmd.AddCommand(stubCmd("worker", "Run background workers", "S14"))
 	rootCmd.AddCommand(stubCmd("ssh-authkeys", "AuthorizedKeysCommand handler", "S07"))
 	rootCmd.AddCommand(stubCmd("ssh-shell", "Forced SSH shell dispatcher", "S07/S13"))
