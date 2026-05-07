@@ -108,6 +108,7 @@ type AuthConfig struct {
 	SMTP                     SMTPConfig     `toml:"smtp"`
 	Postmark                 PostmarkConfig `toml:"postmark"`
 	Argon2                   Argon2Config   `toml:"argon2"`
+	TOTPKeyB64               string         `toml:"totp_key_b64"` // base64 32-byte AEAD key for at-rest TOTP secrets
 }
 
 // SMTPConfig holds plain-SMTP backend settings (e.g. MailHog in dev).
@@ -231,6 +232,11 @@ func applyAliases(cfg *Config) {
 	if cfg.Session.KeyB64 == "" {
 		if v := os.Getenv("SHITHUB_SESSION_KEY"); v != "" {
 			cfg.Session.KeyB64 = v
+		}
+	}
+	if cfg.Auth.TOTPKeyB64 == "" {
+		if v := os.Getenv("SHITHUB_TOTP_KEY"); v != "" {
+			cfg.Auth.TOTPKeyB64 = v
 		}
 	}
 }
