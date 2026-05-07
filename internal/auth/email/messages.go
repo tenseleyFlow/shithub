@@ -123,6 +123,51 @@ then contact support.`,
 	},
 }
 
+// SSHKeyAddedMessage builds the new-key notification email. Sent on
+// successful key add — title/fingerprint/IP help the user spot a
+// compromise quickly.
+func SSHKeyAddedMessage(b Branding, to, username, title, fingerprint, ip string) (Message, error) {
+	const text = `Hi {{.Username}},
+
+A new SSH key was added to your {{.SiteName}} account.
+
+  Title: {{.Title}}
+  Fingerprint: {{.Fingerprint}}
+{{if .IP}}  IP: {{.IP}}
+{{end}}
+If this wasn't you, sign in immediately, delete the key from
+{{.BaseURL}}/settings/keys, and reset your password.`
+
+	const html = `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>A new SSH key was added to your {{.SiteName}} account.</p>
+<ul>
+  <li><strong>Title:</strong> {{.Title}}</li>
+  <li><strong>Fingerprint:</strong> <code>{{.Fingerprint}}</code></li>
+  {{if .IP}}<li><strong>IP:</strong> {{.IP}}</li>{{end}}
+</ul>
+<p>If this wasn't you, sign in immediately, delete the key from
+<a href="{{.BaseURL}}/settings/keys">your SSH keys settings</a>, and reset your password.</p>`
+
+	data := struct{ SiteName, BaseURL, Username, Title, Fingerprint, IP string }{
+		b.SiteName, b.BaseURL, username, title, fingerprint, ip,
+	}
+	txt, err := renderText(textTemplate.Must(textTemplate.New("ssh_added.txt").Parse(text)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	htmlBody, err := renderHTML(template.Must(template.New("ssh_added.html").Parse(html)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{
+		From:    b.From,
+		To:      to,
+		Subject: fmt.Sprintf("New SSH key added to your %s account", b.SiteName),
+		Text:    txt,
+		HTML:    htmlBody,
+	}, nil
+}
+
 // NoticeMessage builds a 2FA / security state-change notice for kind. The
 // kind names match audit-log Action values where applicable.
 func NoticeMessage(b Branding, to, username, kind string) (Message, error) {
