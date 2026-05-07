@@ -1,0 +1,18 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Two-factor authentication</h1>
+  <p>Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <form method="POST" action="/login/2fa" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <input type="hidden" name="next" value="{{ .Next }}">
+    <label>
+      <span>Code</span>
+      <input type="text" name="code" required autocomplete="one-time-code" autofocus
+             inputmode="text" pattern="[A-Za-z0-9\-]+">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Verify</button>
+  </form>
+  <p class="shithub-auth-aside"><a href="/login">Cancel and sign out</a></p>
+</section>
+{{- end }}

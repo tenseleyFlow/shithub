@@ -1,0 +1,25 @@
+{{ define "page" -}}
+<section class="shithub-auth shithub-auth-wide">
+  {{ if .RecoveryCodes }}
+  <h1>Save your recovery codes</h1>
+  <p>These codes are shown <strong>once</strong>. Each works one time, in place of your authenticator code, if you lose access to your device. Store them in a password manager or print them.</p>
+  <ul class="shithub-recovery-codes" aria-label="Recovery codes">
+    {{ range .RecoveryCodes }}<li><code>{{ . }}</code></li>{{ end }}
+  </ul>
+  <p><a href="/settings/security/2fa/disable" class="shithub-button">Done — return to security settings</a></p>
+  {{ else }}
+  <h1>Two-factor authentication</h1>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <p>Enter the 6-digit code from your authenticator app to finish enabling 2FA.</p>
+  <form method="POST" action="/settings/security/2fa/enable" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Code</span>
+      <input type="text" name="code" required inputmode="numeric"
+             pattern="[0-9]{6}" minlength="6" maxlength="6">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Confirm</button>
+  </form>
+  {{ end }}
+</section>
+{{- end }}

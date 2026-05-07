@@ -319,3 +319,37 @@ code {
 }
 .shithub-flash-error { background: rgba(248, 81, 73, 0.1); border-color: rgba(248, 81, 73, 0.3); }
 .shithub-flash-notice { background: rgba(56, 139, 253, 0.1); border-color: rgba(56, 139, 253, 0.3); }
+
+/* ----- 2FA (S06) ----- */
+.shithub-auth-wide { max-width: 32rem; }
+.shithub-2fa-steps { margin: 0 0 1.5rem; padding-left: 1.25rem; }
+.shithub-2fa-steps li { margin: 0.25rem 0; }
+.shithub-2fa-qr {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+}
+.shithub-2fa-secret {
+  text-align: center;
+  font-family: monospace;
+  margin: 0 0 1.5rem;
+  color: var(--fg-muted);
+}
+.shithub-recovery-codes {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  background: var(--canvas-subtle);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 1.05em;
+}
+.shithub-recovery-codes li code { background: transparent; padding: 0; }
+.shithub-button-danger { background: rgba(248, 81, 73, 0.15); border-color: rgba(248, 81, 73, 0.4); }
