@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package web boots the shithub HTTP server. S02 lights up the full
-// middleware stack (recover, request_id, logging, real-IP, timeout,
-// compress, secure headers, CSRF, session, CORS), the chi router, the
-// session store, and the styled error pages. Every later sprint adds
-// routes via internal/web/handlers.
+// Package web boots the shithub HTTP server. The full middleware stack
+// (recover, request_id, logging, real-IP, timeout, compress, secure
+// headers, CSRF, session, CORS, metrics, tracing), the chi router, the
+// session store, the styled error pages, and the observability sinks
+// (logging, metrics, tracing, error reporting) are composed here.
 package web
 
 import (
@@ -20,62 +20,110 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/chacha20poly1305"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
+	"github.com/tenseleyFlow/shithub/internal/infra/errrep"
+	infralog "github.com/tenseleyFlow/shithub/internal/infra/log"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
+	"github.com/tenseleyFlow/shithub/internal/infra/tracing"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
-// Options configures the web server.
+// Options configures the web server. Addr overrides config when non-empty
+// (preserves the existing --addr CLI flag behavior).
 type Options struct {
 	Addr string
 }
 
 // Run boots the web server and blocks until shutdown.
-//
-// It listens for SIGINT/SIGTERM and gracefully drains in-flight requests on
-// exit. The full middleware stack is composed here; handlers register their
-// routes via internal/web/handlers.RegisterChi.
 func Run(ctx context.Context, opts Options) error {
-	if opts.Addr == "" {
-		opts.Addr = ":8080"
+	cfg, err := config.Load(nil)
+	if err != nil {
+		return err
+	}
+	if opts.Addr != "" {
+		cfg.Web.Addr = opts.Addr
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger := infralog.New(infralog.Options{
+		Level:  cfg.Log.Level,
+		Format: cfg.Log.Format,
+		Writer: os.Stderr,
+	})
+
+	// Error reporting (no-op when DSN empty).
+	flushErrRep, err := errrep.Init(errrep.Config{
+		DSN:         cfg.ErrorReporting.DSN,
+		Environment: cfg.ErrorReporting.Environment,
+		Release:     cfg.ErrorReporting.Release,
+	})
+	if err != nil {
+		return fmt.Errorf("errrep: %w", err)
+	}
+	defer func() { _ = flushErrRep(context.Background()) }()
+	if cfg.ErrorReporting.DSN != "" {
+		// Wrap the slog handler so error-level records are reported.
+		// We rebuild the logger so every component that pulls it from
+		// here gets the wrapped chain.
+		logger = slog.New(&errrep.SlogHandler{Inner: logger.Handler()})
+	}
+
+	// Tracing (no-op when disabled).
+	flushTracing, err := tracing.Init(ctx, tracing.Config{
+		Enabled:     cfg.Tracing.Enabled,
+		Endpoint:    cfg.Tracing.Endpoint,
+		SampleRate:  cfg.Tracing.SampleRate,
+		ServiceName: cfg.Tracing.ServiceName,
+	})
+	if err != nil {
+		return fmt.Errorf("tracing: %w", err)
+	}
+	defer func() { _ = flushTracing(context.Background()) }()
 
 	logoBytes, err := LogoSVG()
 	if err != nil {
 		return fmt.Errorf("load logo: %w", err)
 	}
 
-	sessionStore, err := buildSessionStore(logger)
+	sessionStore, err := buildSessionStore(cfg.Session, logger)
 	if err != nil {
 		return err
 	}
 
-	// Optional DB pool (carried over from S01).
-	var pool *pgxpoolHandle
-	if cfg := db.Defaults().Resolve(); cfg.URL != "" {
-		p, err := db.Open(ctx, cfg)
+	// Optional DB pool (carried over from S01); now driven by config.
+	var pool *pgxpool.Pool
+	if cfg.DB.URL != "" {
+		//nolint:gosec // G115: max_conns is operator-configured with small numeric values (typ. 10–100).
+		p, err := db.Open(ctx, db.Config{
+			URL:            cfg.DB.URL,
+			MaxConns:       int32(cfg.DB.MaxConns),
+			MinConns:       int32(cfg.DB.MinConns),
+			ConnectTimeout: cfg.DB.ConnectTimeout,
+		})
 		if err != nil {
 			logger.Warn("db: open failed; /readyz will report unhealthy", "error", err)
 		} else {
-			pool = &pgxpoolHandle{p: p}
+			pool = p
 			defer p.Close()
+			metrics.ObserveDBPool(ctx, pool, 10*time.Second)
 		}
 	}
 
 	r := chi.NewRouter()
 
-	// Middleware stack — outermost first. Recover wraps the whole pipeline
-	// AFTER routes register so its panic handler has a renderer ready.
+	// Middleware stack — outermost first.
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
 	r.Use(middleware.AccessLog(logger))
+	r.Use(middleware.Metrics)
+	if cfg.Tracing.Enabled {
+		r.Use(tracing.Middleware)
+	}
 	r.Use(middleware.SecureHeaders(middleware.DefaultSecureHeaders()))
 	r.Use(middleware.Compress)
 	r.Use(middleware.Timeout(30 * time.Second))
@@ -89,7 +137,10 @@ func Run(ctx context.Context, opts Options) error {
 		SessionStore: sessionStore,
 	}
 	if pool != nil {
-		deps.ReadyCheck = pool.healthcheck
+		deps.ReadyCheck = func(ctx context.Context) error { return pool.Ping(ctx) }
+	}
+	if cfg.Metrics.Enabled {
+		deps.MetricsHandler = metrics.Handler(cfg.Metrics.BasicAuthUser, cfg.Metrics.BasicAuthPass)
 	}
 
 	_, panicHandler, notFoundHandler, err := handlers.RegisterChi(r, deps)
@@ -101,17 +152,25 @@ func Run(ctx context.Context, opts Options) error {
 	rootHandler := middleware.Recover(logger, panicHandler)(r)
 
 	srv := &http.Server{
-		Addr:              opts.Addr,
+		Addr:              cfg.Web.Addr,
 		Handler:           rootHandler,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       cfg.Web.ReadTimeout,
+		WriteTimeout:      cfg.Web.WriteTimeout,
 		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("shithub web server starting", "addr", opts.Addr)
+		logger.Info(
+			"shithub web server starting",
+			"addr", srv.Addr,
+			"env", cfg.Env,
+			"db", pool != nil,
+			"metrics", cfg.Metrics.Enabled,
+			"tracing", cfg.Tracing.Enabled,
+			"errrep", cfg.ErrorReporting.DSN != "",
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -134,7 +193,7 @@ func Run(ctx context.Context, opts Options) error {
 		logger.Info("context canceled, shutting down")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Web.ShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
@@ -142,11 +201,13 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// buildSessionStore constructs the cookie session store. The key comes from
-// SHITHUB_SESSION_KEY (base64 32-byte). When unset (dev), a random key is
-// generated and the operator is warned — sessions don't survive restart.
-func buildSessionStore(logger *slog.Logger) (session.Store, error) {
+// buildSessionStore constructs the cookie session store from the config's
+// session block. SHITHUB_SESSION_KEY (env) overrides cfg.KeyB64 when set.
+func buildSessionStore(cfg config.SessionConfig, logger *slog.Logger) (session.Store, error) {
 	keyB64 := os.Getenv("SHITHUB_SESSION_KEY")
+	if keyB64 == "" {
+		keyB64 = cfg.KeyB64
+	}
 	var key []byte
 	if keyB64 != "" {
 		decoded, err := base64.StdEncoding.DecodeString(keyB64)
@@ -165,35 +226,17 @@ func buildSessionStore(logger *slog.Logger) (session.Store, error) {
 		}
 		key = generated
 		logger.Warn(
-			"session: SHITHUB_SESSION_KEY not set; generated an ephemeral key (sessions will not survive restart)",
-			"hint", "set SHITHUB_SESSION_KEY=<base64 32-byte key> in production",
+			"session: no key configured; generated an ephemeral key (sessions will not survive restart)",
+			"hint", "set SHITHUB_SESSION_KEY=<base64 32-byte> or session.key_b64 in production",
 		)
 	}
 	store, err := session.NewCookieStore(session.CookieStoreConfig{
 		Key:    key,
-		Secure: false, // S37 deploy enables this under TLS
+		MaxAge: cfg.MaxAge,
+		Secure: cfg.Secure,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("session: build store: %w", err)
 	}
 	return store, nil
-}
-
-// pgxpoolHandle adapts *pgxpool.Pool's lifecycle to the small interface
-// /readyz needs. Defined here (not in the db package) so internal/web stays
-// the boundary that owns runtime wiring.
-type pgxpoolHandle struct {
-	p interface {
-		Close()
-	}
-}
-
-func (h *pgxpoolHandle) healthcheck(ctx context.Context) error {
-	type pinger interface {
-		Ping(context.Context) error
-	}
-	if p, ok := h.p.(pinger); ok {
-		return p.Ping(ctx)
-	}
-	return nil
 }

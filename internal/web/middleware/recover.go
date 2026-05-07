@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/tenseleyFlow/shithub/internal/infra/errrep"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
 // PanicHandler renders a styled error response when the request handler
@@ -27,6 +30,7 @@ func Recover(logger *slog.Logger, handler PanicHandler) func(http.Handler) http.
 					if rec == http.ErrAbortHandler {
 						panic(rec)
 					}
+					metrics.PanicsTotal.Inc()
 					reqID := RequestIDFromContext(r.Context())
 					if logger != nil {
 						logger.ErrorContext(
@@ -37,6 +41,7 @@ func Recover(logger *slog.Logger, handler PanicHandler) func(http.Handler) http.
 							slog.String("stack", string(debug.Stack())),
 						)
 					}
+					errrep.CapturePanic(rec, reqID)
 					if handler != nil {
 						handler.HandlePanic(w, r, reqID, rec)
 						return

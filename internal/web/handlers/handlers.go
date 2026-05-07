@@ -32,6 +32,9 @@ type Deps struct {
 	// ReadyCheck is optionally invoked by /readyz. Returning a non-nil
 	// error makes /readyz report 503. If nil, /readyz always reports ready.
 	ReadyCheck func(context.Context) error
+	// MetricsHandler, when non-nil, is mounted at /metrics. Caller is
+	// responsible for any access control (e.g. HTTP Basic auth wrapping).
+	MetricsHandler http.Handler
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -79,6 +82,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Handle("/static/*", http.StripPrefix("/static/", staticFileServer(deps.StaticFS)))
 		r.Get("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
+		if deps.MetricsHandler != nil {
+			r.Handle("/metrics", deps.MetricsHandler)
+		}
 	})
 
 	// Application routes — CSRF protected.
