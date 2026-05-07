@@ -16,8 +16,21 @@ type Querier interface {
 	// window is older than the supplied window-start cutoff, resets to 1 and
 	// starts a new window. Returns the post-bump (hits, window_started_at).
 	BumpAuthThrottle(ctx context.Context, db DBTX, arg BumpAuthThrottleParams) (BumpAuthThrottleRow, error)
+	// Atomically advances last_used_counter only when the proposed counter is
+	// strictly greater. Returns rows affected — 0 means a replay attempt and
+	// the caller should reject the code.
+	BumpTOTPCounter(ctx context.Context, db DBTX, arg BumpTOTPCounterParams) (int64, error)
+	// Sets confirmed_at on a pending row. Returns the number of rows updated;
+	// callers MUST check this to handle the parallel-enrollment race
+	// (only one of two concurrent confirms wins).
+	ConfirmUserTOTP(ctx context.Context, db DBTX, arg ConfirmUserTOTPParams) (int64, error)
 	ConsumeEmailVerification(ctx context.Context, db DBTX, id int64) error
 	ConsumePasswordReset(ctx context.Context, db DBTX, id int64) error
+	// Atomically marks a code as used iff it exists for the user, matches the
+	// supplied hash, and isn't already used. Rows-affected==1 means accepted;
+	// 0 means rejected.
+	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
+	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateEmailVerification(ctx context.Context, db DBTX, arg CreateEmailVerificationParams) (EmailVerification, error)
@@ -29,6 +42,8 @@ type Querier interface {
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
 	DeleteExpiredPasswordResets(ctx context.Context, db DBTX) error
+	DeleteUserRecoveryCodes(ctx context.Context, db DBTX, userID int64) error
+	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
 	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
@@ -36,9 +51,15 @@ type Querier interface {
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
+	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
 	// Sets the FK only. Does NOT flip users.email_verified — that happens via
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
+	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
 	// Called after MarkUserEmailVerified for the primary email, to flip the
 	// denormalized users.email_verified flag.
@@ -51,6 +72,11 @@ type Querier interface {
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Inserts a new pending TOTP row, or replaces an existing pending row for
+	// the same user. Confirmed rows are NOT replaced — disable+regenerate
+	// must go through the dedicated query.
+	UpsertUserTOTP(ctx context.Context, db DBTX, arg UpsertUserTOTPParams) (UserTotp, error)
 }
 
 var _ Querier = (*Queries)(nil)

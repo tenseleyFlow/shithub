@@ -8,6 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AuthAuditLog struct {
+	ID         int64
+	ActorID    pgtype.Int8
+	Action     string
+	TargetType string
+	TargetID   pgtype.Int8
+	Meta       []byte
+	CreatedAt  pgtype.Timestamptz
+}
+
 type AuthThrottle struct {
 	ID              int64
 	Scope           string
@@ -67,6 +77,26 @@ type UserEmail struct {
 	VerificationSentAt    pgtype.Timestamptz
 	VerifiedAt            pgtype.Timestamptz
 	CreatedAt             pgtype.Timestamptz
+}
+
+type UserRecoveryCode struct {
+	ID          int64
+	UserID      int64
+	CodeHash    []byte
+	UsedAt      pgtype.Timestamptz
+	GeneratedAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
+type UserTotp struct {
+	ID              int64
+	UserID          int64
+	SecretEncrypted []byte
+	SecretNonce     []byte
+	ConfirmedAt     pgtype.Timestamptz
+	LastUsedCounter int64
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 type UsernameRedirect struct {
