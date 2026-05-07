@@ -1,0 +1,40 @@
+{{ define "page" -}}
+<section class="shithub-repo-empty">
+  <header class="shithub-repo-empty-head">
+    <h1>
+      <a href="/{{ .Owner }}">{{ .Owner }}</a>
+      <span class="shithub-repo-empty-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
+      {{ if eq (printf "%s" .Repo.Visibility) "private" }}
+        <span class="shithub-pill shithub-pill-private">private</span>
+      {{ else }}
+        <span class="shithub-pill">public</span>
+      {{ end }}
+    </h1>
+    {{ if .Repo.Description }}<p class="shithub-repo-empty-desc">{{ .Repo.Description }}</p>{{ end }}
+  </header>
+
+  <div class="shithub-repo-empty-quickstart">
+    <h2>Quick setup — if you've done this kind of thing before</h2>
+    <p>Get started by setting up a new repository on your machine and pushing it here.</p>
+
+    <div class="shithub-repo-empty-clone">
+      <label>
+        <span>HTTPS</span>
+        <input type="text" readonly value="{{ .HTTPSCloneURL }}" onclick="this.select()">
+      </label>
+      {{ if .SSHEnabled }}
+      <label>
+        <span>SSH</span>
+        <input type="text" readonly value="{{ .SSHCloneURL }}" onclick="this.select()">
+      </label>
+      {{ end }}
+    </div>
+
+    <h3>…or push an existing repository from the command line</h3>
+    <pre><code>git remote add origin {{ .HTTPSCloneURL }}
+git branch -M {{ .DefaultBranch }}
+git push -u origin {{ .DefaultBranch }}</code></pre>
+  </div>
+</section>
+{{- end }}

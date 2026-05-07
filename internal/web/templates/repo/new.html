@@ -1,0 +1,78 @@
+{{ define "page" -}}
+<section class="shithub-repo-new">
+  <h1>Create a new repository</h1>
+  <p class="shithub-repo-new-lede">A repository contains all project files, including the revision history.</p>
+
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+  <form method="POST" action="/new" novalidate class="shithub-repo-new-form">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+    <div class="shithub-repo-new-row">
+      <label class="shithub-repo-new-name">
+        <span>Repository name <em>*</em></span>
+        <input type="text" name="name" required maxlength="100" autocomplete="off"
+               spellcheck="false" pattern="^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?$"
+               value="{{ .Form.Name }}">
+        <small>Lowercase letters, digits, dots, hyphens, underscores. 1–100 characters.</small>
+      </label>
+    </div>
+
+    <label>
+      <span>Description <small>(optional)</small></span>
+      <input type="text" name="description" maxlength="350" value="{{ .Form.Description }}">
+    </label>
+
+    <fieldset class="shithub-repo-new-visibility">
+      <legend>Visibility</legend>
+      <label class="shithub-repo-new-vis-card{{ if eq .Form.Visibility "public" }} active{{ end }}">
+        <input type="radio" name="visibility" value="public"{{ if eq .Form.Visibility "public" }} checked{{ end }}>
+        <span>
+          <strong>Public</strong>
+          <small>Anyone on the internet can see this repository. You choose who can commit.</small>
+        </span>
+      </label>
+      <label class="shithub-repo-new-vis-card{{ if eq .Form.Visibility "private" }} active{{ end }}">
+        <input type="radio" name="visibility" value="private"{{ if eq .Form.Visibility "private" }} checked{{ end }}>
+        <span>
+          <strong>Private</strong>
+          <small>You choose who can see and commit to this repository.</small>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset class="shithub-repo-new-init">
+      <legend>Initialize this repository with</legend>
+      <label class="shithub-repo-new-init-row">
+        <input type="checkbox" name="init_readme" value="on"{{ if .Form.InitReadme }} checked{{ end }}>
+        <span>
+          <strong>Add a README file</strong>
+          <small>This is where you can write a long description for your project.</small>
+        </span>
+      </label>
+      <label>
+        <span>Add .gitignore</span>
+        <select name="gitignore">
+          <option value="">None</option>
+          {{ $picked := .Form.Gitignore }}
+          {{ range .Gitignores }}
+          <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
+          {{ end }}
+        </select>
+      </label>
+      <label>
+        <span>Choose a license</span>
+        <select name="license">
+          <option value="">None</option>
+          {{ $picked := .Form.License }}
+          {{ range .Licenses }}
+          <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
+          {{ end }}
+        </select>
+      </label>
+    </fieldset>
+
+    <button type="submit" class="shithub-button shithub-button-primary">Create repository</button>
+  </form>
+</section>
+{{- end }}
