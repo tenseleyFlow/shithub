@@ -65,6 +65,93 @@ password will not change.
 `)))
 )
 
+// noticeBodies maps a notice kind to its (subject, plaintext, html) bodies.
+// Each body is run through text/template — only the canonical {{.SiteName}}
+// and {{.Username}} variables are exposed.
+var noticeBodies = map[string]struct {
+	Subject, Text, HTML string
+}{
+	"2fa_enabled": {
+		Subject: "Two-factor authentication enabled on your {{.SiteName}} account",
+		Text: `Hi {{.Username}},
+
+Two-factor authentication has just been enabled on your {{.SiteName}} account.
+If this wasn't you, sign in immediately and disable 2FA, then change your password.
+Recovery codes are stored on the security settings page — keep them somewhere safe.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Two-factor authentication has just been enabled on your {{.SiteName}} account.</p>
+<p>If this wasn't you, sign in immediately and disable 2FA, then change your password.</p>
+<p>Recovery codes are stored on the security settings page — keep them somewhere safe.</p>`,
+	},
+	"2fa_disabled": {
+		Subject: "Two-factor authentication disabled on your {{.SiteName}} account",
+		Text: `Hi {{.Username}},
+
+Two-factor authentication has been disabled on your {{.SiteName}} account.
+If this wasn't you, sign in immediately and re-enable 2FA, then change your password.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Two-factor authentication has been disabled on your {{.SiteName}} account.</p>
+<p>If this wasn't you, sign in immediately and re-enable 2FA, then change your password.</p>`,
+	},
+	"recovery_regenerated": {
+		Subject: "New recovery codes generated for your {{.SiteName}} account",
+		Text: `Hi {{.Username}},
+
+Your {{.SiteName}} recovery codes were regenerated. Any previous codes
+no longer work. Store the new codes somewhere safe.
+
+If this wasn't you, sign in immediately and review your security settings.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>Your {{.SiteName}} recovery codes were regenerated. Any previous codes no longer work. Store the new codes somewhere safe.</p>
+<p>If this wasn't you, sign in immediately and review your security settings.</p>`,
+	},
+	"admin_cleared_2fa": {
+		Subject: "Two-factor authentication cleared by support — {{.SiteName}}",
+		Text: `Hi {{.Username}},
+
+A {{.SiteName}} administrator cleared two-factor authentication from your
+account, typically as part of a support request you initiated.
+
+Sign in and re-enable 2FA at /settings/security/2fa/enable as soon as you can.
+
+If you did NOT request this, sign in immediately and reset your password,
+then contact support.`,
+		HTML: `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>A {{.SiteName}} administrator cleared two-factor authentication from your account, typically as part of a support request you initiated.</p>
+<p>Sign in and re-enable 2FA as soon as you can.</p>
+<p>If you did NOT request this, sign in immediately and reset your password, then contact support.</p>`,
+	},
+}
+
+// NoticeMessage builds a 2FA / security state-change notice for kind. The
+// kind names match audit-log Action values where applicable.
+func NoticeMessage(b Branding, to, username, kind string) (Message, error) {
+	body, ok := noticeBodies[kind]
+	if !ok {
+		return Message{}, fmt.Errorf("email: unknown notice kind %q", kind)
+	}
+	data := struct{ SiteName, Username string }{b.SiteName, username}
+	subj, err := renderText(textTemplate.Must(textTemplate.New("subj").Parse(body.Subject)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	txt, err := renderText(textTemplate.Must(textTemplate.New("txt").Parse(body.Text)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	html, err := renderHTML(template.Must(template.New("html").Parse(body.HTML)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{
+		From:    b.From,
+		To:      to,
+		Subject: strings.TrimSpace(subj),
+		Text:    txt,
+		HTML:    html,
+	}, nil
+}
+
 // VerifyMessage builds the email-verification message.
 func VerifyMessage(b Branding, to, username, token string) (Message, error) {
 	data := struct{ SiteName, BaseURL, Username, Token string }{b.SiteName, b.BaseURL, username, token}
