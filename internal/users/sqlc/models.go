@@ -5,6 +5,8 @@
 package usersdb
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -86,6 +88,19 @@ type UserRecoveryCode struct {
 	UsedAt      pgtype.Timestamptz
 	GeneratedAt pgtype.Timestamptz
 	CreatedAt   pgtype.Timestamptz
+}
+
+type UserSshKey struct {
+	ID                int64
+	UserID            int64
+	Title             string
+	FingerprintSha256 string
+	KeyType           string
+	KeyBits           int32
+	PublicKey         string
+	LastUsedAt        pgtype.Timestamptz
+	LastUsedIp        *netip.Addr
+	CreatedAt         pgtype.Timestamptz
 }
 
 type UserTotp struct {

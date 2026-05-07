@@ -31,6 +31,7 @@ type Querier interface {
 	// 0 means rejected.
 	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
+	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateEmailVerification(ctx context.Context, db DBTX, arg CreateEmailVerificationParams) (EmailVerification, error)
@@ -43,6 +44,9 @@ type Querier interface {
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
 	DeleteExpiredPasswordResets(ctx context.Context, db DBTX) error
 	DeleteUserRecoveryCodes(ctx context.Context, db DBTX, userID int64) error
+	// Scoped delete: caller must pass the owning user_id so a hijacked
+	// handler can never delete keys it doesn't own.
+	DeleteUserSSHKey(ctx context.Context, db DBTX, arg DeleteUserSSHKeyParams) (int64, error)
 	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
@@ -51,16 +55,22 @@ type Querier interface {
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
+	// Hot path for sshd's AuthorizedKeysCommand. Index lookup via the UNIQUE
+	// index on fingerprint_sha256.
+	GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error)
 	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserSSHKeyParams) (UserSshKey, error)
 	// Sets the FK only. Does NOT flip users.email_verified — that happens via
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
+	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
 	// Called after MarkUserEmailVerified for the primary email, to flip the
 	// denormalized users.email_verified flag.
 	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
@@ -70,6 +80,7 @@ type Querier interface {
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
+	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
