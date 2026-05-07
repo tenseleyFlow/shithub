@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package repos
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/templates"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+)
+
+// CreateRateLimit caps how many repos one user can create per hour.
+// The spec calls for 10/hour; the value is exported so the operator can
+// override via the throttle plumbing if needed.
+const (
+	CreateRateLimitMax    = 10
+	CreateRateLimitWindow = time.Hour
+)
+
+// Deps wires the repo orchestrator. Inject from the web layer; no
+// global state.
+type Deps struct {
+	Pool    *pgxpool.Pool
+	RepoFS  *storage.RepoFS
+	Audit   *audit.Recorder
+	Limiter *throttle.Limiter
+	Logger  *slog.Logger
+	Now     func() time.Time
+}
+
+// Params describes one repo-create request as it arrives from the
+// handler, normalized but not yet validated against the DB.
+type Params struct {
+	OwnerUserID   int64
+	OwnerUsername string
+
+	Name        string // already lowercased + trimmed
+	Description string
+	Visibility  string // "public" | "private"
+
+	InitReadme   bool
+	LicenseKey   string // "" = none
+	GitignoreKey string // "" = none
+
+	// Optional override for the initial commit timestamp; tests pin this
+	// for determinism. Production callers leave it zero and let
+	// orchestrator default to deps.Now().
+	InitialCommitWhen time.Time
+}
+
+// Result is what Create returns on success.
+type Result struct {
+	Repo             reposdb.Repo
+	InitialCommitOID string // "" when InitReadme/License/Gitignore were all unset
+	DiskPath         string // bare-repo on-disk path
+}
+
+// Create validates, rate-limits, inserts the DB row, initializes the
+// bare repo on disk, optionally builds the initial commit, audit-logs,
+// and returns. On post-DB failure the tx rolls back and the partial
+// repo dir is best-effort removed.
+func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
+	if deps.Pool == nil || deps.RepoFS == nil || deps.Audit == nil || deps.Limiter == nil {
+		return Result{}, errors.New("repos: Deps missing required field")
+	}
+	now := deps.Now
+	if now == nil {
+		now = time.Now
+	}
+
+	if err := ValidateName(p.Name); err != nil {
+		return Result{}, err
+	}
+	if err := ValidateDescription(p.Description); err != nil {
+		return Result{}, err
+	}
+	if p.Visibility != "public" && p.Visibility != "private" {
+		return Result{}, fmt.Errorf("repos: visibility must be public or private (got %q)", p.Visibility)
+	}
+	if p.LicenseKey != "" && !templates.HasLicense(p.LicenseKey) {
+		return Result{}, fmt.Errorf("%w: %s", ErrUnknownLicense, p.LicenseKey)
+	}
+	if p.GitignoreKey != "" && !templates.HasGitignore(p.GitignoreKey) {
+		return Result{}, fmt.Errorf("%w: %s", ErrUnknownGitignore, p.GitignoreKey)
+	}
+
+	// Rate-limit per owning user.
+	if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
+		Scope:      "repo_create",
+		Identifier: fmt.Sprintf("user:%d", p.OwnerUserID),
+		Max:        CreateRateLimitMax,
+		Window:     CreateRateLimitWindow,
+	}); err != nil {
+		return Result{}, err
+	}
+
+	// Resolve author identity for the initial commit (only needed when we
+	// actually build one; resolved up-front so an unverified email
+	// rejects the create cleanly even if the user didn't tick init).
+	authorName, authorEmail, err := resolveAuthor(ctx, deps.Pool, p.OwnerUserID)
+	wantInit := p.InitReadme || p.LicenseKey != "" || p.GitignoreKey != ""
+	if wantInit && err != nil {
+		return Result{}, err
+	}
+
+	// Pre-compute disk path from RepoFS. Doing this before the tx avoids
+	// inserting a DB row for a name that fails the path-validation
+	// whitelist (which mostly mirrors our own ValidateName, but
+	// defense-in-depth never hurts).
+	diskPath, err := deps.RepoFS.RepoPath(p.OwnerUsername, p.Name)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrInvalidName, err)
+	}
+
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("repos: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	q := reposdb.New()
+	row, err := q.CreateRepo(ctx, tx, reposdb.CreateRepoParams{
+		OwnerUserID:     pgtype.Int8{Int64: p.OwnerUserID, Valid: true},
+		OwnerOrgID:      pgtype.Int8{Valid: false},
+		Name:            p.Name,
+		Description:     p.Description,
+		Visibility:      reposdb.RepoVisibility(p.Visibility),
+		DefaultBranch:   "trunk",
+		LicenseKey:      pgtype.Text{String: p.LicenseKey, Valid: p.LicenseKey != ""},
+		PrimaryLanguage: pgtype.Text{Valid: false},
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return Result{}, ErrTaken
+		}
+		return Result{}, fmt.Errorf("repos: insert: %w", err)
+	}
+
+	// FS init AFTER DB insert. If this fails the deferred Rollback
+	// reverses the row; we also best-effort RemoveAll the directory in
+	// case it got partially created.
+	if err := deps.RepoFS.InitBare(ctx, diskPath); err != nil {
+		_ = os.RemoveAll(diskPath)
+		return Result{}, fmt.Errorf("repos: init bare: %w", err)
+	}
+
+	var commitOID string
+	if wantInit {
+		commitWhen := p.InitialCommitWhen
+		if commitWhen.IsZero() {
+			commitWhen = now()
+		}
+		oid, err := buildInitialCommit(ctx, repogit.InitialCommit{
+			GitDir:      diskPath,
+			AuthorName:  authorName,
+			AuthorEmail: authorEmail,
+			Branch:      "trunk",
+			When:        commitWhen,
+			Files:       initFiles(p, authorName, commitWhen.Year()),
+		})
+		if err != nil {
+			_ = os.RemoveAll(diskPath)
+			return Result{}, fmt.Errorf("repos: initial commit: %w", err)
+		}
+		commitOID = oid
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		_ = os.RemoveAll(diskPath)
+		return Result{}, fmt.Errorf("repos: commit tx: %w", err)
+	}
+	committed = true
+
+	if err := deps.Audit.Record(ctx, deps.Pool, p.OwnerUserID,
+		audit.ActionRepoCreated, audit.TargetRepo, row.ID, map[string]any{
+			"name":       p.Name,
+			"visibility": p.Visibility,
+			"init":       wantInit,
+			"license":    p.LicenseKey,
+			"gitignore":  p.GitignoreKey,
+		}); err != nil {
+		if deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "repos: audit", "error", err)
+		}
+	}
+
+	return Result{Repo: row, InitialCommitOID: commitOID, DiskPath: diskPath}, nil
+}
+
+// initFiles assembles the FileEntry slice for the initial commit based
+// on which init checkboxes the user ticked.
+func initFiles(p Params, author string, year int) []repogit.FileEntry {
+	var files []repogit.FileEntry
+	if p.InitReadme {
+		files = append(files, repogit.FileEntry{
+			Path: "README.md",
+			Body: []byte(templates.ReadmeText(p.Name, p.Description)),
+		})
+	}
+	if p.LicenseKey != "" {
+		body, err := templates.LicenseText(p.LicenseKey, year, author)
+		if err == nil {
+			files = append(files, repogit.FileEntry{
+				Path: "LICENSE",
+				Body: []byte(body),
+			})
+		}
+	}
+	if p.GitignoreKey != "" {
+		body, err := templates.GitignoreText(p.GitignoreKey)
+		if err == nil {
+			files = append(files, repogit.FileEntry{
+				Path: ".gitignore",
+				Body: []byte(body),
+			})
+		}
+	}
+	return files
+}
+
+// buildInitialCommit is a thin pass-through so tests can swap it (post-MVP).
+var buildInitialCommit = func(ctx context.Context, ic repogit.InitialCommit) (string, error) {
+	return ic.Build(ctx)
+}
+
+// resolveAuthor reads the user's display name + verified primary email.
+// Returns ErrNoVerifiedEmail if the user has no primary email or the
+// primary isn't verified.
+func resolveAuthor(ctx context.Context, pool *pgxpool.Pool, userID int64) (name, addr string, err error) {
+	uq := usersdb.New()
+	user, err := uq.GetUserByID(ctx, pool, userID)
+	if err != nil {
+		return "", "", fmt.Errorf("repos: load user: %w", err)
+	}
+	if !user.PrimaryEmailID.Valid {
+		return "", "", ErrNoVerifiedEmail
+	}
+	em, err := uq.GetUserEmailByID(ctx, pool, user.PrimaryEmailID.Int64)
+	if err != nil {
+		return "", "", fmt.Errorf("repos: load primary email: %w", err)
+	}
+	if !em.Verified {
+		return "", "", ErrNoVerifiedEmail
+	}
+	display := strings.TrimSpace(user.DisplayName)
+	if display == "" {
+		display = user.Username
+	}
+	return display, string(em.Email), nil
+}
+
+// isUniqueViolation matches Postgres SQLSTATE 23505. Used to surface
+// the friendly "name taken" error from the unique-by-owner-and-name
+// indexes when the pre-check raced.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
+}

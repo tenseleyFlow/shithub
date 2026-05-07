@@ -13,6 +13,14 @@ import (
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 )
 
+// gitCmd is a thin wrapper that owns the single G204 suppression for
+// the whole test file. Every test call goes through here; the bare-repo
+// path is always a t.TempDir, never user input.
+func gitCmd(args ...string) *exec.Cmd {
+	//nolint:gosec // G204 false positive: callers feed t.TempDir paths and fixed flags.
+	return exec.Command("git", args...)
+}
+
 // initBare creates a bare repo at dir/<name>.git and returns the path.
 // Tests that need a bare repo to operate against use this rather than
 // reaching into the storage package (one less inter-package dependency
@@ -21,7 +29,7 @@ func initBare(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	gitDir := filepath.Join(root, "x.git")
-	if out, err := exec.Command("git", "init", "--bare", "--initial-branch=trunk", gitDir).CombinedOutput(); err != nil {
+	if out, err := gitCmd("init", "--bare", "--initial-branch=trunk", gitDir).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	return gitDir
@@ -54,7 +62,7 @@ func TestInitialCommit_BuildSingleCommitWithFiles(t *testing.T) {
 	}
 
 	// HEAD must now resolve to the commit via refs/heads/trunk.
-	out, err := exec.Command("git", "-C", gitDir, "rev-parse", "refs/heads/trunk").CombinedOutput()
+	out, err := gitCmd("-C", gitDir, "rev-parse", "refs/heads/trunk").CombinedOutput()
 	if err != nil {
 		t.Fatalf("rev-parse: %v\n%s", err, out)
 	}
@@ -63,7 +71,7 @@ func TestInitialCommit_BuildSingleCommitWithFiles(t *testing.T) {
 	}
 
 	// Single commit, no parent.
-	out, err = exec.Command("git", "-C", gitDir, "rev-list", "--count", "trunk").CombinedOutput()
+	out, err = gitCmd("-C", gitDir, "rev-list", "--count", "trunk").CombinedOutput()
 	if err != nil {
 		t.Fatalf("rev-list: %v\n%s", err, out)
 	}
@@ -72,7 +80,7 @@ func TestInitialCommit_BuildSingleCommitWithFiles(t *testing.T) {
 	}
 
 	// Tree contents are the three files at the right paths.
-	out, err = exec.Command("git", "-C", gitDir, "ls-tree", "--name-only", "trunk").CombinedOutput()
+	out, err = gitCmd("-C", gitDir, "ls-tree", "--name-only", "trunk").CombinedOutput()
 	if err != nil {
 		t.Fatalf("ls-tree: %v\n%s", err, out)
 	}
@@ -89,7 +97,7 @@ func TestInitialCommit_BuildSingleCommitWithFiles(t *testing.T) {
 	}
 
 	// Author identity is what we passed in.
-	out, err = exec.Command("git", "-C", gitDir, "log", "-1", "--format=%an <%ae>", "trunk").CombinedOutput()
+	out, err = gitCmd("-C", gitDir, "log", "-1", "--format=%an <%ae>", "trunk").CombinedOutput()
 	if err != nil {
 		t.Fatalf("log: %v\n%s", err, out)
 	}

@@ -27,18 +27,18 @@ var nameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?$`)
 // The list is kept short on purpose; it's all-lowercase because we
 // always lowercase the name before comparing.
 var reservedRepoNames = map[string]struct{}{
-	".git":         {},
-	".gitignore":   {},
-	".gitmodules":  {},
+	".git":           {},
+	".gitignore":     {},
+	".gitmodules":    {},
 	".gitattributes": {},
-	".well-known":  {},
-	".github":      {},
-	"head":         {},
-	"refs":         {},
-	"objects":      {},
-	"info":         {},
-	"hooks":        {},
-	"branches":     {},
+	".well-known":    {},
+	".github":        {},
+	"head":           {},
+	"refs":           {},
+	"objects":        {},
+	"info":           {},
+	"hooks":          {},
+	"branches":       {},
 }
 
 // IsReservedRepoName reports whether name (case-insensitive) is on the

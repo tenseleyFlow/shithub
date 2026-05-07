@@ -47,6 +47,7 @@ const (
 	ActionUsernameChanged      Action = "username_changed"
 	ActionAccountDeleted       Action = "account_deleted"
 	ActionAccountRestored      Action = "account_restored"
+	ActionRepoCreated          Action = "repo_created"
 )
 
 // Target is a typed target-type constant.
@@ -54,6 +55,7 @@ type Target string
 
 const (
 	TargetUser Target = "user"
+	TargetRepo Target = "repo"
 )
 
 // Recorder writes audit rows. Bound to the sqlc queries handle.
