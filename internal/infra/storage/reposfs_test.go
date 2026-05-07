@@ -49,6 +49,16 @@ func TestRepoPath_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRepoPath_AcceptsRepoExtraChars(t *testing.T) {
+	t.Parallel()
+	r, _ := mustNewRepoFS(t)
+	for _, name := range []string{"name.with.dots", "name_under", "rust-by-example", "a1.b2_c3"} {
+		if _, err := r.RepoPath("alice", name); err != nil {
+			t.Errorf("RepoPath %q: %v", name, err)
+		}
+	}
+}
+
 func TestRepoPath_ShortOwnerPaddedShard(t *testing.T) {
 	t.Parallel()
 	r, root := mustNewRepoFS(t)
@@ -106,11 +116,10 @@ func TestRepoPath_RejectsUnsafe(t *testing.T) {
 		{"АliCe", "name", "owner non-ASCII (Cyrillic A)"},
 		{"alice", "café", "repo non-ASCII"},
 		{strings.Repeat("a", 40), "name", "owner too long"},
-		{"alice", strings.Repeat("b", 40), "repo too long"},
-		{"alice", "name.with.dots", "repo dots not allowed"},
-		{"alice", "name_under", "repo underscore not allowed"},
-		{"al!ice", "name", "owner punctuation"},
+		{"alice", strings.Repeat("b", 101), "repo too long"},
+		{"alice", "al!ice", "repo punctuation"},
 		{"alice", "name@thing", "repo @"},
+		{"al!ice", "name", "owner punctuation"},
 	}
 
 	for _, c := range cases {

@@ -46,19 +46,28 @@ func NewRepoFS(root string) (*RepoFS, error) {
 // Root returns the absolute root path. Useful for logging and `storage check`.
 func (r *RepoFS) Root() string { return r.root }
 
-// nameRE is the whitelist for owner and repo names: lowercase ASCII
-// letters, digits, and hyphens; cannot start or end with a hyphen; length
-// 1..39 (matches GitHub's username constraint, sufficient for us).
-var nameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
+// ownerNameRE is the whitelist for owner names: lowercase ASCII letters,
+// digits, and hyphens; cannot start or end with a hyphen; length 1..39
+// (matches GitHub's username constraint).
+var ownerNameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
 
-// validateName enforces the whitelist. Returns ErrInvalidPath wrapped
-// with a precise reason on failure.
+// repoNameRE is the whitelist for repository names: lowercase ASCII
+// letters, digits, hyphens, dots, and underscores. Can't start or end
+// with a separator. Length 1..100 (matches GitHub).
+var repoNameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?$`)
+
+// validateName enforces the per-kind whitelist. Returns ErrInvalidPath
+// wrapped with a precise reason on failure.
 func validateName(kind, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: %s empty", ErrInvalidPath, kind)
 	}
-	if len(name) > 39 {
-		return fmt.Errorf("%w: %s %q too long (max 39)", ErrInvalidPath, kind, name)
+	maxLen, re, alphabet := 39, ownerNameRE, "[a-z0-9-]"
+	if kind == "repo" {
+		maxLen, re, alphabet = 100, repoNameRE, "[a-z0-9._-]"
+	}
+	if len(name) > maxLen {
+		return fmt.Errorf("%w: %s %q too long (max %d)", ErrInvalidPath, kind, name, maxLen)
 	}
 	if name != strings.ToLower(name) {
 		return fmt.Errorf("%w: %s %q must be lowercase", ErrInvalidPath, kind, name)
@@ -72,8 +81,8 @@ func validateName(kind, name string) error {
 	if filepath.IsAbs(name) {
 		return fmt.Errorf("%w: %s is absolute", ErrInvalidPath, kind)
 	}
-	if !nameRE.MatchString(name) {
-		return fmt.Errorf("%w: %s %q fails whitelist [a-z0-9-]", ErrInvalidPath, kind, name)
+	if !re.MatchString(name) {
+		return fmt.Errorf("%w: %s %q fails whitelist %s", ErrInvalidPath, kind, name, alphabet)
 	}
 	return nil
 }
