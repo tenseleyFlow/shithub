@@ -67,6 +67,12 @@ type User struct {
 	DeletedAt         pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+	Bio               string
+	Location          string
+	Website           string
+	Company           string
+	Pronouns          string
+	AvatarObjectKey   pgtype.Text
 }
 
 type UserEmail struct {

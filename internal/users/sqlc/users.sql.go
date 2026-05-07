@@ -37,10 +37,27 @@ type CreateUserParams struct {
 	PasswordHash string
 }
 
+type CreateUserRow struct {
+	ID                int64
+	Username          string
+	DisplayName       string
+	PrimaryEmailID    pgtype.Int8
+	PasswordHash      string
+	PasswordAlgo      string
+	PasswordUpdatedAt pgtype.Timestamptz
+	EmailVerified     bool
+	LastLoginAt       pgtype.Timestamptz
+	SuspendedAt       pgtype.Timestamptz
+	SuspendedReason   pgtype.Text
+	DeletedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
-func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error) {
+func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (CreateUserRow, error) {
 	row := db.QueryRow(ctx, createUser, arg.Username, arg.DisplayName, arg.PasswordHash)
-	var i User
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
@@ -68,9 +85,26 @@ FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (User, error) {
+type GetUserByIDRow struct {
+	ID                int64
+	Username          string
+	DisplayName       string
+	PrimaryEmailID    pgtype.Int8
+	PasswordHash      string
+	PasswordAlgo      string
+	PasswordUpdatedAt pgtype.Timestamptz
+	EmailVerified     bool
+	LastLoginAt       pgtype.Timestamptz
+	SuspendedAt       pgtype.Timestamptz
+	SuspendedReason   pgtype.Text
+	DeletedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (GetUserByIDRow, error) {
 	row := db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
@@ -98,9 +132,26 @@ FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error) {
+type GetUserByUsernameRow struct {
+	ID                int64
+	Username          string
+	DisplayName       string
+	PrimaryEmailID    pgtype.Int8
+	PasswordHash      string
+	PasswordAlgo      string
+	PasswordUpdatedAt pgtype.Timestamptz
+	EmailVerified     bool
+	LastLoginAt       pgtype.Timestamptz
+	SuspendedAt       pgtype.Timestamptz
+	SuspendedReason   pgtype.Text
+	DeletedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username string) (GetUserByUsernameRow, error) {
 	row := db.QueryRow(ctx, getUserByUsername, username)
-	var i User
+	var i GetUserByUsernameRow
 	err := row.Scan(
 		&i.ID,
 		&i.Username,

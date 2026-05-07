@@ -39,7 +39,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreatePasswordReset(ctx context.Context, db DBTX, arg CreatePasswordResetParams) (PasswordReset, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
-	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error)
+	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (CreateUserRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
@@ -51,8 +51,8 @@ type Querier interface {
 	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
-	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
-	GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error)
+	GetUserByID(ctx context.Context, db DBTX, id int64) (GetUserByIDRow, error)
+	GetUserByUsername(ctx context.Context, db DBTX, username string) (GetUserByUsernameRow, error)
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
@@ -72,6 +72,10 @@ type Querier interface {
 	InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserSSHKeyParams) (UserSshKey, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
+	// Used by the S10 username-change flow to record an old name. The
+	// redirect itself doubles as a 30-day reservation (the row stays for at
+	// least that long).
+	InsertUsernameRedirect(ctx context.Context, db DBTX, arg InsertUsernameRedirectParams) error
 	// Sets the FK only. Does NOT flip users.email_verified — that happens via
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
@@ -79,6 +83,10 @@ type Querier interface {
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
 	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Resolve an old username to the current username via the user_id FK.
+	// Returns ErrNoRows when no redirect exists.
+	LookupUsernameRedirect(ctx context.Context, db DBTX, oldUsername string) (LookupUsernameRedirectRow, error)
 	// Called after MarkUserEmailVerified for the primary email, to flip the
 	// denormalized users.email_verified flag.
 	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
