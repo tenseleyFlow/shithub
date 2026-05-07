@@ -1,0 +1,16 @@
+{{ define "page" -}}
+<section class="error-page">
+  <div class="error-glyph" aria-hidden="true">{{ octicon "alert" }}</div>
+  <h1 class="error-status">429</h1>
+  <p class="error-title">Too many requests.</p>
+  <p class="error-detail">
+    Slow down — you've exceeded the rate limit. Try again in a few moments.
+  </p>
+  <p class="error-hint">
+    <a href="/">Back to the dashboard</a>
+  </p>
+  {{ if .RequestID -}}
+  <p class="error-request-id">request_id: <code>{{ .RequestID }}</code></p>
+  {{- end }}
+</section>
+{{- end }}

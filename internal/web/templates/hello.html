@@ -1,5 +1,5 @@
 {{ define "page" -}}
-<main class="hello">
+<section class="hello">
   <div class="hello-logo" aria-hidden="true">
     {{ .LogoSVG }}
   </div>
@@ -13,14 +13,14 @@
   </dl>
 
   <p class="hello-status">
-    Pre-launch. Sprint 00 — project scaffolding — is shipping. Every later
-    sprint adds real product surface; see the planning index for the full
-    roadmap.
+    Pre-launch. Sprint 02 — the web shell — is shipping. The chi router,
+    middleware stack, error pages, and Primer-themed chrome are now in.
   </p>
 
-  <nav class="hello-links" aria-label="Project links">
+  <nav class="hello-links" aria-label="Health endpoints">
     <a href="/healthz">/healthz</a>
     <a href="/readyz">/readyz</a>
+    <a href="/internal/panic">/internal/panic</a>
   </nav>
-</main>
+</section>
 {{- end }}

@@ -1,0 +1,18 @@
+{{ define "page" -}}
+<section class="error-page">
+  <div class="error-glyph" aria-hidden="true">{{ octicon "alert" }}</div>
+  <h1 class="error-status">500</h1>
+  <p class="error-title">Something went sideways on our end.</p>
+  <p class="error-detail">
+    The server hit an unexpected error while handling your request. The
+    incident has been logged.
+  </p>
+  <p class="error-hint">
+    <a href="/">Back to the dashboard</a>
+  </p>
+  {{ if .RequestID -}}
+  <p class="error-request-id">If you contact support, please quote
+    request_id: <code>{{ .RequestID }}</code></p>
+  {{- end }}
+</section>
+{{- end }}

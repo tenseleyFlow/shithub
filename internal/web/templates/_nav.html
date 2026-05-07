@@ -1,0 +1,16 @@
+{{ define "nav" -}}
+<header class="shithub-nav" role="banner">
+  <a href="/" class="shithub-nav-brand" aria-label="shithub home">
+    {{ octicon "shithub" }}
+    <span>shithub</span>
+  </a>
+  <nav class="shithub-nav-links" aria-label="Primary">
+    <a href="/explore">Explore</a>
+    <a href="/about">About</a>
+  </nav>
+  <div class="shithub-nav-actions">
+    <a href="/login" class="shithub-button shithub-button-ghost">Sign in</a>
+    <a href="/signup" class="shithub-button shithub-button-primary">Sign up</a>
+  </div>
+</header>
+{{- end }}

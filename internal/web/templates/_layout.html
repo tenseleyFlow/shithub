@@ -3,9 +3,9 @@
 <html lang="en" data-theme="auto">
 <head>
   <script>
-    // Theme flash avoidance: read cookie or system preference and apply
-    // before any CSS computes. Establishes the dark/light/auto/high-contrast
-    // contract S02 will broaden.
+    // Theme flash avoidance: read the cookie or system preference and apply
+    // before any CSS computes. The four themes are: light, dark, auto,
+    // high-contrast (S10 wires the picker; S02 just enforces the contract).
     (function () {
       var match = document.cookie.match(/(?:^|; )theme=([^;]+)/);
       var theme = match ? decodeURIComponent(match[1]) : "auto";
@@ -21,11 +21,15 @@
   <meta name="description" content="shithub — GitHub. Open source. Without Copilot.">
   <title>{{ .Title }} · shithub</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo/favicon.svg">
-  <link rel="stylesheet" href="/static/css/shithub.css">
   <link rel="stylesheet" href="/static/primer/primer.css" onerror="this.remove()">
+  <link rel="stylesheet" href="/static/css/shithub.css">
 </head>
-<body>
+<body class="shithub-body">
+{{ template "nav" . }}
+<main class="shithub-main">
 {{ template "page" . }}
+</main>
+{{ template "footer" . }}
 </body>
 </html>
 {{- end }}

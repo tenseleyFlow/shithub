@@ -2,20 +2,26 @@
 /*
  * shithub — base styles.
  *
- * S00 ships a tiny stylesheet sufficient for the hello page across light /
- * dark / auto / high-contrast themes. S02 introduces the full theme system
- * via Primer primitives; this file becomes one layer in a stack.
+ * S02 layers our own chrome over the Primer CSS that ships in
+ * /static/primer/primer.css. We pull a small set of token overrides so the
+ * theme system (light / dark / auto / high-contrast) drives everything via
+ * CSS custom properties.
  *
- * Color tokens follow Primer's naming so the migration in S02 is mechanical.
+ * Color tokens follow Primer's naming so most of these become migration
+ * candidates as Primer's primitives stabilize.
  */
 
 :root {
   --canvas-default: #ffffff;
   --canvas-subtle: #f6f8fa;
+  --canvas-inset: #eaeef2;
   --fg-default: #1f2328;
   --fg-muted: #59636e;
   --border-default: #d0d7de;
+  --border-muted: #d8dee4;
   --accent-fg: #0969da;
+  --accent-emphasis: #0969da;
+  --success-fg: #1a7f37;
   --danger-fg: #cf222e;
   --shithub-mark: var(--danger-fg);
 }
@@ -23,26 +29,32 @@
 [data-theme="dark"] {
   --canvas-default: #0d1117;
   --canvas-subtle: #161b22;
+  --canvas-inset: #010409;
   --fg-default: #f0f6fc;
   --fg-muted: #9198a1;
   --border-default: #3d444d;
+  --border-muted: #232a33;
   --accent-fg: #4493f8;
+  --accent-emphasis: #1f6feb;
+  --success-fg: #3fb950;
   --danger-fg: #f85149;
 }
 
 [data-theme="high-contrast"] {
   --canvas-default: #000000;
   --canvas-subtle: #0a0c10;
+  --canvas-inset: #000000;
   --fg-default: #ffffff;
   --fg-muted: #d9dee3;
   --border-default: #7a828e;
+  --border-muted: #525964;
   --accent-fg: #71b7ff;
+  --accent-emphasis: #409eff;
+  --success-fg: #4ed162;
   --danger-fg: #ff6a69;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0;
@@ -60,37 +72,136 @@ a {
 }
 a:hover { text-decoration: underline; }
 
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--canvas-subtle);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+/* ========== Nav ========== */
+
+.shithub-body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shithub-nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--canvas-subtle);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.shithub-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg-default);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.shithub-nav-brand:hover { text-decoration: none; }
+.shithub-nav-brand svg { color: var(--shithub-mark); }
+
+.shithub-nav-links {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+}
+.shithub-nav-links a {
+  color: var(--fg-default);
+  font-size: 0.9rem;
+}
+
+.shithub-nav-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.shithub-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.shithub-button-ghost {
+  color: var(--fg-default);
+  border-color: var(--border-default);
+  background: transparent;
+}
+.shithub-button-primary {
+  color: #fff;
+  background: var(--accent-emphasis);
+  border-color: var(--accent-emphasis);
+}
+.shithub-button-primary:hover { text-decoration: none; opacity: 0.92; }
+
+/* ========== Main + Footer ========== */
+
+.shithub-main {
+  flex: 1;
+  width: 100%;
+}
+
+.shithub-footer {
+  border-top: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+  padding: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+.shithub-footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.shithub-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--fg-default);
+}
+.shithub-footer-brand svg { color: var(--shithub-mark); }
+.shithub-footer-meta { color: var(--fg-muted); margin-left: 0.5rem; font-size: 0.8rem; }
+.shithub-footer-links { display: flex; gap: 1rem; }
+
+/* ========== Hello page ========== */
+
 .hello {
   max-width: 640px;
   margin: 4rem auto;
   padding: 2rem 1.5rem;
   text-align: center;
 }
-
 .hello-logo {
   margin: 0 auto 1.5rem;
   width: 160px;
   height: 160px;
   color: var(--shithub-mark);
 }
-
-.hello-logo svg {
-  width: 100%;
-  height: 100%;
-}
-
+.hello-logo svg { width: 100%; height: 100%; }
 .hello-title {
   font-size: 2.75rem;
   margin: 0 0 0.5rem;
   letter-spacing: -0.02em;
 }
-
 .hello-tagline {
   color: var(--fg-muted);
   font-size: 1.15rem;
   margin: 0 0 2rem;
 }
-
 .hello-meta {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -105,25 +216,67 @@ a:hover { text-decoration: underline; }
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.875rem;
 }
-
-.hello-meta dt {
-  color: var(--fg-muted);
-}
-
-.hello-meta dd {
-  margin: 0;
-}
-
+.hello-meta dt { color: var(--fg-muted); }
+.hello-meta dd { margin: 0; }
 .hello-status {
   color: var(--fg-muted);
   margin: 0 auto 2rem;
   max-width: 36rem;
 }
-
 .hello-links {
   display: flex;
   justify-content: center;
   gap: 1rem;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.875rem;
+}
+
+/* ========== Error pages ========== */
+
+.error-page {
+  max-width: 540px;
+  margin: 6rem auto;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+.error-glyph {
+  display: inline-flex;
+  width: 64px; height: 64px;
+  align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--canvas-subtle);
+  color: var(--danger-fg);
+  margin-bottom: 1.5rem;
+}
+.error-glyph svg { width: 32px; height: 32px; }
+.error-status {
+  margin: 0;
+  font-size: 4rem;
+  letter-spacing: -0.04em;
+  color: var(--fg-default);
+}
+.error-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.4rem;
+  font-weight: 500;
+}
+.error-detail {
+  color: var(--fg-muted);
+  margin: 0 0 2rem;
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+.error-hint a {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-default);
+}
+.error-hint a:hover { text-decoration: none; background: var(--canvas-subtle); }
+.error-request-id {
+  margin-top: 2rem;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
 }

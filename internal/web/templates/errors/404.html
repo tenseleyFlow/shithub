@@ -1,0 +1,17 @@
+{{ define "page" -}}
+<section class="error-page">
+  <div class="error-glyph" aria-hidden="true">{{ octicon "alert" }}</div>
+  <h1 class="error-status">404</h1>
+  <p class="error-title">This isn't the repo you're looking for.</p>
+  <p class="error-detail">
+    The page <code>{{ .Message }}</code> doesn't exist, was moved, or you don't
+    have permission to view it.
+  </p>
+  <p class="error-hint">
+    <a href="/">Back to the dashboard</a>
+  </p>
+  {{ if .RequestID -}}
+  <p class="error-request-id">request_id: <code>{{ .RequestID }}</code></p>
+  {{- end }}
+</section>
+{{- end }}

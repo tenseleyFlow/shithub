@@ -1,0 +1,21 @@
+{{ define "page" -}}
+<section class="error-page">
+  <div class="error-glyph" aria-hidden="true">{{ octicon "alert" }}</div>
+  <h1 class="error-status">403</h1>
+  <p class="error-title">Access denied.</p>
+  <p class="error-detail">
+    {{ if eq .Message "csrf" -}}
+    Your session is stale or this form was submitted from a different
+    origin. Reload the page and try again.
+    {{- else -}}
+    You don't have permission to perform this action.
+    {{- end }}
+  </p>
+  <p class="error-hint">
+    <a href="/">Back to the dashboard</a>
+  </p>
+  {{ if .RequestID -}}
+  <p class="error-request-id">request_id: <code>{{ .RequestID }}</code></p>
+  {{- end }}
+</section>
+{{- end }}
