@@ -31,12 +31,9 @@ func init() {
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(seedCmd)
 
-	// Stubs for subcommands implemented in later sprints. They surface in
-	// `--help` so the operator-facing interface is discoverable from day one.
-	rootCmd.AddCommand(stubCmd("worker", "Run background workers", "S14"))
+	// worker, hook, hooks (reinstall) registered in their own files.
 	// ssh-authkeys and ssh-shell are registered in cmd/shithubd/ssh.go.
 	rootCmd.AddCommand(storageCmd)
-	rootCmd.AddCommand(stubCmd("hook", "Git hook entrypoint", "S14"))
 	rootCmd.AddCommand(adminCmd)
 	rootCmd.AddCommand(configCmd)
 }
