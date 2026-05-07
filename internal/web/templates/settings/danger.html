@@ -1,0 +1,30 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Delete account</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section shithub-settings-danger-zone">
+      <h2>Permanently delete <code>{{ .Username }}</code></h2>
+      <p>This soft-deletes your account immediately. Any session you have open is signed out.</p>
+      <p>You have <strong>{{ .GraceWindowDays }} days</strong> to change your mind: just sign in again with your existing username and password and we'll restore the account. After that, the row stays deleted and can no longer be recovered through the normal sign-in flow.</p>
+      <p>To confirm, retype your username and your current password.</p>
+
+      <form method="POST" action="/settings/danger" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Type your username (<code>{{ .Username }}</code>)</span>
+          <input type="text" name="confirm_username" required autocomplete="off" spellcheck="false">
+        </label>
+        <label>
+          <span>Current password</span>
+          <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-danger">Delete my account</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}
