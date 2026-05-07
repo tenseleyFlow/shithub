@@ -370,3 +370,21 @@ code {
 .shithub-key-fp { display: block; margin-top: 0.25rem; font-size: 0.85rem; word-break: break-all; }
 .shithub-key-last { display: block; margin-top: 0.25rem; color: var(--fg-muted); font-size: 0.8rem; }
 .shithub-key-empty { color: var(--fg-muted); margin: 1rem 0 2rem; }
+
+/* ----- profile (S09) ----- */
+.shithub-profile { max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
+.shithub-profile-header { display: flex; gap: 1.5rem; align-items: flex-start; }
+.shithub-profile-avatar { width: 200px; height: 200px; border-radius: 50%; background: var(--canvas-subtle); border: 1px solid var(--border-default); }
+.shithub-profile-id h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+.shithub-profile-handle { margin: 0; color: var(--fg-muted); }
+.shithub-profile-pronouns { margin: 0.25rem 0 0; color: var(--fg-muted); font-size: 0.9rem; }
+.shithub-profile-you { margin-left: 0.5rem; padding: 0.1rem 0.4rem; background: var(--canvas-subtle); border: 1px solid var(--border-default); border-radius: 6px; font-size: 0.7rem; color: var(--fg-muted); vertical-align: middle; }
+.shithub-profile-id .shithub-button { margin-top: 0.75rem; display: inline-block; }
+.shithub-profile-bio { margin: 1.5rem 0; font-size: 1.05rem; }
+.shithub-profile-meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0; }
+.shithub-profile-meta dt { color: var(--fg-muted); font-weight: 500; }
+.shithub-profile-meta dd { margin: 0; }
+.shithub-profile-pinned, .shithub-profile-contributions, .shithub-profile-readme { margin: 2rem 0; }
+.shithub-profile-pinned h2, .shithub-profile-contributions h2, .shithub-profile-readme h2 { font-size: 1.1rem; margin: 0 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border-default); }
+.shithub-empty { color: var(--fg-muted); font-style: italic; padding: 1rem; background: var(--canvas-subtle); border-radius: 6px; }
+.shithub-profile-unavailable h1 { color: var(--fg-muted); }

@@ -19,6 +19,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="shithub — GitHub. Open source. Without Copilot.">
+  {{ if .OGTitle }}<meta property="og:title" content="{{ .OGTitle }}">{{ end }}
+  {{ if .OGDescription }}<meta property="og:description" content="{{ .OGDescription }}">{{ end }}
+  {{ if .OGImage }}<meta property="og:image" content="{{ .OGImage }}">{{ end }}
   <title>{{ .Title }} · shithub</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo/favicon.svg">
   <link rel="stylesheet" href="/static/primer/primer.css" onerror="this.remove()">

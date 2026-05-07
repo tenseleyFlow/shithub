@@ -43,6 +43,13 @@ type Deps struct {
 	// group so the API surface (PAT-authenticated, no browser-form
 	// posts) can register its routes.
 	APIMounter func(chi.Router)
+	// AvatarMounter, when non-nil, registers /avatars/{username} on the
+	// CSRF-exempt group (avatar GETs are safe and benefit from caching).
+	AvatarMounter func(chi.Router)
+	// ProfileMounter, when non-nil, registers the /{username} catch-all
+	// route. MUST run last in its group — chi matches in registration
+	// order, and {username} swallows everything else.
+	ProfileMounter func(chi.Router)
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -96,6 +103,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		if deps.APIMounter != nil {
 			deps.APIMounter(r)
 		}
+		if deps.AvatarMounter != nil {
+			deps.AvatarMounter(r)
+		}
 	})
 
 	// Application routes — CSRF protected.
@@ -108,6 +118,11 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Get("/internal/panic", panicTrigger)
 		if deps.AuthMounter != nil {
 			deps.AuthMounter(r)
+		}
+		// Profile is registered LAST so /{username} doesn't shadow any
+		// static top-level route.
+		if deps.ProfileMounter != nil {
+			deps.ProfileMounter(r)
 		}
 	})
 
