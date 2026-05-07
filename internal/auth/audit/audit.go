@@ -47,7 +47,19 @@ const (
 	ActionUsernameChanged      Action = "username_changed"
 	ActionAccountDeleted       Action = "account_deleted"
 	ActionAccountRestored      Action = "account_restored"
-	ActionRepoCreated          Action = "repo_created"
+	ActionRepoCreated            Action = "repo_created"
+	ActionRepoRenamed            Action = "repo_renamed"
+	ActionRepoArchived           Action = "repo_archived"
+	ActionRepoUnarchived         Action = "repo_unarchived"
+	ActionRepoVisibilityChanged  Action = "repo_visibility_changed"
+	ActionRepoSoftDeleted        Action = "repo_soft_deleted"
+	ActionRepoRestored           Action = "repo_restored"
+	ActionRepoHardDeleted        Action = "repo_hard_deleted"
+	ActionRepoTransferRequested  Action = "repo_transfer_requested"
+	ActionRepoTransferAccepted   Action = "repo_transfer_accepted"
+	ActionRepoTransferDeclined   Action = "repo_transfer_declined"
+	ActionRepoTransferCanceled   Action = "repo_transfer_canceled"
+	ActionRepoTransferExpired    Action = "repo_transfer_expired"
 )
 
 // Target is a typed target-type constant.
