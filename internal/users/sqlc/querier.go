@@ -36,11 +36,16 @@ type Querier interface {
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
+	// Sets the FK only. Does NOT flip users.email_verified — that happens via
+	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
+	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
+	// Called after MarkUserEmailVerified for the primary email, to flip the
+	// denormalized users.email_verified flag.
+	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
 	MarkUserEmailVerified(ctx context.Context, db DBTX, id int64) error
 	PurgeStaleAuthThrottle(ctx context.Context, db DBTX, windowStartedAt pgtype.Timestamptz) error
 	ResetAuthThrottle(ctx context.Context, db DBTX, arg ResetAuthThrottleParams) error
-	SetUserPrimaryEmail(ctx context.Context, db DBTX, arg SetUserPrimaryEmailParams) error
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error

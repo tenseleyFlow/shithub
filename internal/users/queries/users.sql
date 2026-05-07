@@ -28,10 +28,18 @@ SET password_hash       = $2,
     password_updated_at = now()
 WHERE id = $1;
 
--- name: SetUserPrimaryEmail :exec
+-- name: LinkUserPrimaryEmail :exec
+-- Sets the FK only. Does NOT flip users.email_verified — that happens via
+-- MarkUserEmailPrimaryVerified after the user clicks the verification link.
 UPDATE users
-SET primary_email_id = $2,
-    email_verified   = true
+SET primary_email_id = $2
+WHERE id = $1;
+
+-- name: MarkUserEmailPrimaryVerified :exec
+-- Called after MarkUserEmailVerified for the primary email, to flip the
+-- denormalized users.email_verified flag.
+UPDATE users
+SET email_verified = true
 WHERE id = $1;
 
 -- name: TouchUserLastLogin :exec

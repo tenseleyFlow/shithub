@@ -120,20 +120,34 @@ func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username strin
 	return i, err
 }
 
-const setUserPrimaryEmail = `-- name: SetUserPrimaryEmail :exec
+const linkUserPrimaryEmail = `-- name: LinkUserPrimaryEmail :exec
 UPDATE users
-SET primary_email_id = $2,
-    email_verified   = true
+SET primary_email_id = $2
 WHERE id = $1
 `
 
-type SetUserPrimaryEmailParams struct {
+type LinkUserPrimaryEmailParams struct {
 	ID             int64
 	PrimaryEmailID pgtype.Int8
 }
 
-func (q *Queries) SetUserPrimaryEmail(ctx context.Context, db DBTX, arg SetUserPrimaryEmailParams) error {
-	_, err := db.Exec(ctx, setUserPrimaryEmail, arg.ID, arg.PrimaryEmailID)
+// Sets the FK only. Does NOT flip users.email_verified — that happens via
+// MarkUserEmailPrimaryVerified after the user clicks the verification link.
+func (q *Queries) LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error {
+	_, err := db.Exec(ctx, linkUserPrimaryEmail, arg.ID, arg.PrimaryEmailID)
+	return err
+}
+
+const markUserEmailPrimaryVerified = `-- name: MarkUserEmailPrimaryVerified :exec
+UPDATE users
+SET email_verified = true
+WHERE id = $1
+`
+
+// Called after MarkUserEmailVerified for the primary email, to flip the
+// denormalized users.email_verified flag.
+func (q *Queries) MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, markUserEmailPrimaryVerified, id)
 	return err
 }
 
