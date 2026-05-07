@@ -34,12 +34,13 @@ func (h *Handlers) renderSSHKeysList(w http.ResponseWriter, r *http.Request, add
 		return
 	}
 	h.renderPage(w, r, "settings/keys", map[string]any{
-		"Title":     "SSH keys",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Keys":      keys,
-		"AddError":  addError,
-		"AddTitle":  addTitle,
-		"AddBlob":   addBlob,
+		"Title":          "SSH keys",
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"SettingsActive": "keys",
+		"Keys":           keys,
+		"AddError":       addError,
+		"AddTitle":       addTitle,
+		"AddBlob":        addBlob,
 	})
 }
 

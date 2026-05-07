@@ -1,0 +1,48 @@
+{{ define "settings-nav" -}}
+<aside class="shithub-settings-side" aria-label="Settings sections">
+  <h2 class="shithub-settings-side-title">Settings</h2>
+  <nav>
+    <ul>
+      <li{{ if eq .SettingsActive "profile" }} class="active"{{ end }}>
+        <a href="/settings/profile">Public profile</a>
+      </li>
+      <li{{ if eq .SettingsActive "account" }} class="active"{{ end }}>
+        <a href="/settings/account">Account</a>
+      </li>
+      <li{{ if eq .SettingsActive "appearance" }} class="active"{{ end }}>
+        <a href="/settings/appearance">Appearance</a>
+      </li>
+      <li{{ if eq .SettingsActive "notifications" }} class="active"{{ end }}>
+        <a href="/settings/notifications">Notifications</a>
+      </li>
+    </ul>
+    <h3 class="shithub-settings-side-group">Access</h3>
+    <ul>
+      <li{{ if eq .SettingsActive "emails" }} class="active"{{ end }}>
+        <a href="/settings/emails">Emails</a>
+      </li>
+      <li{{ if eq .SettingsActive "password" }} class="active"{{ end }}>
+        <a href="/settings/password">Password</a>
+      </li>
+      <li{{ if eq .SettingsActive "2fa" }} class="active"{{ end }}>
+        <a href="/settings/security/2fa/enable">Two-factor auth</a>
+      </li>
+      <li{{ if eq .SettingsActive "keys" }} class="active"{{ end }}>
+        <a href="/settings/keys">SSH keys</a>
+      </li>
+      <li{{ if eq .SettingsActive "tokens" }} class="active"{{ end }}>
+        <a href="/settings/tokens">Personal access tokens</a>
+      </li>
+      <li{{ if eq .SettingsActive "sessions" }} class="active"{{ end }}>
+        <a href="/settings/sessions">Sessions</a>
+      </li>
+    </ul>
+    <h3 class="shithub-settings-side-group">Danger</h3>
+    <ul>
+      <li{{ if eq .SettingsActive "danger" }} class="active"{{ end }}>
+        <a href="/settings/danger" class="shithub-settings-danger">Delete account</a>
+      </li>
+    </ul>
+  </nav>
+</aside>
+{{- end }}

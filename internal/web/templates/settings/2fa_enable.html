@@ -1,23 +1,28 @@
 {{ define "page" -}}
-<section class="shithub-auth shithub-auth-wide">
-  <h1>Enable two-factor authentication</h1>
-  <ol class="shithub-2fa-steps">
-    <li>Install an authenticator app (Aegis, 1Password, Authy, Google Authenticator, …).</li>
-    <li>Scan this QR code, or paste the secret manually.</li>
-    <li>Enter the 6-digit code your app shows to confirm.</li>
-  </ol>
-  <div class="shithub-2fa-qr" aria-hidden="false">
-    {{ .QRSvg }}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Enable two-factor authentication</h1>
+    <section class="shithub-settings-section">
+      <ol class="shithub-2fa-steps">
+        <li>Install an authenticator app (Aegis, 1Password, Authy, Google Authenticator, …).</li>
+        <li>Scan this QR code, or paste the secret manually.</li>
+        <li>Enter the 6-digit code your app shows to confirm.</li>
+      </ol>
+      <div class="shithub-2fa-qr" aria-hidden="false">
+        {{ .QRSvg }}
+      </div>
+      <p class="shithub-2fa-secret"><code>{{ .Secret }}</code></p>
+      <form method="POST" action="/settings/security/2fa/enable" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>6-digit code from your app</span>
+          <input type="text" name="code" required autocomplete="one-time-code"
+                 inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Confirm</button>
+      </form>
+    </section>
   </div>
-  <p class="shithub-2fa-secret"><code>{{ .Secret }}</code></p>
-  <form method="POST" action="/settings/security/2fa/enable" novalidate>
-    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-    <label>
-      <span>6-digit code from your app</span>
-      <input type="text" name="code" required autocomplete="one-time-code"
-             inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6">
-    </label>
-    <button type="submit" class="shithub-button shithub-button-primary">Confirm</button>
-  </form>
-</section>
+</div>
 {{- end }}

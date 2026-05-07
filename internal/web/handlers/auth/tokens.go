@@ -42,6 +42,7 @@ func (h *Handlers) renderTokensList(
 	h.renderPage(w, r, "settings/tokens", map[string]any{
 		"Title":          "Personal access tokens",
 		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"SettingsActive": "tokens",
 		"Tokens":         rows,
 		"AllScopes":      pat.AllScopes,
 		"CreateError":    createError,

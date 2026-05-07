@@ -181,10 +181,11 @@ func (h *Handlers) twoFactorEnableForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderPage(w, r, "settings/2fa_enable", map[string]any{
-		"Title":     "Enable two-factor authentication",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"QRSvg":     svg,
-		"Secret":    totp.EncodeBase32(secret), // displayed for manual entry; also high-entropy + redacted in logs
+		"Title":          "Enable two-factor authentication",
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"SettingsActive": "2fa",
+		"QRSvg":          svg,
+		"Secret":         totp.EncodeBase32(secret), // displayed for manual entry; also high-entropy + redacted in logs
 	})
 }
 
@@ -198,8 +199,9 @@ func (h *Handlers) twoFactorEnableSubmit(w http.ResponseWriter, r *http.Request)
 
 	render := func(msg string, recoveryCodes []string) {
 		data := map[string]any{
-			"Title":     "Enable two-factor authentication",
-			"CSRFToken": middleware.CSRFTokenForRequest(r),
+			"Title":          "Enable two-factor authentication",
+			"CSRFToken":      middleware.CSRFTokenForRequest(r),
+			"SettingsActive": "2fa",
 		}
 		if msg != "" {
 			data["Error"] = msg
@@ -304,8 +306,9 @@ func (h *Handlers) twoFactorEnableSubmit(w http.ResponseWriter, r *http.Request)
 
 func (h *Handlers) twoFactorDisableForm(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, r, "settings/2fa_disable", map[string]any{
-		"Title":     "Disable two-factor authentication",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Title":          "Disable two-factor authentication",
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"SettingsActive": "2fa",
 	})
 }
 
@@ -320,9 +323,10 @@ func (h *Handlers) twoFactorDisableSubmit(w http.ResponseWriter, r *http.Request
 
 	render := func(msg string) {
 		h.renderPage(w, r, "settings/2fa_disable", map[string]any{
-			"Title":     "Disable two-factor authentication",
-			"CSRFToken": middleware.CSRFTokenForRequest(r),
-			"Error":     msg,
+			"Title":          "Disable two-factor authentication",
+			"CSRFToken":      middleware.CSRFTokenForRequest(r),
+			"SettingsActive": "2fa",
+			"Error":          msg,
 		})
 	}
 
@@ -422,9 +426,10 @@ func (h *Handlers) twoFactorRegenerateSubmit(w http.ResponseWriter, r *http.Requ
 	h.notifyUser(r.Context(), user.ID, "recovery_regenerated")
 
 	h.renderPage(w, r, "settings/2fa_recovery", map[string]any{
-		"Title":         "New recovery codes",
-		"CSRFToken":     middleware.CSRFTokenForRequest(r),
-		"RecoveryCodes": codes,
+		"Title":          "New recovery codes",
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"SettingsActive": "2fa",
+		"RecoveryCodes":  codes,
 	})
 }
 

@@ -1,37 +1,44 @@
 {{ define "page" -}}
-<section class="shithub-auth">
-  <h1>Disable two-factor authentication</h1>
-  <p>To disable 2FA, confirm your password and a current authenticator code. This protects your account if your session is hijacked.</p>
-  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
-  <form method="POST" action="/settings/security/2fa/disable" novalidate>
-    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-    <label>
-      <span>Password</span>
-      <input type="password" name="password" required autocomplete="current-password">
-    </label>
-    <label>
-      <span>Authenticator code</span>
-      <input type="text" name="code" required inputmode="numeric"
-             pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code">
-    </label>
-    <button type="submit" class="shithub-button shithub-button-danger">Disable 2FA</button>
-  </form>
-  <hr>
-  <details>
-    <summary>Regenerate recovery codes instead</summary>
-    <form method="POST" action="/settings/security/2fa/regenerate" novalidate>
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <label>
-        <span>Password</span>
-        <input type="password" name="password" required autocomplete="current-password">
-      </label>
-      <label>
-        <span>Authenticator code</span>
-        <input type="text" name="code" required inputmode="numeric"
-               pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code">
-      </label>
-      <button type="submit" class="shithub-button">Regenerate recovery codes</button>
-    </form>
-  </details>
-</section>
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Two-factor authentication</h1>
+    <section class="shithub-settings-section">
+      <h2>Disable 2FA</h2>
+      <p>To disable 2FA, confirm your password and a current authenticator code. This protects your account if your session is hijacked.</p>
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      <form method="POST" action="/settings/security/2fa/disable" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <label>
+          <span>Authenticator code</span>
+          <input type="text" name="code" required inputmode="numeric"
+                 pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-danger">Disable 2FA</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Regenerate recovery codes</h2>
+      <p>Issue a fresh set of recovery codes. The old set stops working immediately.</p>
+      <form method="POST" action="/settings/security/2fa/regenerate" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <label>
+          <span>Authenticator code</span>
+          <input type="text" name="code" required inputmode="numeric"
+                 pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code">
+        </label>
+        <button type="submit" class="shithub-button">Regenerate recovery codes</button>
+      </form>
+    </section>
+  </div>
+</div>
 {{- end }}
