@@ -39,7 +39,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreatePasswordReset(ctx context.Context, db DBTX, arg CreatePasswordResetParams) (PasswordReset, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
-	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (CreateUserRow, error)
+	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
@@ -51,8 +51,8 @@ type Querier interface {
 	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
-	GetUserByID(ctx context.Context, db DBTX, id int64) (GetUserByIDRow, error)
-	GetUserByUsername(ctx context.Context, db DBTX, username string) (GetUserByUsernameRow, error)
+	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
+	GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error)
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)

@@ -3,21 +3,15 @@
 -- name: CreateUser :one
 INSERT INTO users (username, display_name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, display_name, primary_email_id, password_hash, password_algo,
-          password_updated_at, email_verified, last_login_at, suspended_at,
-          suspended_reason, deleted_at, created_at, updated_at;
+RETURNING *;
 
 -- name: GetUserByID :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo,
-       password_updated_at, email_verified, last_login_at, suspended_at,
-       suspended_reason, deleted_at, created_at, updated_at
+SELECT *
 FROM users
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: GetUserByUsername :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo,
-       password_updated_at, email_verified, last_login_at, suspended_at,
-       suspended_reason, deleted_at, created_at, updated_at
+SELECT *
 FROM users
 WHERE username = $1 AND deleted_at IS NULL;
 

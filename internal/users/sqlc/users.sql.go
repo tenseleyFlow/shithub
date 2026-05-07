@@ -26,9 +26,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (username, display_name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, display_name, primary_email_id, password_hash, password_algo,
-          password_updated_at, email_verified, last_login_at, suspended_at,
-          suspended_reason, deleted_at, created_at, updated_at
+RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
 `
 
 type CreateUserParams struct {
@@ -37,27 +35,10 @@ type CreateUserParams struct {
 	PasswordHash string
 }
 
-type CreateUserRow struct {
-	ID                int64
-	Username          string
-	DisplayName       string
-	PrimaryEmailID    pgtype.Int8
-	PasswordHash      string
-	PasswordAlgo      string
-	PasswordUpdatedAt pgtype.Timestamptz
-	EmailVerified     bool
-	LastLoginAt       pgtype.Timestamptz
-	SuspendedAt       pgtype.Timestamptz
-	SuspendedReason   pgtype.Text
-	DeletedAt         pgtype.Timestamptz
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-}
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
-func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (CreateUserRow, error) {
+func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error) {
 	row := db.QueryRow(ctx, createUser, arg.Username, arg.DisplayName, arg.PasswordHash)
-	var i CreateUserRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
@@ -73,38 +54,25 @@ func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams)
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Bio,
+		&i.Location,
+		&i.Website,
+		&i.Company,
+		&i.Pronouns,
+		&i.AvatarObjectKey,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo,
-       password_updated_at, email_verified, last_login_at, suspended_at,
-       suspended_reason, deleted_at, created_at, updated_at
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
 FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-type GetUserByIDRow struct {
-	ID                int64
-	Username          string
-	DisplayName       string
-	PrimaryEmailID    pgtype.Int8
-	PasswordHash      string
-	PasswordAlgo      string
-	PasswordUpdatedAt pgtype.Timestamptz
-	EmailVerified     bool
-	LastLoginAt       pgtype.Timestamptz
-	SuspendedAt       pgtype.Timestamptz
-	SuspendedReason   pgtype.Text
-	DeletedAt         pgtype.Timestamptz
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-}
-
-func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (GetUserByIDRow, error) {
+func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (User, error) {
 	row := db.QueryRow(ctx, getUserByID, id)
-	var i GetUserByIDRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
@@ -120,38 +88,25 @@ func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (GetUserBy
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Bio,
+		&i.Location,
+		&i.Website,
+		&i.Company,
+		&i.Pronouns,
+		&i.AvatarObjectKey,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo,
-       password_updated_at, email_verified, last_login_at, suspended_at,
-       suspended_reason, deleted_at, created_at, updated_at
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
 FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
-type GetUserByUsernameRow struct {
-	ID                int64
-	Username          string
-	DisplayName       string
-	PrimaryEmailID    pgtype.Int8
-	PasswordHash      string
-	PasswordAlgo      string
-	PasswordUpdatedAt pgtype.Timestamptz
-	EmailVerified     bool
-	LastLoginAt       pgtype.Timestamptz
-	SuspendedAt       pgtype.Timestamptz
-	SuspendedReason   pgtype.Text
-	DeletedAt         pgtype.Timestamptz
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-}
-
-func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username string) (GetUserByUsernameRow, error) {
+func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error) {
 	row := db.QueryRow(ctx, getUserByUsername, username)
-	var i GetUserByUsernameRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
@@ -167,6 +122,12 @@ func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username strin
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Bio,
+		&i.Location,
+		&i.Website,
+		&i.Company,
+		&i.Pronouns,
+		&i.AvatarObjectKey,
 	)
 	return i, err
 }
