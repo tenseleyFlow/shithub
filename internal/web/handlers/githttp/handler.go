@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/git/protocol"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -152,28 +153,40 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	}
 
 	auth, authErr := h.resolveBasicAuth(r.Context(), r.Header.Get("Authorization"))
-	requireAuth := svc == protocol.ReceivePack || row.Visibility == reposdb.RepoVisibilityPrivate
+	repoRef := policy.NewRepoRefFromRepo(row)
+	requireAuth := svc == protocol.ReceivePack || repoRef.IsPrivate()
 	if authErr != nil || (requireAuth && auth.Anonymous) {
 		writeChallenge(w)
 		return reposdb.Repo{}, false
 	}
 
-	// Permission check — inline; S15 replaces this with the policy package.
-	// V1: only the owner can read a private repo or write to any repo.
-	if !auth.Anonymous && auth.UserID != owner.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return reposdb.Repo{}, false
+	// Build the policy actor and ask Can(). Owner identity, collab role,
+	// archived/deleted gates all live in the policy package now.
+	var actor policy.Actor
+	if auth.Anonymous {
+		actor = policy.AnonymousActor()
+	} else {
+		actor = policy.UserActor(auth.UserID, auth.Username, false, false)
 	}
+	action := policy.ActionRepoRead
 	if svc == protocol.ReceivePack {
-		if row.IsArchived {
+		action = policy.ActionRepoWrite
+	}
+	decision := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, repoRef)
+	if !decision.Allow {
+		switch decision.Code {
+		case policy.DenyRepoDeleted:
+			http.Error(w, "gone", http.StatusGone)
+		case policy.DenyArchived:
+			// User sees this directly in their git client.
 			writeGitErrorMessage(w, http.StatusForbidden,
 				"repository is archived; pushes are disabled")
-			return reposdb.Repo{}, false
+		case policy.DenyVisibility:
+			http.Error(w, "not found", http.StatusNotFound)
+		default:
+			http.Error(w, "forbidden", http.StatusForbidden)
 		}
-		if row.DeletedAt.Valid {
-			http.Error(w, "gone", http.StatusGone)
-			return reposdb.Repo{}, false
-		}
+		return reposdb.Repo{}, false
 	}
 	return row, true
 }

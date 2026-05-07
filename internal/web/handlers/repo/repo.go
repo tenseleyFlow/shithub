@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/repos"
@@ -245,7 +246,16 @@ func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName 
 	if err != nil {
 		return reposdb.Repo{}, err
 	}
-	if row.Visibility == reposdb.RepoVisibilityPrivate && (viewerID == 0 || viewerID != owner.ID) {
+	// Visibility decision delegated to policy.Can. We use ActionRepoRead;
+	// when the decision denies, return ErrNoRows so the caller can 404.
+	repoRef := policy.NewRepoRefFromRepo(row)
+	var actor policy.Actor
+	if viewerID == 0 {
+		actor = policy.AnonymousActor()
+	} else {
+		actor = policy.UserActor(viewerID, "", false, false)
+	}
+	if !policy.Can(ctx, policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoRead, repoRef).Allow {
 		return reposdb.Repo{}, pgx.ErrNoRows
 	}
 	return row, nil

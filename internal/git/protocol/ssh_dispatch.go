@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -111,22 +112,26 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 		return nil, parsed, fmt.Errorf("%w: %v", ErrSSHInternal, err)
 	}
 
-	// Inline authz — same shape as the HTTP handler. Public repos can
-	// be pulled by anyone; everything else requires owner identity.
-	// (S15 lifts this into policy.Can.)
-	if parsed.Service == UploadPack {
-		if repo.Visibility == reposdb.RepoVisibilityPrivate && user.ID != owner.ID {
-			return nil, parsed, ErrSSHRepoNotFound
-		}
-	} else {
-		if user.ID != owner.ID {
-			return nil, parsed, ErrSSHPermDenied
-		}
-		if repo.IsArchived {
+	// Authz via policy.Can. Map the policy decision back to the typed
+	// SSH errors so the friendly-message catalogue keeps working.
+	repoRef := policy.NewRepoRefFromRepo(repo)
+	actor := policy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, false)
+	action := policy.ActionRepoRead
+	if parsed.Service == ReceivePack {
+		action = policy.ActionRepoWrite
+	}
+	decision := policy.Can(ctx, policy.Deps{Pool: deps.Pool}, actor, action, repoRef)
+	if !decision.Allow {
+		switch decision.Code {
+		case policy.DenyActorSuspended:
+			return nil, parsed, ErrSSHSuspended
+		case policy.DenyArchived:
 			return nil, parsed, ErrSSHArchived
-		}
-		if repo.DeletedAt.Valid {
+		case policy.DenyVisibility, policy.DenyRepoDeleted:
+			// Existence-leak guard: pretend the repo doesn't exist.
 			return nil, parsed, ErrSSHRepoNotFound
+		default:
+			return nil, parsed, ErrSSHPermDenied
 		}
 	}
 

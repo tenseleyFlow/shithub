@@ -19,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
@@ -167,10 +169,11 @@ type errHookGate struct{ kind string }
 func (e errHookGate) Error() string { return "shithub-hook: " + e.kind }
 
 var (
-	errHookSuspended = errHookGate{"user suspended"}
-	errHookArchived  = errHookGate{"repo archived"}
-	errHookDeleted   = errHookGate{"repo deleted"}
-	errHookMissing   = errHookGate{"missing context"}
+	errHookSuspended  = errHookGate{"user suspended"}
+	errHookArchived   = errHookGate{"repo archived"}
+	errHookDeleted    = errHookGate{"repo deleted"}
+	errHookMissing    = errHookGate{"missing context"}
+	errHookPermDenied = errHookGate{"permission denied"}
 )
 
 func friendlyHookErr(err error) string {
@@ -181,6 +184,8 @@ func friendlyHookErr(err error) string {
 		return "shithub: this repository is archived; pushes are disabled."
 	case errors.Is(err, errHookDeleted):
 		return "shithub: this repository has been deleted."
+	case errors.Is(err, errHookPermDenied):
+		return "shithub: you do not have write access to this repository."
 	case errors.Is(err, errHookMissing):
 		return "shithub: server error: hook context missing. Contact the operator."
 	default:
@@ -197,24 +202,29 @@ func preReceiveCheck(ctx context.Context, h *hookCtx) error {
 	if err != nil {
 		return fmt.Errorf("user lookup: %w", err)
 	}
-	if user.SuspendedAt.Valid {
-		return errHookSuspended
-	}
 
-	row := h.pool.QueryRow(ctx,
-		`SELECT is_archived, deleted_at FROM repos WHERE id = $1`, h.repoID)
-	var archived bool
-	var deletedAt pgtype.Timestamptz
-	if err := row.Scan(&archived, &deletedAt); err != nil {
+	rq := reposdb.New()
+	repo, err := rq.GetRepoByID(ctx, h.pool, h.repoID)
+	if err != nil {
 		return fmt.Errorf("repo lookup: %w", err)
 	}
-	if deletedAt.Valid {
+
+	actor := policy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, false)
+	repoRef := policy.NewRepoRefFromRepo(repo)
+	decision := policy.Can(ctx, policy.Deps{Pool: h.pool}, actor, policy.ActionRepoWrite, repoRef)
+	if decision.Allow {
+		return nil
+	}
+	switch decision.Code {
+	case policy.DenyRepoDeleted:
 		return errHookDeleted
-	}
-	if archived {
+	case policy.DenyActorSuspended:
+		return errHookSuspended
+	case policy.DenyArchived:
 		return errHookArchived
+	default:
+		return errHookPermDenied
 	}
-	return nil
 }
 
 func postReceiveEnqueue(ctx context.Context, h *hookCtx, refs []refUpdate) error {
