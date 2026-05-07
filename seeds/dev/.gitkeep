@@ -1,0 +1,3 @@
+# Seed SQL files dropped here are loaded in lex order by `shithubd seed`.
+# Numbered prefixes recommended (e.g. 010_users.sql, 020_repos.sql).
+# Domain seeds will land in their owning sprints (S05+).
