@@ -45,7 +45,24 @@
       <aside class="shithub-profile-edit-aside">
         <h2>Profile picture</h2>
         <img src="/avatars/{{ .Username }}" alt="" class="shithub-profile-edit-avatar">
-        <p class="shithub-empty-note">Avatar upload coming soon.</p>
+        {{ if .AvatarUploadEnabled }}
+        <form method="POST" action="/settings/profile/avatar" enctype="multipart/form-data" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label class="shithub-profile-edit-upload">
+            <span>Upload new picture</span>
+            <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif" required>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Upload</button>
+        </form>
+        {{ if .HasAvatar }}
+        <form method="POST" action="/settings/profile/avatar/remove" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">Remove picture</button>
+        </form>
+        {{ end }}
+        {{ else }}
+        <p class="shithub-empty-note">Avatar upload is disabled on this instance.</p>
+        {{ end }}
       </aside>
     </div>
   </div>

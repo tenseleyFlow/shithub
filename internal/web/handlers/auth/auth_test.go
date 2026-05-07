@@ -27,6 +27,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -106,6 +107,7 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 		Limiter:                  throttle.NewLimiter(),
 		RequireEmailVerification: requireVerify,
 		SecretBox:                box,
+		ObjectStore:              storage.NewMemoryStore(),
 	})
 	if err != nil {
 		t.Fatalf("authh.New: %v", err)
@@ -160,7 +162,7 @@ func authTemplatesFS() fs.FS {
 	keysTpl := `{{ define "page" }}<form>{{ with .AddError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">KEYS={{ range .Keys }}{{.ID}}:{{.FingerprintSha256}};{{ end }}</form>{{ end }}`
 	//nolint:gosec // G101 false positive: test fixture, not a hardcoded credential.
 	tokensTpl := `{{ define "page" }}<form>{{ with .CreateError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .JustCreatedRaw }}RAW={{.JustCreatedRaw}}{{ end }}TOKENS={{ range .Tokens }}{{.ID}}:{{.TokenPrefix}}{{ if .RevokedAt.Valid }}:revoked{{ end }};{{ end }}</form>{{ end }}`
-	profileTpl := `{{ define "page" }}<h1>Public profile</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form><input name=csrf_token value="{{.CSRFToken}}">DISPLAY={{.Form.DisplayName}};BIO={{.Form.Bio}};LOCATION={{.Form.Location}};WEBSITE={{.Form.Website}};COMPANY={{.Form.Company}};PRONOUNS={{.Form.Pronouns}};</form>{{ end }}`
+	profileTpl := `{{ define "page" }}<h1>Public profile</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form><input name=csrf_token value="{{.CSRFToken}}">DISPLAY={{.Form.DisplayName}};BIO={{.Form.Bio}};LOCATION={{.Form.Location}};WEBSITE={{.Form.Website}};COMPANY={{.Form.Company}};PRONOUNS={{.Form.Pronouns}};</form>{{ if .HasAvatar }}<form action="/settings/profile/avatar/remove" method=POST><input name=csrf_token value="{{.CSRFToken}}"><button>Remove</button></form>{{ end }}{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":               {Data: []byte(layout)},

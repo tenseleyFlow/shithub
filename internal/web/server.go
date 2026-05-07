@@ -147,7 +147,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if pool != nil {
-		auth, err := buildAuthHandlers(cfg, pool, sessionStore, logger, deps.TemplatesFS)
+		objectStore, err := buildObjectStore(cfg.Storage.S3, logger)
+		if err != nil {
+			return fmt.Errorf("object store: %w", err)
+		}
+
+		auth, err := buildAuthHandlers(cfg, pool, sessionStore, objectStore, logger, deps.TemplatesFS)
 		if err != nil {
 			return fmt.Errorf("auth handlers: %w", err)
 		}
@@ -159,7 +164,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.APIMounter = api.Mount
 
-		profile, err := buildProfileHandlers(pool, nil, deps.TemplatesFS, logger)
+		profile, err := buildProfileHandlers(pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
 			return fmt.Errorf("profile handlers: %w", err)
 		}

@@ -95,14 +95,20 @@ func (h *Handlers) settingsProfileSubmit(w http.ResponseWriter, r *http.Request)
 // mutually exclusive in practice but we let the template show whichever is set.
 func (h *Handlers) renderProfileForm(w http.ResponseWriter, r *http.Request, form profileForm, errMsg, successMsg string) {
 	user := middleware.CurrentUserFromContext(r.Context())
+	hasAvatar := false
+	if row, err := h.q.GetUserByID(r.Context(), h.d.Pool, user.ID); err == nil {
+		hasAvatar = row.AvatarObjectKey.Valid && row.AvatarObjectKey.String != ""
+	}
 	h.renderPage(w, r, "settings/profile", map[string]any{
-		"Title":          "Public profile",
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"SettingsActive": "profile",
-		"Username":       user.Username,
-		"Form":           form,
-		"Error":          errMsg,
-		"Success":        successMsg,
+		"Title":               "Public profile",
+		"CSRFToken":           middleware.CSRFTokenForRequest(r),
+		"SettingsActive":      "profile",
+		"Username":            user.Username,
+		"Form":                form,
+		"Error":               errMsg,
+		"Success":             successMsg,
+		"AvatarUploadEnabled": h.d.ObjectStore != nil,
+		"HasAvatar":           hasAvatar,
 	})
 }
 

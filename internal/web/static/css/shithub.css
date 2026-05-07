@@ -512,6 +512,20 @@ code {
   font-size: 0.8rem;
   color: var(--fg-muted);
 }
+.shithub-profile-edit-aside form {
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.shithub-profile-edit-upload span {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+.shithub-profile-edit-upload input[type=file] {
+  font-size: 0.85rem;
+}
 
 @media (max-width: 720px) {
   .shithub-settings-page {

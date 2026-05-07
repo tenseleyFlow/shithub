@@ -45,6 +45,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/passwords"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -71,6 +72,10 @@ type Deps struct {
 	SecretBox *secretbox.Box
 	// Audit records security-relevant events (2fa state changes, etc.).
 	Audit *audit.Recorder
+	// ObjectStore is the avatar / attachment backend. May be nil; when
+	// nil the avatar upload endpoint is not registered (the user keeps
+	// their identicon and never sees the upload form).
+	ObjectStore storage.ObjectStore
 }
 
 // Handlers is the registered handler set. Construct with New.
@@ -125,6 +130,10 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Use(middleware.RequireUser)
 			r.Get("/settings/profile", h.settingsProfileForm)
 			r.Post("/settings/profile", h.settingsProfileSubmit)
+			if h.d.ObjectStore != nil {
+				r.Post("/settings/profile/avatar", h.settingsAvatarUpload)
+				r.Post("/settings/profile/avatar/remove", h.settingsAvatarRemove)
+			}
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)

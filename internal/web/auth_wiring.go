@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
@@ -59,6 +60,7 @@ func buildAuthHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
 	store session.Store,
+	objectStore storage.ObjectStore,
 	logger *slog.Logger,
 	tmplFS fs.FS,
 ) (*authh.Handlers, error) {
@@ -103,6 +105,7 @@ func buildAuthHandlers(
 		RequireEmailVerification: cfg.Auth.RequireEmailVerification,
 		SecretBox:                box,
 		Audit:                    audit.NewRecorder(),
+		ObjectStore:              objectStore,
 	})
 }
 
