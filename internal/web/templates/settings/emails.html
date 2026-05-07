@@ -1,0 +1,64 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Emails</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Your email addresses</h2>
+      <p>Your <strong>primary</strong> email is where account-related and security notifications go. You must verify each address before it can become primary.</p>
+
+      {{ if .Emails }}
+      <ul class="shithub-email-list">
+        {{ range .Emails }}
+        <li class="shithub-email-row">
+          <div class="shithub-email-meta">
+            <code class="shithub-email-addr">{{ .Email }}</code>
+            {{ if .IsPrimary }}<span class="shithub-pill shithub-pill-primary">primary</span>{{ end }}
+            {{ if .Verified }}<span class="shithub-pill shithub-pill-verified">verified</span>
+            {{ else }}<span class="shithub-pill shithub-pill-unverified">unverified</span>{{ end }}
+          </div>
+          <div class="shithub-email-actions">
+            {{ if and (not .Verified) (not .IsPrimary) }}
+            <form method="POST" action="/settings/emails/{{ .ID }}/resend" novalidate>
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button">Resend verification</button>
+            </form>
+            {{ end }}
+            {{ if and .Verified (not .IsPrimary) }}
+            <form method="POST" action="/settings/emails/{{ .ID }}/primary" novalidate>
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button">Make primary</button>
+            </form>
+            {{ end }}
+            {{ if not .IsPrimary }}
+            <form method="POST" action="/settings/emails/{{ .ID }}/remove" novalidate>
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Remove</button>
+            </form>
+            {{ end }}
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Add an email address</h2>
+      <form method="POST" action="/settings/emails" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Email address</span>
+          <input type="email" name="email" required autocomplete="email">
+          <small>We'll send a verification link to this address. It won't appear publicly until you also opt in (post-MVP).</small>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Add</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

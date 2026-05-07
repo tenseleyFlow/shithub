@@ -56,6 +56,12 @@ func (c *captureSender) all() []email.Message {
 	return out
 }
 
+func (c *captureSender) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.out = nil
+}
+
 // fastArgon keeps tests under a few seconds. The full-cost defaults are
 // exercised by the unit test in internal/auth/password.
 var fastArgon = password.Params{Memory: 16 * 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}
@@ -167,6 +173,7 @@ func authTemplatesFS() fs.FS {
 	//nolint:gosec // G101 false positive: HTML fixture, not a credential.
 	pwTpl := `{{ define "page" }}<h1>Password</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/password" method=POST><input name=csrf_token value="{{.CSRFToken}}">RECENT={{.RecentAuthOK}};</form>{{ end }}`
 	apprTpl := `{{ define "page" }}<h1>Appearance</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/appearance" method=POST><input name=csrf_token value="{{.CSRFToken}}">THEME={{.CurrentTheme}};</form>{{ end }}`
+	emailsTpl := `{{ define "page" }}<h1>Emails</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/emails" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>EMAILS={{ range .Emails }}{{.ID}}:{{.Email}}:p={{.IsPrimary}}:v={{.Verified}};{{ end }}{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":               {Data: []byte(layout)},
@@ -186,6 +193,7 @@ func authTemplatesFS() fs.FS {
 		"settings/account.html":      {Data: []byte(accountTpl)},
 		"settings/password.html":     {Data: []byte(pwTpl)},
 		"settings/appearance.html":   {Data: []byte(apprTpl)},
+		"settings/emails.html":       {Data: []byte(emailsTpl)},
 		"errors/404.html":            {Data: []byte(errorPage)},
 		"errors/403.html":            {Data: []byte(errorPage)},
 		"errors/429.html":            {Data: []byte(errorPage)},
