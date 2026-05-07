@@ -128,6 +128,9 @@ func Run(ctx context.Context, opts Options) error {
 	r.Use(middleware.Compress)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(middleware.SessionLoader(sessionStore, logger))
+	if pool != nil {
+		r.Use(middleware.OptionalUser(usernameLookup(pool)))
+	}
 
 	deps := handlers.Deps{
 		Logger:       logger,
@@ -141,6 +144,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if cfg.Metrics.Enabled {
 		deps.MetricsHandler = metrics.Handler(cfg.Metrics.BasicAuthUser, cfg.Metrics.BasicAuthPass)
+	}
+
+	if pool != nil {
+		auth, err := buildAuthHandlers(cfg, pool, sessionStore, logger, deps.TemplatesFS)
+		if err != nil {
+			return fmt.Errorf("auth handlers: %w", err)
+		}
+		deps.AuthMounter = auth.Mount
+	} else {
+		logger.Warn("auth: no DB pool — signup/login routes not mounted")
 	}
 
 	_, panicHandler, notFoundHandler, err := handlers.RegisterChi(r, deps)
