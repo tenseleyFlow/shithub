@@ -31,6 +31,11 @@ const (
 	KindJobsPurge      Kind = "jobs:purge_completed"
 )
 
+// S16 lifecycle housekeeping kind.
+const (
+	KindLifecycleSweep Kind = "lifecycle:sweep"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the

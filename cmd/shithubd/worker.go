@@ -15,12 +15,18 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	"github.com/tenseleyFlow/shithub/internal/worker/jobs"
 )
+
+// auditRecorder returns the shared audit recorder. Kept as a function
+// rather than a package-level value so future tests / non-default
+// recorders can substitute via dependency injection.
+func auditRecorder() *audit.Recorder { return audit.NewRecorder() }
 
 // workerCmd boots a long-running worker pool. SIGINT/SIGTERM trigger
 // graceful shutdown: the LISTEN goroutine drops, claim attempts stop,
@@ -82,6 +88,9 @@ var workerCmd = &cobra.Command{
 		}))
 		p.Register(worker.KindJobsPurge, jobs.JobsPurge(jobs.JobsPurgeDeps{
 			Pool: pool, Logger: logger,
+		}))
+		p.Register(worker.KindLifecycleSweep, jobs.LifecycleSweep(jobs.LifecycleSweepDeps{
+			Pool: pool, RepoFS: rfs, Audit: auditRecorder(), Logger: logger,
 		}))
 
 		return p.Run(ctx)
