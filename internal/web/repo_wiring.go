@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,13 +44,25 @@ func buildRepoHandlers(
 	if err != nil {
 		return nil, fmt.Errorf("repo: render.New: %w", err)
 	}
+	// shithubdPath is the running binary, baked into hook shims by
+	// repos.Create. os.Executable can rarely fail (e.g. exec name
+	// stripped); when it does we fall back to "shithubd" on PATH so
+	// hook shims still resolve in unusual environments.
+	shithubdPath := "shithubd"
+	if exe, err := os.Executable(); err == nil {
+		if abs, err := filepath.Abs(exe); err == nil {
+			shithubdPath = abs
+		}
+	}
+
 	return repoh.New(repoh.Deps{
-		Logger:  logger,
-		Render:  rr,
-		Pool:    pool,
-		RepoFS:  rfs,
-		Audit:   audit.NewRecorder(),
-		Limiter: throttle.NewLimiter(),
+		Logger:       logger,
+		Render:       rr,
+		Pool:         pool,
+		RepoFS:       rfs,
+		Audit:        audit.NewRecorder(),
+		Limiter:      throttle.NewLimiter(),
+		ShithubdPath: shithubdPath,
 		CloneURLs: repoh.CloneURLs{
 			BaseURL:    cfg.Auth.BaseURL,
 			SSHEnabled: false, // S12/S13 will flip this when SSH service ships.

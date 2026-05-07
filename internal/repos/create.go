@@ -17,6 +17,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/git/hooks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -41,6 +42,11 @@ type Deps struct {
 	Limiter *throttle.Limiter
 	Logger  *slog.Logger
 	Now     func() time.Time
+	// ShithubdPath is the absolute path to the running shithubd binary,
+	// baked into the hook shims so push -> hook -> shithubd round-trip
+	// works in dev and prod. Empty disables hook installation (tests
+	// that don't care about hooks; the full E2E happy path provides it).
+	ShithubdPath string
 }
 
 // Params describes one repo-create request as it arrives from the
@@ -162,6 +168,18 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	if err := deps.RepoFS.InitBare(ctx, diskPath); err != nil {
 		_ = os.RemoveAll(diskPath)
 		return Result{}, fmt.Errorf("repos: init bare: %w", err)
+	}
+
+	// Install push-pipeline hooks. Skipped when ShithubdPath is empty
+	// (test fixtures that exercise repo creation without the hook
+	// stack). The plumbing-driven initial commit doesn't fire hooks —
+	// hooks only run on user-driven pushes — so this is the right
+	// boundary.
+	if deps.ShithubdPath != "" {
+		if err := hooks.Install(diskPath, deps.ShithubdPath); err != nil {
+			_ = os.RemoveAll(diskPath)
+			return Result{}, fmt.Errorf("repos: install hooks: %w", err)
+		}
 	}
 
 	var commitOID string

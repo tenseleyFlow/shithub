@@ -47,6 +47,10 @@ type Deps struct {
 	Audit     *audit.Recorder
 	Limiter   *throttle.Limiter
 	CloneURLs CloneURLs
+	// ShithubdPath is forwarded to repos.Create so newly-init'd repos
+	// have hook shims pointing at the right binary. Empty in test fixtures
+	// that don't exercise hooks.
+	ShithubdPath string
 }
 
 // Handlers is the registered handler set. Construct via New.
@@ -128,11 +132,12 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := repos.Create(r.Context(), repos.Deps{
-		Pool:    h.d.Pool,
-		RepoFS:  h.d.RepoFS,
-		Audit:   h.d.Audit,
-		Limiter: h.d.Limiter,
-		Logger:  h.d.Logger,
+		Pool:         h.d.Pool,
+		RepoFS:       h.d.RepoFS,
+		Audit:        h.d.Audit,
+		Limiter:      h.d.Limiter,
+		Logger:       h.d.Logger,
+		ShithubdPath: h.d.ShithubdPath,
 	}, repos.Params{
 		OwnerUserID:   user.ID,
 		OwnerUsername: user.Username,
