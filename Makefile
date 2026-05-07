@@ -101,6 +101,13 @@ dev-storage-reset: ## Drop the MinIO volume and re-seed.
 storage-check: build ## Run shithubd storage check against the configured backend.
 	./bin/shithubd storage check
 
+dev-email: ## Bring up MailHog for local email capture (S05).
+	docker compose up -d mailhog
+	@echo "MailHog SMTP: 127.0.0.1:1025  web UI: http://127.0.0.1:8025"
+
+dev-email-down: ## Stop MailHog.
+	docker compose stop mailhog
+
 migrate-up: ## Apply all pending migrations.
 	./bin/shithubd migrate up
 

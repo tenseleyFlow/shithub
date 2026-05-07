@@ -60,6 +60,17 @@ services:
       retries: 10
       start_period: 10s
 
+  # Local SMTP catcher (S05). The shithub auth flow writes signup /
+  # password-reset emails here when SHITHUB_AUTH__EMAIL_BACKEND=smtp.
+  # Web UI: http://127.0.0.1:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: shithub-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # web UI
+
   # One-shot init: creates the shithub-dev bucket via mc.
   minio-init:
     image: minio/mc:latest
