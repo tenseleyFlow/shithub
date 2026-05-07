@@ -1,39 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="currentColor" role="img" aria-label="shithub">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 120" fill="currentColor" role="img" aria-label="shithub">
   <title>shithub</title>
-  <desc>A cat-like silhouette with pointed devil ears and a pitchfork tail. Original artwork, AGPLv3 with the project.</desc>
+  <desc>Original mascot: a cat-like creature with curved devil horns and a pitchfork tail. AGPLv3 with the project.</desc>
 
-  <!-- Devil ears: tall pointed triangles with a curve -->
-  <path d="M 32 20 C 30 8, 36 2, 42 10 C 44 16, 42 24, 38 28 Z"/>
-  <path d="M 88 20 C 90 8, 84 2, 78 10 C 76 16, 78 24, 82 28 Z"/>
+  <!-- Tail: thick stroke that emerges from the right edge of the body and
+       curves outward and upward, terminating where the pitchfork crossbar
+       sits on top of it. -->
+  <path d="M 84 72 C 100 76, 116 70, 118 50" stroke="currentColor" stroke-width="8" fill="none" stroke-linecap="round"/>
 
-  <!-- Head: rounded but slightly squarish -->
-  <path d="M 28 36 C 28 24, 40 18, 60 18 C 80 18, 92 24, 92 36 L 92 60 C 92 76, 78 84, 60 84 C 42 84, 28 76, 28 60 Z"/>
+  <!-- Pitchfork: filled crossbar fused over the tail tip, with 3 sharp
+       prongs flaring upward. Prongs are filled triangles for sharp tips. -->
+  <rect x="100" y="44" width="36" height="7" rx="1.5"/>
+  <polygon points="102,45 108,45 105,10"/>
+  <polygon points="114,45 124,45 119,4"/>
+  <polygon points="130,45 136,45 133,10"/>
 
-  <!-- Eye sockets (white cut-outs) -->
-  <ellipse cx="46" cy="48" rx="6" ry="7" fill="#fff"/>
-  <ellipse cx="74" cy="48" rx="6" ry="7" fill="#fff"/>
+  <!-- Body + head: a single egg-shaped silhouette, narrower at top so the
+       horns sit naturally and broader at the bottom for the body. -->
+  <path d="
+    M 12 60
+    C 12 30, 26 18, 50 18
+    C 74 18, 88 30, 88 60
+    C 88 96, 76 106, 50 106
+    C 24 106, 12 96, 12 60
+    Z
+  "/>
 
-  <!-- Pupils, off-center to create a sly expression -->
-  <ellipse cx="48" cy="50" rx="2.5" ry="3" fill="currentColor"/>
-  <ellipse cx="76" cy="50" rx="2.5" ry="3" fill="currentColor"/>
+  <!-- Devil horns: curved triangles flaring up and outward from the head. -->
+  <path d="M 26 24 Q 10 16, 14 4 Q 24 6, 34 22 Z"/>
+  <path d="M 74 24 Q 90 16, 86 4 Q 76 6, 66 22 Z"/>
 
-  <!-- Smug mouth: an asymmetric curl on the right -->
-  <path d="M 50 66 C 56 70, 64 70, 70 66 C 70 70, 64 74, 56 74 C 52 74, 50 72, 50 70 Z"/>
+  <!-- Eyes: white sclera with dark pupils, slightly off-center. -->
+  <ellipse cx="36" cy="54" rx="5" ry="6" fill="#fff"/>
+  <ellipse cx="64" cy="54" rx="5" ry="6" fill="#fff"/>
+  <ellipse cx="38" cy="55" rx="2" ry="2.5" fill="currentColor"/>
+  <ellipse cx="66" cy="55" rx="2" ry="2.5" fill="currentColor"/>
 
-  <!-- Tiny fang on the smile -->
-  <path d="M 64 70 L 66 76 L 67 70 Z" fill="#fff"/>
-
-  <!-- Body: tapered into a curl beneath the head -->
-  <path d="M 38 80 C 38 90, 46 96, 60 96 C 74 96, 82 90, 82 80 L 82 78 C 82 86, 74 92, 60 92 C 46 92, 38 86, 38 78 Z"/>
-
-  <!-- Tail emerging from the lower right of the body -->
-  <path d="M 80 90 C 96 90, 102 80, 100 68 C 98 60, 92 58, 88 64 C 90 70, 90 76, 86 80" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
-
-  <!-- Pitchfork at the end of the tail -->
-  <!-- crossbar -->
-  <path d="M 92 56 L 110 56" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-  <!-- 3 prongs -->
-  <path d="M 94 56 L 92 44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 101 56 L 101 42" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 108 56 L 110 44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <!-- Smug smirk: a smooth Q-curve, asymmetric (lifted on the right). -->
+  <path d="M 36 78 Q 50 84, 62 73" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>
 </svg>

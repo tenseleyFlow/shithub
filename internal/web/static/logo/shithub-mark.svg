@@ -1,20 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="currentColor" role="img" aria-label="shithub">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="currentColor" role="img" aria-label="shithub">
   <title>shithub</title>
 
-  <!-- Devil ears -->
-  <path d="M 24 24 C 22 10, 30 2, 36 12 C 38 18, 36 26, 32 30 Z"/>
-  <path d="M 76 24 C 78 10, 70 2, 64 12 C 62 18, 64 26, 68 30 Z"/>
+  <!-- Tail: emerges from the body's right edge, curves up to the pitchfork. -->
+  <path d="M 70 60 C 84 64, 98 60, 100 42" stroke="currentColor" stroke-width="6" fill="none" stroke-linecap="round"/>
 
-  <!-- Head -->
-  <path d="M 18 38 C 18 24, 32 16, 50 16 C 68 16, 82 24, 82 38 L 82 64 C 82 80, 68 88, 50 88 C 32 88, 18 80, 18 64 Z"/>
+  <!-- Pitchfork: filled crossbar fused over the tail tip, 3 sharp prongs. -->
+  <rect x="84" y="38" width="32" height="6" rx="1.5"/>
+  <polygon points="86,39 92,39 89,8"/>
+  <polygon points="97,39 105,39 101,2"/>
+  <polygon points="111,39 116,39 113.5,8"/>
+
+  <!-- Body + head: compact egg silhouette. -->
+  <path d="
+    M 12 50
+    C 12 26, 24 16, 42 16
+    C 60 16, 72 26, 72 50
+    C 72 80, 62 90, 42 90
+    C 22 90, 12 80, 12 50
+    Z
+  "/>
+
+  <!-- Devil horns -->
+  <path d="M 22 22 Q 8 14, 12 2 Q 22 4, 30 20 Z"/>
+  <path d="M 62 22 Q 76 14, 72 2 Q 62 4, 54 20 Z"/>
 
   <!-- Eyes -->
-  <ellipse cx="36" cy="48" rx="6" ry="7" fill="#fff"/>
-  <ellipse cx="64" cy="48" rx="6" ry="7" fill="#fff"/>
-  <ellipse cx="38" cy="50" rx="2.5" ry="3" fill="currentColor"/>
-  <ellipse cx="66" cy="50" rx="2.5" ry="3" fill="currentColor"/>
+  <ellipse cx="30" cy="46" rx="4" ry="5" fill="#fff"/>
+  <ellipse cx="54" cy="46" rx="4" ry="5" fill="#fff"/>
+  <ellipse cx="32" cy="47" rx="1.6" ry="2" fill="currentColor"/>
+  <ellipse cx="56" cy="47" rx="1.6" ry="2" fill="currentColor"/>
 
-  <!-- Smug mouth -->
-  <path d="M 40 66 C 46 70, 54 70, 60 66 C 60 70, 54 74, 46 74 C 42 74, 40 72, 40 70 Z"/>
-  <path d="M 54 70 L 56 76 L 57 70 Z" fill="#fff"/>
+  <!-- Smug smirk: a smooth Q-curve, asymmetric (lifted on the right). -->
+  <path d="M 30 66 Q 42 72, 54 62" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
 </svg>
