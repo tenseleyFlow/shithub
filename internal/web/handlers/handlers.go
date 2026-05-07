@@ -7,6 +7,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -23,6 +24,9 @@ type Deps struct {
 	TemplatesFS fs.FS
 	StaticFS    fs.FS
 	LogoSVG     string
+	// ReadyCheck is optionally invoked by /readyz. Returning a non-nil
+	// error makes /readyz report 503. If nil, /readyz always reports ready.
+	ReadyCheck func(context.Context) error
 }
 
 // Register wires every S00 route into mux. Later sprints' Register entrypoints
@@ -45,7 +49,7 @@ func Register(mux *http.ServeMux, deps Deps) error {
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFileServer(deps.StaticFS)))
 	mux.HandleFunc("GET /healthz", healthz)
-	mux.HandleFunc("GET /readyz", readyz)
+	mux.Handle("GET /readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 	mux.Handle("GET /{$}", helloHandler{render: r, logoSVG: deps.LogoSVG, logger: deps.Logger})
 
 	return nil

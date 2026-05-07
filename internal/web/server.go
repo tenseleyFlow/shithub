@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers"
 )
 
@@ -44,13 +45,31 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("load logo: %w", err)
 	}
 
+	// DB pool is optional in S01: the server boots without one (the hello
+	// page works), but /readyz reports 503 if a DB is configured but
+	// unreachable. S02+ will make a pool effectively required.
+	var pool *pgxpoolHandle
+	if cfg := db.Defaults().Resolve(); cfg.URL != "" {
+		p, err := db.Open(ctx, cfg)
+		if err != nil {
+			logger.Warn("db: open failed; /readyz will report unhealthy", "error", err)
+		} else {
+			pool = &pgxpoolHandle{p: p}
+			defer p.Close()
+		}
+	}
+
 	mux := http.NewServeMux()
-	if err := handlers.Register(mux, handlers.Deps{
+	deps := handlers.Deps{
 		Logger:      logger,
 		TemplatesFS: TemplatesFS(),
 		StaticFS:    StaticFS(),
 		LogoSVG:     string(logoBytes),
-	}); err != nil {
+	}
+	if pool != nil {
+		deps.ReadyCheck = pool.healthcheck
+	}
+	if err := handlers.Register(mux, deps); err != nil {
 		return fmt.Errorf("register handlers: %w", err)
 	}
 
@@ -92,6 +111,26 @@ func Run(ctx context.Context, opts Options) error {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
+	}
+	return nil
+}
+
+// pgxpoolHandle is an internal wrapper that converts the pool into the
+// callback-shape the handlers package expects, without exposing pgx types
+// to internal/web/handlers. It also lets us pass a nil pool through cleanly.
+type pgxpoolHandle struct {
+	p interface {
+		Close()
+	}
+}
+
+func (h *pgxpoolHandle) healthcheck(ctx context.Context) error {
+	// Re-open the type via the db package's typed helper.
+	type pinger interface {
+		Ping(context.Context) error
+	}
+	if p, ok := h.p.(pinger); ok {
+		return p.Ping(ctx)
 	}
 	return nil
 }
