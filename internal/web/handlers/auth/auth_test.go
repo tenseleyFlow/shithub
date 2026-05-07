@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/justinas/nosurf"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
@@ -67,6 +68,16 @@ func (c *captureSender) reset() {
 var fastArgon = password.Params{Memory: 16 * 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}
 
 func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *captureSender) {
+	srv, _, captor := newTestServerWithPool(t, requireVerify)
+	return srv, captor
+}
+
+// newTestServerWithPool is identical to newTestServer but also exposes
+// the underlying pool so tests that need to manipulate DB state (e.g.
+// backdating timestamps) can do so against the SAME database the server
+// is reading from. Use the simpler newTestServer when no DB poking is
+// needed.
+func newTestServerWithPool(t *testing.T, requireVerify bool) (*httptest.Server, *pgxpool.Pool, *captureSender) {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -151,7 +162,7 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
-	return srv, cap
+	return srv, pool, cap
 }
 
 // authTemplatesFS returns a minimal templates FS sufficient for the auth
@@ -180,6 +191,7 @@ func authTemplatesFS() fs.FS {
 	emailsTpl := `{{ define "page" }}<h1>Emails</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/emails" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>EMAILS={{ range .Emails }}{{.ID}}:{{.Email}}:p={{.IsPrimary}}:v={{.Verified}};{{ end }}{{ end }}`
 	notifTpl := `{{ define "page" }}<h1>Notifications</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/notifications" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHANNELS={{ range .Channels }}{{.Key}}:e={{.Enabled}}:r={{.Required}};{{ end }}</form>{{ end }}`
 	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
+	dangerTpl := `{{ define "page" }}<h1>Delete</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<form action="/settings/danger" method=POST><input name=csrf_token value="{{.CSRFToken}}">USER={{.Username}};GRACE={{.GraceWindowDays}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":                {Data: []byte(layout)},
@@ -202,6 +214,7 @@ func authTemplatesFS() fs.FS {
 		"settings/emails.html":        {Data: []byte(emailsTpl)},
 		"settings/notifications.html": {Data: []byte(notifTpl)},
 		"settings/sessions.html":      {Data: []byte(sessTpl)},
+		"settings/danger.html":        {Data: []byte(dangerTpl)},
 		"errors/404.html":             {Data: []byte(errorPage)},
 		"errors/403.html":             {Data: []byte(errorPage)},
 		"errors/429.html":             {Data: []byte(errorPage)},

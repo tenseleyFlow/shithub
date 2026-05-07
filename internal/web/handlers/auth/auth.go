@@ -149,6 +149,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/notifications", h.settingsNotificationsSubmit)
 			r.Get("/settings/sessions", h.settingsSessionsList)
 			r.Post("/settings/sessions/logout-everywhere", h.settingsSessionsLogoutAll)
+			r.Get("/settings/danger", h.settingsDangerForm)
+			r.Post("/settings/danger", h.settingsDangerDelete)
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
@@ -379,9 +381,17 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, username)
+	// IncludingDeleted lets us spot soft-deleted users so we can restore
+	// them on login during the grace window. Past the window they look
+	// indistinguishable from "doesn't exist" — same response, same timing.
+	user, err := h.q.GetUserByUsernameIncludingDeleted(r.Context(), h.d.Pool, username)
 	if err != nil {
 		// User doesn't exist — still hash to keep timing constant.
+		password.VerifyAgainstDummy(pw)
+		render("Incorrect username or password.")
+		return
+	}
+	if user.DeletedAt.Valid && time.Since(user.DeletedAt.Time) >= deletionGraceWindow {
 		password.VerifyAgainstDummy(pw)
 		render("Incorrect username or password.")
 		return
@@ -396,6 +406,18 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		render("Incorrect username or password.")
 		return
+	}
+
+	// Restore-on-login: a within-grace soft-deleted user gets undeleted
+	// the moment they prove ownership of the password. Best-effort: a
+	// failed restore doesn't block the login (the row stays
+	// soft-deleted; UI will surface the issue).
+	if user.DeletedAt.Valid {
+		if err := h.q.RestoreUserAccount(r.Context(), h.d.Pool, user.ID); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "login: restore", "error", err)
+		} else {
+			user.DeletedAt.Valid = false
+		}
 	}
 	if user.SuspendedAt.Valid {
 		render("This account has been suspended.")

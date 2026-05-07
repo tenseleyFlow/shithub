@@ -45,6 +45,8 @@ const (
 	ActionPATCreated           Action = "pat_created"
 	ActionPATRevoked           Action = "pat_revoked"
 	ActionUsernameChanged      Action = "username_changed"
+	ActionAccountDeleted       Action = "account_deleted"
+	ActionAccountRestored      Action = "account_restored"
 )
 
 // Target is a typed target-type constant.
