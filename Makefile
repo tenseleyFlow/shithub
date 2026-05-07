@@ -28,8 +28,16 @@ AIR       := $(GOBIN)/air
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev: ## Run the web server with hot reload via air.
-	@$(AIR)
+dev: ## Run the web server with hot reload via air. Sources .env if present.
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; $(AIR)
+
+dev-migrate: ## Apply DB migrations against $$SHITHUB_DATABASE_URL (sources .env).
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	go run ./cmd/shithubd migrate up
+
+dev-run: ## Run the binary directly (no air); sources .env.
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	go run ./cmd/shithubd web
 
 build: ## Build the shithubd binary into bin/.
 	@mkdir -p bin
