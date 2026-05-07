@@ -28,12 +28,13 @@ const DefaultMaxAge = 30 * 24 * time.Hour
 // Session is the data carried in a cookie. The shape is intentionally
 // small; anything that doesn't fit a few hundred bytes belongs server-side.
 type Session struct {
-	UserID    int64             `json:"uid,omitempty"`
-	CSRFToken string            `json:"csrf,omitempty"`
-	Theme     string            `json:"theme,omitempty"`
-	Flashes   []string          `json:"flashes,omitempty"`
-	Extras    map[string]string `json:"extras,omitempty"`
-	IssuedAt  int64             `json:"iat,omitempty"`
+	UserID       int64             `json:"uid,omitempty"`
+	Pre2FAUserID int64             `json:"p2,omitempty"` // set after password OK, before TOTP step
+	CSRFToken    string            `json:"csrf,omitempty"`
+	Theme        string            `json:"theme,omitempty"`
+	Flashes      []string          `json:"flashes,omitempty"`
+	Extras       map[string]string `json:"extras,omitempty"`
+	IssuedAt     int64             `json:"iat,omitempty"`
 }
 
 // IsAnonymous returns true when no user is bound to the session.
