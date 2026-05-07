@@ -1,0 +1,33 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Account</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Change username</h2>
+      <p>Changing your username can have <a href="https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-personal-account-settings/changing-your-github-username">unintended side effects</a>. Your old name becomes a redirect for 30 days, after which it can be claimed by someone else.</p>
+      <p>You've used <strong>{{ .RecentRenames }}/{{ .MaxRenames }}</strong> changes in the last {{ .WindowDays }} days.</p>
+
+      <form method="POST" action="/settings/account/username" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>New username</span>
+          <input type="text" name="new_username" required maxlength="39" pattern="^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$"
+                 placeholder="{{ .CurrentUsername }}" autocomplete="off" spellcheck="false">
+          <small>Lowercase letters, digits, and hyphens. 1–39 characters; no leading/trailing hyphen.</small>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary"{{ if .RenameRateLimited }} disabled{{ end }}>Change username</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Export account data</h2>
+      <p>Download a portable archive of your repositories, issues, and metadata. Coming soon.</p>
+    </section>
+  </div>
+</div>
+{{- end }}
