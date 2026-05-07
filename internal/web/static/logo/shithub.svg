@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="currentColor" role="img" aria-label="shithub">
+  <title>shithub</title>
+  <desc>A cat-like silhouette with pointed devil ears and a pitchfork tail. Original artwork, AGPLv3 with the project.</desc>
+
+  <!-- Devil ears: tall pointed triangles with a curve -->
+  <path d="M 32 20 C 30 8, 36 2, 42 10 C 44 16, 42 24, 38 28 Z"/>
+  <path d="M 88 20 C 90 8, 84 2, 78 10 C 76 16, 78 24, 82 28 Z"/>
+
+  <!-- Head: rounded but slightly squarish -->
+  <path d="M 28 36 C 28 24, 40 18, 60 18 C 80 18, 92 24, 92 36 L 92 60 C 92 76, 78 84, 60 84 C 42 84, 28 76, 28 60 Z"/>
+
+  <!-- Eye sockets (white cut-outs) -->
+  <ellipse cx="46" cy="48" rx="6" ry="7" fill="#fff"/>
+  <ellipse cx="74" cy="48" rx="6" ry="7" fill="#fff"/>
+
+  <!-- Pupils, off-center to create a sly expression -->
+  <ellipse cx="48" cy="50" rx="2.5" ry="3" fill="currentColor"/>
+  <ellipse cx="76" cy="50" rx="2.5" ry="3" fill="currentColor"/>
+
+  <!-- Smug mouth: an asymmetric curl on the right -->
+  <path d="M 50 66 C 56 70, 64 70, 70 66 C 70 70, 64 74, 56 74 C 52 74, 50 72, 50 70 Z"/>
+
+  <!-- Tiny fang on the smile -->
+  <path d="M 64 70 L 66 76 L 67 70 Z" fill="#fff"/>
+
+  <!-- Body: tapered into a curl beneath the head -->
+  <path d="M 38 80 C 38 90, 46 96, 60 96 C 74 96, 82 90, 82 80 L 82 78 C 82 86, 74 92, 60 92 C 46 92, 38 86, 38 78 Z"/>
+
+  <!-- Tail emerging from the lower right of the body -->
+  <path d="M 80 90 C 96 90, 102 80, 100 68 C 98 60, 92 58, 88 64 C 90 70, 90 76, 86 80" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Pitchfork at the end of the tail -->
+  <!-- crossbar -->
+  <path d="M 92 56 L 110 56" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <!-- 3 prongs -->
+  <path d="M 94 56 L 92 44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 101 56 L 101 42" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 108 56 L 110 44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+</svg>
