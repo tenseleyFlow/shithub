@@ -1,0 +1,42 @@
+{{ define "page" -}}
+<section class="shithub-profile">
+  <header class="shithub-profile-header">
+    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="200" height="200">
+    <div class="shithub-profile-id">
+      <h1 class="shithub-profile-name">
+        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
+        {{ if .IsSelf }}<span class="shithub-profile-you" title="this is you">you</span>{{ end }}
+      </h1>
+      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
+      {{ if .User.Pronouns }}<p class="shithub-profile-pronouns">{{ .User.Pronouns }}</p>{{ end }}
+      {{ if .IsSelf }}
+        <a href="/settings/profile" class="shithub-button">Edit profile</a>
+      {{ end }}
+    </div>
+  </header>
+
+  {{ if .User.Bio }}<p class="shithub-profile-bio">{{ .User.Bio }}</p>{{ end }}
+
+  <dl class="shithub-profile-meta">
+    {{ if .User.Company }}<dt>Company</dt><dd>{{ .User.Company }}</dd>{{ end }}
+    {{ if .User.Location }}<dt>Location</dt><dd>{{ .User.Location }}</dd>{{ end }}
+    {{ if .WebsiteSafe }}<dt>Website</dt><dd><a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .User.Website }}</a></dd>{{ end }}
+    <dt>Joined</dt><dd>{{ .JoinedFormatted }}</dd>
+  </dl>
+
+  <section class="shithub-profile-pinned" aria-labelledby="pinned-h">
+    <h2 id="pinned-h">Pinned repositories</h2>
+    <p class="shithub-empty">Nothing pinned yet.</p>
+  </section>
+
+  <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
+    <h2 id="contrib-h">Contributions</h2>
+    <p class="shithub-empty">Contribution graph coming soon.</p>
+  </section>
+
+  <section class="shithub-profile-readme" aria-labelledby="readme-h">
+    <h2 id="readme-h">Profile README</h2>
+    <p class="shithub-empty">No profile README yet.</p>
+  </section>
+</section>
+{{- end }}
