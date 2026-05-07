@@ -40,6 +40,8 @@ const (
 	ActionLoginSucceeded       Action = "login_succeeded"
 	ActionLoginFailedThrottled Action = "login_failed_throttled"
 	ActionAccountSuspended     Action = "account_suspended"
+	ActionSSHKeyAdded          Action = "ssh_key_added"
+	ActionSSHKeyDeleted        Action = "ssh_key_deleted"
 )
 
 // Target is a typed target-type constant.
