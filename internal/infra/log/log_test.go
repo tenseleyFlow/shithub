@@ -59,3 +59,27 @@ func TestNew_KeepsOrdinaryValues(t *testing.T) {
 		t.Errorf("non-secret fields dropped: %s", out)
 	}
 }
+
+func TestNew_StripsURLCredentials(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := New(Options{Level: "info", Format: "json", Writer: &buf})
+
+	// Non-secret-keyed value containing user:pass@host — the per-value
+	// regex strips just the userinfo, keeping host + path readable.
+	logger.Info("db", "uri", "postgres://shithub:hunter2@127.0.0.1:5432/shithub?sslmode=disable")
+	// PAT-bearing URL routes through the value-marker scrub (shithub_pat_),
+	// which is more aggressive — the whole value collapses to ***.
+	logger.Info("git remote", "remote_uri", "https://alice:shithub_pat_abcdefghijklmnopqrstuvwxyz0123456789@host.example/owner/repo.git")
+
+	out := buf.String()
+	for _, leak := range []string{"hunter2", "shithub_pat_abc", "alice:shithub_pat_"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("credential leaked: %q in %s", leak, out)
+		}
+	}
+	// Generic case keeps the host so logs stay useful.
+	if !strings.Contains(out, "127.0.0.1") {
+		t.Errorf("host stripped from generic URL: %s", out)
+	}
+}

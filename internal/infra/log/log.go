@@ -22,6 +22,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 )
 
@@ -153,5 +154,26 @@ func redactValueIfSensitive(v string) string {
 			return "***"
 		}
 	}
+	if u := stripURLUserinfo(v); u != v {
+		return u
+	}
 	return v
+}
+
+// urlUserinfoRE matches the credentials portion of a URL of the form
+// scheme://user:pass@host/path. We replace it with scheme://***@host/path
+// so the host + path stay readable in logs (helps debugging) while the
+// credentials are gone.
+//
+// The pattern is deliberately strict: scheme [a-z][a-z0-9+\-.]* / / a
+// minimal user:pass containing no @ before the literal @host. Slack and
+// other URL-detection regexes get this wrong all the time; we only need
+// to handle URLs that come through Go's net/url emitter, which canonicalizes.
+var urlUserinfoRE = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+\-.]*)://[^\s/@:]+:[^\s/@]+@`)
+
+func stripURLUserinfo(s string) string {
+	if !strings.Contains(s, "://") || !strings.Contains(s, "@") {
+		return s
+	}
+	return urlUserinfoRE.ReplaceAllString(s, "$1://***@")
 }
