@@ -1,0 +1,56 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Appearance</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Theme preferences</h2>
+      <p>Choose how shithub looks. <em>Sync with system</em> matches your OS setting and switches automatically when it does.</p>
+
+      <form method="POST" action="/settings/appearance" novalidate class="shithub-theme-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+        <fieldset class="shithub-theme-grid">
+          <legend>Theme mode</legend>
+
+          <label class="shithub-theme-card{{ if eq .CurrentTheme "" }} active{{ end }}">
+            <input type="radio" name="theme" value=""{{ if eq .CurrentTheme "" }} checked{{ end }}>
+            <span class="shithub-theme-card-title">Sync with system</span>
+            <span class="shithub-theme-card-desc">Follow your OS light/dark setting.</span>
+          </label>
+
+          <label class="shithub-theme-card{{ if eq .CurrentTheme "auto" }} active{{ end }}">
+            <input type="radio" name="theme" value="auto"{{ if eq .CurrentTheme "auto" }} checked{{ end }}>
+            <span class="shithub-theme-card-title">Auto (time-of-day)</span>
+            <span class="shithub-theme-card-desc">Light by day, dark by night — based on your OS preference.</span>
+          </label>
+
+          <label class="shithub-theme-card{{ if eq .CurrentTheme "light" }} active{{ end }}">
+            <input type="radio" name="theme" value="light"{{ if eq .CurrentTheme "light" }} checked{{ end }}>
+            <span class="shithub-theme-card-title">Light</span>
+            <span class="shithub-theme-card-desc">Always use the light theme.</span>
+          </label>
+
+          <label class="shithub-theme-card{{ if eq .CurrentTheme "dark" }} active{{ end }}">
+            <input type="radio" name="theme" value="dark"{{ if eq .CurrentTheme "dark" }} checked{{ end }}>
+            <span class="shithub-theme-card-title">Dark</span>
+            <span class="shithub-theme-card-desc">Always use the dark theme.</span>
+          </label>
+
+          <label class="shithub-theme-card{{ if eq .CurrentTheme "high_contrast" }} active{{ end }}">
+            <input type="radio" name="theme" value="high_contrast"{{ if eq .CurrentTheme "high_contrast" }} checked{{ end }}>
+            <span class="shithub-theme-card-title">High contrast</span>
+            <span class="shithub-theme-card-desc">Increased contrast for accessibility.</span>
+          </label>
+        </fieldset>
+
+        <button type="submit" class="shithub-button shithub-button-primary">Update theme</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

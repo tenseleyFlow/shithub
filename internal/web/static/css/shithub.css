@@ -535,3 +535,48 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+/* ----- theme picker (S10) ----- */
+.shithub-theme-grid {
+  border: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+.shithub-theme-grid legend {
+  padding: 0;
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.shithub-theme-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-subtle);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms;
+}
+.shithub-theme-card:hover { border-color: var(--accent-emphasis); }
+.shithub-theme-card.active {
+  border-color: var(--accent-emphasis);
+  box-shadow: 0 0 0 1px var(--accent-emphasis) inset;
+}
+.shithub-theme-card input[type=radio] {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+}
+.shithub-theme-card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.shithub-theme-card-desc {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}

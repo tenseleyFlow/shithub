@@ -166,6 +166,7 @@ func authTemplatesFS() fs.FS {
 	accountTpl := `{{ define "page" }}<h1>Account</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/account/username" method=POST><input name=csrf_token value="{{.CSRFToken}}">USERNAME={{.CurrentUsername}};USED={{.RecentRenames}}/{{.MaxRenames}};</form>{{ end }}`
 	//nolint:gosec // G101 false positive: HTML fixture, not a credential.
 	pwTpl := `{{ define "page" }}<h1>Password</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/password" method=POST><input name=csrf_token value="{{.CSRFToken}}">RECENT={{.RecentAuthOK}};</form>{{ end }}`
+	apprTpl := `{{ define "page" }}<h1>Appearance</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/appearance" method=POST><input name=csrf_token value="{{.CSRFToken}}">THEME={{.CurrentTheme}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":               {Data: []byte(layout)},
@@ -184,6 +185,7 @@ func authTemplatesFS() fs.FS {
 		"settings/profile.html":      {Data: []byte(profileTpl)},
 		"settings/account.html":      {Data: []byte(accountTpl)},
 		"settings/password.html":     {Data: []byte(pwTpl)},
+		"settings/appearance.html":   {Data: []byte(apprTpl)},
 		"errors/404.html":            {Data: []byte(errorPage)},
 		"errors/403.html":            {Data: []byte(errorPage)},
 		"errors/429.html":            {Data: []byte(errorPage)},

@@ -138,6 +138,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/account/username", h.settingsAccountUsername)
 			r.Get("/settings/password", h.settingsPasswordForm)
 			r.Post("/settings/password", h.settingsPasswordSubmit)
+			r.Get("/settings/appearance", h.settingsAppearanceForm)
+			r.Post("/settings/appearance", h.settingsAppearanceSubmit)
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
