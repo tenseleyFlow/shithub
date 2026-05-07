@@ -35,6 +35,10 @@ type Deps struct {
 	// MetricsHandler, when non-nil, is mounted at /metrics. Caller is
 	// responsible for any access control (e.g. HTTP Basic auth wrapping).
 	MetricsHandler http.Handler
+	// AuthMounter, when non-nil, is invoked inside the CSRF-protected
+	// route group with the chi.Router so the auth handlers can register
+	// signup/login/logout/reset/verify routes.
+	AuthMounter func(chi.Router)
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -95,6 +99,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// panic-recovery path so an operator can confirm the styled 500
 		// page renders. S35 will gate this behind a dev flag.
 		r.Get("/internal/panic", panicTrigger)
+		if deps.AuthMounter != nil {
+			deps.AuthMounter(r)
+		}
 	})
 
 	notFound := func(w http.ResponseWriter, r *http.Request) {
