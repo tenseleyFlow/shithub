@@ -11,21 +11,81 @@ import (
 )
 
 type Querier interface {
+	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
+	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
+	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
+	// ─── rename rate limit support ─────────────────────────────────────────
+	// Used to enforce the 5-per-30-days rename rate limit. The redirect
+	// row is the audit trail for renames; counting them per repo gives a
+	// reliable cap.
+	CountRecentRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
+	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
+	// Used by hard-delete: drop the redirect rows pointing at this repo
+	// (they would dangle once the repos row is gone; the FK ON DELETE
+	// CASCADE would handle it, but explicit is auditable).
+	DeleteRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
+	// Called by the periodic worker (transfers:expire) — flips pending
+	// offers past their expires_at to the expired terminal state.
+	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
 	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
 	// Returns the owner_username for a repo. Used by size-recalc and other
 	// jobs that need to derive the bare-repo on-disk path without round-
 	// tripping through the full user row.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
+	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
+	HardDeleteRepo(ctx context.Context, db DBTX, id int64) error
+	// ─── redirects ─────────────────────────────────────────────────────────
+	// Both old-owner FKs are nullable; pass exactly one. The CHECK
+	// constraint on the table enforces the xor shape.
+	InsertRepoRedirect(ctx context.Context, db DBTX, arg InsertRepoRedirectParams) error
+	// ─── transfer requests ─────────────────────────────────────────────────
+	InsertTransferRequest(ctx context.Context, db DBTX, arg InsertTransferRequestParams) (RepoTransferRequest, error)
 	// Used by `shithubd hooks reinstall --all` to enumerate every active
 	// bare repo on disk and re-link its hooks.
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
+	// Inbox view: pending offers a user can act on.
+	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
+	// ─── soft-delete sweep query ───────────────────────────────────────────
+	// The repo:hard_delete enqueuer queries this to find rows ready for
+	// destruction. The 7-day grace is hard-coded here; if we add a config
+	// knob later, change this to a parameter.
+	ListRepoIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
+	// /settings/repositories/restore page lists these.
+	ListSoftDeletedReposForOwner(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListSoftDeletedReposForOwnerRow, error)
+	// Sender / repo-settings view.
+	ListTransfersForRepo(ctx context.Context, db DBTX, repoID int64) ([]RepoTransferRequest, error)
+	// Returns the current repo_id when (old_owner_user_id, old_name) hits
+	// a redirect row.
+	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
+	// ─── fork-anchor cleanup on hard delete ────────────────────────────────
+	// Children pointing at this repo lose their fork-of pointer. Mirrors
+	// GitHub's behavior when an upstream is deleted.
+	OrphanForksOf(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// S16 lifecycle queries. Kept in a separate file from repos.sql so the
+	// mainline CRUD stays easy to read.
+	// ─── repo mutations ────────────────────────────────────────────────────
+	// Same-owner rename. The handler validates the new name shape and the
+	// redirect row is INSERTed in the same tx.
+	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
+	RestoreRepo(ctx context.Context, db DBTX, id int64) error
+	SetRepoVisibility(ctx context.Context, db DBTX, arg SetRepoVisibilityParams) error
 	SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error
+	// Distinct name from S11's SoftDeleteRepo so future code that wants to
+	// preserve the lifecycle audit-emission shape can find this one.
+	SoftDeleteRepoLifecycle(ctx context.Context, db DBTX, id int64) error
+	// Sets owner_user_id (or owner_org_id post-S31) on accept. The xor
+	// check on the table enforces the shape. Also clears the other side
+	// so a user→org transfer flips both columns atomically.
+	TransferRepoOwner(ctx context.Context, db DBTX, arg TransferRepoOwnerParams) error
+	UnarchiveRepo(ctx context.Context, db DBTX, id int64) error
 	// Set when push:process detects a commit on the repo's default branch.
 	// Pass NULL to clear (e.g. when the branch is force-deleted in a future
 	// sprint). The repo home view reads this to decide between empty and

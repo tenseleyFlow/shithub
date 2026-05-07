@@ -99,6 +99,93 @@ func (ns NullRepoVisibility) Value() (driver.Value, error) {
 	return string(ns.RepoVisibility), nil
 }
 
+type TransferPrincipalKind string
+
+const (
+	TransferPrincipalKindUser TransferPrincipalKind = "user"
+	TransferPrincipalKindOrg  TransferPrincipalKind = "org"
+)
+
+func (e *TransferPrincipalKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TransferPrincipalKind(s)
+	case string:
+		*e = TransferPrincipalKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TransferPrincipalKind: %T", src)
+	}
+	return nil
+}
+
+type NullTransferPrincipalKind struct {
+	TransferPrincipalKind TransferPrincipalKind
+	Valid                 bool // Valid is true if TransferPrincipalKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTransferPrincipalKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.TransferPrincipalKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TransferPrincipalKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTransferPrincipalKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TransferPrincipalKind), nil
+}
+
+type TransferStatus string
+
+const (
+	TransferStatusPending  TransferStatus = "pending"
+	TransferStatusAccepted TransferStatus = "accepted"
+	TransferStatusDeclined TransferStatus = "declined"
+	TransferStatusCanceled TransferStatus = "canceled"
+	TransferStatusExpired  TransferStatus = "expired"
+)
+
+func (e *TransferStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TransferStatus(s)
+	case string:
+		*e = TransferStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TransferStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTransferStatus struct {
+	TransferStatus TransferStatus
+	Valid          bool // Valid is true if TransferStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTransferStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TransferStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TransferStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTransferStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TransferStatus), nil
+}
+
 type AuthAuditLog struct {
 	ID         int64
 	ActorID    pgtype.Int8
@@ -197,6 +284,29 @@ type RepoCollaborator struct {
 	Role          CollabRole
 	AddedAt       pgtype.Timestamptz
 	AddedByUserID pgtype.Int8
+}
+
+type RepoRedirect struct {
+	OldOwnerUserID pgtype.Int8
+	OldOwnerOrgID  pgtype.Int8
+	OldName        string
+	RepoID         int64
+	RedirectedAt   pgtype.Timestamptz
+}
+
+type RepoTransferRequest struct {
+	ID              int64
+	RepoID          int64
+	FromUserID      int64
+	ToPrincipalKind TransferPrincipalKind
+	ToPrincipalID   int64
+	CreatedBy       int64
+	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	Status          TransferStatus
+	AcceptedAt      pgtype.Timestamptz
+	DeclinedAt      pgtype.Timestamptz
+	CanceledAt      pgtype.Timestamptz
 }
 
 type User struct {
