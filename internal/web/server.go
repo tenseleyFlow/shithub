@@ -125,8 +125,10 @@ func Run(ctx context.Context, opts Options) error {
 		r.Use(tracing.Middleware)
 	}
 	r.Use(middleware.SecureHeaders(middleware.DefaultSecureHeaders()))
-	r.Use(middleware.Compress)
-	r.Use(middleware.Timeout(30 * time.Second))
+	// Compress + Timeout are NOT global: the smart-HTTP git routes need
+	// to stream uncompressed pack data for many minutes. RegisterChi
+	// applies them inside the CSRF-exempt and CSRF-protected groups but
+	// skips the git group.
 	r.Use(middleware.SessionLoader(sessionStore, logger))
 	if pool != nil {
 		r.Use(middleware.OptionalUser(usernameLookup(pool)))
@@ -183,6 +185,12 @@ func Run(ctx context.Context, opts Options) error {
 			})
 		}
 		deps.RepoHomeMounter = repoH.MountRepoHome
+
+		gitHTTPH, err := buildGitHTTPHandlers(cfg, pool, logger)
+		if err != nil {
+			return fmt.Errorf("git-http handlers: %w", err)
+		}
+		deps.GitHTTPMounter = gitHTTPH.MountSmartHTTP
 	} else {
 		logger.Warn("auth: no DB pool — signup/login routes not mounted")
 	}

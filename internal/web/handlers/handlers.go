@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -53,6 +54,12 @@ type Deps struct {
 	// CSRF-protected group. Two-segment match doesn't collide with the
 	// /{username} catch-all.
 	RepoHomeMounter func(chi.Router)
+	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
+	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
+	// land in a route group that bypasses CSRF, response compression,
+	// and the global request timeout — git generates its own pack
+	// format, uses HTTP Basic, and clones can run for many minutes.
+	GitHTTPMounter func(chi.Router)
 	// ProfileMounter, when non-nil, registers the /{username} catch-all
 	// route. MUST run last in its group — chi matches in registration
 	// order, and {username} swallows everything else.
@@ -101,6 +108,8 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 	// Static and health endpoints are CSRF-exempt; everything else passes
 	// through the CSRF wrapper for state-changing methods.
 	r.Group(func(r chi.Router) {
+		r.Use(middleware.Compress)
+		r.Use(middleware.Timeout(30 * time.Second))
 		r.Handle("/static/*", http.StripPrefix("/static/", staticFileServer(deps.StaticFS)))
 		r.Get("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
@@ -115,8 +124,23 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 	})
 
-	// Application routes — CSRF protected.
+	// Smart-HTTP git routes get their own group: NO CSRF (HTTP Basic
+	// flow, no browser form posts), NO response compression (git emits
+	// its own pack format), and NO global request timeout (long clones
+	// run for minutes). The global SecureHeaders / RealIP / RequestID
+	// stack still applies; everything else is per-group.
+	if deps.GitHTTPMounter != nil {
+		r.Group(func(r chi.Router) {
+			deps.GitHTTPMounter(r)
+		})
+	}
+
+	// Application routes — CSRF protected. Compress + Timeout live in
+	// this group (and the static one above) rather than globally so the
+	// git-HTTP group can opt out.
 	r.Group(func(r chi.Router) {
+		r.Use(middleware.Compress)
+		r.Use(middleware.Timeout(30 * time.Second))
 		r.Use(csrf)
 		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger}.ServeHTTP)
 		// /internal/panic is a dev affordance: GET it to trigger the
