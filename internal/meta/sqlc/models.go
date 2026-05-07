@@ -103,6 +103,20 @@ type UserSshKey struct {
 	CreatedAt         pgtype.Timestamptz
 }
 
+type UserToken struct {
+	ID          int64
+	UserID      int64
+	Name        string
+	TokenHash   []byte
+	TokenPrefix string
+	Scopes      []string
+	ExpiresAt   pgtype.Timestamptz
+	LastUsedAt  pgtype.Timestamptz
+	LastUsedIp  *netip.Addr
+	RevokedAt   pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
 type UserTotp struct {
 	ID              int64
 	UserID          int64

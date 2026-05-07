@@ -30,6 +30,7 @@ const DefaultMaxAge = 30 * 24 * time.Hour
 type Session struct {
 	UserID       int64             `json:"uid,omitempty"`
 	Pre2FAUserID int64             `json:"p2,omitempty"` // set after password OK, before TOTP step
+	Recent2FAAt  int64             `json:"r2,omitempty"` // unix-seconds of last successful 2FA challenge
 	CSRFToken    string            `json:"csrf,omitempty"`
 	Theme        string            `json:"theme,omitempty"`
 	Flashes      []string          `json:"flashes,omitempty"`

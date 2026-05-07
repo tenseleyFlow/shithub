@@ -78,6 +78,7 @@ var reservedNames = map[string]struct{}{
 	"public":        {},
 	"private":       {},
 	"keys":          {},
+	"tokens":        {},
 	"shithub":       {},
 	"shithubd":      {},
 	"shithubbot":    {},

@@ -42,6 +42,8 @@ const (
 	ActionAccountSuspended     Action = "account_suspended"
 	ActionSSHKeyAdded          Action = "ssh_key_added"
 	ActionSSHKeyDeleted        Action = "ssh_key_deleted"
+	ActionPATCreated           Action = "pat_created"
+	ActionPATRevoked           Action = "pat_revoked"
 )
 
 // Target is a typed target-type constant.
