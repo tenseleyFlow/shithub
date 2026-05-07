@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
@@ -122,6 +123,90 @@ func pickAdminEmailSender(cfg config.Config) (email.Sender, error) {
 	}
 }
 
+var adminClear2FACmd = &cobra.Command{
+	Use:   "clear-2fa <username>",
+	Short: "Clear 2FA enrollment from a user account (support escape hatch)",
+	Long: `Removes the user's TOTP enrollment and recovery codes, writes an
+audit-log row, and emails the user a notification. Use only when the user
+has lost both their authenticator device and their recovery codes —
+typically after manual identity verification through a support channel.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		username := args[0]
+		cfg, err := config.Load(nil)
+		if err != nil {
+			return err
+		}
+		if cfg.DB.URL == "" {
+			return errors.New("admin clear-2fa: DB not configured (set SHITHUB_DATABASE_URL)")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+		defer cancel()
+
+		pool, err := db.Open(ctx, db.Config{
+			URL: cfg.DB.URL, MaxConns: 2, MinConns: 0,
+			ConnectTimeout: cfg.DB.ConnectTimeout,
+		})
+		if err != nil {
+			return fmt.Errorf("db open: %w", err)
+		}
+		defer pool.Close()
+
+		q := usersdb.New()
+		user, err := q.GetUserByUsername(ctx, pool, username)
+		if err != nil {
+			return fmt.Errorf("user %q not found", username)
+		}
+
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		if err := q.DeleteUserTOTP(ctx, tx, user.ID); err != nil {
+			return fmt.Errorf("delete totp: %w", err)
+		}
+		if err := q.DeleteUserRecoveryCodes(ctx, tx, user.ID); err != nil {
+			return fmt.Errorf("delete recovery: %w", err)
+		}
+		recorder := audit.NewRecorder()
+		if err := recorder.Record(ctx, tx, 0,
+			audit.ActionAdminCleared2FA, audit.TargetUser, user.ID,
+			map[string]any{"admin": "cli"}); err != nil {
+			return fmt.Errorf("audit: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit: %w", err)
+		}
+
+		// Best-effort notification email.
+		if user.PrimaryEmailID.Valid {
+			em, err := q.GetUserEmailByID(ctx, pool, user.PrimaryEmailID.Int64)
+			if err == nil {
+				sender, err := pickAdminEmailSender(cfg)
+				if err == nil {
+					msg, err := email.NoticeMessage(email.Branding{
+						SiteName: cfg.Auth.SiteName,
+						BaseURL:  cfg.Auth.BaseURL,
+						From:     cfg.Auth.EmailFrom,
+					}, string(em.Email), user.Username, "admin_cleared_2fa")
+					if err == nil {
+						if err := sender.Send(ctx, msg); err != nil {
+							_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warn: notification email failed: %v\n", err)
+						}
+					}
+				}
+			}
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"clear-2fa: 2FA + recovery codes cleared for %s; audit row written\n", user.Username)
+		return nil
+	},
+}
+
 func init() {
 	adminCmd.AddCommand(adminResetPasswordCmd)
+	adminCmd.AddCommand(adminClear2FACmd)
 }
