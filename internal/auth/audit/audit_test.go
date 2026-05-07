@@ -21,11 +21,15 @@ func TestRecord_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	q := usersdb.New()
 
-	// Seed a user so actor_id FK is satisfied.
+	// Seed a user so actor_id FK is satisfied. The PHC string is a static
+	// test fixture (zero salt, zero key) — not a real credential.
+	const fixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
+		"AAAAAAAAAAAAAAAA$" +
+		"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	user, err := q.CreateUser(ctx, pool, usersdb.CreateUserParams{
 		Username:     "alice",
 		DisplayName:  "Alice",
-		PasswordHash: "$argon2id$v=19$m=16384,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		PasswordHash: fixtureHash,
 	})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)

@@ -75,7 +75,9 @@ func LooksLikeRecoveryCode(s string) bool {
 		return false
 	}
 	for _, r := range n {
-		if !((r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+		isUpper := r >= 'A' && r <= 'Z'
+		isDigit := r >= '0' && r <= '9'
+		if !isUpper && !isDigit {
 			return false
 		}
 	}

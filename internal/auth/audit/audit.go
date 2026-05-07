@@ -29,17 +29,17 @@ type DBTX = usersdb.DBTX
 type Action string
 
 const (
-	Action2FAEnabled            Action = "2fa_enabled"
-	Action2FADisabled           Action = "2fa_disabled"
-	ActionRecoveryCodesIssued   Action = "recovery_codes_issued"
-	ActionRecoveryCodeUsed      Action = "recovery_code_used"
-	ActionRecoveryRegenerated   Action = "recovery_codes_regenerated"
-	ActionAdminCleared2FA       Action = "admin_cleared_2fa"
-	ActionPasswordChanged       Action = "password_changed"
-	ActionPasswordReset         Action = "password_reset_consumed"
-	ActionLoginSucceeded        Action = "login_succeeded"
-	ActionLoginFailedThrottled  Action = "login_failed_throttled"
-	ActionAccountSuspended      Action = "account_suspended"
+	Action2FAEnabled           Action = "2fa_enabled"
+	Action2FADisabled          Action = "2fa_disabled"
+	ActionRecoveryCodesIssued  Action = "recovery_codes_issued"
+	ActionRecoveryCodeUsed     Action = "recovery_code_used"
+	ActionRecoveryRegenerated  Action = "recovery_codes_regenerated"
+	ActionAdminCleared2FA      Action = "admin_cleared_2fa"
+	ActionPasswordChanged      Action = "password_changed"
+	ActionPasswordReset        Action = "password_reset_consumed"
+	ActionLoginSucceeded       Action = "login_succeeded"
+	ActionLoginFailedThrottled Action = "login_failed_throttled"
+	ActionAccountSuspended     Action = "account_suspended"
 )
 
 // Target is a typed target-type constant.
