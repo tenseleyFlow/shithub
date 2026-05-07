@@ -23,6 +23,13 @@ type helloData struct {
 	Commit  string
 	BuiltAt string
 	LogoSVG template.HTML
+	// OG* are referenced by the shared _layout.html (S09). The fields
+	// must exist on every typed page-data struct that goes through the
+	// layout — html/template evaluates `{{ if .X }}` even on nil-checks
+	// and errors when X is missing.
+	OGTitle       string
+	OGDescription string
+	OGImage       string
 }
 
 func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
