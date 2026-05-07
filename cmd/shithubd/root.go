@@ -38,6 +38,6 @@ func init() {
 	rootCmd.AddCommand(stubCmd("ssh-shell", "Forced SSH shell dispatcher", "S07/S13"))
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(stubCmd("hook", "Git hook entrypoint", "S14"))
-	rootCmd.AddCommand(stubCmd("admin", "Site-admin CLI", "S34"))
+	rootCmd.AddCommand(adminCmd)
 	rootCmd.AddCommand(configCmd)
 }
