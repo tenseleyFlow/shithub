@@ -73,6 +73,8 @@ type User struct {
 	Company           string
 	Pronouns          string
 	AvatarObjectKey   pgtype.Text
+	Theme             string
+	SessionEpoch      int32
 }
 
 type UserEmail struct {
@@ -85,6 +87,13 @@ type UserEmail struct {
 	VerificationSentAt    pgtype.Timestamptz
 	VerifiedAt            pgtype.Timestamptz
 	CreatedAt             pgtype.Timestamptz
+}
+
+type UserNotificationPref struct {
+	UserID    int64
+	Key       string
+	Value     []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 type UserRecoveryCode struct {
