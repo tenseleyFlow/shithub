@@ -81,6 +81,21 @@ type EmailVerification struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Job struct {
+	ID          int64
+	Kind        string
+	Payload     []byte
+	RunAt       pgtype.Timestamptz
+	Attempts    int32
+	MaxAttempts int32
+	LastError   pgtype.Text
+	LockedBy    pgtype.Text
+	LockedAt    pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+	FailedAt    pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Meta struct {
 	Key       string
 	Value     []byte
@@ -96,25 +111,39 @@ type PasswordReset struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type PushEvent struct {
+	ID           int64
+	RepoID       int64
+	PusherUserID pgtype.Int8
+	BeforeSha    string
+	AfterSha     string
+	Ref          string
+	Protocol     string
+	RequestID    string
+	ProcessedAt  pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
 type Repo struct {
-	ID              int64
-	OwnerUserID     pgtype.Int8
-	OwnerOrgID      pgtype.Int8
-	Name            string
-	Description     string
-	Visibility      RepoVisibility
-	DefaultBranch   string
-	IsArchived      bool
-	ArchivedAt      pgtype.Timestamptz
-	DeletedAt       pgtype.Timestamptz
-	DiskUsedBytes   int64
-	ForkOfRepoID    pgtype.Int8
-	LicenseKey      pgtype.Text
-	PrimaryLanguage pgtype.Text
-	HasIssues       bool
-	HasPulls        bool
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
+	ID               int64
+	OwnerUserID      pgtype.Int8
+	OwnerOrgID       pgtype.Int8
+	Name             string
+	Description      string
+	Visibility       RepoVisibility
+	DefaultBranch    string
+	IsArchived       bool
+	ArchivedAt       pgtype.Timestamptz
+	DeletedAt        pgtype.Timestamptz
+	DiskUsedBytes    int64
+	ForkOfRepoID     pgtype.Int8
+	LicenseKey       pgtype.Text
+	PrimaryLanguage  pgtype.Text
+	HasIssues        bool
+	HasPulls         bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	DefaultBranchOid pgtype.Text
 }
 
 type User struct {
@@ -212,4 +241,12 @@ type UsernameRedirect struct {
 	OldUsername string
 	UserID      int64
 	ChangedAt   pgtype.Timestamptz
+}
+
+type WebhookEventsPending struct {
+	ID        int64
+	RepoID    int64
+	EventKind string
+	Payload   []byte
+	CreatedAt pgtype.Timestamptz
 }

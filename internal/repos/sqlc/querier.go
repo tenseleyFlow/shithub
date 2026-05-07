@@ -15,9 +15,22 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
+	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
+	// Returns the owner_username for a repo. Used by size-recalc and other
+	// jobs that need to derive the bare-repo on-disk path without round-
+	// tripping through the full user row.
+	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
+	// Used by `shithubd hooks reinstall --all` to enumerate every active
+	// bare repo on disk and re-link its hooks.
+	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
 	SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error
+	// Set when push:process detects a commit on the repo's default branch.
+	// Pass NULL to clear (e.g. when the branch is force-deleted in a future
+	// sprint). The repo home view reads this to decide between empty and
+	// populated layouts.
+	UpdateRepoDefaultBranchOID(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchOIDParams) error
 	UpdateRepoDiskUsed(ctx context.Context, db DBTX, arg UpdateRepoDiskUsedParams) error
 }
 

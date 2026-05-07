@@ -49,3 +49,19 @@ sql:
         emit_exact_table_names: false
         emit_empty_slices: true
         emit_methods_with_db_argument: true
+
+  - engine: postgresql
+    schema: internal/migrationsfs/migrations
+    queries: internal/worker/queries
+    gen:
+      go:
+        package: workerdb
+        out: internal/worker/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_pointers_for_null_types: false
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        emit_methods_with_db_argument: true

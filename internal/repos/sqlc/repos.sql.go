@@ -34,7 +34,7 @@ INSERT INTO repos (
 RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           default_branch, is_archived, archived_at, deleted_at,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
-          has_issues, has_pulls, created_at, updated_at
+          has_issues, has_pulls, created_at, updated_at, default_branch_oid
 `
 
 type CreateRepoParams struct {
@@ -80,6 +80,7 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.HasPulls,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefaultBranchOid,
 	)
 	return i, err
 }
@@ -103,11 +104,47 @@ func (q *Queries) ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg Exist
 	return exists, err
 }
 
+const getRepoByID = `-- name: GetRepoByID :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid
+FROM repos
+WHERE id = $1
+`
+
+func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error) {
+	row := db.QueryRow(ctx, getRepoByID, id)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.OwnerOrgID,
+		&i.Name,
+		&i.Description,
+		&i.Visibility,
+		&i.DefaultBranch,
+		&i.IsArchived,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.DiskUsedBytes,
+		&i.ForkOfRepoID,
+		&i.LicenseKey,
+		&i.PrimaryLanguage,
+		&i.HasIssues,
+		&i.HasPulls,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultBranchOid,
+	)
+	return i, err
+}
+
 const getRepoByOwnerUserAndName = `-- name: GetRepoByOwnerUserAndName :one
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
-       has_issues, has_pulls, created_at, updated_at
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -139,15 +176,77 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.HasPulls,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefaultBranchOid,
 	)
 	return i, err
+}
+
+const getRepoOwnerUsernameByID = `-- name: GetRepoOwnerUsernameByID :one
+SELECT u.username AS owner_username, r.name AS repo_name
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.id = $1
+`
+
+type GetRepoOwnerUsernameByIDRow struct {
+	OwnerUsername string
+	RepoName      string
+}
+
+// Returns the owner_username for a repo. Used by size-recalc and other
+// jobs that need to derive the bare-repo on-disk path without round-
+// tripping through the full user row.
+func (q *Queries) GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error) {
+	row := db.QueryRow(ctx, getRepoOwnerUsernameByID, id)
+	var i GetRepoOwnerUsernameByIDRow
+	err := row.Scan(&i.OwnerUsername, &i.RepoName)
+	return i, err
+}
+
+const listAllRepoFullNames = `-- name: ListAllRepoFullNames :many
+SELECT
+    r.id,
+    r.name,
+    u.username AS owner_username
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.deleted_at IS NULL
+ORDER BY r.id
+`
+
+type ListAllRepoFullNamesRow struct {
+	ID            int64
+	Name          string
+	OwnerUsername string
+}
+
+// Used by `shithubd hooks reinstall --all` to enumerate every active
+// bare repo on disk and re-link its hooks.
+func (q *Queries) ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error) {
+	rows, err := db.Query(ctx, listAllRepoFullNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllRepoFullNamesRow{}
+	for rows.Next() {
+		var i ListAllRepoFullNamesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.OwnerUsername); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listReposForOwnerUser = `-- name: ListReposForOwnerUser :many
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
-       has_issues, has_pulls, created_at, updated_at
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -181,6 +280,7 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.HasPulls,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefaultBranchOid,
 		); err != nil {
 			return nil, err
 		}
@@ -198,6 +298,24 @@ UPDATE repos SET deleted_at = now() WHERE id = $1
 
 func (q *Queries) SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error {
 	_, err := db.Exec(ctx, softDeleteRepo, id)
+	return err
+}
+
+const updateRepoDefaultBranchOID = `-- name: UpdateRepoDefaultBranchOID :exec
+UPDATE repos SET default_branch_oid = $2::text WHERE id = $1
+`
+
+type UpdateRepoDefaultBranchOIDParams struct {
+	ID               int64
+	DefaultBranchOid pgtype.Text
+}
+
+// Set when push:process detects a commit on the repo's default branch.
+// Pass NULL to clear (e.g. when the branch is force-deleted in a future
+// sprint). The repo home view reads this to decide between empty and
+// populated layouts.
+func (q *Queries) UpdateRepoDefaultBranchOID(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchOIDParams) error {
+	_, err := db.Exec(ctx, updateRepoDefaultBranchOID, arg.ID, arg.DefaultBranchOid)
 	return err
 }
 
