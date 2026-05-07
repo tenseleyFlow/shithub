@@ -126,6 +126,9 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
+			r.Get("/settings/tokens", h.tokensList)
+			r.Post("/settings/tokens", h.tokensCreate)
+			r.Post("/settings/tokens/{id}/revoke", h.tokensRevoke)
 			if h.d.SecretBox != nil {
 				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
 				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)

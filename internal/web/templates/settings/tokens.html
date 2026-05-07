@@ -1,0 +1,76 @@
+{{ define "page" -}}
+<section class="shithub-auth shithub-auth-wide">
+  <h1>Personal access tokens</h1>
+  <p>Tokens authenticate API calls and git-over-HTTPS pushes. Use them with <code>Authorization: token &lt;value&gt;</code> or as the password in HTTP Basic.</p>
+
+  {{ if .JustCreatedRaw }}
+  <div class="shithub-token-created" role="alert">
+    <strong>Save this token now — it won't be shown again.</strong>
+    <pre><code>{{ .JustCreatedRaw }}</code></pre>
+  </div>
+  {{ end }}
+
+  {{ if .Tokens }}
+  <ul class="shithub-token-list">
+    {{ range .Tokens }}
+    <li class="shithub-token-row">
+      <div>
+        <strong>{{ .Name }}</strong>
+        <span class="shithub-key-meta">
+          {{ if .RevokedAt.Valid }}revoked{{ else if and .ExpiresAt.Valid (gt .ExpiresAt.Time.Unix 0) }}expires {{ .ExpiresAt.Time.Format "2006-01-02" }}{{ else }}no expiry{{ end }}
+        </span>
+        <code class="shithub-key-fp">{{ .TokenPrefix }}…</code>
+        <div class="shithub-token-scopes">{{ range .Scopes }}<span>{{ . }}</span>{{ end }}</div>
+        {{ if .LastUsedAt.Valid }}<span class="shithub-key-last">last used {{ .LastUsedAt.Time.Format "2006-01-02 15:04" }}</span>{{ end }}
+      </div>
+      {{ if not .RevokedAt.Valid }}
+      <form method="POST" action="/settings/tokens/{{ .ID }}/revoke" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-danger">Revoke</button>
+      </form>
+      {{ end }}
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-key-empty">No tokens yet.</p>
+  {{ end }}
+
+  <h2>Create a token</h2>
+  {{ if not .RecentAuthOK }}
+    <p class="shithub-flash shithub-flash-error" role="alert">
+      Confirm 2FA before creating a token. <a href="/login">Sign in again</a> with your authenticator code.
+    </p>
+  {{ end }}
+  {{ with .CreateError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <form method="POST" action="/settings/tokens" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Name</span>
+      <input type="text" name="name" maxlength="80" required value="{{ .CreateName }}" placeholder="ci runner, laptop, …">
+    </label>
+    <label>
+      <span>Expiry</span>
+      <select name="expires_in">
+        <option value="90">90 days (recommended)</option>
+        <option value="30">30 days</option>
+        <option value="365">1 year</option>
+        <option value="">No expiry</option>
+      </select>
+    </label>
+    <fieldset class="shithub-token-scopes-pick">
+      <legend>Scopes</legend>
+      {{ $picked := .CreateScopes }}
+      {{ range .AllScopes }}
+      {{ $s := . }}
+      <label>
+        <input type="checkbox" name="scopes" value="{{ . }}"
+          {{ range $picked }}{{ if eq . (printf "%s" $s) }}checked{{ end }}{{ end }}>
+        <code>{{ . }}</code>
+      </label>
+      {{ end }}
+    </fieldset>
+    <button type="submit" class="shithub-button shithub-button-primary">Create token</button>
+  </form>
+</section>
+{{- end }}
