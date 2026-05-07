@@ -164,6 +164,8 @@ func authTemplatesFS() fs.FS {
 	tokensTpl := `{{ define "page" }}<form>{{ with .CreateError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .JustCreatedRaw }}RAW={{.JustCreatedRaw}}{{ end }}TOKENS={{ range .Tokens }}{{.ID}}:{{.TokenPrefix}}{{ if .RevokedAt.Valid }}:revoked{{ end }};{{ end }}</form>{{ end }}`
 	profileTpl := `{{ define "page" }}<h1>Public profile</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form><input name=csrf_token value="{{.CSRFToken}}">DISPLAY={{.Form.DisplayName}};BIO={{.Form.Bio}};LOCATION={{.Form.Location}};WEBSITE={{.Form.Website}};COMPANY={{.Form.Company}};PRONOUNS={{.Form.Pronouns}};</form>{{ if .HasAvatar }}<form action="/settings/profile/avatar/remove" method=POST><input name=csrf_token value="{{.CSRFToken}}"><button>Remove</button></form>{{ end }}{{ end }}`
 	accountTpl := `{{ define "page" }}<h1>Account</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/account/username" method=POST><input name=csrf_token value="{{.CSRFToken}}">USERNAME={{.CurrentUsername}};USED={{.RecentRenames}}/{{.MaxRenames}};</form>{{ end }}`
+	//nolint:gosec // G101 false positive: HTML fixture, not a credential.
+	pwTpl := `{{ define "page" }}<h1>Password</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/password" method=POST><input name=csrf_token value="{{.CSRFToken}}">RECENT={{.RecentAuthOK}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":               {Data: []byte(layout)},
@@ -181,6 +183,7 @@ func authTemplatesFS() fs.FS {
 		"settings/tokens.html":       {Data: []byte(tokensTpl)},
 		"settings/profile.html":      {Data: []byte(profileTpl)},
 		"settings/account.html":      {Data: []byte(accountTpl)},
+		"settings/password.html":     {Data: []byte(pwTpl)},
 		"errors/404.html":            {Data: []byte(errorPage)},
 		"errors/403.html":            {Data: []byte(errorPage)},
 		"errors/429.html":            {Data: []byte(errorPage)},
