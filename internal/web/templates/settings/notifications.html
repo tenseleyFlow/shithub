@@ -1,0 +1,33 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Notifications</h1>
+
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Email preferences</h2>
+      <p>Choose which kinds of email shithub may send to your primary address.</p>
+
+      <form method="POST" action="/settings/notifications" novalidate class="shithub-notif-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+        {{ range .Channels }}
+        <label class="shithub-notif-row{{ if .Required }} required{{ end }}">
+          <input type="checkbox" name="{{ .Key }}" value="on"
+                 {{ if .Enabled }}checked{{ end }}
+                 {{ if .Required }}disabled{{ end }}>
+          <span>
+            <strong>{{ .Title }}</strong>
+            <small>{{ .Description }}</small>
+          </span>
+        </label>
+        {{ end }}
+
+        <button type="submit" class="shithub-button shithub-button-primary">Save preferences</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

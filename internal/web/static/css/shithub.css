@@ -615,3 +615,19 @@ code {
 .shithub-pill-primary { background: rgba(56, 139, 253, 0.15); border-color: rgba(56, 139, 253, 0.4); }
 .shithub-pill-verified { background: rgba(63, 185, 80, 0.15); border-color: rgba(63, 185, 80, 0.4); }
 .shithub-pill-unverified { background: rgba(187, 128, 9, 0.15); border-color: rgba(187, 128, 9, 0.4); }
+
+/* ----- notifications (S10) ----- */
+.shithub-notif-form { display: grid; gap: 0.75rem; max-width: 36rem; }
+.shithub-notif-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  align-items: start;
+}
+.shithub-notif-row.required { background: rgba(56, 139, 253, 0.06); }
+.shithub-notif-row strong { display: block; font-size: 0.95rem; }
+.shithub-notif-row small { display: block; color: var(--fg-muted); font-size: 0.85rem; }

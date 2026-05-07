@@ -145,6 +145,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/emails/{id}/resend", h.settingsEmailsResend)
 			r.Post("/settings/emails/{id}/primary", h.settingsEmailsSetPrimary)
 			r.Post("/settings/emails/{id}/remove", h.settingsEmailsRemove)
+			r.Get("/settings/notifications", h.settingsNotificationsForm)
+			r.Post("/settings/notifications", h.settingsNotificationsSubmit)
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)
