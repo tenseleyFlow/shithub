@@ -170,6 +170,19 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.AvatarMounter = profile.MountAvatars
 		deps.ProfileMounter = profile.MountProfile
+
+		repoH, err := buildRepoHandlers(cfg, pool, deps.TemplatesFS, logger)
+		if err != nil {
+			return fmt.Errorf("repo handlers: %w", err)
+		}
+		// /new is wrapped in RequireUser — it requires a logged-in caller.
+		deps.RepoNewMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountNew(r)
+			})
+		}
+		deps.RepoHomeMounter = repoH.MountRepoHome
 	} else {
 		logger.Warn("auth: no DB pool — signup/login routes not mounted")
 	}

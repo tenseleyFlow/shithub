@@ -46,6 +46,13 @@ type Deps struct {
 	// AvatarMounter, when non-nil, registers /avatars/{username} on the
 	// CSRF-exempt group (avatar GETs are safe and benefit from caching).
 	AvatarMounter func(chi.Router)
+	// RepoNewMounter, when non-nil, registers /new on the CSRF-protected
+	// group. The handler enforces auth itself.
+	RepoNewMounter func(chi.Router)
+	// RepoHomeMounter, when non-nil, registers /{owner}/{repo} on the
+	// CSRF-protected group. Two-segment match doesn't collide with the
+	// /{username} catch-all.
+	RepoHomeMounter func(chi.Router)
 	// ProfileMounter, when non-nil, registers the /{username} catch-all
 	// route. MUST run last in its group — chi matches in registration
 	// order, and {username} swallows everything else.
@@ -118,6 +125,12 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Get("/internal/panic", panicTrigger)
 		if deps.AuthMounter != nil {
 			deps.AuthMounter(r)
+		}
+		if deps.RepoNewMounter != nil {
+			deps.RepoNewMounter(r)
+		}
+		if deps.RepoHomeMounter != nil {
+			deps.RepoHomeMounter(r)
 		}
 		// Profile is registered LAST so /{username} doesn't shadow any
 		// static top-level route.
