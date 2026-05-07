@@ -24,6 +24,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -82,6 +83,15 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 	cap := &captureSender{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
+	totpKey, err := secretbox.GenerateKey()
+	if err != nil {
+		t.Fatalf("secretbox key: %v", err)
+	}
+	box, err := secretbox.FromBytes(totpKey)
+	if err != nil {
+		t.Fatalf("secretbox: %v", err)
+	}
+
 	h, err := authh.New(authh.Deps{
 		Logger:       logger,
 		Render:       rr,
@@ -95,6 +105,7 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 		Argon2:                   fastArgon,
 		Limiter:                  throttle.NewLimiter(),
 		RequireEmailVerification: requireVerify,
+		SecretBox:                box,
 	})
 	if err != nil {
 		t.Fatalf("authh.New: %v", err)
@@ -104,6 +115,18 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
 	r.Use(middleware.SessionLoader(store, logger))
+	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, error) {
+		// Cheap username lookup against the test pool — RequireUser only
+		// checks ID == 0, but settings handlers use the username.
+		u, err := pool.Acquire(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer u.Release()
+		var name string
+		err = u.QueryRow(ctx, "SELECT username FROM users WHERE id = $1", id).Scan(&name)
+		return name, err
+	}))
 	csrf := middleware.CSRF(middleware.CSRFConfig{
 		FailureHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "csrf: "+nosurfReason(r), http.StatusForbidden)
@@ -130,19 +153,27 @@ func authTemplatesFS() fs.FS {
 	resetReq := `{{ define "page" }}<form>{{ with .Notice }}<p class=notice>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"></form>{{ end }}`
 	resetConf := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{.Token}}</form>{{ end }}`
 	verifyResend := `{{ define "page" }}<form>{{ with .Notice }}<p class=notice>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"></form>{{ end }}`
+	tfaChallenge := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"><input name=next value="{{.Next}}"></form>{{ end }}`
+	tfaEnable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">SECRET={{.Secret}}</form>{{ end }}`
+	tfaDisable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"></form>{{ end }}`
+	tfaRecovery := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .RecoveryCodes }}CODES={{ range .RecoveryCodes }}{{.}};{{ end }}{{ end }}</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
-		"_layout.html":            {Data: []byte(layout)},
-		"hello.html":              {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"auth/signup.html":        {Data: []byte(signup)},
-		"auth/login.html":         {Data: []byte(login)},
-		"auth/reset_request.html": {Data: []byte(resetReq)},
-		"auth/reset_confirm.html": {Data: []byte(resetConf)},
-		"auth/verify_resend.html": {Data: []byte(verifyResend)},
-		"errors/404.html":         {Data: []byte(errorPage)},
-		"errors/403.html":         {Data: []byte(errorPage)},
-		"errors/429.html":         {Data: []byte(errorPage)},
-		"errors/500.html":         {Data: []byte(errorPage)},
+		"_layout.html":               {Data: []byte(layout)},
+		"hello.html":                 {Data: []byte(`{{ define "page" }}home{{ end }}`)},
+		"auth/signup.html":           {Data: []byte(signup)},
+		"auth/login.html":            {Data: []byte(login)},
+		"auth/reset_request.html":    {Data: []byte(resetReq)},
+		"auth/reset_confirm.html":    {Data: []byte(resetConf)},
+		"auth/verify_resend.html":    {Data: []byte(verifyResend)},
+		"auth/2fa_challenge.html":    {Data: []byte(tfaChallenge)},
+		"settings/2fa_enable.html":   {Data: []byte(tfaEnable)},
+		"settings/2fa_disable.html":  {Data: []byte(tfaDisable)},
+		"settings/2fa_recovery.html": {Data: []byte(tfaRecovery)},
+		"errors/404.html":            {Data: []byte(errorPage)},
+		"errors/403.html":            {Data: []byte(errorPage)},
+		"errors/429.html":            {Data: []byte(errorPage)},
+		"errors/500.html":            {Data: []byte(errorPage)},
 	}
 }
 
