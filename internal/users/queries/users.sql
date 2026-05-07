@@ -54,3 +54,51 @@ WHERE id = $1;
 
 -- name: CountUsers :one
 SELECT count(*) FROM users WHERE deleted_at IS NULL;
+
+-- name: UpdateUserProfile :exec
+UPDATE users
+SET display_name = $2,
+    bio          = $3,
+    location     = $4,
+    website      = $5,
+    company      = $6,
+    pronouns     = $7
+WHERE id = $1;
+
+-- name: UpdateUserAvatarKey :exec
+UPDATE users
+SET avatar_object_key = $2
+WHERE id = $1;
+
+-- name: RenameUser :exec
+-- Wrapped by the username-change flow inside a tx that also writes
+-- username_redirects, so the old name becomes a redirect target atomically.
+UPDATE users
+SET username = $2
+WHERE id = $1;
+
+-- name: CountRecentUsernameChanges :one
+-- Drives the 3-changes-per-60d cap.
+SELECT count(*) FROM username_redirects
+WHERE user_id = $1 AND changed_at > $2;
+
+-- name: UpdateUserTheme :exec
+UPDATE users SET theme = $2 WHERE id = $1;
+
+-- name: BumpUserSessionEpoch :exec
+UPDATE users SET session_epoch = session_epoch + 1 WHERE id = $1;
+
+-- name: GetUserSessionEpoch :one
+SELECT session_epoch FROM users WHERE id = $1;
+
+-- name: RestoreUserAccount :exec
+-- Clears deleted_at; called when a user logs in within the 14-day grace
+-- window. The login handler enforces the window check before calling.
+UPDATE users SET deleted_at = NULL WHERE id = $1;
+
+-- name: GetUserIncludingDeleted :one
+-- Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
+SELECT * FROM users WHERE id = $1;
+
+-- name: GetUserByUsernameIncludingDeleted :one
+SELECT * FROM users WHERE username = $1;

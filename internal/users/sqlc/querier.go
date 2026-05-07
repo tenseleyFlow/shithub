@@ -20,6 +20,7 @@ type Querier interface {
 	// strictly greater. Returns rows affected — 0 means a replay attempt and
 	// the caller should reject the code.
 	BumpTOTPCounter(ctx context.Context, db DBTX, arg BumpTOTPCounterParams) (int64, error)
+	BumpUserSessionEpoch(ctx context.Context, db DBTX, id int64) error
 	// Sets confirmed_at on a pending row. Returns the number of rows updated;
 	// callers MUST check this to handle the parallel-enrollment race
 	// (only one of two concurrent confirms wins).
@@ -31,9 +32,12 @@ type Querier interface {
 	// 0 means rejected.
 	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountActiveUserTokens(ctx context.Context, db DBTX, userID int64) (int64, error)
+	// Drives the 3-changes-per-60d cap.
+	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
+	CountVerifiedUserEmails(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateEmailVerification(ctx context.Context, db DBTX, arg CreateEmailVerificationParams) (EmailVerification, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -44,6 +48,10 @@ type Querier interface {
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
 	DeleteExpiredPasswordResets(ctx context.Context, db DBTX) error
+	// Scoped delete: caller must pass owning user_id. Refuses to delete
+	// the primary email (UI must guide the user to set a different primary first).
+	DeleteUserEmail(ctx context.Context, db DBTX, arg DeleteUserEmailParams) (int64, error)
+	DeleteUserNotificationPref(ctx context.Context, db DBTX, arg DeleteUserNotificationPrefParams) error
 	DeleteUserRecoveryCodes(ctx context.Context, db DBTX, userID int64) error
 	// Scoped delete: caller must pass the owning user_id so a hijacked
 	// handler can never delete keys it doesn't own.
@@ -53,12 +61,16 @@ type Querier interface {
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
 	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error)
+	GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error)
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
+	// Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
+	GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64) (User, error)
 	// Hot path for sshd's AuthorizedKeysCommand. Index lookup via the UNIQUE
 	// index on fingerprint_sha256.
 	GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error)
+	GetUserSessionEpoch(ctx context.Context, db DBTX, id int64) (int32, error)
 	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)
 	// Hot path for the auth middleware. token_hash is UNIQUE; returns at
 	// most one row. Caller MUST also check revoked_at IS NULL and
@@ -81,6 +93,8 @@ type Querier interface {
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	ListUserNotificationPrefs(ctx context.Context, db DBTX, userID int64) ([]UserNotificationPref, error)
 	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -92,19 +106,33 @@ type Querier interface {
 	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
 	MarkUserEmailVerified(ctx context.Context, db DBTX, id int64) error
 	PurgeStaleAuthThrottle(ctx context.Context, db DBTX, windowStartedAt pgtype.Timestamptz) error
+	// Wrapped by the username-change flow inside a tx that also writes
+	// username_redirects, so the old name becomes a redirect target atomically.
+	RenameUser(ctx context.Context, db DBTX, arg RenameUserParams) error
 	ResetAuthThrottle(ctx context.Context, db DBTX, arg ResetAuthThrottleParams) error
+	// Clears deleted_at; called when a user logs in within the 14-day grace
+	// window. The login handler enforces the window check before calling.
+	RestoreUserAccount(ctx context.Context, db DBTX, id int64) error
 	// Used by user suspension to revoke every active token in one statement.
 	RevokeAllUserTokens(ctx context.Context, db DBTX, userID int64) error
 	// Scoped revoke: caller must pass owning user_id so a hijacked handler
 	// can never revoke tokens it doesn't own. No-op on already-revoked rows.
 	RevokeUserToken(ctx context.Context, db DBTX, arg RevokeUserTokenParams) (int64, error)
+	// Atomically unset the existing primary and set the supplied row as
+	// primary. Caller MUST have already verified the row belongs to the
+	// user and is verified.
+	SetUserEmailPrimary(ctx context.Context, db DBTX, arg SetUserEmailPrimaryParams) error
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error
+	UpdateUserAvatarKey(ctx context.Context, db DBTX, arg UpdateUserAvatarKeyParams) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
+	UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error
+	UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error
+	UpsertUserNotificationPref(ctx context.Context, db DBTX, arg UpsertUserNotificationPrefParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Inserts a new pending TOTP row, or replaces an existing pending row for
 	// the same user. Confirmed rows are NOT replaced — disable+regenerate

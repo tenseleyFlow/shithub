@@ -11,6 +11,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bumpUserSessionEpoch = `-- name: BumpUserSessionEpoch :exec
+UPDATE users SET session_epoch = session_epoch + 1 WHERE id = $1
+`
+
+func (q *Queries) BumpUserSessionEpoch(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, bumpUserSessionEpoch, id)
+	return err
+}
+
+const countRecentUsernameChanges = `-- name: CountRecentUsernameChanges :one
+SELECT count(*) FROM username_redirects
+WHERE user_id = $1 AND changed_at > $2
+`
+
+type CountRecentUsernameChangesParams struct {
+	UserID    int64
+	ChangedAt pgtype.Timestamptz
+}
+
+// Drives the 3-changes-per-60d cap.
+func (q *Queries) CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error) {
+	row := db.QueryRow(ctx, countRecentUsernameChanges, arg.UserID, arg.ChangedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT count(*) FROM users WHERE deleted_at IS NULL
 `
@@ -26,7 +53,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (username, display_name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
+RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch
 `
 
 type CreateUserParams struct {
@@ -60,12 +87,14 @@ func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams)
 		&i.Company,
 		&i.Pronouns,
 		&i.AvatarObjectKey,
+		&i.Theme,
+		&i.SessionEpoch,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch
 FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -94,12 +123,14 @@ func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (User, err
 		&i.Company,
 		&i.Pronouns,
 		&i.AvatarObjectKey,
+		&i.Theme,
+		&i.SessionEpoch,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch
 FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
@@ -128,8 +159,90 @@ func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username strin
 		&i.Company,
 		&i.Pronouns,
 		&i.AvatarObjectKey,
+		&i.Theme,
+		&i.SessionEpoch,
 	)
 	return i, err
+}
+
+const getUserByUsernameIncludingDeleted = `-- name: GetUserByUsernameIncludingDeleted :one
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch FROM users WHERE username = $1
+`
+
+func (q *Queries) GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error) {
+	row := db.QueryRow(ctx, getUserByUsernameIncludingDeleted, username)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.DisplayName,
+		&i.PrimaryEmailID,
+		&i.PasswordHash,
+		&i.PasswordAlgo,
+		&i.PasswordUpdatedAt,
+		&i.EmailVerified,
+		&i.LastLoginAt,
+		&i.SuspendedAt,
+		&i.SuspendedReason,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Bio,
+		&i.Location,
+		&i.Website,
+		&i.Company,
+		&i.Pronouns,
+		&i.AvatarObjectKey,
+		&i.Theme,
+		&i.SessionEpoch,
+	)
+	return i, err
+}
+
+const getUserIncludingDeleted = `-- name: GetUserIncludingDeleted :one
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch FROM users WHERE id = $1
+`
+
+// Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
+func (q *Queries) GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64) (User, error) {
+	row := db.QueryRow(ctx, getUserIncludingDeleted, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.DisplayName,
+		&i.PrimaryEmailID,
+		&i.PasswordHash,
+		&i.PasswordAlgo,
+		&i.PasswordUpdatedAt,
+		&i.EmailVerified,
+		&i.LastLoginAt,
+		&i.SuspendedAt,
+		&i.SuspendedReason,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Bio,
+		&i.Location,
+		&i.Website,
+		&i.Company,
+		&i.Pronouns,
+		&i.AvatarObjectKey,
+		&i.Theme,
+		&i.SessionEpoch,
+	)
+	return i, err
+}
+
+const getUserSessionEpoch = `-- name: GetUserSessionEpoch :one
+SELECT session_epoch FROM users WHERE id = $1
+`
+
+func (q *Queries) GetUserSessionEpoch(ctx context.Context, db DBTX, id int64) (int32, error) {
+	row := db.QueryRow(ctx, getUserSessionEpoch, id)
+	var session_epoch int32
+	err := row.Scan(&session_epoch)
+	return session_epoch, err
 }
 
 const linkUserPrimaryEmail = `-- name: LinkUserPrimaryEmail :exec
@@ -160,6 +273,35 @@ WHERE id = $1
 // denormalized users.email_verified flag.
 func (q *Queries) MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error {
 	_, err := db.Exec(ctx, markUserEmailPrimaryVerified, id)
+	return err
+}
+
+const renameUser = `-- name: RenameUser :exec
+UPDATE users
+SET username = $2
+WHERE id = $1
+`
+
+type RenameUserParams struct {
+	ID       int64
+	Username string
+}
+
+// Wrapped by the username-change flow inside a tx that also writes
+// username_redirects, so the old name becomes a redirect target atomically.
+func (q *Queries) RenameUser(ctx context.Context, db DBTX, arg RenameUserParams) error {
+	_, err := db.Exec(ctx, renameUser, arg.ID, arg.Username)
+	return err
+}
+
+const restoreUserAccount = `-- name: RestoreUserAccount :exec
+UPDATE users SET deleted_at = NULL WHERE id = $1
+`
+
+// Clears deleted_at; called when a user logs in within the 14-day grace
+// window. The login handler enforces the window check before calling.
+func (q *Queries) RestoreUserAccount(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, restoreUserAccount, id)
 	return err
 }
 
@@ -202,6 +344,22 @@ func (q *Queries) TouchUserLastLogin(ctx context.Context, db DBTX, id int64) err
 	return err
 }
 
+const updateUserAvatarKey = `-- name: UpdateUserAvatarKey :exec
+UPDATE users
+SET avatar_object_key = $2
+WHERE id = $1
+`
+
+type UpdateUserAvatarKeyParams struct {
+	ID              int64
+	AvatarObjectKey pgtype.Text
+}
+
+func (q *Queries) UpdateUserAvatarKey(ctx context.Context, db DBTX, arg UpdateUserAvatarKeyParams) error {
+	_, err := db.Exec(ctx, updateUserAvatarKey, arg.ID, arg.AvatarObjectKey)
+	return err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users
 SET password_hash       = $2,
@@ -218,5 +376,53 @@ type UpdateUserPasswordParams struct {
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error {
 	_, err := db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash, arg.PasswordAlgo)
+	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :exec
+UPDATE users
+SET display_name = $2,
+    bio          = $3,
+    location     = $4,
+    website      = $5,
+    company      = $6,
+    pronouns     = $7
+WHERE id = $1
+`
+
+type UpdateUserProfileParams struct {
+	ID          int64
+	DisplayName string
+	Bio         string
+	Location    string
+	Website     string
+	Company     string
+	Pronouns    string
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error {
+	_, err := db.Exec(ctx, updateUserProfile,
+		arg.ID,
+		arg.DisplayName,
+		arg.Bio,
+		arg.Location,
+		arg.Website,
+		arg.Company,
+		arg.Pronouns,
+	)
+	return err
+}
+
+const updateUserTheme = `-- name: UpdateUserTheme :exec
+UPDATE users SET theme = $2 WHERE id = $1
+`
+
+type UpdateUserThemeParams struct {
+	ID    int64
+	Theme string
+}
+
+func (q *Queries) UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error {
+	_, err := db.Exec(ctx, updateUserTheme, arg.ID, arg.Theme)
 	return err
 }

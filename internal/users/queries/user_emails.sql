@@ -43,3 +43,18 @@ SELECT id, user_id, email, is_primary, verified, verification_token_hash,
        verification_sent_at, verified_at, created_at
 FROM user_emails
 WHERE verification_token_hash = $1;
+
+-- name: SetUserEmailPrimary :exec
+-- Atomically unset the existing primary and set the supplied row as
+-- primary. Caller MUST have already verified the row belongs to the
+-- user and is verified.
+UPDATE user_emails SET is_primary = (id = $2) WHERE user_id = $1;
+
+-- name: DeleteUserEmail :execrows
+-- Scoped delete: caller must pass owning user_id. Refuses to delete
+-- the primary email (UI must guide the user to set a different primary first).
+DELETE FROM user_emails
+WHERE id = $1 AND user_id = $2 AND is_primary = false;
+
+-- name: CountVerifiedUserEmails :one
+SELECT count(*) FROM user_emails WHERE user_id = $1 AND verified = true;

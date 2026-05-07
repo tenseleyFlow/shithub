@@ -9,6 +9,17 @@ import (
 	"context"
 )
 
+const countVerifiedUserEmails = `-- name: CountVerifiedUserEmails :one
+SELECT count(*) FROM user_emails WHERE user_id = $1 AND verified = true
+`
+
+func (q *Queries) CountVerifiedUserEmails(ctx context.Context, db DBTX, userID int64) (int64, error) {
+	row := db.QueryRow(ctx, countVerifiedUserEmails, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUserEmail = `-- name: CreateUserEmail :one
 
 INSERT INTO user_emails (user_id, email, is_primary, verified, verification_token_hash, verification_sent_at)
@@ -47,6 +58,26 @@ func (q *Queries) CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEm
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const deleteUserEmail = `-- name: DeleteUserEmail :execrows
+DELETE FROM user_emails
+WHERE id = $1 AND user_id = $2 AND is_primary = false
+`
+
+type DeleteUserEmailParams struct {
+	ID     int64
+	UserID int64
+}
+
+// Scoped delete: caller must pass owning user_id. Refuses to delete
+// the primary email (UI must guide the user to set a different primary first).
+func (q *Queries) DeleteUserEmail(ctx context.Context, db DBTX, arg DeleteUserEmailParams) (int64, error) {
+	result, err := db.Exec(ctx, deleteUserEmail, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getUserEmailByAddress = `-- name: GetUserEmailByAddress :one
@@ -169,6 +200,23 @@ WHERE id = $1
 
 func (q *Queries) MarkUserEmailVerified(ctx context.Context, db DBTX, id int64) error {
 	_, err := db.Exec(ctx, markUserEmailVerified, id)
+	return err
+}
+
+const setUserEmailPrimary = `-- name: SetUserEmailPrimary :exec
+UPDATE user_emails SET is_primary = (id = $2) WHERE user_id = $1
+`
+
+type SetUserEmailPrimaryParams struct {
+	UserID int64
+	ID     int64
+}
+
+// Atomically unset the existing primary and set the supplied row as
+// primary. Caller MUST have already verified the row belongs to the
+// user and is verified.
+func (q *Queries) SetUserEmailPrimary(ctx context.Context, db DBTX, arg SetUserEmailPrimaryParams) error {
+	_, err := db.Exec(ctx, setUserEmailPrimary, arg.UserID, arg.ID)
 	return err
 }
 
