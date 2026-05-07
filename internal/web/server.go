@@ -158,6 +158,13 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("api handlers: %w", err)
 		}
 		deps.APIMounter = api.Mount
+
+		profile, err := buildProfileHandlers(pool, nil, deps.TemplatesFS, logger)
+		if err != nil {
+			return fmt.Errorf("profile handlers: %w", err)
+		}
+		deps.AvatarMounter = profile.MountAvatars
+		deps.ProfileMounter = profile.MountProfile
 	} else {
 		logger.Warn("auth: no DB pool — signup/login routes not mounted")
 	}
