@@ -61,11 +61,11 @@ const (
 
 // Sentinel errors callers can errors.Is to map to friendly messages.
 var (
-	ErrSSHRepoNotFound  = errors.New("ssh dispatch: repo not found")
-	ErrSSHPermDenied    = errors.New("ssh dispatch: permission denied")
-	ErrSSHArchived      = errors.New("ssh dispatch: archived")
-	ErrSSHSuspended     = errors.New("ssh dispatch: suspended")
-	ErrSSHInternal      = errors.New("ssh dispatch: internal error")
+	ErrSSHRepoNotFound = errors.New("ssh dispatch: repo not found")
+	ErrSSHPermDenied   = errors.New("ssh dispatch: permission denied")
+	ErrSSHArchived     = errors.New("ssh dispatch: archived")
+	ErrSSHSuspended    = errors.New("ssh dispatch: suspended")
+	ErrSSHInternal     = errors.New("ssh dispatch: internal error")
 )
 
 // PrepareDispatch is the brains of the SSH-shell command. It parses

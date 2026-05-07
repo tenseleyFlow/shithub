@@ -27,11 +27,11 @@ const fixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
 // dispatchEnv constructs deps + 2 users (alice owns repos, eve is a
 // non-owner) + a public repo + a private repo against a fresh test DB.
 type dispatchEnv struct {
-	pool   *pgxpool.Pool
-	deps   protocol.SSHDispatchDeps
-	alice  int64
-	eve    int64
-	root   string
+	pool  *pgxpool.Pool
+	deps  protocol.SSHDispatchDeps
+	alice int64
+	eve   int64
+	root  string
 }
 
 func setupDispatch(t *testing.T) *dispatchEnv {
@@ -224,9 +224,9 @@ func TestFriendlyMessageFor(t *testing.T) {
 func TestParseRemoteIP(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"":                                 "",
-		"203.0.113.7 12345 192.0.2.1 22":   "203.0.113.7",
-		"  203.0.113.8  ":                  "203.0.113.8",
+		"":                               "",
+		"203.0.113.7 12345 192.0.2.1 22": "203.0.113.7",
+		"  203.0.113.8  ":                "203.0.113.8",
 	}
 	for in, want := range cases {
 		if got := protocol.ParseRemoteIP(in); got != want {

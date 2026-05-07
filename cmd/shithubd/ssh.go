@@ -5,15 +5,22 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/git/protocol"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -81,26 +88,115 @@ var sshAuthkeysCmd = &cobra.Command{
 	},
 }
 
-// sshShellCmd is the placeholder for the forced-command target. S13 swaps
-// this for the real git-over-SSH dispatcher; for S07 we just log the
-// inbound command and exit non-zero with a friendly message so an
-// operator (or test) can confirm the wiring works end-to-end.
+// sshShellCmd is the forced-command target sshd invokes after the
+// AuthorizedKeysCommand handshake binds the connection to a user.
+//
+// Flow on a successful clone/push:
+//
+//	sshd ──► shithubd ssh-shell <user_id>
+//	         ├─ ParseSSHCommand(SSH_ORIGINAL_COMMAND)
+//	         ├─ Resolve user + repo against the DB
+//	         ├─ Inline owner-only authz (S15 will refactor)
+//	         ├─ Build SHITHUB_* env (so post-receive hooks identify the actor)
+//	         ├─ Close the DB pool (syscall.Exec preserves all open FDs)
+//	         └─ syscall.Exec git-{upload,receive}-pack <bare-repo>
+//
+// On any error: write a friendly line to stderr (the user sees it in
+// their git client), log structured, exit non-zero. defer does NOT
+// fire on syscall.Exec — every cleanup happens BEFORE the exec call.
 var sshShellCmd = &cobra.Command{
 	Use:    "ssh-shell <user_id>",
 	Short:  "Forced-command target invoked by sshd via AuthorizedKeysCommand",
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		userID := args[0]
+		userID, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: invalid user")
+			return fmt.Errorf("ssh-shell: bad user_id %q: %w", args[0], err)
+		}
 		original := os.Getenv("SSH_ORIGINAL_COMMAND")
-		// Log to stderr so it's captured by sshd's session log without
-		// polluting the (silent-on-empty) stdout contract.
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-			"shithubd ssh-shell: user_id=%s original_command=%q (git-over-SSH lands in S13)\n",
-			userID, original)
-		return fmt.Errorf("git over SSH not enabled yet")
+		remoteIP := protocol.ParseRemoteIP(os.Getenv("SSH_CONNECTION"))
+		logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+		cfg, err := config.Load(nil)
+		if err != nil || cfg.DB.URL == "" || cfg.Storage.ReposRoot == "" {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: server misconfigured")
+			return fmt.Errorf("ssh-shell: cfg: %w", err)
+		}
+		root, err := filepath.Abs(cfg.Storage.ReposRoot)
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: server misconfigured")
+			return fmt.Errorf("ssh-shell: repos_root: %w", err)
+		}
+		rfs, err := storage.NewRepoFS(root)
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: server misconfigured")
+			return fmt.Errorf("ssh-shell: NewRepoFS: %w", err)
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+		defer cancel()
+		pool, err := db.Open(ctx, db.Config{
+			URL: cfg.DB.URL, MaxConns: 2, MinConns: 0,
+			ConnectTimeout: 1500 * time.Millisecond,
+		})
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: temporary failure (try again)")
+			return fmt.Errorf("ssh-shell: db open: %w", err)
+		}
+
+		res, parsed, dispatchErr := protocol.PrepareDispatch(ctx, protocol.SSHDispatchDeps{
+			Pool: pool, RepoFS: rfs,
+		}, protocol.SSHDispatchInput{
+			OriginalCommand: original,
+			UserID:          userID,
+			RemoteIP:        remoteIP,
+		})
+		if dispatchErr != nil {
+			pool.Close()
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), protocol.FriendlyMessageFor(dispatchErr, ""))
+			logger.WarnContext(ctx, "ssh-shell: denied",
+				"user_id", userID,
+				"original", original,
+				"remote_ip", remoteIP,
+				"error", dispatchErr,
+			)
+			return dispatchErr
+		}
+		logger.InfoContext(ctx, "ssh-shell: dispatch",
+			"user_id", userID,
+			"op", string(parsed.Service),
+			"owner", parsed.Owner,
+			"repo", parsed.Repo,
+			"remote_ip", remoteIP,
+		)
+
+		// CRITICAL: close DB pool before syscall.Exec. defer doesn't
+		// fire on exec, and the pgx pool's connections would otherwise
+		// leak into the new process's FD table.
+		pool.Close()
+
+		bin, err := exec.LookPath(res.Argv0)
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: server misconfigured")
+			return fmt.Errorf("ssh-shell: lookup %s: %w", res.Argv0, err)
+		}
+		if err := sysExec(bin, res.Argv0Args, res.Env); err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "shithub: internal error")
+			return fmt.Errorf("ssh-shell: exec %s: %w", bin, err)
+		}
+		// Unreachable on success — syscall.Exec replaces this process.
+		return nil
 	},
 }
+
+// sysExec is split out so tests can stub it. bin is exec.LookPath of a
+// fixed service name (git-{upload,receive}-pack); argv[1] is the
+// sanitized bare-repo path from storage.RepoFS.
+//
+//nolint:gosec // G204: inputs are constrained as documented above.
+var sysExec = syscall.Exec
 
 // authorizedKeysLine builds the single line sshd consumes. The forced
 // command runs `shithubd ssh-shell <user_id>`; the option set strips

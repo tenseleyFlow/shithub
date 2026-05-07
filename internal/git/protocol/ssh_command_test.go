@@ -12,10 +12,10 @@ import (
 func TestParseSSHCommand_Accepts(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in           string
-		wantService  protocol.Service
-		wantOwner    string
-		wantRepo     string
+		in          string
+		wantService protocol.Service
+		wantOwner   string
+		wantRepo    string
 	}{
 		{"git-upload-pack 'alice/foo'", protocol.UploadPack, "alice", "foo"},
 		{"git-upload-pack 'alice/foo.git'", protocol.UploadPack, "alice", "foo"},
@@ -44,13 +44,13 @@ func TestParseSSHCommand_RejectsUnknown(t *testing.T) {
 		"ls",
 		"bash",
 		"git-archive 'alice/foo'",
-		"git-upload-pack",                            // no path
-		" git-upload-pack 'a/b'",                     // leading space
-		"git-upload-pack 'a/b' ",                     // trailing space
-		"git-upload-pack 'a/b' && rm -rf /",          // command injection
+		"git-upload-pack",                   // no path
+		" git-upload-pack 'a/b'",            // leading space
+		"git-upload-pack 'a/b' ",            // trailing space
+		"git-upload-pack 'a/b' && rm -rf /", // command injection
 		`git-upload-pack 'a/b'; cat /etc/passwd`,
-		"GIT-UPLOAD-PACK 'a/b'",                       // case
-		"git-upload-pack a/b'",                        // mismatched quotes
+		"GIT-UPLOAD-PACK 'a/b'", // case
+		"git-upload-pack a/b'",  // mismatched quotes
 	} {
 		_, err := protocol.ParseSSHCommand(in)
 		if !errors.Is(err, protocol.ErrUnknownSSHCommand) {
