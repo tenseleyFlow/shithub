@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package render owns the html/template loading and rendering pipeline.
-// S02 will broaden this with helpers (relativeTime, urlFor, octicon, etc.);
-// S00 ships only what the hello page needs.
+// S02 ships the helper set that the rest of the project will rely on
+// (safeHTML, relativeTime, pluralize, pathJoin, octicon, csrfToken).
+// S25 will broaden this with the markdown pipeline.
 package render
 
 import (
@@ -11,20 +12,35 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"net/http"
 	"path"
 	"strings"
+	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 // Renderer holds parsed templates indexed by page name.
 type Renderer struct {
-	pages map[string]*template.Template
+	pages   map[string]*template.Template
+	octicon OcticonResolver
+}
+
+// OcticonResolver returns the inline SVG markup for a named octicon. The
+// implementation is provided by the caller; for S02 we ship a tiny built-in
+// set; later sprints can plug in the full Primer octicon catalog.
+type OcticonResolver func(name string) (template.HTML, bool)
+
+// Options configures a renderer.
+type Options struct {
+	Octicons OcticonResolver
 }
 
 // New parses every page template under tmplFS. A "page template" is any file
 // at the root of tmplFS that does NOT begin with an underscore. Files that
 // begin with an underscore (e.g. "_layout.html") are partials, parsed once
 // into every page.
-func New(tmplFS fs.FS) (*Renderer, error) {
+func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 	entries, err := fs.ReadDir(tmplFS, ".")
 	if err != nil {
 		return nil, fmt.Errorf("read template root: %w", err)
@@ -33,6 +49,7 @@ func New(tmplFS fs.FS) (*Renderer, error) {
 	var (
 		partialNames []string
 		pageNames    []string
+		errorPages   []string
 	)
 	for _, e := range entries {
 		if e.IsDir() {
@@ -49,32 +66,61 @@ func New(tmplFS fs.FS) (*Renderer, error) {
 		}
 	}
 
-	r := &Renderer{pages: make(map[string]*template.Template, len(pageNames))}
-	for _, page := range pageNames {
-		t := template.New(page).Funcs(funcMap())
-		all := append([]string{}, partialNames...)
-		all = append(all, page)
-		// Convert to filesystem paths.
-		for i := range all {
-			all[i] = path.Clean(all[i])
+	// Recursively pick up files in subdirectories like errors/.
+	// Each subdirectory file is registered as `<dir>/<name>` (without
+	// suffix) for Render lookups.
+	if err := fs.WalkDir(tmplFS, ".", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if d.IsDir() || !strings.HasSuffix(p, ".html") {
+			return nil
+		}
+		if !strings.Contains(p, "/") {
+			return nil
+		}
+		errorPages = append(errorPages, p)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("walk templates: %w", err)
+	}
+
+	r := &Renderer{
+		pages:   make(map[string]*template.Template, len(pageNames)+len(errorPages)),
+		octicon: opts.Octicons,
+	}
+
+	parse := func(displayName string, primary string) error {
+		t := template.New(path.Base(primary)).Funcs(funcMap(r.octicon))
+		all := append([]string{}, partialNames...)
+		all = append(all, primary)
 		parsed, err := t.ParseFS(tmplFS, all...)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", page, err)
+			return fmt.Errorf("parse %s: %w", displayName, err)
 		}
-		r.pages[strings.TrimSuffix(page, ".html")] = parsed
+		r.pages[displayName] = parsed
+		return nil
+	}
+
+	for _, page := range pageNames {
+		if err := parse(strings.TrimSuffix(page, ".html"), page); err != nil {
+			return nil, err
+		}
+	}
+	for _, page := range errorPages {
+		if err := parse(strings.TrimSuffix(page, ".html"), page); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
 
 // Render writes the named page to w using data as the template root context.
-// The page's templates execute the layout via {{ template "layout" . }}.
 func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	t, ok := r.pages[name]
 	if !ok {
 		return fmt.Errorf("render: unknown page %q", name)
 	}
-	// Pages declare a "page" block; the layout calls into it.
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 		return fmt.Errorf("execute %s: %w", name, err)
@@ -83,13 +129,146 @@ func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	return err
 }
 
-func funcMap() template.FuncMap {
+// HTTPError writes an error page with the appropriate status code. If the
+// named error template doesn't exist a plain-text fallback is written.
+func (r *Renderer) HTTPError(w http.ResponseWriter, req *http.Request, status int, message string) {
+	pageName := errorPageFor(status)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+
+	data := struct {
+		Title      string
+		Status     int
+		StatusText string
+		Message    string
+		RequestID  string
+	}{
+		Title:      fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Status:     status,
+		StatusText: http.StatusText(status),
+		Message:    message,
+		RequestID:  middleware.RequestIDFromContext(req.Context()),
+	}
+	if err := r.Render(w, pageName, data); err != nil {
+		_, _ = fmt.Fprintf(w, "%d %s\n%s\n(request_id=%s)\n",
+			status, http.StatusText(status), message, data.RequestID)
+	}
+}
+
+func errorPageFor(status int) string {
+	switch status {
+	case http.StatusForbidden:
+		return "errors/403"
+	case http.StatusNotFound:
+		return "errors/404"
+	case http.StatusTooManyRequests:
+		return "errors/429"
+	default:
+		return "errors/500"
+	}
+}
+
+func funcMap(octicon OcticonResolver) template.FuncMap {
 	return template.FuncMap{
 		// safeHTML embeds trusted HTML directly. Callers MUST ensure the
 		// input is server-controlled — never user input. S25's markdown
 		// pipeline supplies the canonical helper for user content.
 		"safeHTML": func(s string) template.HTML {
-			return template.HTML(s) // #nosec G203 — trusted-input only
+			return template.HTML(s) //nolint:gosec // trusted-input only
+		},
+		// relativeTime renders a "2 hours ago" / "yesterday" / "Mar 5"
+		// style label. Used wherever timestamps appear in UI.
+		"relativeTime": relativeTime,
+		// pluralize picks the singular or plural form based on count.
+		"pluralize": func(count int, one, many string) string {
+			if count == 1 {
+				return one
+			}
+			return many
+		},
+		// pathJoin builds URL paths with a single leading slash.
+		"pathJoin": func(parts ...string) string {
+			joined := path.Join(parts...)
+			if !strings.HasPrefix(joined, "/") {
+				return "/" + joined
+			}
+			return joined
+		},
+		// octicon resolves a named octicon to inline SVG. Returns empty
+		// HTML if the icon isn't registered (the caller's template stays
+		// valid but renders nothing — better than a build-time crash).
+		"octicon": func(name string) template.HTML {
+			if octicon == nil {
+				return ""
+			}
+			if html, ok := octicon(name); ok {
+				return html
+			}
+			return ""
+		},
+		// csrfToken pulls the per-request token from the request context.
+		// Templates use this in <input type="hidden" name="csrf_token">.
+		"csrfToken": middleware.CSRFTokenForRequest,
+		// dict builds a map for partial-template includes that need
+		// multiple named values (idiomatic Go template trick).
+		"dict": func(values ...any) (map[string]any, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict: odd number of args")
+			}
+			m := make(map[string]any, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: non-string key at %d", i)
+				}
+				m[key] = values[i+1]
+			}
+			return m, nil
 		},
 	}
+}
+
+// relativeTime returns a human-readable relative-time string. The intent is
+// to read naturally; absolute precision below the level of "minutes" isn't
+// useful for UI labels.
+func relativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < 0:
+		// Future timestamps are uncommon; render as absolute.
+		return t.UTC().Format("Jan 2, 2006")
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(d / time.Minute)
+		return fmt.Sprintf("%d minute%s ago", m, plural(m))
+	case d < 24*time.Hour:
+		h := int(d / time.Hour)
+		return fmt.Sprintf("%d hour%s ago", h, plural(h))
+	case d < 7*24*time.Hour:
+		days := int(d / (24 * time.Hour))
+		if days == 1 {
+			return "yesterday"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	case d < 30*24*time.Hour:
+		w := int(d / (7 * 24 * time.Hour))
+		return fmt.Sprintf("%d week%s ago", w, plural(w))
+	case d < 365*24*time.Hour:
+		mo := int(d / (30 * 24 * time.Hour))
+		return fmt.Sprintf("%d month%s ago", mo, plural(mo))
+	default:
+		return t.UTC().Format("Jan 2, 2006")
+	}
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
