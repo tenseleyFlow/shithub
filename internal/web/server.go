@@ -152,6 +152,12 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("auth handlers: %w", err)
 		}
 		deps.AuthMounter = auth.Mount
+
+		api, err := buildAPIHandlers(pool)
+		if err != nil {
+			return fmt.Errorf("api handlers: %w", err)
+		}
+		deps.APIMounter = api.Mount
 	} else {
 		logger.Warn("auth: no DB pool — signup/login routes not mounted")
 	}

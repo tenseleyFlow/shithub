@@ -16,14 +16,29 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
+
+// sharedPATDebouncer is used by both the PATAuth middleware (in the API
+// route group) and any future paths that want to coordinate last-used
+// updates across handlers in the same process.
+var sharedPATDebouncer = pat.NewDebouncer(0)
+
+// buildAPIHandlers wires the PAT-authenticated API surface.
+func buildAPIHandlers(pool *pgxpool.Pool) (*apih.Handlers, error) {
+	return apih.New(apih.Deps{
+		Pool:      pool,
+		Debouncer: sharedPATDebouncer,
+	})
+}
 
 // usernameLookup returns the lookup function consumed by middleware.OptionalUser.
 func usernameLookup(pool *pgxpool.Pool) func(context.Context, int64) (string, error) {

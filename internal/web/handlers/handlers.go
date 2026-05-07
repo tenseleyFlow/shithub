@@ -39,6 +39,10 @@ type Deps struct {
 	// route group with the chi.Router so the auth handlers can register
 	// signup/login/logout/reset/verify routes.
 	AuthMounter func(chi.Router)
+	// APIMounter, when non-nil, is invoked inside the CSRF-EXEMPT route
+	// group so the API surface (PAT-authenticated, no browser-form
+	// posts) can register its routes.
+	APIMounter func(chi.Router)
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -88,6 +92,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 		if deps.MetricsHandler != nil {
 			r.Handle("/metrics", deps.MetricsHandler)
+		}
+		if deps.APIMounter != nil {
+			deps.APIMounter(r)
 		}
 	})
 
