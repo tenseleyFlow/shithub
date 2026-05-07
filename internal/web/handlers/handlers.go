@@ -54,6 +54,11 @@ type Deps struct {
 	// CSRF-protected group. Two-segment match doesn't collide with the
 	// /{username} catch-all.
 	RepoHomeMounter func(chi.Router)
+	// RepoLifecycleMounter, when non-nil, registers the danger-zone
+	// routes (rename, transfer, archive, visibility, delete, restore,
+	// transfer accept/decline/cancel, inbox). All routes are auth-
+	// required; the handler enforces policy.Can per route.
+	RepoLifecycleMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -155,6 +160,12 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)
+		}
+		// Lifecycle danger-zone + transfers + restore. Order: after
+		// RepoHome so explicit settings paths are matched first, before
+		// Profile's /{username} catch-all.
+		if deps.RepoLifecycleMounter != nil {
+			deps.RepoLifecycleMounter(r)
 		}
 		// Profile is registered LAST so /{username} doesn't shadow any
 		// static top-level route.

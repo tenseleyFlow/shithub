@@ -1,0 +1,81 @@
+{{ define "page" -}}
+<section class="shithub-repo-settings">
+  <header>
+    <h1>Settings · <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a></h1>
+    <p class="shithub-repo-settings-note">Danger-zone actions only. Full settings UI ships in a later sprint.</p>
+  </header>
+
+  <section class="shithub-danger-zone">
+    <h2>Rename</h2>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/rename">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>New name <input type="text" name="new_name" pattern="[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?" required></label>
+      <button type="submit" class="shithub-button shithub-button-primary">Rename</button>
+    </form>
+    <p class="shithub-hint">5 renames allowed per 30 days. Old URLs 301-redirect.</p>
+  </section>
+
+  <section class="shithub-danger-zone">
+    <h2>Visibility</h2>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/visibility">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label><input type="radio" name="visibility" value="public" {{ if eq (printf "%s" .Repo.Visibility) "public" }}checked{{ end }}> Public</label>
+      <label><input type="radio" name="visibility" value="private" {{ if eq (printf "%s" .Repo.Visibility) "private" }}checked{{ end }}> Private</label>
+      <button type="submit" class="shithub-button">Update visibility</button>
+    </form>
+    <p class="shithub-hint">Existing clones already pulled stay where they are; visibility flips affect future clones.</p>
+  </section>
+
+  <section class="shithub-danger-zone">
+    <h2>Archive</h2>
+    {{ if .Repo.IsArchived }}
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/unarchive">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <button type="submit" class="shithub-button">Unarchive</button>
+    </form>
+    {{ else }}
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/archive">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <button type="submit" class="shithub-button">Archive (read-only)</button>
+    </form>
+    {{ end }}
+  </section>
+
+  <section class="shithub-danger-zone">
+    <h2>Transfer ownership</h2>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/transfer">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>Recipient username <input type="text" name="to_user" required></label>
+      <label>Type <code>{{ .Owner }}/{{ .Repo.Name }}</code> to confirm
+        <input type="text" name="confirm" required></label>
+      <button type="submit" class="shithub-button shithub-button-danger">Send transfer offer</button>
+    </form>
+    {{ if .Transfers }}
+    <h3>Transfer history</h3>
+    <ul>
+      {{ range .Transfers }}
+      <li>#{{ .ID }} · status {{ .Status }} · expires {{ relativeTime .ExpiresAt.Time }}
+        {{ if eq (printf "%s" .Status) "pending" }}
+        <form method="POST" action="/transfers/{{ .ID }}/cancel" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button">Cancel</button>
+        </form>
+        {{ end }}
+      </li>
+      {{ end }}
+    </ul>
+    {{ end }}
+  </section>
+
+  <section class="shithub-danger-zone shithub-danger-zone-final">
+    <h2>Delete repository</h2>
+    <p>Soft-delete with 7-day grace. Until the grace expires you can restore from <a href="/settings/repositories">Restore deleted repositories</a>.</p>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/delete">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>Type <code>{{ .Owner }}/{{ .Repo.Name }}</code> to confirm
+        <input type="text" name="confirm" required></label>
+      <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+    </form>
+  </section>
+</section>
+{{- end }}

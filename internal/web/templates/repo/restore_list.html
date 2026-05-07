@@ -1,0 +1,21 @@
+{{ define "page" -}}
+<section class="shithub-restore-list">
+  <h1>Restore deleted repositories</h1>
+  <p>Soft-deleted repositories can be restored within 7 days of deletion.</p>
+  {{ if .Repos }}
+  <ul>
+    {{ range .Repos }}
+    <li>
+      <strong>{{ .Name }}</strong> · deleted {{ relativeTime .DeletedAt.Time }}
+      <form method="POST" action="/settings/repositories/restore/{{ .ID }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Restore</button>
+      </form>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p>No soft-deleted repositories.</p>
+  {{ end }}
+</section>
+{{- end }}

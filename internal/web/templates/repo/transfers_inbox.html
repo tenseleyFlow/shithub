@@ -1,0 +1,25 @@
+{{ define "page" -}}
+<section class="shithub-transfer-inbox">
+  <h1>Transfer inbox</h1>
+  {{ if .Pending }}
+  <ul>
+    {{ range .Pending }}
+    <li>
+      Repo <code>#{{ .RepoID }}</code> offered by user <code>#{{ .FromUserID }}</code>
+      <span> · expires {{ relativeTime .ExpiresAt.Time }}</span>
+      <form method="POST" action="/transfers/{{ .ID }}/accept" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Accept</button>
+      </form>
+      <form method="POST" action="/transfers/{{ .ID }}/decline" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+        <button type="submit" class="shithub-button">Decline</button>
+      </form>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p>No pending transfers.</p>
+  {{ end }}
+</section>
+{{- end }}

@@ -181,6 +181,13 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 
 	row, err := h.lookupRepoForViewer(r.Context(), owner, name, middleware.CurrentUserFromContext(r.Context()).ID)
 	if err != nil {
+		// Maybe the (owner, name) is a stale name; look up the redirect
+		// table and 301 to the canonical URL so old bookmarks keep
+		// working. Authoritative miss after the redirect check 404s.
+		if newURL := h.tryRedirect(r, owner, name); newURL != "" {
+			http.Redirect(w, r, newURL, http.StatusMovedPermanently)
+			return
+		}
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}

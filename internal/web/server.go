@@ -186,6 +186,13 @@ func Run(ctx context.Context, opts Options) error {
 			})
 		}
 		deps.RepoHomeMounter = repoH.MountRepoHome
+		// Lifecycle danger-zone routes — also auth-required.
+		deps.RepoLifecycleMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountLifecycle(r)
+			})
+		}
 
 		gitHTTPH, err := buildGitHTTPHandlers(cfg, pool, logger)
 		if err != nil {
