@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 )
 
 // resolvedAuth carries the resolved identity for a git-over-HTTPS
@@ -127,4 +127,3 @@ func (h *Handlers) resolveViaPassword(ctx context.Context, username, secret stri
 		UserID: user.ID, Username: user.Username, ViaPAT: false,
 	}, nil
 }
-
