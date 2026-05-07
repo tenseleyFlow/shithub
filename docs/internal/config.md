@@ -55,6 +55,18 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `storage.s3.bucket` | string | `""` | Single bucket per environment. |
 | `storage.s3.use_ssl` | bool | `false` | True for Spaces, false for local MinIO. |
 | `storage.s3.force_path_style` | bool | `true` | True for MinIO, false for Spaces. |
+| `auth.require_email_verification` | bool | `true` | When true, login is rejected until the primary email is verified. |
+| `auth.base_url` | string | `http://127.0.0.1:8080` | Used for absolute links in transactional emails. |
+| `auth.site_name` | string | `shithub` | Branding token for email subjects/bodies. |
+| `auth.email_from` | string | `shithub <noreply@shithub.local>` | Envelope From for outgoing email. |
+| `auth.email_backend` | string | `stdout` | One of `stdout | smtp | postmark`. |
+| `auth.smtp.addr` | string | `127.0.0.1:1025` | Required when `email_backend=smtp`. |
+| `auth.smtp.username` | string | `""` | Optional SMTP auth username. |
+| `auth.smtp.password` | string | `""` | Optional SMTP auth password. Redacted by `config print`. |
+| `auth.postmark.server_token` | string | `""` | Required when `email_backend=postmark`. Redacted. |
+| `auth.argon2.memory_kib` | uint32 | `65536` | argon2id memory cost (KiB). |
+| `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
+| `auth.argon2.threads` | uint8 | `2` | argon2id parallelism. |
 
 ## Env-var examples
 
