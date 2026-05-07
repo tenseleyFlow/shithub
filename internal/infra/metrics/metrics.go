@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Package metrics owns the Prometheus registry. Standard metrics are
+// instantiated up front; per-package metrics register against the same
+// shared registry.
+package metrics
+
+import (
+	"crypto/subtle"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Registry is the project-wide Prometheus registry. Subpackages register
+// their collectors against this so /metrics has a single source.
+var Registry = prometheus.NewRegistry()
+
+// Standard process / Go runtime metrics.
+func init() {
+	Registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+}
+
+// HTTP request metrics. Wired by the HTTP middleware.
+var (
+	HTTPRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_http_requests_total",
+			Help: "Total HTTP requests by route, method, and status.",
+		},
+		[]string{"route", "method", "status"},
+	)
+	HTTPRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "shithub_http_request_duration_seconds",
+			Help:    "HTTP request duration distribution by route and method.",
+			Buckets: prometheus.ExponentialBuckets(0.001, 2.5, 12),
+		},
+		[]string{"route", "method"},
+	)
+	HTTPInFlight = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_http_in_flight",
+			Help: "Number of HTTP requests currently in flight.",
+		},
+	)
+	PanicsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_panics_total",
+			Help: "Total panics caught by the recover middleware.",
+		},
+	)
+)
+
+// DB pool metrics. Updated periodically by an observer goroutine that the
+// caller starts via Observe(pool, interval).
+var (
+	DBConnsAcquired = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_db_pool_acquired",
+			Help: "Postgres connections currently checked out of the pool.",
+		},
+	)
+	DBConnsIdle = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_db_pool_idle",
+			Help: "Postgres connections currently idle in the pool.",
+		},
+	)
+	DBConnsTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_db_pool_total",
+			Help: "Postgres connections currently held by the pool.",
+		},
+	)
+	DBAcquireWaitDurationTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_db_pool_acquire_wait_seconds_total",
+			Help: "Cumulative time clients spent waiting to acquire a Postgres connection.",
+		},
+	)
+)
+
+func init() {
+	Registry.MustRegister(
+		HTTPRequestsTotal,
+		HTTPRequestDuration,
+		HTTPInFlight,
+		PanicsTotal,
+		DBConnsAcquired,
+		DBConnsIdle,
+		DBConnsTotal,
+		DBAcquireWaitDurationTotal,
+	)
+}
+
+// Handler returns the /metrics HTTP handler. When user/pass is set, the
+// handler enforces HTTP Basic auth; otherwise it serves unauthenticated
+// (S35 will tighten the policy).
+func Handler(user, pass string) http.Handler {
+	h := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
+		Registry: Registry,
+	})
+	if user == "" && pass == "" {
+		return h
+	}
+	expectedUser := []byte(user)
+	expectedPass := []byte(pass)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, ok := r.BasicAuth()
+		if !ok ||
+			subtle.ConstantTimeCompare([]byte(gotUser), expectedUser) != 1 ||
+			subtle.ConstantTimeCompare([]byte(gotPass), expectedPass) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="metrics"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
