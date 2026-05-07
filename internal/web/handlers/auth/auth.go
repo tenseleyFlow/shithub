@@ -123,6 +123,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		// Settings — require an authenticated user.
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireUser)
+			r.Get("/settings/profile", h.settingsProfileForm)
+			r.Post("/settings/profile", h.settingsProfileSubmit)
 			r.Get("/settings/keys", h.sshKeysList)
 			r.Post("/settings/keys", h.sshKeysAdd)
 			r.Post("/settings/keys/{id}/delete", h.sshKeysDelete)

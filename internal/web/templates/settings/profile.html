@@ -1,0 +1,53 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Public profile</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <div class="shithub-profile-edit">
+      <section class="shithub-settings-section shithub-profile-edit-form">
+        <form method="POST" action="/settings/profile" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Name</span>
+            <input type="text" name="display_name" maxlength="100" value="{{ .Form.DisplayName }}">
+            <small>Your name may appear around shithub where you contribute or are mentioned. You can remove it at any time.</small>
+          </label>
+          <label>
+            <span>Bio</span>
+            <textarea name="bio" rows="3" maxlength="500">{{ .Form.Bio }}</textarea>
+            <small>You can @mention other users and organizations to link to them.</small>
+          </label>
+          <label>
+            <span>Pronouns</span>
+            <input type="text" name="pronouns" maxlength="40" value="{{ .Form.Pronouns }}" placeholder="e.g. she/her, they/them">
+          </label>
+          <label>
+            <span>URL</span>
+            <input type="text" name="website" maxlength="200" value="{{ .Form.Website }}" placeholder="https://example.com">
+          </label>
+          <label>
+            <span>Company</span>
+            <input type="text" name="company" maxlength="80" value="{{ .Form.Company }}">
+            <small>You can @mention your company's shithub organization to link it.</small>
+          </label>
+          <label>
+            <span>Location</span>
+            <input type="text" name="location" maxlength="80" value="{{ .Form.Location }}">
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Update profile</button>
+        </form>
+      </section>
+
+      <aside class="shithub-profile-edit-aside">
+        <h2>Profile picture</h2>
+        <img src="/avatars/{{ .Username }}" alt="" class="shithub-profile-edit-avatar">
+        <p class="shithub-empty-note">Avatar upload coming soon.</p>
+      </aside>
+    </div>
+  </div>
+</div>
+{{- end }}

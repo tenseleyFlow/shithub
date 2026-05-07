@@ -484,3 +484,40 @@ code {
   background: rgba(207, 34, 46, 0.04);
 }
 .shithub-settings-danger-zone h2 { color: #cf222e; }
+
+.shithub-settings-section label small {
+  font-weight: 400;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.shithub-profile-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 2rem;
+  align-items: start;
+}
+.shithub-profile-edit-form { margin: 0; padding: 0; border: none; }
+.shithub-profile-edit-aside h2 { margin: 0 0 0.75rem; font-size: 0.9rem; font-weight: 600; }
+.shithub-profile-edit-avatar {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+  display: block;
+}
+.shithub-empty-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+@media (max-width: 720px) {
+  .shithub-settings-page {
+    grid-template-columns: 1fr;
+  }
+  .shithub-profile-edit {
+    grid-template-columns: 1fr;
+  }
+}
