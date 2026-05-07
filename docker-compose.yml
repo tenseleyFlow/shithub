@@ -1,0 +1,43 @@
+# Local development stack. Production is provisioned via Ansible (S37);
+# this file is for `make dev-db` and friends.
+#
+# Services:
+#   postgres   — primary database (Postgres 16, S01)
+#   minio      — S3-compatible object store (S04)
+#   mailhog    — local SMTP catcher (S05)
+#
+# Each is volume-backed for dev persistence and bound to localhost only.
+
+name: shithub-dev
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: shithub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shithub
+      POSTGRES_PASSWORD: shithub_dev
+      POSTGRES_DB: shithub
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - shithub-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shithub -d shithub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "max_connections=100"
+
+volumes:
+  shithub-pgdata:
+    name: shithub-pgdata
