@@ -84,6 +84,23 @@ dev-db-reset: ## Drop the dev Postgres volume and re-create.
 	docker compose down -v
 	$(MAKE) dev-db
 
+dev-storage: ## Bring up MinIO + run minio-init to seed the bucket.
+	docker compose up -d minio
+	docker compose run --rm minio-init
+	@echo "MinIO S3 API: http://127.0.0.1:9000  console: http://127.0.0.1:9001"
+	@echo "Credentials: shithub-dev / shithub-dev-secret-please-change"
+
+dev-storage-down: ## Stop the MinIO container (volume persists).
+	docker compose stop minio
+
+dev-storage-reset: ## Drop the MinIO volume and re-seed.
+	docker compose down minio
+	docker volume rm -f shithub-miniodata
+	$(MAKE) dev-storage
+
+storage-check: build ## Run shithubd storage check against the configured backend.
+	./bin/shithubd storage check
+
 migrate-up: ## Apply all pending migrations.
 	./bin/shithubd migrate up
 

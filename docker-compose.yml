@@ -38,6 +38,46 @@ services:
       - "-c"
       - "max_connections=100"
 
+  # S3-compatible object storage. Non-default seed credentials —
+  # MinIO's defaults (minioadmin/minioadmin) are insecure even in dev.
+  minio:
+    image: minio/minio:latest
+    container_name: shithub-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: shithub-dev
+      MINIO_ROOT_PASSWORD: shithub-dev-secret-please-change
+    ports:
+      - "127.0.0.1:9000:9000"  # S3 API
+      - "127.0.0.1:9001:9001"  # web console
+    volumes:
+      - shithub-miniodata:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-shot init: creates the shithub-dev bucket via mc.
+  minio-init:
+    image: minio/mc:latest
+    container_name: shithub-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - |
+        set -eu
+        mc alias set local http://minio:9000 shithub-dev shithub-dev-secret-please-change
+        mc mb --ignore-existing local/shithub-dev
+        echo "minio-init: bucket shithub-dev ready"
+
 volumes:
   shithub-pgdata:
     name: shithub-pgdata
+  shithub-miniodata:
+    name: shithub-miniodata
