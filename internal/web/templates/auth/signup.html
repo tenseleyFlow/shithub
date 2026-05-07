@@ -1,0 +1,31 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Create your shithub account</h1>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <form method="POST" action="/signup" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    {{/* honeypot — hidden from real users; bots fill it */}}
+    <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
+      <label>Leave this field blank<input type="text" name="company" autocomplete="off" tabindex="-1"></label>
+    </div>
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" required autocomplete="username"
+             pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
+             title="lowercase letters, digits, and hyphens; 1–39 chars; cannot start or end with a hyphen"
+             value="{{ .Form.Username }}">
+    </label>
+    <label>
+      <span>Email</span>
+      <input type="email" name="email" required autocomplete="email"
+             value="{{ .Form.Email }}">
+    </label>
+    <label>
+      <span>Password (min 10 characters)</span>
+      <input type="password" name="password" required minlength="10" autocomplete="new-password">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Create account</button>
+  </form>
+  <p class="shithub-auth-aside">Already have an account? <a href="/login">Sign in</a>.</p>
+</section>
+{{- end }}

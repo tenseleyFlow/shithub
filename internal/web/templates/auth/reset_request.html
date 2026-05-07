@@ -1,0 +1,18 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Reset your password</h1>
+  {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+  {{ if not .Sent }}
+  <p>Enter the email address tied to your shithub account. We'll send you a link to choose a new password.</p>
+  <form method="POST" action="/password/reset" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Email</span>
+      <input type="email" name="email" required autocomplete="email">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Send reset link</button>
+  </form>
+  {{ end }}
+  <p class="shithub-auth-aside"><a href="/login">Back to sign in</a></p>
+</section>
+{{- end }}

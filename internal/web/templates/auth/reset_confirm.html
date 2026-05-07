@@ -1,0 +1,14 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Choose a new password</h1>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  <form method="POST" action="/password/reset/{{ .Token }}" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>New password (min 10 characters)</span>
+      <input type="password" name="password" required minlength="10" autocomplete="new-password">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Set new password</button>
+  </form>
+</section>
+{{- end }}

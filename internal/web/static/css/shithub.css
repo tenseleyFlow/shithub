@@ -280,3 +280,42 @@ code {
   color: var(--fg-muted);
   font-size: 0.8rem;
 }
+
+/* ----- auth (S05) ----- */
+.shithub-auth {
+  max-width: 28rem;
+  margin: 3rem auto;
+  padding: 2rem;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+.shithub-auth h1 {
+  margin: 0 0 1.5rem;
+  font-size: 1.5rem;
+}
+.shithub-auth form { display: grid; gap: 1rem; }
+.shithub-auth label { display: grid; gap: 0.25rem; font-weight: 500; }
+.shithub-auth input[type=text],
+.shithub-auth input[type=email],
+.shithub-auth input[type=password] {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-auth-aside {
+  margin: 1.5rem 0 0;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+.shithub-flash {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+}
+.shithub-flash-error { background: rgba(248, 81, 73, 0.1); border-color: rgba(248, 81, 73, 0.3); }
+.shithub-flash-notice { background: rgba(56, 139, 253, 0.1); border-color: rgba(56, 139, 253, 0.3); }

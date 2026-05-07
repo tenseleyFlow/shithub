@@ -1,0 +1,15 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Resend verification email</h1>
+  {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+  <form method="POST" action="/verify-email/resend" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Email</span>
+      <input type="email" name="email" required autocomplete="email">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Resend link</button>
+  </form>
+  <p class="shithub-auth-aside"><a href="/login">Back to sign in</a></p>
+</section>
+{{- end }}

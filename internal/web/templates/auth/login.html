@@ -1,0 +1,24 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Sign in to shithub</h1>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+  <form method="POST" action="/login" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <input type="hidden" name="next" value="{{ .Next }}">
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" required autocomplete="username" autofocus
+             value="{{ .Form.Username }}">
+    </label>
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Sign in</button>
+  </form>
+  <p class="shithub-auth-aside">
+    <a href="/password/reset">Forgot password?</a> · <a href="/signup">Create account</a>
+  </p>
+</section>
+{{- end }}
