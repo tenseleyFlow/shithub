@@ -44,6 +44,7 @@ const (
 	ActionSSHKeyDeleted        Action = "ssh_key_deleted"
 	ActionPATCreated           Action = "pat_created"
 	ActionPATRevoked           Action = "pat_revoked"
+	ActionUsernameChanged      Action = "username_changed"
 )
 
 // Target is a typed target-type constant.
