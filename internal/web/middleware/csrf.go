@@ -31,6 +31,17 @@ func CSRF(cfg CSRFConfig) func(http.Handler) http.Handler {
 		// chi's middleware stack sees.
 		ns := nosurf.New(next)
 		ns.SetBaseCookie(csrfBaseCookie(cfg))
+		// nosurf defaults isTLS=true unconditionally, which makes its
+		// same-origin Referer check require an https Referer even on
+		// plain-HTTP requests. Decide based on the actual transport:
+		// genuine TLS sets r.TLS, and the X-Forwarded-Proto=https header
+		// covers requests proxied through TLS-terminating front-ends.
+		ns.SetIsTLSFunc(func(r *http.Request) bool {
+			if r.TLS != nil {
+				return true
+			}
+			return r.Header.Get("X-Forwarded-Proto") == "https"
+		})
 		if cfg.FailureHandler != nil {
 			ns.SetFailureHandler(cfg.FailureHandler)
 		}
