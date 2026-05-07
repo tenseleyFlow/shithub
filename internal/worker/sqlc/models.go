@@ -12,6 +12,51 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CollabRole string
+
+const (
+	CollabRoleRead     CollabRole = "read"
+	CollabRoleTriage   CollabRole = "triage"
+	CollabRoleWrite    CollabRole = "write"
+	CollabRoleMaintain CollabRole = "maintain"
+	CollabRoleAdmin    CollabRole = "admin"
+)
+
+func (e *CollabRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CollabRole(s)
+	case string:
+		*e = CollabRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CollabRole: %T", src)
+	}
+	return nil
+}
+
+type NullCollabRole struct {
+	CollabRole CollabRole
+	Valid      bool // Valid is true if CollabRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCollabRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.CollabRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CollabRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCollabRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CollabRole), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -144,6 +189,14 @@ type Repo struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	DefaultBranchOid pgtype.Text
+}
+
+type RepoCollaborator struct {
+	RepoID        int64
+	UserID        int64
+	Role          CollabRole
+	AddedAt       pgtype.Timestamptz
+	AddedByUserID pgtype.Int8
 }
 
 type User struct {
