@@ -30,6 +30,7 @@ type Querier interface {
 	// supplied hash, and isn't already used. Rows-affected==1 means accepted;
 	// 0 means rejected.
 	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
+	CountActiveUserTokens(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
@@ -59,29 +60,42 @@ type Querier interface {
 	// index on fingerprint_sha256.
 	GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error)
 	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)
+	// Hot path for the auth middleware. token_hash is UNIQUE; returns at
+	// most one row. Caller MUST also check revoked_at IS NULL and
+	// expires_at handling.
+	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserSSHKeyParams) (UserSshKey, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
 	// Sets the FK only. Does NOT flip users.email_verified — that happens via
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
 	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
+	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
 	// Called after MarkUserEmailVerified for the primary email, to flip the
 	// denormalized users.email_verified flag.
 	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
 	MarkUserEmailVerified(ctx context.Context, db DBTX, id int64) error
 	PurgeStaleAuthThrottle(ctx context.Context, db DBTX, windowStartedAt pgtype.Timestamptz) error
 	ResetAuthThrottle(ctx context.Context, db DBTX, arg ResetAuthThrottleParams) error
+	// Used by user suspension to revoke every active token in one statement.
+	RevokeAllUserTokens(ctx context.Context, db DBTX, userID int64) error
+	// Scoped revoke: caller must pass owning user_id so a hijacked handler
+	// can never revoke tokens it doesn't own. No-op on already-revoked rows.
+	RevokeUserToken(ctx context.Context, db DBTX, arg RevokeUserTokenParams) (int64, error)
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
+	TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Inserts a new pending TOTP row, or replaces an existing pending row for
