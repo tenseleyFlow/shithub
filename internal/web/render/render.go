@@ -116,6 +116,10 @@ func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 }
 
 // Render writes the named page to w using data as the template root context.
+//
+// Prefer RenderPage when a *http.Request is in scope — it auto-injects the
+// viewer (current logged-in user) into map data so partials like _nav.html
+// can branch on .Viewer without every handler remembering to thread it.
 func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	t, ok := r.pages[name]
 	if !ok {
@@ -127,6 +131,25 @@ func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	}
 	_, err := w.Write(buf.Bytes())
 	return err
+}
+
+// RenderPage is the request-aware Render: when data is a map[string]any, it
+// injects "Viewer" (from middleware.CurrentUserFromContext) and "CSRFToken"
+// (the per-request token) if the caller hasn't set them. The nav partial's
+// sign-out form uses the token, so every layout-rendered page needs it.
+// Typed-struct callers must include those fields themselves — we don't
+// reflect-mutate to avoid surprising aliasing.
+func (r *Renderer) RenderPage(w io.Writer, req *http.Request, name string, data any) error {
+	if m, ok := data.(map[string]any); ok {
+		if _, present := m["Viewer"]; !present {
+			m["Viewer"] = middleware.CurrentUserFromContext(req.Context())
+		}
+		if _, present := m["CSRFToken"]; !present {
+			m["CSRFToken"] = middleware.CSRFTokenForRequest(req)
+		}
+		data = m
+	}
+	return r.Render(w, name, data)
 }
 
 // HTTPError writes an error page with the appropriate status code. If the

@@ -152,7 +152,7 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form formState, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.d.Render.Render(w, "repo/new", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "repo/new", map[string]any{
 		"Title":      "New repository",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
 		"Form":       form,

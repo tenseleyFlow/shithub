@@ -9,8 +9,30 @@
     <a href="/about">About</a>
   </nav>
   <div class="shithub-nav-actions">
+  {{- if .Viewer.ID }}
+    <a href="/new" class="shithub-button shithub-button-ghost" title="New repository">+ New</a>
+    <details class="shithub-user-menu">
+      <summary aria-label="User menu" aria-haspopup="menu">
+        <img src="/avatars/{{ .Viewer.Username }}" alt="" class="shithub-user-menu-avatar" width="24" height="24">
+        <span class="shithub-user-menu-name">{{ .Viewer.Username }}</span>
+      </summary>
+      <div class="shithub-user-menu-panel" role="menu">
+        <div class="shithub-user-menu-header">
+          Signed in as <strong>@{{ .Viewer.Username }}</strong>
+        </div>
+        <a role="menuitem" href="/{{ .Viewer.Username }}">Your profile</a>
+        <a role="menuitem" href="/{{ .Viewer.Username }}?tab=repositories">Your repositories</a>
+        <a role="menuitem" href="/settings/profile">Settings</a>
+        <form method="POST" action="/logout" class="shithub-user-menu-signout">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" role="menuitem">Sign out</button>
+        </form>
+      </div>
+    </details>
+  {{- else }}
     <a href="/login" class="shithub-button shithub-button-ghost">Sign in</a>
     <a href="/signup" class="shithub-button shithub-button-primary">Sign up</a>
+  {{- end }}
   </div>
 </header>
 {{- end }}

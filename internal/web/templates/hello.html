@@ -6,6 +6,17 @@
   <h1 class="hello-title">shithub</h1>
   <p class="hello-tagline">GitHub. Open source. Without Copilot.</p>
 
+  {{ if .Viewer.ID }}
+  <div class="hello-greeting">
+    <p>Signed in as <strong>@{{ .Viewer.Username }}</strong>.</p>
+    <nav class="hello-quicklinks" aria-label="Account quick links">
+      <a href="/{{ .Viewer.Username }}">Your profile</a>
+      <a href="/new">New repository</a>
+      <a href="/settings/profile">Settings</a>
+    </nav>
+  </div>
+  {{ end }}
+
   <dl class="hello-meta">
     <dt>Version</dt><dd>{{ .Version }}</dd>
     <dt>Commit</dt><dd>{{ .Commit }}</dd>

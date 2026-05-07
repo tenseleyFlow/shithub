@@ -121,7 +121,84 @@ code {
 .shithub-nav-actions {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
 }
+
+/* User-menu dropdown — uses native <details>/<summary> so it works without JS. */
+.shithub-user-menu { position: relative; }
+.shithub-user-menu > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--fg-default);
+}
+.shithub-user-menu > summary::-webkit-details-marker { display: none; }
+.shithub-user-menu-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: block;
+  background: var(--canvas-default);
+}
+.shithub-user-menu-name { font-weight: 500; }
+.shithub-user-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  min-width: 220px;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.4rem 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.shithub-user-menu-header {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: 0.25rem;
+}
+.shithub-user-menu-panel a,
+.shithub-user-menu-signout button {
+  display: block;
+  text-align: left;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  background: transparent;
+  border: 0;
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.shithub-user-menu-panel a:hover,
+.shithub-user-menu-signout button:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-user-menu-signout { margin: 0; padding: 0; border-top: 1px solid var(--border-default); margin-top: 0.25rem; }
+
+.hello-greeting {
+  margin: 1rem auto 1.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  max-width: 32rem;
+  text-align: left;
+}
+.hello-greeting p { margin: 0 0 0.5rem; }
+.hello-quicklinks { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9rem; }
 
 .shithub-button {
   display: inline-flex;

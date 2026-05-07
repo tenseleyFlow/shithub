@@ -134,7 +134,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"WebsiteSafe":     safeWebsite(user.Website),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.d.Render.Render(w, "profile/view", data); err != nil {
+	if err := h.d.Render.RenderPage(w, r, "profile/view", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "profile: render", "error", err)
 	}
 }
@@ -157,7 +157,7 @@ func (h *Handlers) renderUnavailable(w http.ResponseWriter, r *http.Request, use
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusGone) // 410 — semantically "this resource is gone but we know it existed"
-	if err := h.d.Render.Render(w, "profile/suspended", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "profile/suspended", map[string]any{
 		"Title":    "Account unavailable",
 		"Username": username,
 	}); err != nil {

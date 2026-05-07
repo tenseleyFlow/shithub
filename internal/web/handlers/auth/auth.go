@@ -764,7 +764,7 @@ func (h *Handlers) verifyResendSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) renderPage(w http.ResponseWriter, r *http.Request, page string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.d.Render.Render(w, page, data); err != nil {
+	if err := h.d.Render.RenderPage(w, r, page, data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "render", "page", page, "error", err)
 	}
 }
