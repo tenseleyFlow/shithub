@@ -67,6 +67,7 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `auth.argon2.memory_kib` | uint32 | `65536` | argon2id memory cost (KiB). |
 | `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
 | `auth.argon2.threads` | uint8 | `2` | argon2id parallelism. |
+| `auth.totp_key_b64` | string | `""` | Base64 32-byte AEAD key for at-rest TOTP secrets. Aliased by `SHITHUB_TOTP_KEY`. Empty disables 2FA enrollment routes. |
 
 ## Env-var examples
 
