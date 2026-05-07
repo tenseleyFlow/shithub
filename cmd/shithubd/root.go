@@ -39,5 +39,5 @@ func init() {
 	rootCmd.AddCommand(stubCmd("storage", "Storage health checks", "S04"))
 	rootCmd.AddCommand(stubCmd("hook", "Git hook entrypoint", "S14"))
 	rootCmd.AddCommand(stubCmd("admin", "Site-admin CLI", "S34"))
-	rootCmd.AddCommand(stubCmd("config", "Config introspection", "S03"))
+	rootCmd.AddCommand(configCmd)
 }
