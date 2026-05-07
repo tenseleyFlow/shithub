@@ -3,3 +3,30 @@ CLAUDE.md
 .vscode
 .docs/
 .refs/
+
+# Build artifacts
+bin/
+tmp/
+*.test
+*.out
+coverage.*
+dist/
+
+# Air hot-reload
+tmp/
+
+# Local env / secrets
+.env
+.env.local
+.air.toml.local
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*~
+.idea/
+*.swp
+*.swo
+
+# Generated
+node_modules/
