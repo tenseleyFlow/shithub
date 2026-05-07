@@ -13,8 +13,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
@@ -53,6 +55,17 @@ func buildAuthHandlers(
 	if err != nil {
 		return nil, err
 	}
+	var box *secretbox.Box
+	if cfg.Auth.TOTPKeyB64 != "" {
+		b, err := secretbox.FromBase64(cfg.Auth.TOTPKeyB64)
+		if err != nil {
+			return nil, err
+		}
+		box = b
+	} else {
+		logger.Warn("auth: no totp_key_b64 configured; 2FA enrollment routes disabled",
+			"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable 2FA")
+	}
 	return authh.New(authh.Deps{
 		Logger:       logger,
 		Render:       rr,
@@ -73,6 +86,8 @@ func buildAuthHandlers(
 		},
 		Limiter:                  throttle.NewLimiter(),
 		RequireEmailVerification: cfg.Auth.RequireEmailVerification,
+		SecretBox:                box,
+		Audit:                    audit.NewRecorder(),
 	})
 }
 
