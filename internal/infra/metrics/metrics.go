@@ -86,6 +86,32 @@ var (
 	)
 )
 
+// Worker metrics. The pool updates these on every dispatch.
+var (
+	WorkerJobsProcessedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_worker_jobs_processed_total",
+			Help: "Worker jobs processed by kind and outcome (ok, retry, failed, poison).",
+		},
+		[]string{"kind", "outcome"},
+	)
+	WorkerJobDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "shithub_worker_job_duration_seconds",
+			Help:    "Worker handler latency by kind.",
+			Buckets: prometheus.ExponentialBuckets(0.005, 2.5, 12),
+		},
+		[]string{"kind"},
+	)
+	WorkerInFlight = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_worker_in_flight",
+			Help: "Worker handler invocations currently in flight by kind.",
+		},
+		[]string{"kind"},
+	)
+)
+
 func init() {
 	Registry.MustRegister(
 		HTTPRequestsTotal,
@@ -96,6 +122,9 @@ func init() {
 		DBConnsIdle,
 		DBConnsTotal,
 		DBAcquireWaitDurationTotal,
+		WorkerJobsProcessedTotal,
+		WorkerJobDurationSeconds,
+		WorkerInFlight,
 	)
 }
 
