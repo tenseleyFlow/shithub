@@ -1,0 +1,26 @@
+{{ define "page" -}}
+<main class="hello">
+  <div class="hello-logo" aria-hidden="true">
+    {{ .LogoSVG }}
+  </div>
+  <h1 class="hello-title">shithub</h1>
+  <p class="hello-tagline">GitHub. Open source. Without Copilot.</p>
+
+  <dl class="hello-meta">
+    <dt>Version</dt><dd>{{ .Version }}</dd>
+    <dt>Commit</dt><dd>{{ .Commit }}</dd>
+    <dt>Built</dt><dd>{{ .BuiltAt }}</dd>
+  </dl>
+
+  <p class="hello-status">
+    Pre-launch. Sprint 00 — project scaffolding — is shipping. Every later
+    sprint adds real product surface; see the planning index for the full
+    roadmap.
+  </p>
+
+  <nav class="hello-links" aria-label="Project links">
+    <a href="/healthz">/healthz</a>
+    <a href="/readyz">/readyz</a>
+  </nav>
+</main>
+{{- end }}

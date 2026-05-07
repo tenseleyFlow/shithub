@@ -1,0 +1,129 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/*
+ * shithub — base styles.
+ *
+ * S00 ships a tiny stylesheet sufficient for the hello page across light /
+ * dark / auto / high-contrast themes. S02 introduces the full theme system
+ * via Primer primitives; this file becomes one layer in a stack.
+ *
+ * Color tokens follow Primer's naming so the migration in S02 is mechanical.
+ */
+
+:root {
+  --canvas-default: #ffffff;
+  --canvas-subtle: #f6f8fa;
+  --fg-default: #1f2328;
+  --fg-muted: #59636e;
+  --border-default: #d0d7de;
+  --accent-fg: #0969da;
+  --danger-fg: #cf222e;
+  --shithub-mark: var(--danger-fg);
+}
+
+[data-theme="dark"] {
+  --canvas-default: #0d1117;
+  --canvas-subtle: #161b22;
+  --fg-default: #f0f6fc;
+  --fg-muted: #9198a1;
+  --border-default: #3d444d;
+  --accent-fg: #4493f8;
+  --danger-fg: #f85149;
+}
+
+[data-theme="high-contrast"] {
+  --canvas-default: #000000;
+  --canvas-subtle: #0a0c10;
+  --fg-default: #ffffff;
+  --fg-muted: #d9dee3;
+  --border-default: #7a828e;
+  --accent-fg: #71b7ff;
+  --danger-fg: #ff6a69;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent-fg);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+.hello {
+  max-width: 640px;
+  margin: 4rem auto;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.hello-logo {
+  margin: 0 auto 1.5rem;
+  width: 160px;
+  height: 160px;
+  color: var(--shithub-mark);
+}
+
+.hello-logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.hello-title {
+  font-size: 2.75rem;
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.hello-tagline {
+  color: var(--fg-muted);
+  font-size: 1.15rem;
+  margin: 0 0 2rem;
+}
+
+.hello-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  max-width: 24rem;
+  margin: 0 auto 2rem;
+  padding: 1rem 1.5rem;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+}
+
+.hello-meta dt {
+  color: var(--fg-muted);
+}
+
+.hello-meta dd {
+  margin: 0;
+}
+
+.hello-status {
+  color: var(--fg-muted);
+  margin: 0 auto 2rem;
+  max-width: 36rem;
+}
+
+.hello-links {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+}
