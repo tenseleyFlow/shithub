@@ -69,6 +69,36 @@ install-tools: ## Install development tools via 'go install'.
 	go install mvdan.cc/gofumpt@latest
 	go install golang.org/x/tools/cmd/goimports@latest
 	go install github.com/air-verse/air@latest
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+dev-db: ## Bring up Postgres in docker-compose.
+	docker compose up -d postgres
+	@echo "Waiting for postgres to become healthy..."
+	@until docker compose exec -T postgres pg_isready -U shithub -d shithub >/dev/null 2>&1; do sleep 1; done
+	@echo "Postgres ready at 127.0.0.1:5432"
+
+dev-db-down: ## Stop the dev Postgres container.
+	docker compose down
+
+dev-db-reset: ## Drop the dev Postgres volume and re-create.
+	docker compose down -v
+	$(MAKE) dev-db
+
+migrate-up: ## Apply all pending migrations.
+	./bin/shithubd migrate up
+
+migrate-down: ## Roll back the most recent migration.
+	./bin/shithubd migrate down
+
+migrate-status: ## Show migration status.
+	./bin/shithubd migrate status
+
+sqlc-generate: ## Regenerate sqlc Go code from queries.
+	$(GOBIN)/sqlc generate
+
+test-integration: ## Run tests with SHITHUB_TEST_DATABASE_URL set against the dev Postgres.
+	SHITHUB_TEST_DATABASE_URL=$${SHITHUB_TEST_DATABASE_URL:-postgres://shithub:shithub_dev@127.0.0.1:5432/postgres?sslmode=disable} \
+		go test -trimpath ./...
 
 version: ## Print version info that would be embedded into the binary.
 	@echo "Version: $(VERSION)"
