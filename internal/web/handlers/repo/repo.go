@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/repos"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/templates"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -164,9 +165,10 @@ func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form fo
 	}
 }
 
-// repoHome serves GET /{owner}/{repo}. For S11 it renders the empty-
-// repo placeholder when the repo has zero commits; once tree views land
-// (S17) this path will fork between empty and code-listing.
+// repoHome serves GET /{owner}/{repo}. Forks on whether the bare repo
+// has any branches: empty → quick-setup placeholder; populated → a slim
+// "post-push" view with the head commit on the default branch. The full
+// tree/file listing is S17.
 func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 	owner := chi.URLParam(r, "owner")
 	name := chi.URLParam(r, "repo")
@@ -177,8 +179,17 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.d.Render.Render(w, "repo/empty", map[string]any{
+	diskPath, fsErr := h.d.RepoFS.RepoPath(owner, row.Name)
+	hasBranch := false
+	if fsErr == nil {
+		if ok, herr := repogit.HasAnyBranch(r.Context(), diskPath); herr == nil {
+			hasBranch = ok
+		} else {
+			h.d.Logger.WarnContext(r.Context(), "repo: HasAnyBranch", "error", herr)
+		}
+	}
+
+	common := map[string]any{
 		"Title":         row.Name + " · " + owner,
 		"CSRFToken":     middleware.CSRFTokenForRequest(r),
 		"Owner":         owner,
@@ -187,8 +198,27 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		"HTTPSCloneURL": h.d.CloneURLs.BaseURL + "/" + owner + "/" + row.Name + ".git",
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.d.CloneURLs.SSHHost + ":" + owner + "/" + row.Name + ".git",
-	}); err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "repo: render empty", "error", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if !hasBranch {
+		if err := h.d.Render.RenderPage(w, r, "repo/empty", common); err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "repo: render empty", "error", err)
+		}
+		return
+	}
+
+	// Populated path. Look up the head of the default branch — if missing
+	// (push went to a non-default branch only), fall through to a
+	// branch-not-yet-on-default note.
+	head, found, herr := repogit.HeadOf(r.Context(), diskPath, row.DefaultBranch)
+	if herr != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo: HeadOf", "error", herr)
+	}
+	common["HeadFound"] = found
+	common["Head"] = head
+	if err := h.d.Render.RenderPage(w, r, "repo/populated", common); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo: render populated", "error", err)
 	}
 }
 

@@ -1,0 +1,51 @@
+{{ define "page" -}}
+<section class="shithub-repo-populated">
+  <header class="shithub-repo-populated-head">
+    <h1>
+      <a href="/{{ .Owner }}">{{ .Owner }}</a>
+      <span class="shithub-repo-populated-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
+      {{ if eq (printf "%s" .Repo.Visibility) "private" }}
+        <span class="shithub-pill shithub-pill-private">private</span>
+      {{ else }}
+        <span class="shithub-pill">public</span>
+      {{ end }}
+    </h1>
+    {{ if .Repo.Description }}<p class="shithub-repo-populated-desc">{{ .Repo.Description }}</p>{{ end }}
+  </header>
+
+  {{ if .HeadFound }}
+  <section class="shithub-repo-headcommit" aria-label="Latest commit">
+    <div class="shithub-repo-headcommit-meta">
+      <span class="shithub-repo-headcommit-branch">{{ .DefaultBranch }}</span>
+      <code class="shithub-repo-headcommit-oid" title="{{ .Head.OID }}">{{ slice .Head.OID 0 7 }}</code>
+      <span class="shithub-repo-headcommit-author">{{ .Head.AuthorName }}</span>
+      <time datetime="{{ .Head.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Head.AuthorWhen }}</time>
+    </div>
+    <p class="shithub-repo-headcommit-subject">{{ .Head.Subject }}</p>
+  </section>
+  {{ else }}
+  <section class="shithub-repo-headcommit shithub-repo-headcommit-other-branch">
+    <p>This repository has commits, but the default branch <code>{{ .DefaultBranch }}</code> hasn't been pushed yet.
+    Push <code>{{ .DefaultBranch }}</code> or change the default in repo settings to see content here.</p>
+  </section>
+  {{ end }}
+
+  <aside class="shithub-repo-populated-clone" aria-label="Clone URLs">
+    <label>
+      <span>HTTPS</span>
+      <input type="text" readonly value="{{ .HTTPSCloneURL }}" onclick="this.select()">
+    </label>
+    {{ if .SSHEnabled }}
+    <label>
+      <span>SSH</span>
+      <input type="text" readonly value="{{ .SSHCloneURL }}" onclick="this.select()">
+    </label>
+    {{ end }}
+  </aside>
+
+  <p class="shithub-repo-populated-note">
+    Tree view, file blobs, branch list, and commit history land in S17. For now this view confirms a push has reached the server.
+  </p>
+</section>
+{{- end }}

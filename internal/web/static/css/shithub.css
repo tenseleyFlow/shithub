@@ -829,3 +829,65 @@ code {
   font-size: 0.85rem;
   overflow-x: auto;
 }
+
+/* Populated-repo placeholder (S17 will replace with real tree view) */
+.shithub-repo-populated {
+  max-width: 56rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.shithub-repo-populated-head h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.4rem;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.shithub-repo-populated-sep { color: var(--fg-muted); }
+.shithub-repo-populated-desc { margin: 0 0 1rem; color: var(--fg-muted); }
+.shithub-repo-headcommit {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-subtle);
+}
+.shithub-repo-headcommit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  align-items: center;
+}
+.shithub-repo-headcommit-branch {
+  font-weight: 600;
+  color: var(--fg-default);
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--canvas-default);
+  font-size: 0.75rem;
+}
+.shithub-repo-headcommit-oid { font-family: monospace; }
+.shithub-repo-headcommit-author { color: var(--fg-default); }
+.shithub-repo-headcommit-subject { margin: 0.5rem 0 0; font-size: 0.95rem; }
+.shithub-repo-headcommit-other-branch p { margin: 0; font-size: 0.9rem; color: var(--fg-muted); }
+.shithub-repo-populated-clone {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.shithub-repo-populated-clone label { display: grid; grid-template-columns: 70px 1fr; gap: 0.5rem; align-items: center; }
+.shithub-repo-populated-clone span { font-size: 0.8rem; color: var(--fg-muted); font-weight: 600; }
+.shithub-repo-populated-clone input {
+  font: inherit;
+  font-family: monospace;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-repo-populated-note { margin-top: 1rem; font-size: 0.8rem; color: var(--fg-muted); }
