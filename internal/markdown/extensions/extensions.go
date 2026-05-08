@@ -25,7 +25,6 @@ import (
 	"context"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -93,8 +92,11 @@ type Mention struct {
 //	#6               commit prefix
 //	#7               emoji name
 var reCombined = regexp.MustCompile(`` +
-	// cross-repo: alice/proj#3
-	`([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)#([0-9]{1,9})\b` +
+	// cross-repo: alice/proj#3 — left boundary required so we don't
+	// chew into a preceding word (e.g. `xfoo/bar#3` should not be a
+	// match of `foo/bar#3`). Mirrors the same-repo / mention shape;
+	// the audit caught the asymmetry (S00-S25, M).
+	`(?:^|[^\w/])([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)#([0-9]{1,9})\b` +
 	// or same-repo: #3 — must have non-word non-/ boundary on the left
 	`|(?:^|[^\w/])#([0-9]{1,9})\b` +
 	// or mention: @alice — must have non-word boundary on the left
@@ -176,6 +178,9 @@ func (t *transformer) replaceText(txt *ast.Text, source []byte) {
 		var contentStart int
 		switch {
 		case isCrossRepo:
+			// m[2] is the owner-start position (after the regex's
+			// leading non-word boundary char). Same shape as same-repo
+			// — emit the boundary char as plain text, then the link.
 			contentStart = m[2]
 		case isSameRepo:
 			contentStart = m[8] - 1 // include `#`
@@ -335,21 +340,3 @@ func (t *transformer) appendCommitLink(parent, before ast.Node, shaPrefix string
 	return true
 }
 
-// trimLeadingNonWord drops the leading boundary char(s) — used when
-// a same-repo or mention token is rendered as plain text fallback.
-func trimLeadingNonWord(b []byte) []byte {
-	for len(b) > 0 && !isWordByte(b[0]) {
-		b = b[1:]
-	}
-	return b
-}
-
-func isWordByte(c byte) bool {
-	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-// silence unused-import warnings in a stripped build.
-var (
-	_ = strings.Builder{}
-	_ = trimLeadingNonWord
-)

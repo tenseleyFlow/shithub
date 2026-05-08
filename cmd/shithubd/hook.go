@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
@@ -383,6 +382,3 @@ func init() {
 	rootCmd.AddCommand(hooksParentCmd)
 }
 
-// silence unused import warnings during incremental builds — the pgx
-// import is used through the hookCtx pool helper above.
-var _ = pgx.ErrNoRows

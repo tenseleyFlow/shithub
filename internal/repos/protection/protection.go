@@ -11,7 +11,6 @@ package protection
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -114,8 +113,11 @@ func deny(r reposdb.BranchProtectionRule, reason string) Decision {
 	}
 }
 
-// matchRule returns the rule with the longest pattern matching branch
-// (alphabetical tiebreaker). Returns ok=false when no rule matches.
+// MatchLongestRule returns the rule with the longest pattern matching
+// branch (alphabetical tiebreaker). Returns ok=false when no rule
+// matches. Exposed as the canonical pattern-match helper so the
+// `pulls` and `pulls/review` packages don't reimplement it (the audit
+// caught two near-identical copies — S00-S25 audit, M).
 //
 // Patterns use filepath.Match semantics:
 //   - `*` matches any sequence of non-separator chars (NOT crossing `/`)
@@ -123,6 +125,10 @@ func deny(r reposdb.BranchProtectionRule, reason string) Decision {
 //   - `[abc]` matches one of a/b/c
 //
 // `release/*` matches `release/v1.0` but NOT `release/v1.0/sub`.
+func MatchLongestRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
+	return matchRule(rules, branch)
+}
+
 func matchRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
 	type cand struct {
 		rule reposdb.BranchProtectionRule
@@ -173,7 +179,3 @@ func FriendlyMessage(d Decision) string {
 	return fmt.Sprintf("shithub: %s (rule pattern %q).", d.Reason, d.Pattern)
 }
 
-// ErrTransient is returned by Enforce when DB connectivity is the
-// failure cause. Pre-receive maps this to "transient error; try
-// again" and rejects the push (fail closed per S20 spec).
-var ErrTransient = errors.New("protection: transient error")

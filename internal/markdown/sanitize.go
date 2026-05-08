@@ -4,7 +4,6 @@ package markdown
 
 import (
 	"regexp"
-	"sync"
 
 	"github.com/microcosm-cc/bluemonday"
 )
@@ -70,14 +69,8 @@ var sanitizer = func() *bluemonday.Policy {
 var reCodeClass = regexp.MustCompile(`^(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl)(?:\s+(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl))*$`)
 
 // sanitizeBytes is the hot-path entry the Render pipeline uses. The
-// bluemonday Policy is itself goroutine-safe; the once.Do here keeps
-// the regex compilation cost off the first request path.
-var sanitizerOnce sync.Once
-
+// bluemonday Policy is built at package init via the var initializer
+// above and is itself goroutine-safe — no need for sync.Once gymnastics.
 func sanitizeBytes(in []byte) []byte {
-	sanitizerOnce.Do(func() {
-		// Touch the package-level sanitizer to ensure it's built.
-		_ = sanitizer
-	})
 	return sanitizer.SanitizeBytes(in)
 }
