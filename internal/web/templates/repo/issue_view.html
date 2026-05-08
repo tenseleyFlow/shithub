@@ -1,0 +1,148 @@
+{{ define "page" -}}
+<section class="shithub-issue-view">
+  <header class="shithub-issue-view-head">
+    <h1 class="shithub-issue-title">
+      <span>{{ .Issue.Title }}</span>
+      <span class="shithub-issue-num">#{{ .Issue.Number }}</span>
+    </h1>
+    <div class="shithub-issue-meta">
+      <span class="shithub-pill shithub-issues-state-{{ printf "%s" .Issue.State }}">
+        {{ if eq (printf "%s" .Issue.State) "open" }}● Open{{ else }}✓ Closed{{ end }}
+      </span>
+      {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+      opened this issue
+      <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
+      · {{ len .Comments }} comment{{ if ne (len .Comments) 1 }}s{{ end }}
+      {{ if .Issue.Locked }}<span class="shithub-pill">locked</span>{{ end }}
+    </div>
+  </header>
+
+  <div class="shithub-issue-grid">
+    <article class="shithub-issue-thread">
+      <div class="shithub-comment">
+        <div class="shithub-comment-head">
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
+        </div>
+        <div class="shithub-comment-body markdown-body">
+          {{ if .Issue.BodyHtmlCached.Valid }}{{ safeHTML .Issue.BodyHtmlCached.String }}{{ else }}<p>{{ .Issue.Body }}</p>{{ end }}
+        </div>
+      </div>
+
+      {{ range .Comments }}
+      <div class="shithub-comment">
+        <div class="shithub-comment-head">
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          commented
+          <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
+        </div>
+        <div class="shithub-comment-body markdown-body">
+          {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
+        </div>
+      </div>
+      {{ end }}
+
+      {{ range .Events }}
+      <div class="shithub-event">
+        <span class="shithub-event-kind">{{ .Kind }}</span>
+        <time datetime="{{ .CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt.Time }}</time>
+      </div>
+      {{ end }}
+
+      {{ if .Viewer.ID }}
+      <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/comments" class="shithub-comment-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Add a comment</span>
+          <textarea name="body" rows="6" maxlength="65535" required></textarea>
+        </label>
+        <div class="shithub-form-actions">
+          {{ if eq (printf "%s" .Issue.State) "open" }}
+          <button type="submit" formaction="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/state" name="state" value="closed" class="shithub-button">Close issue</button>
+          {{ else }}
+          <button type="submit" formaction="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/state" name="state" value="open" class="shithub-button">Reopen issue</button>
+          {{ end }}
+          <button type="submit" class="shithub-button shithub-button-primary">Comment</button>
+        </div>
+      </form>
+      {{ else }}
+      <p class="shithub-issue-signedout"><a href="/login">Sign in</a> to comment.</p>
+      {{ end }}
+    </article>
+
+    <aside class="shithub-issue-sidebar">
+      <section>
+        <h3>Labels</h3>
+        {{ if .Labels }}
+          {{ range .Labels }}<span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>{{ end }}
+        {{ else }}<p class="shithub-muted">None yet</p>{{ end }}
+        {{ if .Viewer.ID }}
+        <details>
+          <summary>Edit labels</summary>
+          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/labels">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            {{ $current := .Labels }}
+            {{ range .AllLabels }}
+              {{ $id := .ID }}
+              <label class="shithub-label-pick">
+                <input type="checkbox" name="label_ids" value="{{ .ID }}"
+                  {{ range $current }}{{ if eq .ID $id }}checked{{ end }}{{ end }}>
+                <span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>
+              </label>
+            {{ end }}
+            <button type="submit" class="shithub-button">Apply</button>
+          </form>
+        </details>
+        {{ end }}
+      </section>
+
+      <section>
+        <h3>Assignees</h3>
+        {{ if .Assignees }}
+          {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ end }}
+        {{ else }}<p class="shithub-muted">No one assigned</p>{{ end }}
+        {{ if .Viewer.ID }}
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/assignees" class="shithub-assignee-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="text" name="username" placeholder="username" required>
+          <button type="submit" name="mode" value="add" class="shithub-button">Add</button>
+          <button type="submit" name="mode" value="remove" class="shithub-button">Remove</button>
+        </form>
+        {{ end }}
+      </section>
+
+      <section>
+        <h3>Milestone</h3>
+        {{ if .Issue.MilestoneID.Valid }}
+          {{ $mid := .Issue.MilestoneID.Int64 }}
+          {{ range .Milestones }}{{ if eq .ID $mid }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones">{{ .Title }}</a>{{ end }}{{ end }}
+        {{ else }}<p class="shithub-muted">No milestone</p>{{ end }}
+        {{ if .Viewer.ID }}
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/milestone">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <select name="milestone_id">
+            <option value="0">— None —</option>
+            {{ range .Milestones }}<option value="{{ .ID }}">{{ .Title }}</option>{{ end }}
+          </select>
+          <button type="submit" class="shithub-button">Set</button>
+        </form>
+        {{ end }}
+      </section>
+
+      {{ if .Viewer.ID }}
+      <section>
+        <h3>Lock</h3>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/lock">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          {{ if .Issue.Locked }}
+          <button type="submit" name="lock" value="false" class="shithub-button">Unlock</button>
+          {{ else }}
+          <button type="submit" name="lock" value="true" class="shithub-button">Lock conversation</button>
+          {{ end }}
+        </form>
+      </section>
+      {{ end }}
+    </aside>
+  </div>
+</section>
+{{- end }}

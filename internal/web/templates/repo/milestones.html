@@ -1,0 +1,52 @@
+{{ define "page" -}}
+<section class="shithub-milestones">
+  <header class="shithub-issues-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Milestones
+    </h1>
+  </header>
+
+  {{ if .Viewer.ID }}
+  <details class="shithub-milestone-create">
+    <summary class="shithub-button shithub-button-primary">New milestone</summary>
+    <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-milestone-form">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <input type="text" name="title" placeholder="title" maxlength="200" required>
+      <input type="date" name="due_on">
+      <textarea name="description" placeholder="description (optional)" rows="3"></textarea>
+      <button type="submit" class="shithub-button">Create</button>
+    </form>
+  </details>
+  {{ end }}
+
+  <ul class="shithub-milestones-list">
+    {{ range .Milestones }}
+    <li class="shithub-milestones-row">
+      <h3>{{ .Title }}
+        <span class="shithub-pill shithub-issues-state-{{ printf "%s" .State }}">{{ printf "%s" .State }}</span>
+        {{ if .DueOn.Valid }}<small>due {{ .DueOn.Time.Format "Jan 2, 2006" }}</small>{{ end }}
+      </h3>
+      {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+      {{ if $.Viewer.ID }}
+      <div class="shithub-milestone-actions">
+        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/state">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          {{ if eq (printf "%s" .State) "open" }}
+          <button type="submit" name="state" value="closed" class="shithub-button">Close milestone</button>
+          {{ else }}
+          <button type="submit" name="state" value="open" class="shithub-button">Reopen milestone</button>
+          {{ end }}
+        </form>
+        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+        </form>
+      </div>
+      {{ end }}
+    </li>
+    {{ end }}
+  </ul>
+</section>
+{{- end }}

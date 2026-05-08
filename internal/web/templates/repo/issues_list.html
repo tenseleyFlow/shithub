@@ -1,0 +1,59 @@
+{{ define "page" -}}
+<section class="shithub-issues">
+  <header class="shithub-issues-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Issues
+    </h1>
+    <div class="shithub-issues-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-button">Labels</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-button">Milestones</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues/new" class="shithub-button shithub-button-primary">New issue</a>
+    </div>
+  </header>
+
+  <nav class="shithub-issues-filter">
+    <a href="?state=open" class="shithub-issues-tab {{ if eq .State "open" }}shithub-issues-tab-active{{ end }}">
+      <span class="shithub-issues-dot shithub-issues-dot-open"></span>
+      {{ .OpenCount }} Open
+    </a>
+    <a href="?state=closed" class="shithub-issues-tab {{ if eq .State "closed" }}shithub-issues-tab-active{{ end }}">
+      <span class="shithub-issues-dot shithub-issues-dot-closed"></span>
+      {{ .ClosedCount }} Closed
+    </a>
+  </nav>
+
+  {{ if .Items }}
+  <ul class="shithub-issues-list">
+    {{ range .Items }}
+    <li class="shithub-issues-row">
+      <span class="shithub-issues-state shithub-issues-state-{{ printf "%s" .Issue.State }}">
+        {{ if eq (printf "%s" .Issue.State) "open" }}●{{ else }}✓{{ end }}
+      </span>
+      <div class="shithub-issues-body">
+        <a class="shithub-issues-title" href="/{{ $.Owner }}/{{ $.Repo.Name }}/issues/{{ .Issue.Number }}">
+          {{ .Issue.Title }}
+        </a>
+        {{ range .Labels }}
+          <span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>
+        {{ end }}
+        <div class="shithub-issues-meta">
+          #{{ .Issue.Number }} opened
+          <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
+          {{ if .AuthorName }}by <a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+        </div>
+      </div>
+      {{ if .Assignees }}
+      <div class="shithub-issues-assignees">
+        {{ range .Assignees }}<a href="/{{ .Username }}" title="{{ .Username }}">@{{ .Username }}</a>{{ end }}
+      </div>
+      {{ end }}
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-issues-empty">No {{ .State }} issues. <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues/new">Open one</a>.</p>
+  {{ end }}
+</section>
+{{- end }}

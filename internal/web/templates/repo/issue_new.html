@@ -1,0 +1,31 @@
+{{ define "page" -}}
+<section class="shithub-issue-new">
+  <header class="shithub-issues-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues">Issues</a>
+      <span class="shithub-code-sep">/</span>
+      New
+    </h1>
+  </header>
+
+  {{ if .Error }}<div class="shithub-error" role="alert">{{ .Error }}</div>{{ end }}
+
+  <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues" class="shithub-issue-form">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label class="shithub-form-row">
+      <span>Title</span>
+      <input type="text" name="title" maxlength="256" required value="{{ .FormTitle }}" autofocus>
+    </label>
+    <label class="shithub-form-row">
+      <span>Body (Markdown)</span>
+      <textarea name="body" rows="14" maxlength="65535">{{ .FormBody }}</textarea>
+    </label>
+    <div class="shithub-form-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues" class="shithub-button">Cancel</a>
+      <button type="submit" class="shithub-button shithub-button-primary">Submit new issue</button>
+    </div>
+  </form>
+</section>
+{{- end }}
