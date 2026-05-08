@@ -66,6 +66,7 @@ func (h *Handlers) issuesDeps() issues.Deps {
 		Pool:    h.d.Pool,
 		Limiter: h.d.Limiter,
 		Logger:  h.d.Logger,
+		Audit:   h.d.Audit,
 	}
 }
 
@@ -332,10 +333,13 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	body := r.PostFormValue("body")
 
-	// IsCollab — for v1 only the repo owner counts as collaborator
-	// (S15 attaches collaborators table; lookup deferred for the
-	// locked-issue gate). Owners always pass.
-	isCollab := row.OwnerUserID.Valid && row.OwnerUserID.Int64 == viewer.ID
+	// IsCollab is the locked-issue bypass: triage+ on the repo can comment
+	// past a `locked=true` flag (the gate exists to silence drive-by
+	// posters). We resolve the *real* role via the policy package — owner
+	// is implicit admin, and any explicit collaborator with role >= triage
+	// passes. Read fails (DB miss, unknown role) fail closed via RoleNone.
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	isCollab := policy.HasRoleAtLeast(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.NewRepoRefFromRepo(row), policy.RoleTriage)
 
 	_, err := issues.AddComment(r.Context(), h.issuesDeps(), issues.CommentCreateParams{
 		IssueID:      issue.ID,
@@ -351,7 +355,12 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) issueSetState(w http.ResponseWriter, r *http.Request) {
-	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionIssueClose)
+	// Two-pass authorization: read access first, then ActionIssueClose
+	// with `repo.AuthorUserID = issue.AuthorUserID` set so the policy
+	// engine grants author-self-close. Without the second pass, an
+	// issue's reporter who isn't a triage collaborator couldn't close
+	// their own thread — which the audit flagged (S00-S25, H1).
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionIssueRead)
 	if !ok {
 		return
 	}
@@ -359,9 +368,18 @@ func (h *Handlers) issueSetState(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	repoRef := policy.NewRepoRefFromRepo(row)
+	if issue.AuthorUserID.Valid {
+		repoRef.AuthorUserID = issue.AuthorUserID.Int64
+	}
+	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueClose, repoRef); !dec.Allow {
+		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
+		return
+	}
 	state := strings.TrimSpace(r.PostFormValue("state"))
 	reason := strings.TrimSpace(r.PostFormValue("reason"))
-	viewer := middleware.CurrentUserFromContext(r.Context())
 	if err := issues.SetState(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason); err != nil {
 		h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
 		return

@@ -182,6 +182,44 @@ func TestAddComment_LockedRejectsNonCollab(t *testing.T) {
 	}
 }
 
+// TestAddComment_LockedAllowsCollab is the positive companion to the
+// previous test: when the orchestrator is told `IsCollab=true` the
+// locked gate must yield. This guards the policy contract — a triage+
+// collaborator is allowed to post past a lock so they can wrap up
+// drive-by spam threads. (S00-S25 audit, finding C3.)
+func TestAddComment_LockedAllowsCollab(t *testing.T) {
+	pool, deps, uid, rid := setup(t)
+	ctx := context.Background()
+	row, err := issues.Create(ctx, deps, issues.CreateParams{
+		RepoID: rid, AuthorUserID: uid, Title: "lock-me", Body: "",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := issues.SetLock(ctx, deps, uid, row.ID, true, "spam"); err != nil {
+		t.Fatalf("SetLock: %v", err)
+	}
+	uq := usersdb.New()
+	collab, err := uq.CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "tessie", DisplayName: "Tessie", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	c, err := issues.AddComment(ctx, deps, issues.CommentCreateParams{
+		IssueID:      row.ID,
+		AuthorUserID: collab.ID,
+		Body:         "wrapping up the thread",
+		IsCollab:     true,
+	})
+	if err != nil {
+		t.Fatalf("expected lock bypass for collab, got %v", err)
+	}
+	if c.ID == 0 {
+		t.Errorf("returned comment had zero ID")
+	}
+}
+
 func TestSetState_EmitsEvent(t *testing.T) {
 	pool, deps, uid, rid := setup(t)
 	ctx := context.Background()

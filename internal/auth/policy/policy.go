@@ -105,6 +105,19 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return deny(DenyDBError, "role lookup failed: "+err.Error())
 	}
 
+	// 6a. Author-self-close on issues and PRs. The author of an issue or
+	//     PR is allowed to close (and reopen — same Action) their own
+	//     thread regardless of their collaborator role. Handlers populate
+	//     `repo.AuthorUserID` on the close path; everywhere else the
+	//     field is zero and this branch is dead. Suspension and archived
+	//     gates above still apply — they ran before this. Note: we do NOT
+	//     extend this to `ActionIssueLabel`/`ActionIssueAssign`; only the
+	//     close action is author-self by design (matches GitHub).
+	if (action == ActionIssueClose || action == ActionPullClose) &&
+		repo.AuthorUserID != 0 && repo.AuthorUserID == actor.UserID {
+		return allow("author of thread")
+	}
+
 	// 7. Archived repos: writes denied even for owners. Reads still go
 	//    through the role check above. (We could short-circuit reads
 	//    earlier but keeping the flow uniform makes the matrix readable.)
@@ -251,3 +264,31 @@ func minRoleFor(action Action) Role {
 // errBadAction is returned by Can when a caller passes a value that
 // doesn't match any registered Action. Reserved for tests.
 var errBadAction = errors.New("policy: unregistered action")
+
+// EffectiveRole returns the actor's resolved role on repo, taking
+// owner-equals-admin into account and consulting the per-request cache.
+//
+// Use this when a handler needs to ask "is this actor at least X" for a
+// rule that doesn't map cleanly to an Action — for example, the
+// locked-issue gate which lets triage+ comment despite the lock without
+// granting them any other write permission.
+//
+// Returns RoleNone for anonymous actors and on any DB error; callers
+// should treat RoleNone as "no permissions."
+func EffectiveRole(ctx context.Context, d Deps, actor Actor, repo RepoRef) Role {
+	if actor.IsAnonymous {
+		return RoleNone
+	}
+	r, err := effectiveRole(ctx, d, actor, repo)
+	if err != nil {
+		return RoleNone
+	}
+	return r
+}
+
+// HasRoleAtLeast is the convenience shorthand for the common case:
+// "does this actor hold at least `want` on this repo?" Wraps
+// EffectiveRole + RoleAtLeast.
+func HasRoleAtLeast(ctx context.Context, d Deps, actor Actor, repo RepoRef, want Role) bool {
+	return RoleAtLeast(EffectiveRole(ctx, d, actor, repo), want)
+}
