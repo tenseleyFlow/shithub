@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/repos/protection"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -64,14 +67,40 @@ var hookPreReceiveCmd = &cobra.Command{
 		}
 		defer hook.pool.Close()
 
-		// Drain stdin so git doesn't EPIPE — we don't actually need the
-		// per-ref data for the minimum gates, but a future protection
-		// engine (S20) does. Reading and discarding is the safe contract.
-		_, _ = io.Copy(io.Discard, cmd.InOrStdin())
+		refs, err := readRefLines(cmd.InOrStdin())
+		if err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "shithub: failed to read ref updates")
+			return err
+		}
 
 		if err := preReceiveCheck(ctx, hook); err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
+		}
+
+		// Branch-protection enforcement (S20). Per-ref check against
+		// the rule set; longest-pattern match wins. A single rejected
+		// ref aborts the entire push (git's standard non-atomic
+		// per-ref accept/reject still applies — pre-receive nonzero
+		// rejects all refs in the push, which matches our intent for
+		// "any rule says no, the whole push stops").
+		gitDir, err := repoGitDir(ctx, hook)
+		if err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
+			return err
+		}
+		for _, rf := range refs {
+			d, perr := protection.Enforce(ctx, hook.pool, gitDir, hook.repoID, protection.Update{
+				OldSHA: rf.before, NewSHA: rf.after, Ref: rf.ref, Pusher: hook.userID,
+			})
+			if perr != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "shithub: protection check failed (transient); please retry")
+				return perr
+			}
+			if !d.Allow {
+				fmt.Fprintln(cmd.ErrOrStderr(), protection.FriendlyMessage(d))
+				return errors.New("protection denied")
+			}
 		}
 		return nil
 	},
@@ -175,6 +204,25 @@ var (
 	errHookMissing    = errHookGate{"missing context"}
 	errHookPermDenied = errHookGate{"permission denied"}
 )
+
+// repoGitDir resolves the bare-repo on-disk path for the hook's repo.
+// Used by the protection enforcer's IsAncestor check. Hook env carries
+// SHITHUB_REPO_FULL_NAME ("owner/name") so we don't need a DB hit.
+func repoGitDir(ctx context.Context, h *hookCtx) (string, error) {
+	owner, name, ok := strings.Cut(h.repoFull, "/")
+	if !ok {
+		return "", fmt.Errorf("repoGitDir: bad repo full name %q", h.repoFull)
+	}
+	root, err := filepath.Abs(h.cfg.Storage.ReposRoot)
+	if err != nil {
+		return "", fmt.Errorf("repoGitDir: abs: %w", err)
+	}
+	rfs, err := storage.NewRepoFS(root)
+	if err != nil {
+		return "", fmt.Errorf("repoGitDir: fs: %w", err)
+	}
+	return rfs.RepoPath(owner, name)
+}
 
 func friendlyHookErr(err error) string {
 	switch {
