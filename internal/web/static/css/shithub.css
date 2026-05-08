@@ -1384,3 +1384,18 @@ code {
 .shithub-pull-check-conclusion-stale { color: var(--fg-muted); background: var(--canvas-subtle); }
 .shithub-pull-check-conclusion-timed_out { background: #9a670022; color: #9a6700; }
 .shithub-pull-check-conclusion-action_required { background: #cf222e22; color: #cf222e; font-weight: 600; }
+
+/* S26 — stars / watchers list pages */
+.shithub-social { padding: 1rem 0; }
+.shithub-social-list { list-style: none; padding: 0; margin: 1rem 0; }
+.shithub-social-list li {
+  display: flex; gap: 0.6rem; align-items: baseline;
+  padding: 0.5rem 0; border-bottom: 1px solid var(--border-default);
+}
+.shithub-social-list li:last-child { border-bottom: none; }
+.shithub-social-list small { color: var(--fg-muted); }
+.shithub-meta { color: var(--fg-muted); margin: 0.25rem 0 1rem; }
+.shithub-empty { color: var(--fg-muted); padding: 1rem; }
+.shithub-pagination {
+  display: flex; gap: 0.5rem; padding: 1rem 0;
+}

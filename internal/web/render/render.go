@@ -235,6 +235,11 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 		"csrfToken": middleware.CSRFTokenForRequest,
 		// dict builds a map for partial-template includes that need
 		// multiple named values (idiomatic Go template trick).
+		// add / sub are tiny integer helpers used by pagination
+		// templates (next/prev page links). Templates can't do
+		// arithmetic, so the helpers earn their keep here.
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
 		"dict": func(values ...any) (map[string]any, error) {
 			if len(values)%2 != 0 {
 				return nil, fmt.Errorf("dict: odd number of args")

@@ -1,0 +1,33 @@
+{{ define "page" -}}
+<section class="shithub-social">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Stargazers
+    </h1>
+    <p class="shithub-meta">{{ .Total }} {{ if eq .Total 1 }}stargazer{{ else }}stargazers{{ end }}</p>
+  </header>
+
+  {{ if .Stargazers }}
+  <ul class="shithub-social-list">
+    {{ range .Stargazers }}
+    <li>
+      <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
+      <small>@{{ .Username }}</small>
+      <small><time datetime="{{ .StarredAt.Time.Format "2006-01-02T15:04:05Z" }}">starred {{ relativeTime .StarredAt.Time }}</time></small>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-empty">No stargazers yet.</p>
+  {{ end }}
+
+  {{ if or .HasPrev .HasNext }}
+  <nav class="shithub-pagination">
+    {{ if .HasPrev }}<a href="?page={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ end }}
+    {{ if .HasNext }}<a href="?page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
+  </nav>
+  {{ end }}
+</section>
+{{- end }}

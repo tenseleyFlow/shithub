@@ -204,6 +204,7 @@ func Run(ctx context.Context, opts Options) error {
 		// RequireUser inserted only for state-mutating verbs.
 		deps.RepoIssuesMounter = repoH.MountIssues
 		deps.RepoPullsMounter = repoH.MountPulls
+		deps.RepoSocialMounter = repoH.MountSocial
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
