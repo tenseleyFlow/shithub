@@ -66,6 +66,11 @@ type Deps struct {
 	// RepoHistoryMounter registers /commits/{ref}, /commit/{sha},
 	// /blame/{ref}/{path...}, /commits/{ref}.atom (S18).
 	RepoHistoryMounter func(chi.Router)
+	// RepoRefsMounter registers /branches, /tags, /compare/* (S20).
+	RepoRefsMounter func(chi.Router)
+	// RepoSettingsBranchesMounter registers /settings/branches +
+	// /settings/default-branch (S20). Auth-required.
+	RepoSettingsBranchesMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -177,6 +182,12 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoHistoryMounter != nil {
 			deps.RepoHistoryMounter(r)
+		}
+		if deps.RepoRefsMounter != nil {
+			deps.RepoRefsMounter(r)
+		}
+		if deps.RepoSettingsBranchesMounter != nil {
+			deps.RepoSettingsBranchesMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

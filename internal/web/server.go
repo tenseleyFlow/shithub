@@ -188,6 +188,13 @@ func Run(ctx context.Context, opts Options) error {
 		deps.RepoHomeMounter = repoH.MountRepoHome
 		deps.RepoCodeMounter = repoH.MountCode
 		deps.RepoHistoryMounter = repoH.MountHistory
+		deps.RepoRefsMounter = repoH.MountRefs
+		deps.RepoSettingsBranchesMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountSettingsBranches(r)
+			})
+		}
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
