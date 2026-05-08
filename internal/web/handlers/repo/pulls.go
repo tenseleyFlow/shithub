@@ -29,8 +29,12 @@ import (
 
 // MountPulls registers /{owner}/{repo}/pulls* routes. Reads are
 // public (subject to policy.Can(ActionPullRead)); writes require auth.
-// The merge route enqueues a pr:merge worker job and renders a
-// "merging…" page; the worker performs the actual git operation.
+// The merge route runs synchronously inside the request: pulls.Merge
+// performs the worktree operation, updates DB state, and the response
+// redirects the user straight to the merged view. (An async-merge path
+// can be reintroduced when very-large-repo merges become a real
+// concern; the worker registration was deleted alongside the unused
+// KindPRMerge in the audit remediation sprint.)
 func (h *Handlers) MountPulls(r chi.Router) {
 	r.Get("/{owner}/{repo}/pulls", h.pullsList)
 	r.Get("/{owner}/{repo}/pulls/{number}", h.pullView)
@@ -53,7 +57,7 @@ func (h *Handlers) MountPulls(r chi.Router) {
 }
 
 func (h *Handlers) pullsDeps() pulls.Deps {
-	return pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger}
+	return pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}
 }
 
 // pullsList renders /{owner}/{repo}/pulls.
@@ -472,6 +476,11 @@ func renderCheckSummary(raw []byte) template.HTML {
 	if err := json.Unmarshal(raw, &o); err != nil || o.Summary == "" {
 		return ""
 	}
+	// Summary is bounded by the API's 256 KiB body cap (well under
+	// markdown's 1 MiB ceiling). An error here only fires if a
+	// structural precondition regresses; the function is a pure
+	// presenter so we degrade to empty (the caller is just rendering
+	// a tooltip-grade snippet on the PR checks panel).
 	html, _ := mdrender.RenderHTML([]byte(o.Summary))
 	return template.HTML(html) //nolint:gosec // sanitized by bluemonday UGCPolicy
 }
@@ -500,12 +509,26 @@ func (h *Handlers) pullEdit(w http.ResponseWriter, r *http.Request) {
 
 // pullSetState handles POST .../state.
 func (h *Handlers) pullSetState(w http.ResponseWriter, r *http.Request) {
-	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullClose)
+	// Two-pass authorization: read access first, then ActionPullClose
+	// with `repo.AuthorUserID = pr.AuthorUserID` set so the policy engine
+	// grants author-self-close. Without the second pass, a non-collab
+	// fork-PR author couldn't close their own PR (S00-S25 audit, H1).
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullRead)
 	if !ok {
 		return
 	}
 	pr, ok := h.loadPullByNumber(w, r, row.ID)
 	if !ok {
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	repoRef := policy.NewRepoRefFromRepo(row)
+	if pr.IAuthorUserID.Valid {
+		repoRef.AuthorUserID = pr.IAuthorUserID.Int64
+	}
+	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionPullClose, repoRef); !dec.Allow {
+		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
 		return
 	}
 	gitDir, err := h.d.RepoFS.RepoPath(owner.Username, row.Name)
@@ -514,7 +537,6 @@ func (h *Handlers) pullSetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := strings.TrimSpace(r.PostFormValue("state"))
-	viewer := middleware.CurrentUserFromContext(r.Context())
 	if err := pulls.SetState(r.Context(), h.pullsDeps(), gitDir, viewer.ID, pr.IID, state); err != nil {
 		h.handlePullWriteError(w, r, err)
 		return
@@ -541,9 +563,10 @@ func (h *Handlers) pullSetReady(w http.ResponseWriter, r *http.Request) {
 }
 
 // pullMerge handles POST .../merge. Performs the merge synchronously
-// (so the redirect lands on the merged state). Heavy merges could be
-// async via the pr:merge job; v1 is synchronous so the user sees an
-// immediate result on small merges.
+// inside the request so the redirect lands on the merged state. The
+// pulls.Merge orchestrator updates repos.default_branch_oid in the
+// same tx when the base IS the default branch, since update-ref
+// bypasses the push:process hook that normally maintains the column.
 func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullMerge)
 	if !ok {
@@ -582,12 +605,6 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 		h.handlePullWriteError(w, r, err)
 		return
 	}
-	// After merge, push:process won't fire (the update-ref bypassed
-	// the hook). Trigger a default-branch-OID refresh manually.
-	go func() {
-		// Fire-and-forget; the user is already redirected.
-		// Failure is logged but doesn't affect UX.
-	}()
 	h.redirectPull(w, r, owner.Username, row.Name, pr.INumber)
 }
 

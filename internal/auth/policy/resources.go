@@ -18,6 +18,21 @@ type RepoRef struct {
 	Visibility  string // "public" | "private"
 	IsArchived  bool
 	IsDeleted   bool
+
+	// AuthorUserID is the author of the *issue or PR* being acted on,
+	// when the action is one that grants author-self privileges
+	// (`ActionIssueClose`, `ActionPullClose`). Zero means "no author
+	// context" — e.g. a repo-level read or write — and is the default.
+	// Handlers populate this only on the close paths; everywhere else
+	// it stays zero.
+	//
+	// This is a pragmatic v1 shape: instead of introducing an
+	// IssueRef/PullRef parallel to RepoRef, we widen RepoRef with the
+	// one fact the close gate needs. When/if more issue-level rules
+	// land (assignee privileges, labeler privileges) we'll graduate
+	// to a proper IssueRef. The audit captured the design tradeoff;
+	// don't add new fields here without re-reading that note.
+	AuthorUserID int64
 }
 
 // IsPublic returns true when the repo's visibility column is "public".
