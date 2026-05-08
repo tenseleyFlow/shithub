@@ -95,7 +95,6 @@ var workerCmd = &cobra.Command{
 		prDeps := jobs.PRJobsDeps{Pool: pool, RepoFS: rfs, Logger: logger}
 		p.Register(worker.KindPRSynchronize, jobs.PRSynchronize(prDeps))
 		p.Register(worker.KindPRMergeability, jobs.PRMergeability(prDeps))
-		p.Register(worker.KindPRMerge, jobs.PRMerge(prDeps))
 
 		return p.Run(ctx)
 	},

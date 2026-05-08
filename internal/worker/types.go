@@ -37,12 +37,15 @@ const (
 )
 
 // S22 pull-request kinds. Synchronize refreshes commits + files after
-// a head-side push; mergeability runs the merge-tree probe; merge
-// performs the requested strategy in a temp worktree.
+// a head-side push; mergeability runs the merge-tree probe.
+//
+// (No async-merge kind: the POST .../merge handler executes the merge
+// synchronously so the redirect lands on the merged state. If we add
+// async merging later — for very large repos — re-introduce a
+// KindPRMerge here and a matching jobs.PRMerge handler.)
 const (
-	KindPRSynchronize Kind = "pr:synchronize"
+	KindPRSynchronize  Kind = "pr:synchronize"
 	KindPRMergeability Kind = "pr:mergeability"
-	KindPRMerge        Kind = "pr:merge"
 )
 
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes

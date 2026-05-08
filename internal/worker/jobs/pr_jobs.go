@@ -86,41 +86,6 @@ func PRMergeability(deps PRJobsDeps) worker.Handler {
 	}
 }
 
-// PRMergePayload — enqueued from the POST .../merge handler. Contains
-// the actor + chosen method + optional subject/body overrides.
-type PRMergePayload struct {
-	PRID        int64  `json:"pr_id"`
-	ActorUserID int64  `json:"actor_user_id"`
-	Method      string `json:"method"`
-	Subject     string `json:"subject,omitempty"`
-	Body        string `json:"body,omitempty"`
-}
-
-// PRMerge performs the requested merge strategy and updates DB state.
-func PRMerge(deps PRJobsDeps) worker.Handler {
-	return func(ctx context.Context, raw json.RawMessage) error {
-		var p PRMergePayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return worker.PoisonError(fmt.Errorf("bad payload: %w", err))
-		}
-		if p.PRID == 0 || p.Method == "" {
-			return worker.PoisonError(errors.New("missing pr_id or method"))
-		}
-		gitDir, err := resolveGitDirForPR(ctx, deps.Pool, deps.RepoFS, p.PRID)
-		if err != nil {
-			return err
-		}
-		return pulls.Merge(ctx, pulls.Deps{Pool: deps.Pool, Logger: deps.Logger}, pulls.MergeParams{
-			PRID:        p.PRID,
-			ActorUserID: p.ActorUserID,
-			GitDir:      gitDir,
-			Method:      p.Method,
-			Subject:     p.Subject,
-			Body:        p.Body,
-		})
-	}
-}
-
 // resolveGitDirForPR turns a PR id into the bare-repo path on disk
 // using the repo + owner-user lookups. Cached per-call only; the
 // caller's job-level context bounds the work.

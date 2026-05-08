@@ -4,7 +4,6 @@ package pulls
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,12 +11,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/checks"
-	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -163,14 +163,33 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 	}
 
 	if err := q.SetPullRequestMerged(ctx, tx, pullsdb.SetPullRequestMergedParams{
-		IssueID:         p.PRID,
-		MergedByUserID:  pgtype.Int8{Int64: p.ActorUserID, Valid: p.ActorUserID != 0},
-		MergeCommitSha:  pgtype.Text{String: mergeRes.MergedOID, Valid: true},
-		MergeMethod:     pullsdb.NullPrMergeMethod{PrMergeMethod: pullsdb.PrMergeMethod(p.Method), Valid: true},
-		BaseOidAtMerge:  pgtype.Text{String: pr.BaseOid, Valid: true},
-		HeadOidAtMerge:  pgtype.Text{String: pr.HeadOid, Valid: true},
+		IssueID:        p.PRID,
+		MergedByUserID: pgtype.Int8{Int64: p.ActorUserID, Valid: p.ActorUserID != 0},
+		MergeCommitSha: pgtype.Text{String: mergeRes.MergedOID, Valid: true},
+		MergeMethod:    pullsdb.NullPrMergeMethod{PrMergeMethod: pullsdb.PrMergeMethod(p.Method), Valid: true},
+		BaseOidAtMerge: pgtype.Text{String: pr.BaseOid, Valid: true},
+		HeadOidAtMerge: pgtype.Text{String: pr.HeadOid, Valid: true},
 	}); err != nil {
 		return err
+	}
+
+	// PerformMerge moved refs/heads/<base> on disk via update-ref,
+	// bypassing the post-receive hook that would normally maintain
+	// repos.default_branch_oid. When the merged base IS the repo's
+	// default branch, sync the column ourselves so the repo home view
+	// stays accurate. The audit caught this gap (S00-S25, H2).
+	rq := reposdb.New()
+	repo, err := rq.GetRepoByID(ctx, tx, issue.RepoID)
+	if err != nil {
+		return fmt.Errorf("merge: load repo: %w", err)
+	}
+	if repo.DefaultBranch == pr.BaseRef {
+		if err := rq.UpdateRepoDefaultBranchOID(ctx, tx, reposdb.UpdateRepoDefaultBranchOIDParams{
+			ID:               repo.ID,
+			DefaultBranchOid: pgtype.Text{String: mergeRes.MergedOID, Valid: true},
+		}); err != nil {
+			return fmt.Errorf("merge: update default_branch_oid: %w", err)
+		}
 	}
 
 	// Close the issue side with state_reason=completed.
@@ -233,6 +252,11 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 		return err
 	}
 	committed = true
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, p.ActorUserID,
+			audit.ActionPullMerged, audit.TargetPull, p.PRID,
+			map[string]any{"method": p.Method, "commit": mergeRes.MergedOID})
+	}
 	return nil
 }
 
@@ -273,6 +297,3 @@ func fetchCommitsForLinkScan(ctx context.Context, db pullsdb.DBTX, prID int64) [
 	return out
 }
 
-// Compile-time check that issues' typed errors are still in scope so
-// EditPR's wrapping continues to work after refactors.
-var _ = errors.Is(issues.ErrEmptyTitle, issues.ErrEmptyTitle)
