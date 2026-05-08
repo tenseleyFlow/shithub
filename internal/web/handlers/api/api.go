@@ -47,10 +47,22 @@ func New(d Deps) (*Handlers, error) {
 	return &Handlers{d: d, q: usersdb.New()}, nil
 }
 
+// apiMaxBodyBytes caps the request body for any /api/v1 handler. The
+// largest documented payload today is a check-run create with a 64 KiB
+// summary + 64 KiB text — comfortably below this. Tightening per-route
+// is fine; widening should happen at the route group, not here.
+//
+// The auth-side cap (signup/login/reset) is a separate, lower limit
+// (`MaxBodySize(8 KiB)`) wired in `auth_wiring.go`. This cap defends
+// the same surface against a misbehaving PAT-bearing client shipping
+// a 50 MB JSON blob to weaponize the parser.
+const apiMaxBodyBytes = 256 * 1024
+
 // Mount registers /api/v1/* on r. Caller is responsible for putting r
 // in a CSRF-exempt group.
 func (h *Handlers) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
+		r.Use(middleware.MaxBodySize(apiMaxBodyBytes))
 		r.Use(middleware.PATAuthMiddleware(middleware.PATConfig{
 			Pool:      h.d.Pool,
 			Debouncer: h.d.Debouncer,
