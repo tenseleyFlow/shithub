@@ -59,6 +59,10 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Use(middleware.RequireScope(pat.ScopeUserRead))
 			r.Get("/api/v1/user", h.userMe)
 		})
+		// S24 check-runs / check-suites — RequireScope is per-route
+		// inside the helper since reads need repo:read but writes need
+		// repo:write.
+		h.mountChecks(r)
 	})
 }
 
