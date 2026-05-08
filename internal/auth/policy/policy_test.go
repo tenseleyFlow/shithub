@@ -4,6 +4,9 @@ package policy_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
@@ -314,5 +317,32 @@ func TestCacheInvalidate(t *testing.T) {
 	policy.InvalidateRepo(ctx, repoIDV)
 	if policy.Can(ctx, d, actor, policy.ActionRepoAdmin, repo).Allow {
 		t.Errorf("after invalidate, admin should deny without role row")
+	}
+}
+
+
+// TestPermissionsDoc_CoversEveryAction guards against drift between
+// the policy package and docs/internal/permissions.md. The doc's
+// "Action → minimum role" table must mention every Action constant
+// exposed via AllActions, so an action added in code without a doc
+// update fails this test loudly. (S00-S25 audit, finding for doc/code
+// sync.)
+//
+// Matching is by the action's string value (e.g. "repo:read") which
+// is what the doc renders verbatim in backticks. We do not check the
+// exact min-role column — that lives in `mirrorMinRoleFor` already.
+func TestPermissionsDoc_CoversEveryAction(t *testing.T) {
+	t.Parallel()
+	docPath := filepath.Join("..", "..", "..", "docs", "internal", "permissions.md")
+	body, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("read permissions.md: %v", err)
+	}
+	doc := string(body)
+	for _, a := range policy.AllActions {
+		needle := "`" + string(a) + "`"
+		if !strings.Contains(doc, needle) {
+			t.Errorf("permissions.md does not mention action %q (looking for %s)", a, needle)
+		}
 	}
 }
