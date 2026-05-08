@@ -1347,3 +1347,40 @@ code {
 .shithub-pull-add-comment input, .shithub-pull-add-comment textarea {
   padding: 0.3rem 0.5rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit;
 }
+
+/* ========== PR Checks tab (S24) ========== */
+.shithub-pull-checks { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.5rem 0; }
+.shithub-pull-check-suite {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+.shithub-pull-check-suite h3 {
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  font-size: 1rem; margin: 0 0 0.5rem;
+}
+.shithub-pull-check-app { font-family: var(--mono, monospace); font-size: 0.85rem; color: var(--fg-muted); }
+.shithub-pull-check-suite-status { font-size: 0.8rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--canvas-subtle); }
+.shithub-pull-check-runs { list-style: none; padding: 0; margin: 0; }
+.shithub-pull-check-run {
+  display: flex; gap: 0.5rem; align-items: baseline;
+  padding: 0.3rem 0; border-bottom: 1px solid var(--border-default);
+  flex-wrap: wrap;
+}
+.shithub-pull-check-run:last-child { border-bottom: none; }
+.shithub-pull-check-status-completed { color: #1a7f37; }
+.shithub-pull-check-status-in_progress { color: #9a6700; }
+.shithub-pull-check-status-queued { color: var(--fg-muted); }
+.shithub-pull-check-status-pending { color: var(--fg-muted); }
+.shithub-pull-check-conclusion {
+  font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px;
+  text-transform: lowercase;
+}
+.shithub-pull-check-conclusion-success { background: #1a7f3722; color: #1a7f37; }
+.shithub-pull-check-conclusion-failure { background: #cf222e22; color: #cf222e; }
+.shithub-pull-check-conclusion-neutral { background: #d0d7de44; color: var(--fg-muted); }
+.shithub-pull-check-conclusion-cancelled,
+.shithub-pull-check-conclusion-skipped,
+.shithub-pull-check-conclusion-stale { color: var(--fg-muted); background: var(--canvas-subtle); }
+.shithub-pull-check-conclusion-timed_out { background: #9a670022; color: #9a6700; }
+.shithub-pull-check-conclusion-action_required { background: #cf222e22; color: #cf222e; font-weight: 600; }

@@ -243,7 +243,50 @@
     </section>
     {{ end }}
   {{ else if eq .Tab "checks" }}
-    <p class="shithub-muted">Check engine ships in S24. Today this tab is a placeholder.</p>
+    {{ if .CheckGroups }}
+    <section class="shithub-pull-checks">
+      {{ range .CheckGroups }}
+      <div class="shithub-pull-check-suite">
+        <h3>
+          <span class="shithub-pull-check-app">{{ .Suite.AppSlug }}</span>
+          <span class="shithub-pull-check-suite-status shithub-pull-check-status-{{ printf "%s" .Suite.Status }}">
+            {{ printf "%s" .Suite.Status }}
+          </span>
+          {{ if .Suite.Conclusion.Valid }}
+            <span class="shithub-pull-check-conclusion shithub-pull-check-conclusion-{{ printf "%s" .Suite.Conclusion.CheckConclusion }}">
+              {{ printf "%s" .Suite.Conclusion.CheckConclusion }}
+            </span>
+          {{ end }}
+        </h3>
+        <ul class="shithub-pull-check-runs">
+          {{ range .Runs }}
+          <li class="shithub-pull-check-run">
+            <span class="shithub-pull-check-status shithub-pull-check-status-{{ printf "%s" .R.Status }}">●</span>
+            <strong>{{ .R.Name }}</strong>
+            {{ if .R.Conclusion.Valid }}
+              <span class="shithub-pull-check-conclusion shithub-pull-check-conclusion-{{ printf "%s" .R.Conclusion.CheckConclusion }}">
+                {{ printf "%s" .R.Conclusion.CheckConclusion }}
+              </span>
+            {{ else }}
+              <span class="shithub-muted">{{ printf "%s" .R.Status }}</span>
+            {{ end }}
+            {{ if .R.CompletedAt.Valid }}<small><time datetime="{{ .R.CompletedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .R.CompletedAt.Time }}</time></small>{{ end }}
+            {{ if .R.DetailsUrl }}<a href="{{ .R.DetailsUrl }}" rel="noopener noreferrer">details</a>{{ end }}
+            {{ if .SummaryHTML }}
+            <details>
+              <summary class="shithub-muted">summary</summary>
+              <div class="markdown-body">{{ .SummaryHTML }}</div>
+            </details>
+            {{ end }}
+          </li>
+          {{ end }}
+        </ul>
+      </div>
+      {{ end }}
+    </section>
+    {{ else }}
+    <p class="shithub-muted">No checks have reported on <code>{{ slice .PR.HeadOid 0 7 }}</code>. Post via <code>POST /api/v1/repos/{{ .Owner }}/{{ .Repo.Name }}/check-runs</code>.</p>
+    {{ end }}
   {{ end }}
 </section>
 {{- end }}

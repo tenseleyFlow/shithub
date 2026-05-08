@@ -3,7 +3,9 @@
 package repo
 
 import (
+	"encoding/json"
 	"errors"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,11 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -411,10 +415,65 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// pullChecks renders the Checks tab. v1 ships the visual scaffold;
-// the data wires in at S24.
+// pullChecks renders the Checks tab. Loads suites + runs grouped by
+// suite for the PR's head_oid, plus the markdown-rendered output.summary
+// for each run.
 func (h *Handlers) pullChecks(w http.ResponseWriter, r *http.Request) {
-	h.renderPullPage(w, r, "checks", nil)
+	row, _, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	pr, ok := h.loadPullByNumber(w, r, row.ID)
+	if !ok {
+		return
+	}
+	type runRow struct {
+		R              checksdb.CheckRun
+		SummaryHTML    template.HTML
+		AppSlug        string
+	}
+	type suiteGroup struct {
+		Suite checksdb.CheckSuite
+		Runs  []runRow
+	}
+	groups := []suiteGroup{}
+	if pr.HeadOid != "" {
+		suites, _ := h.cq.ListCheckSuitesForCommit(r.Context(), h.d.Pool, checksdb.ListCheckSuitesForCommitParams{
+			RepoID: row.ID, HeadSha: pr.HeadOid,
+		})
+		for _, s := range suites {
+			runs, _ := h.cq.ListCheckRunsBySuite(r.Context(), h.d.Pool, s.ID)
+			rs := make([]runRow, 0, len(runs))
+			for _, run := range runs {
+				rs = append(rs, runRow{
+					R:           run,
+					SummaryHTML: renderCheckSummary(run.Output),
+					AppSlug:     s.AppSlug,
+				})
+			}
+			groups = append(groups, suiteGroup{Suite: s, Runs: rs})
+		}
+	}
+	h.renderPullPage(w, r, "checks", map[string]any{
+		"CheckGroups": groups,
+	})
+}
+
+// renderCheckSummary parses the JSON `output` blob and renders the
+// `summary` field as Markdown via the existing pipeline. Returns empty
+// HTML on any error so a malformed payload doesn't break the page.
+func renderCheckSummary(raw []byte) template.HTML {
+	if len(raw) == 0 {
+		return ""
+	}
+	var o struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(raw, &o); err != nil || o.Summary == "" {
+		return ""
+	}
+	html, _ := mdrender.RenderHTML([]byte(o.Summary))
+	return template.HTML(html) //nolint:gosec // sanitized by bluemonday UGCPolicy
 }
 
 // pullEdit handles POST .../edit
