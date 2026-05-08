@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
@@ -121,6 +122,28 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 			Payload:   body,
 		}); err != nil {
 			return fmt.Errorf("insert webhook pending: %w", err)
+		}
+
+		// 4b: PR auto-synchronize. For any open PR whose head ref
+		// matches the pushed ref, fan out a pr:synchronize job.
+		// Best-effort — sync failures don't block the push pipeline.
+		if strings.HasPrefix(event.Ref, refPrefix) {
+			pq := pullsdb.New()
+			prIDs, err := pq.ListOpenPRsForHeadRef(ctx, deps.Pool, pullsdb.ListOpenPRsForHeadRefParams{
+				HeadRepoID: event.RepoID,
+				HeadRef:    event.Ref[len(refPrefix):],
+			})
+			if err != nil {
+				deps.Logger.WarnContext(ctx, "push:process: list PRs for sync",
+					"push_event_id", event.ID, "error", err)
+			}
+			for _, prID := range prIDs {
+				if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindPRSynchronize,
+					map[string]any{"pr_id": prID}, worker.EnqueueOptions{}); err != nil {
+					deps.Logger.WarnContext(ctx, "push:process: enqueue pr:synchronize",
+						"pr_id", prID, "push_event_id", event.ID, "error", err)
+				}
+			}
 		}
 
 		// 5: mark processed last so a partial failure earlier triggers a

@@ -36,6 +36,15 @@ const (
 	KindLifecycleSweep Kind = "lifecycle:sweep"
 )
 
+// S22 pull-request kinds. Synchronize refreshes commits + files after
+// a head-side push; mergeability runs the merge-tree probe; merge
+// performs the requested strategy in a temp worktree.
+const (
+	KindPRSynchronize Kind = "pr:synchronize"
+	KindPRMergeability Kind = "pr:mergeability"
+	KindPRMerge        Kind = "pr:merge"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the
