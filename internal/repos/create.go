@@ -19,6 +19,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/git/hooks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/issues"
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/templates"
@@ -180,6 +182,20 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 			_ = os.RemoveAll(diskPath)
 			return Result{}, fmt.Errorf("repos: install hooks: %w", err)
 		}
+	}
+
+	// Seed the issue subsystem state for the new repo: counter row +
+	// default label set. Runs inside the create tx so a failed seed
+	// rolls the whole repo back. Cheap (10 inserts), and folding it in
+	// here keeps the "fresh repo is fully usable" invariant. Issues
+	// orchestrator's SeedDefaultLabels swallows unique-violations so a
+	// re-run is a no-op (defensive against partially-seeded migrations).
+	iq := issuesdb.New()
+	if err := iq.EnsureRepoIssueCounter(ctx, tx, row.ID); err != nil {
+		return Result{}, fmt.Errorf("repos: issue counter: %w", err)
+	}
+	if err := issues.SeedDefaultLabels(ctx, tx, row.ID); err != nil {
+		return Result{}, fmt.Errorf("repos: seed labels: %w", err)
 	}
 
 	var commitOID string
