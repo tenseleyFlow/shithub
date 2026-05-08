@@ -1,0 +1,49 @@
+{{ define "page" -}}
+<section class="shithub-compare">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Repo.DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Compare <code>{{ .Base }}</code> ... <code>{{ .Head }}</code>
+    </h1>
+  </header>
+
+  {{ if .NotFound }}
+  <div class="shithub-compare-empty">One or both refs were not found in this repository.</div>
+  {{ else }}
+  <p class="shithub-compare-summary">
+    {{ if eq .Base .Head }}
+    Base and head are the same — nothing to compare.
+    {{ else if le .Ahead 0 }}
+    There isn't anything to compare. <code>{{ .Head }}</code> is up to date with <code>{{ .Base }}</code>.
+    {{ else }}
+    <strong>{{ .Ahead }}</strong> commit{{ if ne .Ahead 1 }}s{{ end }} ahead, <strong>{{ .Behind }}</strong> behind <code>{{ .Base }}</code>.
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/new?base={{ .Base }}&amp;head={{ .Head }}" class="shithub-button shithub-button-primary">Create pull request</a>
+    {{ end }}
+  </p>
+
+  {{ if .Commits }}
+  <section class="shithub-compare-commits">
+    <h2>Commits in <code>{{ .Head }}</code></h2>
+    <ul class="shithub-commits-list">
+      {{ range .Commits }}
+      <li class="shithub-commits-row">
+        <div class="shithub-commits-meta">
+          <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}">{{ .Subject }}</a>
+          <code class="shithub-commits-sha">{{ .ShortOID }}</code>
+          <small>{{ .AuthorName }} · <time datetime="{{ .AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .AuthorWhen }}</time></small>
+        </div>
+      </li>
+      {{ end }}
+    </ul>
+  </section>
+  {{ end }}
+
+  {{ if .DiffHTML }}
+  <section class="shithub-diff-body" aria-label="Diff">
+    {{ safeHTML .DiffHTML }}
+  </section>
+  {{ end }}
+  {{ end }}
+</section>
+{{- end }}

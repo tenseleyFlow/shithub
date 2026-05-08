@@ -1,0 +1,71 @@
+{{ define "page" -}}
+<section class="shithub-settings-branches">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Repo.DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Branch protection
+    </h1>
+  </header>
+
+  <section class="shithub-danger-zone">
+    <h2>Default branch</h2>
+    <p>Current: <code>{{ .Repo.DefaultBranch }}</code></p>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/default-branch">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>New default branch
+        <select name="default_branch">
+          {{ range .Branches }}<option value="{{ .Name }}" {{ if eq .Name $.Repo.DefaultBranch }}selected{{ end }}>{{ .Name }}</option>{{ end }}
+        </select>
+      </label>
+      <button type="submit" class="shithub-button">Update default</button>
+    </form>
+  </section>
+
+  <section class="shithub-danger-zone">
+    <h2>Protection rules</h2>
+    {{ if .Rules }}
+    <table class="shithub-branches-table">
+      <thead>
+        <tr><th>Pattern</th><th>Force-push</th><th>Deletion</th><th>Allowed pushers</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{ range .Rules }}
+        <tr>
+          <td><code>{{ .Pattern }}</code></td>
+          <td>{{ if .PreventForcePush }}🚫{{ else }}allowed{{ end }}</td>
+          <td>{{ if .PreventDeletion }}🚫{{ else }}allowed{{ end }}</td>
+          <td>{{ len .AllowedPusherUserIds }} {{ if eq (len .AllowedPusherUserIds) 1 }}user{{ else }}users{{ end }}</td>
+          <td>
+            <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/branches/{{ .ID }}/delete" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p>No rules configured. Add one below to protect a branch pattern.</p>
+    {{ end }}
+  </section>
+
+  <section class="shithub-danger-zone">
+    <h2>New rule</h2>
+    <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>Pattern (glob: <code>*</code>, <code>?</code>, <code>[abc]</code>; <code>*</code> doesn't cross <code>/</code>)
+        <input type="text" name="pattern" required placeholder="e.g. trunk or release/*">
+      </label>
+      <label><input type="checkbox" name="prevent_force_push" checked> Prevent force-push</label>
+      <label><input type="checkbox" name="prevent_deletion" checked> Prevent deletion</label>
+      <label><input type="checkbox" name="require_pr_for_push"> Require PR for push (placeholder; enforced post-MVP)</label>
+      <label>Allowed pushers (comma-separated usernames; leave blank for "any collaborator")
+        <input type="text" name="allowed_pushers" placeholder="alice, bob">
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Create rule</button>
+    </form>
+  </section>
+</section>
+{{- end }}

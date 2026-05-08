@@ -1154,3 +1154,24 @@ code {
   width: 50%;
   border-left: 1px solid var(--border-default);
 }
+
+/* ========== Branches/Tags/Compare/Settings (S20) ========== */
+.shithub-branches, .shithub-tags, .shithub-compare, .shithub-settings-branches {
+  max-width: 64rem;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+}
+.shithub-branches-filter { display: flex; gap: 0.4rem; }
+.shithub-branches-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.shithub-branches-table th, .shithub-branches-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-branches-subject { color: var(--fg-default); }
+.shithub-compare-summary { padding: 0.75rem 1rem; background: var(--canvas-subtle); border-radius: 6px; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.shithub-compare-empty { padding: 1.5rem; text-align: center; color: var(--fg-muted); border: 1px dashed var(--border-default); border-radius: 6px; }
+.shithub-compare-commits { margin-top: 1.5rem; }
+.shithub-settings-branches form label { display: block; margin: 0.5rem 0; }
+.shithub-settings-branches form input[type=text],
+.shithub-settings-branches form select { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--border-default); border-radius: 6px; min-width: 280px; }

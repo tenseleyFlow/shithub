@@ -1,0 +1,31 @@
+{{ define "page" -}}
+<section class="shithub-tags">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Repo.DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Tags
+    </h1>
+  </header>
+  {{ if .Rows }}
+  <table class="shithub-branches-table">
+    <thead>
+      <tr><th>Tag</th><th>Commit</th><th>Subject</th><th>When</th></tr>
+    </thead>
+    <tbody>
+      {{ range .Rows }}
+      <tr>
+        <td><a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}"><code>{{ .Name }}</code></a></td>
+        <td><a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}"><code>{{ .ShortOID }}</code></a></td>
+        <td>{{ .Subject }}</td>
+        <td>{{ if not .AuthorWhen.IsZero }}<time datetime="{{ .AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .AuthorWhen }}</time>{{ end }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ else }}
+  <p>No tags yet.</p>
+  {{ end }}
+  <p class="shithub-hint">First-class releases (with notes, assets) ship post-MVP.</p>
+</section>
+{{- end }}

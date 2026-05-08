@@ -1,0 +1,52 @@
+{{ define "page" -}}
+<section class="shithub-branches">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Branches
+    </h1>
+    <nav class="shithub-branches-filter">
+      <a href="?filter=" class="shithub-button {{ if eq .Filter "" }}shithub-button-primary{{ end }}">All</a>
+      <a href="?filter=active" class="shithub-button {{ if eq .Filter "active" }}shithub-button-primary{{ end }}">Active</a>
+      <a href="?filter=stale" class="shithub-button {{ if eq .Filter "stale" }}shithub-button-primary{{ end }}">Stale</a>
+    </nav>
+  </header>
+
+  <table class="shithub-branches-table">
+    <thead>
+      <tr>
+        <th>Branch</th>
+        <th>Last commit</th>
+        <th>vs <code>{{ .DefaultBranch }}</code></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Rows }}
+      <tr>
+        <td>
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}"><code>{{ .Name }}</code></a>
+          {{ if .IsDefault }}<span class="shithub-pill">default</span>{{ end }}
+          {{ if .Protected }}<span class="shithub-pill shithub-pill-private">protected</span>{{ end }}
+        </td>
+        <td>
+          {{ if .LastSubject }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}" class="shithub-branches-subject">{{ .LastSubject }}</a>
+          <small><time datetime="{{ .LastWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .LastWhen }}</time></small>
+          {{ end }}
+        </td>
+        <td>
+          {{ if .IsDefault }}—{{ else }}<span class="shithub-add">+{{ .Ahead }}</span> <span class="shithub-del">−{{ .Behind }}</span>{{ end }}
+        </td>
+        <td>
+          {{ if not .IsDefault }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/compare/{{ $.DefaultBranch }}...{{ .Name }}" class="shithub-button">Compare</a>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</section>
+{{- end }}
