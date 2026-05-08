@@ -43,6 +43,9 @@ func (h *Handlers) MountPulls(r chi.Router) {
 		r.Post("/{owner}/{repo}/pulls/{number}/ready", h.pullSetReady)
 		r.Post("/{owner}/{repo}/pulls/{number}/merge", h.pullMerge)
 	})
+	// S23 review surface — its own group so the auth-required wrapper
+	// is shared cleanly without rewriting this file's existing one.
+	h.MountPullReview(r)
 }
 
 func (h *Handlers) pullsDeps() pulls.Deps {
@@ -296,9 +299,42 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		cs = append(cs, cr)
 	}
+	// Reviews + reviewer requests for the Conversation sidebar.
+	reviews, _ := h.pq.ListPRReviews(r.Context(), h.d.Pool, pr.IID)
+	type reviewRow struct {
+		R          pullsdb.PrReview
+		AuthorName string
+	}
+	rs := make([]reviewRow, 0, len(reviews))
+	for _, rv := range reviews {
+		rr := reviewRow{R: rv}
+		if rv.AuthorUserID.Valid {
+			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, rv.AuthorUserID.Int64); err == nil {
+				rr.AuthorName = u.Username
+			}
+		}
+		rs = append(rs, rr)
+	}
+	requests, _ := h.pq.ListPRReviewRequests(r.Context(), h.d.Pool, pr.IID)
+	type reqRow struct {
+		R        pullsdb.PrReviewRequest
+		Username string
+	}
+	reqs := make([]reqRow, 0, len(requests))
+	for _, rq := range requests {
+		rr := reqRow{R: rq}
+		if rq.RequestedUserID.Valid {
+			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, rq.RequestedUserID.Int64); err == nil {
+				rr.Username = u.Username
+			}
+		}
+		reqs = append(reqs, rr)
+	}
 	h.renderPullPage(w, r, "conversation", map[string]any{
-		"Comments": cs,
-		"Events":   events,
+		"Comments":       cs,
+		"Events":         events,
+		"Reviews":        rs,
+		"ReviewRequests": reqs,
 	})
 }
 
@@ -342,9 +378,36 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 			diffHTML = renderCompareDiff(patch)
 		}
 	}
+	// Per-file inline review threads. v1 groups by file_path; the
+	// Files tab shows them collapsed under each section. Position-
+	// mapped comments display inline; outdated ones are hidden by
+	// default behind the "Show outdated" toggle.
+	type commentRow struct {
+		C          pullsdb.PrReviewComment
+		AuthorName string
+	}
+	threadsByFile := map[string][]commentRow{}
+	for _, f := range files {
+		rows, _ := h.pq.ListPRReviewCommentsForFile(r.Context(), h.d.Pool, pullsdb.ListPRReviewCommentsForFileParams{
+			PrIssueID: pr.IID,
+			FilePath:  f.Path,
+		})
+		out := make([]commentRow, 0, len(rows))
+		for _, c := range rows {
+			cr := commentRow{C: c}
+			if c.AuthorUserID.Valid {
+				if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, c.AuthorUserID.Int64); err == nil {
+					cr.AuthorName = u.Username
+				}
+			}
+			out = append(out, cr)
+		}
+		threadsByFile[f.Path] = out
+	}
 	h.renderPullPage(w, r, "files", map[string]any{
-		"Files":    files,
-		"DiffHTML": diffHTML,
+		"Files":          files,
+		"DiffHTML":       diffHTML,
+		"ThreadsByFile":  threadsByFile,
 	})
 }
 
