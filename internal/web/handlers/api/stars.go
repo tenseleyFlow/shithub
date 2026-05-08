@@ -45,7 +45,7 @@ func (h *Handlers) starPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
-	if err := social.Star(r.Context(), social.Deps{Pool: h.d.Pool}, auth.UserID, repo.ID, repo.Visibility == reposdb.RepoVisibilityPublic); err != nil {
+	if err := social.Star(r.Context(), social.Deps{Pool: h.d.Pool}, auth.UserID, repo.ID, policy.NewRepoRefFromRepo(repo).IsPublic()); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "star failed")
 		return
 	}
@@ -58,7 +58,7 @@ func (h *Handlers) starDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
-	if err := social.Unstar(r.Context(), social.Deps{Pool: h.d.Pool}, auth.UserID, repo.ID, repo.Visibility == reposdb.RepoVisibilityPublic); err != nil {
+	if err := social.Unstar(r.Context(), social.Deps{Pool: h.d.Pool}, auth.UserID, repo.ID, policy.NewRepoRefFromRepo(repo).IsPublic()); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "unstar failed")
 		return
 	}
