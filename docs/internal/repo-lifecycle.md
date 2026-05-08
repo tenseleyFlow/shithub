@@ -123,7 +123,7 @@ from "redirected" to "never existed."
 
 ## Operational pointers
 
-* The `lifecycle:sweep` worker is enqueued ad-hoc today; S26 ships
+* The `lifecycle:sweep` worker is enqueued ad-hoc today; S37 ships
   cron scheduling. To run it manually:
   ```sql
   INSERT INTO jobs (kind, payload) VALUES ('lifecycle:sweep', '{}'::jsonb);
@@ -152,3 +152,16 @@ from "redirected" to "never existed."
 | `repo_transfer_accepted`        | recipient accepts                 |
 | `repo_transfer_declined`        | recipient declines                |
 | `repo_transfer_canceled`        | sender cancels                    |
+
+## Deferred work (S16 → later sprints)
+
+Two pieces of S16's spec are intentionally deferred; the receiving
+sprints have explicit bullets so the work doesn't fall off:
+
+* **Email notifications** for archive / unarchive / visibility flip /
+  soft-delete / restore / transfer requested / accepted / declined /
+  canceled / expired → tracked in S29 (notifications). The audit rows
+  already exist; S29's `domain_events` table is the consumer.
+* **Periodic enqueue of `lifecycle:sweep`** → tracked in S37 (deploy
+  automation), under `shithubd-cron.timer`. Today operators kick the
+  job manually with the SQL above.

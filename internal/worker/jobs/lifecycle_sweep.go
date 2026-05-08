@@ -33,8 +33,9 @@ type LifecycleSweepDeps struct {
 //     small.
 //  2. Flip pending transfer requests past expires_at to "expired".
 //
-// Enqueue this kind from a cron timer (S26 owns scheduling); for now
-// the operator can `INSERT` a job manually or call it once at boot.
+// Enqueue this kind from a cron timer (S37 ships the systemd cron
+// service); for now the operator can `INSERT` a job manually or call
+// it once at boot.
 func LifecycleSweep(deps LifecycleSweepDeps) worker.Handler {
 	return func(ctx context.Context, _ json.RawMessage) error {
 		// 1. Hard-delete past-grace repos.
