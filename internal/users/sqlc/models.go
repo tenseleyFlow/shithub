@@ -709,6 +709,49 @@ func (ns NullTransferStatus) Value() (driver.Value, error) {
 	return string(ns.TransferStatus), nil
 }
 
+type WatchLevel string
+
+const (
+	WatchLevelAll           WatchLevel = "all"
+	WatchLevelParticipating WatchLevel = "participating"
+	WatchLevelIgnore        WatchLevel = "ignore"
+)
+
+func (e *WatchLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WatchLevel(s)
+	case string:
+		*e = WatchLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WatchLevel: %T", src)
+	}
+	return nil
+}
+
+type NullWatchLevel struct {
+	WatchLevel WatchLevel
+	Valid      bool // Valid is true if WatchLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWatchLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.WatchLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WatchLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWatchLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WatchLevel), nil
+}
+
 type AuthAuditLog struct {
 	ID         int64
 	ActorID    pgtype.Int8
@@ -772,6 +815,18 @@ type CheckSuite struct {
 	Conclusion NullCheckConclusion
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
+}
+
+type DomainEvent struct {
+	ID          int64
+	ActorUserID pgtype.Int8
+	Kind        string
+	RepoID      pgtype.Int8
+	SourceKind  string
+	SourceID    int64
+	Public      bool
+	Payload     []byte
+	CreatedAt   pgtype.Timestamptz
 }
 
 type EmailVerification struct {
@@ -1026,6 +1081,8 @@ type Repo struct {
 	AllowRebaseMerge   bool
 	AllowMergeCommit   bool
 	DefaultMergeMethod PrMergeMethod
+	StarCount          int64
+	WatcherCount       int64
 }
 
 type RepoCollaborator struct {
@@ -1062,6 +1119,12 @@ type RepoTransferRequest struct {
 	AcceptedAt      pgtype.Timestamptz
 	DeclinedAt      pgtype.Timestamptz
 	CanceledAt      pgtype.Timestamptz
+}
+
+type Star struct {
+	UserID    int64
+	RepoID    int64
+	StarredAt pgtype.Timestamptz
 }
 
 type User struct {
@@ -1159,6 +1222,13 @@ type UsernameRedirect struct {
 	OldUsername string
 	UserID      int64
 	ChangedAt   pgtype.Timestamptz
+}
+
+type Watch struct {
+	UserID    int64
+	RepoID    int64
+	Level     WatchLevel
+	UpdatedAt pgtype.Timestamptz
 }
 
 type WebhookEventsPending struct {
