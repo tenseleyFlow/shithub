@@ -4,12 +4,12 @@ package review
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/protection"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
@@ -58,7 +58,7 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, in GateInputs, prAuthorUs
 	if err != nil {
 		return GateResult{}, err
 	}
-	rule, hasRule := matchRule(rules, in.BaseRef)
+	rule, hasRule := protection.MatchLongestRule(rules, in.BaseRef)
 
 	// If there's no rule, approve count + request_changes still gate
 	// the merge per spec ("no unresolved request_changes reviews").
@@ -97,25 +97,7 @@ func loadProtectionRules(ctx context.Context, pool *pgxpool.Pool, repoID int64) 
 }
 
 // matchRule duplicates the longest-pattern-wins algorithm from
-// internal/repos/protection so this package doesn't pull that import
-// graph. Same behaviour: longest pattern (alphabetical tiebreaker)
-// wins, no rule means no match.
-func matchRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
-	var best reposdb.BranchProtectionRule
-	bestLen := -1
-	for _, r := range rules {
-		ok, _ := filepath.Match(r.Pattern, branch)
-		if !ok {
-			continue
-		}
-		if len(r.Pattern) > bestLen ||
-			(len(r.Pattern) == bestLen && r.Pattern < best.Pattern) {
-			best = r
-			bestLen = len(r.Pattern)
-		}
-	}
-	return best, bestLen >= 0
-}
+// (matchRule extracted to protection.MatchLongestRule — see audit fix.)
 
 // latestPerAuthor reduces reviews to a per-author "winning" state.
 // approve and request_changes update the author's tally; comment-state
