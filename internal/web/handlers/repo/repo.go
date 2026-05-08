@@ -185,7 +185,7 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 	owner := chi.URLParam(r, "owner")
 	name := chi.URLParam(r, "repo")
 
-	row, err := h.lookupRepoForViewer(r.Context(), owner, name, middleware.CurrentUserFromContext(r.Context()).ID)
+	row, err := h.lookupRepoForViewer(r.Context(), owner, name, middleware.CurrentUserFromContext(r.Context()))
 	if err != nil {
 		// Maybe the (owner, name) is a stale name; look up the redirect
 		// table and 301 to the canonical URL so old bookmarks keep
@@ -239,7 +239,7 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 //   - AND the viewer is allowed to see it (public OR viewer is owner).
 //
 // Anything else returns ErrNoRows so the caller can 404 uniformly.
-func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName string, viewerID int64) (reposdb.Repo, error) {
+func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName string, viewer middleware.CurrentUser) (reposdb.Repo, error) {
 	owner, err := h.uq.GetUserByUsername(ctx, h.d.Pool, ownerName)
 	if err != nil {
 		return reposdb.Repo{}, err
@@ -255,11 +255,17 @@ func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName 
 	// when the decision denies, return ErrNoRows so the caller can 404.
 	repoRef := policy.NewRepoRefFromRepo(row)
 	var actor policy.Actor
-	if viewerID == 0 {
+	if viewer.IsAnonymous() {
 		actor = policy.AnonymousActor()
 	} else {
-		actor = policy.UserActor(viewerID, "", false, false)
+		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
 	}
+	// ActionRepoRead deny on a private repo with a non-collab viewer is
+	// indistinguishable from "doesn't exist" — Maybe404 returns 404 in
+	// that shape, so the caller's pgx.ErrNoRows fallthrough is the
+	// right shape regardless of whether the row was missing or just
+	// invisible. Honest 403s (e.g. ActionRepoWrite on archived) are
+	// gated through `loadRepoAndAuthorize`, not this read-only helper.
 	if !policy.Can(ctx, policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoRead, repoRef).Allow {
 		return reposdb.Repo{}, pgx.ErrNoRows
 	}

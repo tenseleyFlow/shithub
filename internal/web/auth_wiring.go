@@ -25,6 +25,7 @@ import (
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
@@ -42,16 +43,22 @@ func buildAPIHandlers(pool *pgxpool.Pool) (*apih.Handlers, error) {
 }
 
 // usernameLookup returns the lookup function consumed by middleware.OptionalUser.
-// It resolves both the username and the user's current session_epoch so the
-// auth middleware can refuse stale cookies (bumped by "log out everywhere").
-func usernameLookup(pool *pgxpool.Pool) func(context.Context, int64) (string, int32, error) {
+// It resolves the username, the user's current session_epoch (so the auth
+// middleware can refuse stale cookies bumped by "log out everywhere"), and
+// the suspended state (so policy.UserActor can deny writes by suspended
+// accounts at the web layer — the audit found this gap, S00-S25 audit C1).
+func usernameLookup(pool *pgxpool.Pool) middleware.UserLookup {
 	q := usersdb.New()
-	return func(ctx context.Context, id int64) (string, int32, error) {
+	return func(ctx context.Context, id int64) (middleware.UserLookupResult, error) {
 		u, err := q.GetUserByID(ctx, pool, id)
 		if err != nil {
-			return "", 0, err
+			return middleware.UserLookupResult{}, err
 		}
-		return u.Username, u.SessionEpoch, nil
+		return middleware.UserLookupResult{
+			Username:     u.Username,
+			SessionEpoch: u.SessionEpoch,
+			IsSuspended:  u.SuspendedAt.Valid,
+		}, nil
 	}
 }
 

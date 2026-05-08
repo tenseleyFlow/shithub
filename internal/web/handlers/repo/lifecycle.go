@@ -71,10 +71,16 @@ func (h *Handlers) loadRepoAndAuthorize(w http.ResponseWriter, r *http.Request, 
 		return reposdb.Repo{}, usersdb.User{}, false
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, false, false)
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
 	repoRef := policy.NewRepoRefFromRepo(row)
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, repoRef).Allow {
-		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, repoRef)
+	if !dec.Allow {
+		// Maybe404 picks 404 for "shouldn't know it exists" denials
+		// (private + non-collab) and 403 for honest "you can't do that
+		// to a repo you can see" denials (owner pushing to archived).
+		// Without this we leaked existence by always 404'ing — fixed
+		// per S00-S25 audit, finding H7.
+		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
 		return reposdb.Repo{}, usersdb.User{}, false
 	}
 	return row, owner, true
@@ -252,9 +258,10 @@ func (h *Handlers) transferCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, false, false)
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoAdmin, policy.NewRepoRefFromRepo(repo)).Allow {
-		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	repoRef := policy.NewRepoRefFromRepo(repo)
+	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoAdmin, repoRef); !dec.Allow {
+		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
 		return
 	}
 	if err := lifecycle.CancelTransfer(r.Context(), h.lifecycleDeps(), viewer.ID, id); err != nil {

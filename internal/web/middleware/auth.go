@@ -12,19 +12,35 @@ var currentUserKey = ctxKey{name: "current_user"}
 
 // CurrentUser carries the loaded user identity in request context. Handlers
 // pull this out via CurrentUserFromContext. Anonymous requests have ID == 0.
+//
+// IsSuspended is sourced from users.suspended_at and is the canonical input
+// to policy.UserActor for web requests. Without it, every handler that
+// constructs an actor with a hard-coded `false` lets a suspended account
+// keep writing — the audit found this gap (S00-S25 audit, finding C1).
 type CurrentUser struct {
-	ID       int64
-	Username string
+	ID          int64
+	Username    string
+	IsSuspended bool
 }
 
 // IsAnonymous reports whether this is an unauthenticated request.
 func (u CurrentUser) IsAnonymous() bool { return u.ID == 0 }
 
+// UserLookupResult is what UserLookup returns. It's a struct so future
+// fields (e.g. is_admin once S34 lands) don't keep widening the signature
+// and forcing every callsite to update.
+type UserLookupResult struct {
+	Username     string
+	SessionEpoch int32
+	IsSuspended  bool
+}
+
 // UserLookup resolves a user_id into the data the auth middleware needs.
-// epoch is the users.session_epoch column; the middleware compares it to
-// the session's recorded epoch on every request so "log out everywhere"
-// (which bumps the column) invalidates stale cookies on the next hit.
-type UserLookup func(ctx context.Context, userID int64) (username string, epoch int32, err error)
+// SessionEpoch is the users.session_epoch column; the middleware compares
+// it to the session's recorded epoch on every request so "log out
+// everywhere" (which bumps the column) invalidates stale cookies on the
+// next hit.
+type UserLookup func(ctx context.Context, userID int64) (UserLookupResult, error)
 
 // OptionalUser populates CurrentUser into context from the loaded session
 // when present. Does not redirect or reject — pages that don't need a
@@ -47,11 +63,12 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 				u := CurrentUser{ID: s.UserID}
 				bind := true
 				if lookup != nil {
-					if name, epoch, err := lookup(ctx, s.UserID); err == nil {
-						if epoch != s.Epoch {
+					if res, err := lookup(ctx, s.UserID); err == nil {
+						if res.SessionEpoch != s.Epoch {
 							bind = false
 						} else {
-							u.Username = name
+							u.Username = res.Username
+							u.IsSuspended = res.IsSuspended
 						}
 					}
 				}

@@ -4,6 +4,7 @@ package auth_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -72,18 +73,25 @@ func newTokenServer(t *testing.T) (srv *httptest.Server, cli *client, captor *ca
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
 	r.Use(middleware.SessionLoader(store, logger))
-	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (string, int32, error) {
+	r.Use(middleware.OptionalUser(func(ctx context.Context, id int64) (middleware.UserLookupResult, error) {
 		c, err := pool.Acquire(ctx)
 		if err != nil {
-			return "", 0, err
+			return middleware.UserLookupResult{}, err
 		}
 		defer c.Release()
-		var name string
-		var epoch int32
+		var (
+			name        string
+			epoch       int32
+			suspendedAt sql.NullTime
+		)
 		err = c.QueryRow(ctx,
-			"SELECT username, session_epoch FROM users WHERE id = $1", id,
-		).Scan(&name, &epoch)
-		return name, epoch, err
+			"SELECT username, session_epoch, suspended_at FROM users WHERE id = $1", id,
+		).Scan(&name, &epoch, &suspendedAt)
+		return middleware.UserLookupResult{
+			Username:     name,
+			SessionEpoch: epoch,
+			IsSuspended:  suspendedAt.Valid,
+		}, err
 	}))
 	csrf := middleware.CSRF(middleware.CSRFConfig{
 		FailureHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
