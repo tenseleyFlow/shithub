@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.31.1
 
-package reposdb
+package issuesdb
 
 import (
 	"database/sql/driver"

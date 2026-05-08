@@ -57,6 +57,219 @@ func (ns NullCollabRole) Value() (driver.Value, error) {
 	return string(ns.CollabRole), nil
 }
 
+type IssueKind string
+
+const (
+	IssueKindIssue IssueKind = "issue"
+	IssueKindPr    IssueKind = "pr"
+)
+
+func (e *IssueKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueKind(s)
+	case string:
+		*e = IssueKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueKind: %T", src)
+	}
+	return nil
+}
+
+type NullIssueKind struct {
+	IssueKind IssueKind
+	Valid     bool // Valid is true if IssueKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueKind), nil
+}
+
+type IssueRefSource string
+
+const (
+	IssueRefSourceCommentBody   IssueRefSource = "comment_body"
+	IssueRefSourceIssueBody     IssueRefSource = "issue_body"
+	IssueRefSourceCommitMessage IssueRefSource = "commit_message"
+)
+
+func (e *IssueRefSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueRefSource(s)
+	case string:
+		*e = IssueRefSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueRefSource: %T", src)
+	}
+	return nil
+}
+
+type NullIssueRefSource struct {
+	IssueRefSource IssueRefSource
+	Valid          bool // Valid is true if IssueRefSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueRefSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueRefSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueRefSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueRefSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueRefSource), nil
+}
+
+type IssueState string
+
+const (
+	IssueStateOpen   IssueState = "open"
+	IssueStateClosed IssueState = "closed"
+)
+
+func (e *IssueState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueState(s)
+	case string:
+		*e = IssueState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueState: %T", src)
+	}
+	return nil
+}
+
+type NullIssueState struct {
+	IssueState IssueState
+	Valid      bool // Valid is true if IssueState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueState) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueState), nil
+}
+
+type IssueStateReason string
+
+const (
+	IssueStateReasonCompleted  IssueStateReason = "completed"
+	IssueStateReasonNotPlanned IssueStateReason = "not_planned"
+	IssueStateReasonReopened   IssueStateReason = "reopened"
+	IssueStateReasonDuplicate  IssueStateReason = "duplicate"
+)
+
+func (e *IssueStateReason) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueStateReason(s)
+	case string:
+		*e = IssueStateReason(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueStateReason: %T", src)
+	}
+	return nil
+}
+
+type NullIssueStateReason struct {
+	IssueStateReason IssueStateReason
+	Valid            bool // Valid is true if IssueStateReason is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueStateReason) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueStateReason, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueStateReason.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueStateReason) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueStateReason), nil
+}
+
+type MilestoneState string
+
+const (
+	MilestoneStateOpen   MilestoneState = "open"
+	MilestoneStateClosed MilestoneState = "closed"
+)
+
+func (e *MilestoneState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MilestoneState(s)
+	case string:
+		*e = MilestoneState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MilestoneState: %T", src)
+	}
+	return nil
+}
+
+type NullMilestoneState struct {
+	MilestoneState MilestoneState
+	Valid          bool // Valid is true if MilestoneState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMilestoneState) Scan(value interface{}) error {
+	if value == nil {
+		ns.MilestoneState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MilestoneState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMilestoneState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MilestoneState), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -228,6 +441,73 @@ type EmailVerification struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Issue struct {
+	ID                int64
+	RepoID            int64
+	Number            int64
+	Kind              IssueKind
+	Title             string
+	Body              string
+	BodyHtmlCached    pgtype.Text
+	MdPipelineVersion int32
+	AuthorUserID      pgtype.Int8
+	State             IssueState
+	StateReason       NullIssueStateReason
+	Locked            bool
+	LockReason        pgtype.Text
+	MilestoneID       pgtype.Int8
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	EditedAt          pgtype.Timestamptz
+	ClosedAt          pgtype.Timestamptz
+	ClosedByUserID    pgtype.Int8
+}
+
+type IssueAssignee struct {
+	IssueID          int64
+	UserID           int64
+	AssignedAt       pgtype.Timestamptz
+	AssignedByUserID pgtype.Int8
+}
+
+type IssueComment struct {
+	ID                int64
+	IssueID           int64
+	AuthorUserID      pgtype.Int8
+	Body              string
+	BodyHtmlCached    pgtype.Text
+	MdPipelineVersion int32
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	EditedAt          pgtype.Timestamptz
+}
+
+type IssueEvent struct {
+	ID          int64
+	IssueID     int64
+	ActorUserID pgtype.Int8
+	Kind        string
+	Meta        []byte
+	RefTargetID pgtype.Int8
+	CreatedAt   pgtype.Timestamptz
+}
+
+type IssueLabel struct {
+	IssueID         int64
+	LabelID         int64
+	AppliedAt       pgtype.Timestamptz
+	AppliedByUserID pgtype.Int8
+}
+
+type IssueReference struct {
+	ID             int64
+	SourceIssueID  pgtype.Int8
+	TargetIssueID  int64
+	SourceKind     IssueRefSource
+	SourceObjectID pgtype.Int8
+	CreatedAt      pgtype.Timestamptz
+}
+
 type Job struct {
 	ID          int64
 	Kind        string
@@ -243,10 +523,30 @@ type Job struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Label struct {
+	ID          int64
+	RepoID      int64
+	Name        string
+	Color       string
+	Description string
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Meta struct {
 	Key       string
 	Value     []byte
 	UpdatedAt pgtype.Timestamptz
+}
+
+type Milestone struct {
+	ID          int64
+	RepoID      int64
+	Title       string
+	Description string
+	State       MilestoneState
+	DueOn       pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	ClosedAt    pgtype.Timestamptz
 }
 
 type PasswordReset struct {
@@ -299,6 +599,11 @@ type RepoCollaborator struct {
 	Role          CollabRole
 	AddedAt       pgtype.Timestamptz
 	AddedByUserID pgtype.Int8
+}
+
+type RepoIssueCounter struct {
+	RepoID     int64
+	NextNumber int64
 }
 
 type RepoRedirect struct {
