@@ -124,6 +124,45 @@ If a handler mutates collaborator state mid-request and re-checks
 policy in the same flight, call `policy.InvalidateRepo(ctx, repoID)`
 between the mutation and the re-check.
 
+## Suspended actors and the auth surfaces
+
+The `IsSuspended` flag on `Actor` is the canonical input the policy
+package uses to deny writes by suspended accounts. Each entrypoint
+that constructs an actor must source it correctly:
+
+* **Web (session)** — `middleware.OptionalUser` populates
+  `CurrentUser.IsSuspended` from `users.suspended_at`. Handlers pass
+  `viewer.IsSuspended` straight into `policy.UserActor`. The lookup
+  is run on every request (no cookie-baked state), so an admin
+  suspending an account takes effect on the user's next click.
+* **Web (PAT)** — `middleware.PATAuthMiddleware` rejects requests
+  whose owning user has `suspended_at IS NOT NULL` with a 401 before
+  the handler runs. Code paths under PAT auth construct
+  `policy.UserActor(..., IsSuspended: false, ...)` because the gate
+  is upstream; the field is still passed for honesty and is correct
+  by construction.
+* **git over HTTPS (`internal/web/handlers/githttp`)** — the basic-
+  auth resolver (`auth.go::resolveViaPAT`/`resolveViaPassword`)
+  rejects suspended owners with `errBadCredentials` *before* the
+  policy check runs, so the `policy.UserActor(..., false, ...)` call
+  in `handler.go` never sees a suspended actor. Suspension on the
+  HTTPS git path is enforced at credential resolution, not at policy
+  evaluation. If the credential resolver is ever reorganised to
+  return a populated user even for suspended accounts, propagate the
+  flag here.
+* **git over SSH (`internal/git/protocol/ssh_dispatch.go`)** — the
+  dispatcher loads the user row before constructing the actor and
+  passes `user.SuspendedAt.Valid` directly into `policy.UserActor`.
+  The `authorized_keys` invocation also rejects up-front (see
+  `docs/internal/git-ssh.md`), but the policy call is the
+  defence-in-depth layer.
+* **post-receive hook (`cmd/shithubd/hook.go`)** — same shape as
+  SSH dispatch: load user, pass `SuspendedAt.Valid` into the actor.
+
+When adding a new auth entrypoint (e.g. an OAuth-bearing webhook
+ingest), the rule is: load the user record, source `IsSuspended`
+from `users.suspended_at`, and *never* hard-code `false`.
+
 ## Site-admin scope
 
 `actor.IsSiteAdmin = true` short-circuits to allow on read actions
