@@ -1,0 +1,366 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package pulls_test
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls"
+	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+)
+
+const fixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
+	"AAAAAAAAAAAAAAAA$" +
+	"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+// gitCmd suppresses the gosec G204 noise — every invocation runs
+// against a t.TempDir path the test set up.
+func gitCmd(args ...string) *exec.Cmd {
+	//nolint:gosec
+	return exec.Command("git", args...)
+}
+
+// fixture spins a real bare git repo on disk + a DB row pair (user
+// + repo + ensured issue counter) so the orchestrator's path-on-disk
+// assumptions hold.
+type fixture struct {
+	pool   *pgxpool.Pool
+	deps   pulls.Deps
+	userID int64
+	repoID int64
+	gitDir string
+}
+
+func setup(t *testing.T) fixture {
+	t.Helper()
+	pool := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	uq := usersdb.New()
+	user, err := uq.CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "alice", DisplayName: "Alice", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	em, err := uq.CreateUserEmail(ctx, pool, usersdb.CreateUserEmailParams{
+		UserID: user.ID, Email: "alice@example.com", IsPrimary: true, Verified: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserEmail: %v", err)
+	}
+	if err := uq.LinkUserPrimaryEmail(ctx, pool, usersdb.LinkUserPrimaryEmailParams{
+		ID: user.ID, PrimaryEmailID: pgtype.Int8{Int64: em.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("LinkUserPrimaryEmail: %v", err)
+	}
+
+	rq := reposdb.New()
+	repo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerUserID:   pgtype.Int8{Int64: user.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+
+	iq := issuesdb.New()
+	if err := iq.EnsureRepoIssueCounter(ctx, pool, repo.ID); err != nil {
+		t.Fatalf("EnsureRepoIssueCounter: %v", err)
+	}
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "demo.git")
+	if out, err := gitCmd("init", "--bare", "-b", "trunk", gitDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v (%s)", err, out)
+	}
+
+	w := io.Discard
+	if testing.Verbose() {
+		w = os.Stderr
+	}
+	deps := pulls.Deps{
+		Pool:   pool,
+		Logger: slog.New(slog.NewTextHandler(w, nil)),
+	}
+	return fixture{pool: pool, deps: deps, userID: user.ID, repoID: repo.ID, gitDir: gitDir}
+}
+
+// commitOnBranch creates a commit on branch from a temp worktree.
+// Returns the new HEAD oid.
+func commitOnBranch(t *testing.T, gitDir, branch, msg, file, contents string) string {
+	t.Helper()
+	wt := t.TempDir()
+	// Add a worktree that creates the branch if missing.
+	addArgs := []string{"-C", gitDir, "worktree", "add"}
+	// If branch doesn't exist yet, create it; otherwise check it out.
+	if _, err := gitCmd("-C", gitDir, "show-ref", "--verify", "refs/heads/"+branch).CombinedOutput(); err != nil {
+		addArgs = append(addArgs, "-b", branch, wt)
+	} else {
+		addArgs = append(addArgs, wt, branch)
+	}
+	if out, err := gitCmd(addArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add %s: %v (%s)", branch, err, out)
+	}
+	defer func() {
+		_ = gitCmd("-C", gitDir, "worktree", "remove", "--force", wt).Run()
+	}()
+
+	if err := os.WriteFile(filepath.Join(wt, file), []byte(contents), 0o644); err != nil { //nolint:gosec
+		t.Fatalf("write %s: %v", file, err)
+	}
+	for _, args := range [][]string{
+		{"-C", wt, "config", "user.name", "Alice"},
+		{"-C", wt, "config", "user.email", "alice@example.com"},
+		{"-C", wt, "add", "."},
+		{"-C", wt, "commit", "-m", msg},
+	} {
+		if out, err := gitCmd(args...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v (%s)", args, err, out)
+		}
+	}
+	out, err := gitCmd("-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCreate_OpensPRWithIssueRow(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID:       f.repoID,
+		AuthorUserID: f.userID,
+		Title:        "Add foo",
+		Body:         "fixes nothing yet",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.Issue.Kind != issuesdb.IssueKindPr {
+		t.Errorf("issue kind: got %s, want pr", res.Issue.Kind)
+	}
+	if res.PullRequest.BaseRef != "trunk" || res.PullRequest.HeadRef != "feature" {
+		t.Errorf("ref mismatch: %+v", res.PullRequest)
+	}
+	if res.PullRequest.BaseOid == "" || res.PullRequest.HeadOid == "" {
+		t.Errorf("OIDs not snapshotted: %+v", res.PullRequest)
+	}
+	commits, _ := pullsdb.New().ListPullRequestCommits(context.Background(), f.pool, res.PullRequest.IssueID)
+	if len(commits) == 0 {
+		t.Errorf("expected commits populated by initial sync")
+	}
+}
+
+func TestCreate_RejectsSameBranch(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	_, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "x", BaseRef: "trunk", HeadRef: "trunk", GitDir: f.gitDir,
+	})
+	if err == nil {
+		t.Fatalf("expected ErrSameBranch, got nil")
+	}
+}
+
+func TestMergeability_Clean(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "x", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := pulls.Mergeability(context.Background(), f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability: %v", err)
+	}
+	pr, _ := pullsdb.New().GetPullRequestByIssueID(context.Background(), f.pool, res.PullRequest.IssueID)
+	if pr.MergeableState != pullsdb.PrMergeableStateClean {
+		t.Errorf("got %s, want clean", pr.MergeableState)
+	}
+}
+
+func TestMergeability_Dirty(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "shared.txt", "base content\n")
+	// Modify shared.txt on trunk.
+	commitOnBranch(t, f.gitDir, "trunk", "trunk edit", "shared.txt", "trunk content\n")
+	// Branch from earlier trunk and also edit shared.txt → conflict.
+	// Create the feature branch from the first trunk commit.
+	out, err := gitCmd("-C", f.gitDir, "rev-list", "--reverse", "trunk").Output()
+	if err != nil {
+		t.Fatalf("rev-list: %v", err)
+	}
+	firstSHA := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	if out, err := gitCmd("-C", f.gitDir, "branch", "feature", firstSHA).CombinedOutput(); err != nil {
+		t.Fatalf("create feature branch: %v (%s)", err, out)
+	}
+	commitOnBranch(t, f.gitDir, "feature", "feature edit", "shared.txt", "feature content\n")
+
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "x", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := pulls.Mergeability(context.Background(), f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability: %v", err)
+	}
+	pr, _ := pullsdb.New().GetPullRequestByIssueID(context.Background(), f.pool, res.PullRequest.IssueID)
+	if pr.MergeableState != pullsdb.PrMergeableStateDirty {
+		t.Errorf("got %s, want dirty", pr.MergeableState)
+	}
+}
+
+func TestMerge_MergeCommit(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "Add foo", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := pulls.Mergeability(context.Background(), f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability: %v", err)
+	}
+	if err := pulls.Merge(context.Background(), f.deps, pulls.MergeParams{
+		PRID: res.PullRequest.IssueID, ActorUserID: f.userID,
+		GitDir: f.gitDir, Method: "merge",
+	}); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	pr, _ := pullsdb.New().GetPullRequestByIssueID(context.Background(), f.pool, res.PullRequest.IssueID)
+	if !pr.MergedAt.Valid {
+		t.Errorf("merged_at not set")
+	}
+	if !pr.MergeCommitSha.Valid {
+		t.Errorf("merge_commit_sha not set")
+	}
+	// Issue side closed?
+	iq := issuesdb.New()
+	issue, _ := iq.GetIssueByID(context.Background(), f.pool, res.PullRequest.IssueID)
+	if issue.State != issuesdb.IssueStateClosed {
+		t.Errorf("issue state: got %s, want closed", issue.State)
+	}
+}
+
+func TestMerge_RejectsConcurrentDouble(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "x", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_ = pulls.Mergeability(context.Background(), f.deps, f.gitDir, res.PullRequest.IssueID)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = pulls.Merge(context.Background(), f.deps, pulls.MergeParams{
+				PRID: res.PullRequest.IssueID, ActorUserID: f.userID,
+				GitDir: f.gitDir, Method: "merge",
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	successes := 0
+	for _, e := range errs {
+		if e == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Errorf("expected exactly one successful merge, got %d (errors: %v, %v)", successes, errs[0], errs[1])
+	}
+}
+
+func TestMerge_LinkedIssueAutoClose(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	// Create an issue first so the PR body can reference it.
+	iq := issuesdb.New()
+	num, err := iq.AllocateIssueNumber(ctx, f.pool, f.repoID)
+	if err != nil {
+		t.Fatalf("AllocateIssueNumber: %v", err)
+	}
+	issue, err := iq.CreateIssue(ctx, f.pool, issuesdb.CreateIssueParams{
+		RepoID:       f.repoID,
+		Number:       num,
+		Kind:         issuesdb.IssueKindIssue,
+		Title:        "bug",
+		Body:         "fix me",
+		AuthorUserID: pgtype.Int8{Int64: f.userID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+
+	res, err := pulls.Create(ctx, f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "fix the bug", Body: "Fixes #1",
+		BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create PR: %v", err)
+	}
+	_ = pulls.Mergeability(ctx, f.deps, f.gitDir, res.PullRequest.IssueID)
+
+	if err := pulls.Merge(ctx, f.deps, pulls.MergeParams{
+		PRID: res.PullRequest.IssueID, ActorUserID: f.userID,
+		GitDir: f.gitDir, Method: "squash",
+	}); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+
+	// The pre-existing issue (#1) should now be closed.
+	got, err := iq.GetIssueByID(ctx, f.pool, issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssueByID: %v", err)
+	}
+	if got.State != issuesdb.IssueStateClosed {
+		t.Errorf("linked issue state: got %s, want closed", got.State)
+	}
+}
