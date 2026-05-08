@@ -1087,3 +1087,70 @@ code {
   text-align: center;
   color: var(--fg-muted);
 }
+
+/* ========== Diff renderer (S19) ========== */
+.shithub-commit-files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.shithub-diff-toggles { display: flex; gap: 0.25rem; }
+.shithub-diff-body { margin-top: 1rem; }
+.shithub-diff-file {
+  margin-top: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.shithub-diff-file-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--canvas-subtle);
+  border-bottom: 1px solid var(--border-default);
+  font-size: 0.875rem;
+}
+.shithub-diff-file-action { color: var(--fg-muted); font-style: italic; }
+.shithub-diff-binary, .shithub-diff-image, .shithub-diff-empty, .shithub-diff-truncated {
+  padding: 1rem;
+  text-align: center;
+  color: var(--fg-muted);
+}
+.shithub-diff-file-toolarge { padding: 0.5rem 0.75rem; }
+.shithub-diff-file-toolarge > summary { cursor: pointer; color: var(--fg-muted); }
+.shithub-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: monospace;
+  font-size: 0.85rem;
+  table-layout: fixed;
+}
+.shithub-diff-table td { padding: 0 0.5rem; vertical-align: top; }
+.shithub-diff-table pre { margin: 0; white-space: pre; }
+.shithub-diff-lineno {
+  width: 50px;
+  text-align: right;
+  color: var(--fg-muted);
+  user-select: none;
+  background: var(--canvas-subtle);
+}
+.shithub-diff-content { width: auto; }
+.shithub-diff-add { background: rgba(46, 160, 67, 0.10); }
+.shithub-diff-del { background: rgba(248, 81, 73, 0.10); }
+.shithub-diff-add .shithub-diff-content { background: rgba(46, 160, 67, 0.05); }
+.shithub-diff-del .shithub-diff-content { background: rgba(248, 81, 73, 0.05); }
+.shithub-diff-pad { background: var(--canvas-subtle); }
+.shithub-diff-hunk-head td {
+  padding: 0.4rem 0.75rem;
+  background: var(--canvas-default);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--fg-muted);
+}
+.shithub-diff-split td.shithub-diff-content {
+  width: 50%;
+  border-left: 1px solid var(--border-default);
+}

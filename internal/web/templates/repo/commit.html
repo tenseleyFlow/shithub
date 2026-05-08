@@ -53,7 +53,14 @@
   </article>
 
   <section class="shithub-commit-files">
-    <h3>{{ len .Detail.Files }} changed file{{ if ne (len .Detail.Files) 1 }}s{{ end }}</h3>
+    <header class="shithub-commit-files-head">
+      <h3>{{ len .Detail.Files }} changed file{{ if ne (len .Detail.Files) 1 }}s{{ end }}</h3>
+      <nav class="shithub-diff-toggles" aria-label="Diff options">
+        <a href="?diff=unified{{ if .HideWS }}&amp;w=1{{ end }}" class="shithub-button {{ if eq .DiffMode "unified" }}shithub-button-primary{{ end }}">Unified</a>
+        <a href="?diff=split{{ if .HideWS }}&amp;w=1{{ end }}" class="shithub-button {{ if eq .DiffMode "split" }}shithub-button-primary{{ end }}">Split</a>
+        <a href="?diff={{ .DiffMode }}{{ if not .HideWS }}&amp;w=1{{ end }}" class="shithub-button {{ if .HideWS }}shithub-button-primary{{ end }}">Hide whitespace</a>
+      </nav>
+    </header>
     <table class="shithub-commit-files-table">
       <thead>
         <tr><th>Status</th><th>File</th><th class="shithub-num-col">+</th><th class="shithub-num-col">-</th></tr>
@@ -72,7 +79,12 @@
         {{ end }}
       </tbody>
     </table>
-    <p class="shithub-hint">Per-file diff bodies render once S19 ships.</p>
   </section>
+
+  {{ if .DiffHTML }}
+  <section class="shithub-diff-body" aria-label="Per-file diff">
+    {{ .DiffHTML }}
+  </section>
+  {{ end }}
 </section>
 {{- end }}

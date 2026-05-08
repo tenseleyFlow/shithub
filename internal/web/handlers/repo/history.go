@@ -14,6 +14,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	diffparse "github.com/tenseleyFlow/shithub/internal/repos/diff/parse"
+	diffrender "github.com/tenseleyFlow/shithub/internal/repos/diff/render"
+	diffsource "github.com/tenseleyFlow/shithub/internal/repos/diff/source"
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
@@ -159,15 +162,39 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 	author := resolver.Resolve(r.Context(), detail.AuthorEmail)
 	committer := resolver.Resolve(r.Context(), detail.CommitterEmail)
 
+	// S19 diff render: source the patch from the SHA and inline-render.
+	mode := diffrender.ModeUnified
+	if r.URL.Query().Get("diff") == "split" {
+		mode = diffrender.ModeSplit
+	}
+	hideWS := r.URL.Query().Get("w") == "1"
+	patch, perr := diffsource.FromCommit(r.Context(), gitDir, detail.OID, diffsource.Options{
+		IgnoreWhitespace: hideWS, FindRenames: true,
+	})
+	var diffHTML template.HTML
+	if perr != nil {
+		h.d.Logger.WarnContext(r.Context(), "commit: diff source", "error", perr)
+	} else {
+		parsed, perr2 := diffparse.ParseBytes(patch)
+		if perr2 != nil {
+			h.d.Logger.WarnContext(r.Context(), "commit: diff parse", "error", perr2)
+		} else {
+			diffHTML = template.HTML(diffrender.Diff(parsed, diffrender.Options{Mode: mode})) //nolint:gosec // escapes inside
+		}
+	}
+
 	h.d.Render.RenderPage(w, r, "repo/commit", map[string]any{
-		"Title":     detail.Subject + " · " + row.Name,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Detail":    detail,
-		"Author":    author,
-		"Committer": committer,
-		"BodyHTML":  template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
+		"Title":      detail.Subject + " · " + row.Name,
+		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Owner":      owner.Username,
+		"Repo":       row,
+		"Detail":     detail,
+		"Author":     author,
+		"Committer":  committer,
+		"BodyHTML":   template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
+		"DiffHTML":   diffHTML,
+		"DiffMode":   string(mode),
+		"HideWS":     hideWS,
 	})
 }
 
