@@ -21,7 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"

@@ -18,7 +18,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/finder"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/highlight"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )

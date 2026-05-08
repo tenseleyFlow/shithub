@@ -34,7 +34,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 

@@ -23,7 +23,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // Deps wires this package against the rest of the runtime. Pool is

@@ -13,7 +13,7 @@ import (
 
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // SubmitParams describes the submit-a-review action.

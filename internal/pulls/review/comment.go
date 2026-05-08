@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
-	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // CommentParams describes a single inline comment on a PR. When
