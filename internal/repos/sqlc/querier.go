@@ -24,6 +24,10 @@ type Querier interface {
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
 	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
+	// Used by the rename compensator: drop a single redirect row when
+	// the rename has to be rolled back due to a filesystem failure. We
+	// avoided raw SQL here at the audit's request (S00-S25, M).
+	DeleteRedirectByUserOwnerOldName(ctx context.Context, db DBTX, arg DeleteRedirectByUserOwnerOldNameParams) error
 	// Used by hard-delete: drop the redirect rows pointing at this repo
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).

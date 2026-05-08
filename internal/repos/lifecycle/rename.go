@@ -128,10 +128,11 @@ func compensateRename(ctx context.Context, deps Deps, repoID int64, oldName stri
 	}
 	// Drop the redirect row we just wrote — it now points at a name
 	// that's about to come back to its old self.
-	_, err := deps.Pool.Exec(ctx,
-		`DELETE FROM repo_redirects WHERE repo_id = $1 AND old_owner_user_id = $2 AND old_name = $3`,
-		repoID, ownerUserID, oldName)
-	if err != nil && deps.Logger != nil {
+	if err := rq.DeleteRedirectByUserOwnerOldName(ctx, deps.Pool, reposdb.DeleteRedirectByUserOwnerOldNameParams{
+		RepoID:         repoID,
+		OldOwnerUserID: pgtype.Int8{Int64: ownerUserID, Valid: ownerUserID != 0},
+		OldName:        oldName,
+	}); err != nil && deps.Logger != nil {
 		deps.Logger.WarnContext(ctx, "rename: compensating redirect-delete failed", "repo_id", repoID, "error", err)
 	}
 	_ = newName // kept in signature for symmetry / future logging

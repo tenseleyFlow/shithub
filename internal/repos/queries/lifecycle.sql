@@ -63,6 +63,13 @@ WHERE old_owner_user_id = $1 AND old_name = $2;
 -- CASCADE would handle it, but explicit is auditable).
 DELETE FROM repo_redirects WHERE repo_id = $1;
 
+-- name: DeleteRedirectByUserOwnerOldName :exec
+-- Used by the rename compensator: drop a single redirect row when
+-- the rename has to be rolled back due to a filesystem failure. We
+-- avoided raw SQL here at the audit's request (S00-S25, M).
+DELETE FROM repo_redirects
+WHERE repo_id = $1 AND old_owner_user_id = $2 AND old_name = $3;
+
 
 -- ─── transfer requests ─────────────────────────────────────────────────
 

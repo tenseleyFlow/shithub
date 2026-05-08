@@ -71,6 +71,25 @@ func (q *Queries) DeclineTransferRequest(ctx context.Context, db DBTX, id int64)
 	return err
 }
 
+const deleteRedirectByUserOwnerOldName = `-- name: DeleteRedirectByUserOwnerOldName :exec
+DELETE FROM repo_redirects
+WHERE repo_id = $1 AND old_owner_user_id = $2 AND old_name = $3
+`
+
+type DeleteRedirectByUserOwnerOldNameParams struct {
+	RepoID         int64
+	OldOwnerUserID pgtype.Int8
+	OldName        string
+}
+
+// Used by the rename compensator: drop a single redirect row when
+// the rename has to be rolled back due to a filesystem failure. We
+// avoided raw SQL here at the audit's request (S00-S25, M).
+func (q *Queries) DeleteRedirectByUserOwnerOldName(ctx context.Context, db DBTX, arg DeleteRedirectByUserOwnerOldNameParams) error {
+	_, err := db.Exec(ctx, deleteRedirectByUserOwnerOldName, arg.RepoID, arg.OldOwnerUserID, arg.OldName)
+	return err
+}
+
 const deleteRedirectsForRepo = `-- name: DeleteRedirectsForRepo :exec
 DELETE FROM repo_redirects WHERE repo_id = $1
 `
