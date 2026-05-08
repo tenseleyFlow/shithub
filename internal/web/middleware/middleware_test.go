@@ -12,10 +12,76 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/auth/session"
 )
 
 func dropLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// TestOptionalUser_PopulatesIsSuspended is the audit's regression
+// guard for finding C1: when the underlying user record carries a
+// non-NULL `suspended_at` (relayed by the lookup as IsSuspended=true),
+// the CurrentUser bound into context must reflect it. Every handler
+// that constructs a policy.UserActor reads `viewer.IsSuspended`
+// downstream — without propagation here, the suspension gate is
+// silently bypassed.
+func TestOptionalUser_PopulatesIsSuspended(t *testing.T) {
+	t.Parallel()
+
+	bind := func(t *testing.T, suspended bool) CurrentUser {
+		t.Helper()
+		var captured CurrentUser
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			captured = CurrentUserFromContext(r.Context())
+			w.WriteHeader(http.StatusOK)
+		})
+		lookup := func(ctx context.Context, id int64) (UserLookupResult, error) {
+			return UserLookupResult{
+				Username: "alice", SessionEpoch: 7, IsSuspended: suspended,
+			}, nil
+		}
+		// Inject the session directly into context — bypasses the
+		// SessionLoader middleware (no cookie store needed for this
+		// unit test of the lookup-to-context plumbing).
+		s := &session.Session{UserID: 42, Epoch: 7}
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req = req.WithContext(context.WithValue(req.Context(), sessionKey, s))
+		rec := httptest.NewRecorder()
+		OptionalUser(lookup)(next).ServeHTTP(rec, req)
+		return captured
+	}
+
+	if u := bind(t, true); !u.IsSuspended {
+		t.Errorf("suspended=true: got IsSuspended=false, want true")
+	}
+	if u := bind(t, false); u.IsSuspended {
+		t.Errorf("suspended=false: got IsSuspended=true, want false")
+	}
+}
+
+// TestOptionalUser_StaleEpochSkipsBind is the corollary: when the
+// recorded session epoch doesn't match the current users.session_epoch
+// (because the user logged out everywhere), the binding is skipped so
+// downstream RequireUser bounces them to /login. This existed before
+// the C1 fix; covering it here pins the contract.
+func TestOptionalUser_StaleEpochSkipsBind(t *testing.T) {
+	t.Parallel()
+	var captured CurrentUser
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = CurrentUserFromContext(r.Context())
+	})
+	lookup := func(ctx context.Context, id int64) (UserLookupResult, error) {
+		return UserLookupResult{Username: "alice", SessionEpoch: 99}, nil
+	}
+	s := &session.Session{UserID: 42, Epoch: 7}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), sessionKey, s))
+	OptionalUser(lookup)(next).ServeHTTP(httptest.NewRecorder(), req)
+	if !captured.IsAnonymous() {
+		t.Errorf("stale epoch: got CurrentUser{ID=%d}, want anonymous", captured.ID)
+	}
 }
 
 func TestRequestID_AssignsAndEchoes(t *testing.T) {
