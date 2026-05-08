@@ -16,11 +16,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
+
+	"path/filepath"
 )
 
 // PushProcessDeps wires the data this handler needs.
@@ -146,6 +149,31 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 			}
 		}
 
+		// 4c: stale-on-push for required checks (S24). When a head ref
+		// moves and the matching protection rule has
+		// `dismiss_stale_status_checks_on_push = true`, mark every
+		// not-yet-completed check suite on the previous SHA as
+		// (completed, conclusion='stale'). Best-effort.
+		if strings.HasPrefix(event.Ref, refPrefix) && !isZeroSHA(event.BeforeSha) {
+			branch := event.Ref[len(refPrefix):]
+			rules, err := rq.ListBranchProtectionRules(ctx, deps.Pool, repo.ID)
+			if err == nil {
+				rule, hasRule := longestMatchingRule(rules, branch)
+				if hasRule && rule.DismissStaleStatusChecksOnPush {
+					n, err := checks.MarkStaleForPreviousHead(ctx,
+						checks.Deps{Pool: deps.Pool, Logger: deps.Logger},
+						repo.ID, event.BeforeSha)
+					if err != nil {
+						deps.Logger.WarnContext(ctx, "push:process: mark stale checks",
+							"push_event_id", event.ID, "error", err)
+					} else if n > 0 {
+						deps.Logger.InfoContext(ctx, "push:process: marked check suites stale",
+							"push_event_id", event.ID, "count", n)
+					}
+				}
+			}
+		}
+
 		// 5: mark processed last so a partial failure earlier triggers a
 		// retry that retries the whole pipeline. Idempotency is via the
 		// processed_at guard at the top.
@@ -157,6 +185,26 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 		_ = worker.Notify(ctx, deps.Pool)
 		return nil
 	}
+}
+
+// longestMatchingRule duplicates the longest-pattern-wins matcher
+// from internal/repos/protection so this file doesn't take a circular
+// import. Same semantics: alphabetical tiebreaker, no rule = not found.
+func longestMatchingRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
+	var best reposdb.BranchProtectionRule
+	bestLen := -1
+	for _, r := range rules {
+		ok, _ := filepath.Match(r.Pattern, branch)
+		if !ok {
+			continue
+		}
+		if len(r.Pattern) > bestLen ||
+			(len(r.Pattern) == bestLen && r.Pattern < best.Pattern) {
+			best = r
+			bestLen = len(r.Pattern)
+		}
+	}
+	return best, bestLen >= 0
 }
 
 func isZeroSHA(s string) bool {
