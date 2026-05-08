@@ -70,11 +70,14 @@ assets: ## Copy Primer CSS into internal/web/static/ for embedding.
 		echo "warn: .refs/primer-css/dist not found; run 'git clone https://github.com/primer/css .refs/primer-css' first"; \
 	fi
 
-ci: lint lint-policy test build ## Full CI pipeline (matches .github/workflows/ci.yml).
+ci: lint lint-policy lint-markdown test build ## Full CI pipeline (matches .github/workflows/ci.yml).
 	@echo "ci: ok"
 
 lint-policy: ## Enforce policy-package boundary (no inline auth checks in handlers/git/cmd).
 	@scripts/lint-policy-boundary.sh
+
+lint-markdown: ## Enforce markdown-package boundary (no goldmark/bluemonday outside internal/markdown).
+	@scripts/lint-markdown-boundary.sh
 
 install-tools: ## Install development tools via 'go install'.
 	go install mvdan.cc/gofumpt@latest
