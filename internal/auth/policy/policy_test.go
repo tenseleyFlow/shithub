@@ -183,7 +183,8 @@ func expect(actor actorKind, repo repoKind, action policy.Action) bool {
 	}
 
 	// Login-only social actions.
-	if action == policy.ActionStarCreate || action == policy.ActionForkCreate {
+	if action == policy.ActionStarCreate || action == policy.ActionForkCreate ||
+		action == policy.ActionWatchSet {
 		return have != policy.RoleNone || (actor != actorAnonymous)
 	}
 
@@ -213,7 +214,7 @@ func mirrorMinRoleFor(a policy.Action) policy.Role {
 		policy.ActionRepoArchive, policy.ActionRepoDelete, policy.ActionRepoTransfer, policy.ActionRepoVisibility,
 		policy.ActionPullMerge:
 		return policy.RoleAdmin
-	case policy.ActionStarCreate, policy.ActionForkCreate:
+	case policy.ActionStarCreate, policy.ActionForkCreate, policy.ActionWatchSet:
 		return policy.RoleNone
 	}
 	return policy.RoleAdmin

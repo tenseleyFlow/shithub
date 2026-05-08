@@ -137,9 +137,13 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return deny(DenyRoleTooLow, "role too low")
 	}
 
-	// 9. Login-required actions: star/fork need any logged-in user.
-	if (action == ActionStarCreate || action == ActionForkCreate) && actor.IsAnonymous {
-		return deny(DenyAnonymous, "anonymous cannot star/fork")
+	// 9. Login-required actions: star/fork/watch-set need any
+	//    logged-in user. Anonymous reaches here only on a public repo
+	//    (see step 4); we deny with the anonymous code so the handler
+	//    can render a friendly "log in to star" prompt.
+	if (action == ActionStarCreate || action == ActionForkCreate || action == ActionWatchSet) &&
+		actor.IsAnonymous {
+		return deny(DenyAnonymous, "anonymous cannot star/fork/watch")
 	}
 
 	return allow("granted")
@@ -251,7 +255,14 @@ func minRoleFor(action Action) Role {
 		return RoleAdmin
 
 	// Login-required but no role required (any logged-in user).
-	case ActionStarCreate, ActionForkCreate:
+	// Star/fork: any logged-in user can star or fork any repo they
+	// can read — the visibility short-circuit above already gates
+	// private-repo access, and the role check below short-circuits
+	// to allow when minRole is RoleNone.
+	// WatchSet: same shape — any logged-in user with read access
+	// can choose their watch level. The downstream notifications
+	// fan-out (S29) is what enforces level-based delivery.
+	case ActionStarCreate, ActionForkCreate, ActionWatchSet:
 		return RoleNone
 
 	default:

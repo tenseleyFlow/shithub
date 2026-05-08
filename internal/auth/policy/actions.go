@@ -62,6 +62,13 @@ const (
 const (
 	ActionStarCreate Action = "star:create"
 	ActionForkCreate Action = "fork:create"
+
+	// S26 social actions. WatchSet covers both setting an explicit
+	// level and unsetting (deleting the row). Both require a logged-in
+	// user with read access to the repo — the policy.Can engine
+	// enforces visibility before reaching the role check, so a
+	// non-collab on a private repo deny-leaks as 404.
+	ActionWatchSet Action = "watch:set"
 )
 
 // AllActions is the canonical list. The matrix test iterates this so a
@@ -74,6 +81,7 @@ var AllActions = []Action{
 	ActionIssueRead, ActionIssueCreate, ActionIssueComment, ActionIssueClose, ActionIssueLabel, ActionIssueAssign,
 	ActionPullRead, ActionPullCreate, ActionPullMerge, ActionPullReview, ActionPullClose,
 	ActionStarCreate, ActionForkCreate,
+	ActionWatchSet,
 }
 
 // isWriteAction returns true when the action mutates state. Used by the

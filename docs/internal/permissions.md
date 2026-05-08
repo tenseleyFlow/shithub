@@ -68,6 +68,7 @@ The complete map (also enforced by the matrix test):
 | `pull:close`                          | `write`          |
 | `star:create`                         | logged in        |
 | `fork:create`                         | logged in        |
+| `watch:set`                           | logged in        |
 
 Read actions on **public** repos are short-circuited to allow before the
 role check — anyone (anonymous or otherwise) can read a public repo.
