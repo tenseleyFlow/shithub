@@ -29,6 +29,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	mdrender "github.com/tenseleyFlow/shithub/internal/repos/markdown"
@@ -245,6 +246,17 @@ func Synchronize(ctx context.Context, deps Deps, gitDir string, prID int64) erro
 	if err := refreshCommitsAndFiles(ctx, deps, gitDir, prID, baseOID, headOID); err != nil {
 		return err
 	}
+	// Re-anchor review comments against the new snapshot. Comments
+	// whose original line still exists keep their thread; the rest
+	// outdate (current_position=NULL) and surface in the "Show
+	// outdated" toggle of the Files tab.
+	if err := review.RemapAllForPR(ctx, review.Deps{Pool: deps.Pool, Logger: deps.Logger}, gitDir, prID, baseOID, headOID); err != nil {
+		// Best-effort: a position-map miss shouldn't block the sync
+		// pipeline. Log + continue.
+		if deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "pulls: position remap", "error", err, "pr_id", prID)
+		}
+	}
 	// Reset mergeability to unknown so the next mergeability tick
 	// recomputes against the fresh snapshot.
 	if err := q.SetPullRequestMergeability(ctx, deps.Pool, pullsdb.SetPullRequestMergeabilityParams{
@@ -267,6 +279,17 @@ func Synchronize(ctx context.Context, deps Deps, gitDir string, prID int64) erro
 }
 
 // Mergeability runs the merge-tree probe and persists the result.
+// Order of state checks (highest priority first):
+//
+//	dirty   — git merge-tree reports conflicts
+//	behind  — head has no commits ahead of base
+//	blocked — required reviews missing OR an undismissed
+//	          request_changes review exists (S23 gate)
+//	clean   — merge-tree clean and review gate satisfied
+//
+// `blocked` is set by the S23 review evaluator; when no protection
+// rule applies and no request_changes review exists, the gate is a
+// no-op and we fall through to clean.
 func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) error {
 	q := pullsdb.New()
 	pr, err := q.GetPullRequestByIssueID(ctx, deps.Pool, prID)
@@ -277,8 +300,7 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 		return nil // synchronize hasn't run yet; nothing to probe
 	}
 	// Behind: head has no commits ahead of base.
-	gitDirCtx := ctx
-	commits, err := repogit.CommitsBetweenDetail(gitDirCtx, gitDir, pr.BaseOid, pr.HeadOid, 1)
+	commits, err := repogit.CommitsBetweenDetail(ctx, gitDir, pr.BaseOid, pr.HeadOid, 1)
 	if err != nil && !errors.Is(err, repogit.ErrRefNotFound) {
 		return err
 	}
@@ -289,14 +311,34 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 			MergeableState: pullsdb.PrMergeableStateBehind,
 		})
 	}
-	res, err := repogit.ProbeMerge(gitDirCtx, gitDir, pr.BaseOid, pr.HeadOid)
+	res, err := repogit.ProbeMerge(ctx, gitDir, pr.BaseOid, pr.HeadOid)
 	if err != nil {
 		return fmt.Errorf("probe: %w", err)
 	}
+	if res.HasConflict {
+		return q.SetPullRequestMergeability(ctx, deps.Pool, pullsdb.SetPullRequestMergeabilityParams{
+			IssueID:        prID,
+			Mergeable:      pgtype.Bool{Bool: false, Valid: true},
+			MergeableState: pullsdb.PrMergeableStateDirty,
+		})
+	}
+	// Review gate. Need the issue's repo + author for the eval.
+	issue, err := issuesdb.New().GetIssueByID(ctx, deps.Pool, prID)
+	if err != nil {
+		return fmt.Errorf("load issue: %w", err)
+	}
+	gate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
+		RepoID:    issue.RepoID,
+		BaseRef:   pr.BaseRef,
+		PRIssueID: prID,
+	}, int64FromPg(issue.AuthorUserID))
+	if err != nil {
+		return fmt.Errorf("review gate: %w", err)
+	}
 	state := pullsdb.PrMergeableStateClean
 	mergeable := true
-	if res.HasConflict {
-		state = pullsdb.PrMergeableStateDirty
+	if !gate.Satisfied {
+		state = pullsdb.PrMergeableStateBlocked
 		mergeable = false
 	}
 	return q.SetPullRequestMergeability(ctx, deps.Pool, pullsdb.SetPullRequestMergeabilityParams{
@@ -304,6 +346,14 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 		Mergeable:      pgtype.Bool{Bool: mergeable, Valid: true},
 		MergeableState: state,
 	})
+}
+
+// int64FromPg unwraps a pgtype.Int8; returns 0 when invalid.
+func int64FromPg(p pgtype.Int8) int64 {
+	if !p.Valid {
+		return 0
+	}
+	return p.Int64
 }
 
 // EditPR updates the PR's title + body. Body markdown is re-rendered

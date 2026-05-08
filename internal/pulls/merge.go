@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -81,6 +82,22 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 		return ErrAlreadyClosed
 	}
 	if pr.MergeableState != pullsdb.PrMergeableStateClean {
+		return ErrMergeBlocked
+	}
+
+	// Belt-and-braces: re-evaluate the review gate inside the row
+	// lock so a `request_changes` submitted between the last
+	// Mergeability tick and this merge attempt is still honored.
+	// Spec pitfall: required-review bypass via direct API.
+	gate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
+		RepoID:    issue.RepoID,
+		BaseRef:   pr.BaseRef,
+		PRIssueID: p.PRID,
+	}, int64FromPg(issue.AuthorUserID))
+	if err != nil {
+		return fmt.Errorf("review gate: %w", err)
+	}
+	if !gate.Satisfied {
 		return ErrMergeBlocked
 	}
 
