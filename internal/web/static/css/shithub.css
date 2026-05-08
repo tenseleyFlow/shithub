@@ -1306,3 +1306,44 @@ code {
   padding: 0.4rem 0; border-bottom: 1px solid var(--border-default);
   display: flex; gap: 0.6rem; align-items: baseline;
 }
+
+/* ========== PR Reviews (S23) ========== */
+.shithub-pull-reviews, .shithub-pull-reviewers {
+  border-top: 1px solid var(--border-default);
+  padding: 0.6rem 0;
+}
+.shithub-pull-reviews h3, .shithub-pull-reviewers h3 {
+  font-size: 0.85rem; text-transform: uppercase; color: var(--fg-muted); margin: 0 0 0.4rem;
+}
+.shithub-pull-reviews-list, .shithub-pull-reviewers-list {
+  list-style: none; padding: 0; margin: 0; font-size: 0.9rem;
+}
+.shithub-pull-reviews-list li { padding: 0.2rem 0; display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: baseline; }
+.shithub-pull-review-state { font-weight: 600; }
+.shithub-pull-review-approve .shithub-pull-review-state { color: #1a7f37; }
+.shithub-pull-review-request_changes .shithub-pull-review-state { color: #cf222e; }
+.shithub-pull-review-comment .shithub-pull-review-state { color: var(--fg-muted); }
+.shithub-pull-review-dismissed { opacity: 0.5; text-decoration: line-through; }
+.shithub-pull-request-reviewer summary, .shithub-pull-submit-review summary {
+  margin: 0.5rem 0 0.25rem;
+}
+.shithub-pull-review-form { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.4rem 0; }
+.shithub-pull-review-form textarea, .shithub-pull-review-form select {
+  padding: 0.4rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit;
+}
+.shithub-pull-threads { margin-top: 1.5rem; padding: 0.75rem; border: 1px solid var(--border-default); border-radius: 6px; }
+.shithub-pull-thread-file { padding: 0.4rem 0; border-bottom: 1px solid var(--border-default); }
+.shithub-pull-thread-file:last-child { border-bottom: none; }
+.shithub-pull-thread-file summary { cursor: pointer; font-weight: 600; }
+.shithub-pull-thread { padding: 0.5rem; border-left: 3px solid var(--border-default); margin: 0.5rem 0; }
+.shithub-pull-thread-outdated { opacity: 0.6; border-left-color: #9a6700; }
+.shithub-pull-thread-resolved { opacity: 0.7; border-left-color: #1a7f37; }
+.shithub-pull-thread-actions { display: flex; gap: 0.3rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.shithub-pull-thread-actions textarea, .shithub-pull-thread-actions input[type=text] {
+  padding: 0.3rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit;
+}
+.shithub-pull-add-comment summary { margin-top: 0.5rem; }
+.shithub-pull-add-comment form { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.4rem 0; }
+.shithub-pull-add-comment input, .shithub-pull-add-comment textarea {
+  padding: 0.3rem 0.5rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit;
+}

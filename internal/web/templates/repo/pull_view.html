@@ -62,6 +62,71 @@
       </article>
 
       <aside class="shithub-pull-merge">
+        {{ if .Reviews }}
+        <section class="shithub-pull-reviews">
+          <h3>Reviews</h3>
+          <ul class="shithub-pull-reviews-list">
+            {{ range .Reviews }}
+            <li class="shithub-pull-review-{{ printf "%s" .R.State }}{{ if .R.DismissedAt.Valid }} shithub-pull-review-dismissed{{ end }}">
+              <span class="shithub-pull-review-state">
+                {{ if eq (printf "%s" .R.State) "approve" }}✓ approved{{ else if eq (printf "%s" .R.State) "request_changes" }}✗ changes requested{{ else }}● commented{{ end }}
+              </span>
+              {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+              <time datetime="{{ .R.SubmittedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .R.SubmittedAt.Time }}</time>
+              {{ if .R.DismissedAt.Valid }}<small>dismissed</small>{{ end }}
+            </li>
+            {{ end }}
+          </ul>
+        </section>
+        {{ end }}
+
+        {{ if .ReviewRequests }}
+        <section class="shithub-pull-reviewers">
+          <h3>Reviewers</h3>
+          <ul class="shithub-pull-reviewers-list">
+            {{ range .ReviewRequests }}
+              {{ if not .R.DismissedAt.Valid }}
+              <li>
+                <a href="/{{ .Username }}">@{{ .Username }}</a>
+                {{ if .R.SatisfiedByReviewID.Valid }}<small>reviewed</small>{{ else }}<small>pending</small>{{ end }}
+              </li>
+              {{ end }}
+            {{ end }}
+          </ul>
+        </section>
+        {{ end }}
+
+        {{ if .Viewer.ID }}
+        <details class="shithub-pull-request-reviewer">
+          <summary class="shithub-button">Request review</summary>
+          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviewers">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <input type="text" name="username" placeholder="username" required>
+            <button type="submit" class="shithub-button">Request</button>
+          </form>
+        </details>
+
+        {{ if not .PR.MergedAt.Valid }}
+        {{ if eq (printf "%s" .PR.IState) "open" }}
+        <details class="shithub-pull-submit-review">
+          <summary class="shithub-button">Submit review</summary>
+          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviews" class="shithub-pull-review-form">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <textarea name="body" rows="4" placeholder="Leave a review comment (optional)"></textarea>
+            <select name="state">
+              <option value="comment">Comment</option>
+              {{ if not (and .PR.IAuthorUserID.Valid (eq .PR.IAuthorUserID.Int64 .Viewer.ID)) }}
+              <option value="approve">Approve</option>
+              <option value="request_changes">Request changes</option>
+              {{ end }}
+            </select>
+            <button type="submit" class="shithub-button shithub-button-primary">Submit</button>
+          </form>
+        </details>
+        {{ end }}
+        {{ end }}
+        {{ end }}
+
         {{ if .PR.MergedAt.Valid }}
           <p>Merged via <code>{{ printf "%s" .PR.MergeMethod.PrMergeMethod }}</code>.</p>
         {{ else if eq (printf "%s" .PR.IState) "closed" }}
@@ -120,6 +185,62 @@
       <div class="shithub-diff">{{ safeHTML .DiffHTML }}</div>
     {{ else }}
       <p class="shithub-muted">No diff available.</p>
+    {{ end }}
+
+    {{ if .ThreadsByFile }}
+    <section class="shithub-pull-threads">
+      <h3>Inline comments</h3>
+      {{ range $path, $threads := .ThreadsByFile }}
+        {{ if $threads }}
+        <details class="shithub-pull-thread-file" open>
+          <summary><code>{{ $path }}</code> · {{ len $threads }}</summary>
+          {{ range $threads }}
+            <div class="shithub-pull-thread{{ if not .C.CurrentPosition.Valid }} shithub-pull-thread-outdated{{ end }}{{ if .C.ResolvedAt.Valid }} shithub-pull-thread-resolved{{ end }}">
+              <div class="shithub-comment-head">
+                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                line {{ .C.OriginalLine }}
+                <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
+                {{ if not .C.CurrentPosition.Valid }}<span class="shithub-pill">outdated</span>{{ end }}
+                {{ if .C.ResolvedAt.Valid }}<span class="shithub-pill">resolved</span>{{ end }}
+              </div>
+              <div class="shithub-comment-body markdown-body">
+                {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
+              </div>
+              {{ if $.Viewer.ID }}
+              <div class="shithub-pull-thread-actions">
+                <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/reply">
+                  <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                  <textarea name="body" rows="2" placeholder="Reply…"></textarea>
+                  <button type="submit" class="shithub-button">Reply</button>
+                </form>
+                <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/{{ if .C.ResolvedAt.Valid }}reopen{{ else }}resolve{{ end }}">
+                  <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                  <button type="submit" class="shithub-button">{{ if .C.ResolvedAt.Valid }}Reopen{{ else }}Resolve{{ end }}</button>
+                </form>
+              </div>
+              {{ end }}
+            </div>
+          {{ end }}
+        </details>
+        {{ end }}
+      {{ end }}
+
+      {{ if .Viewer.ID }}
+      <details class="shithub-pull-add-comment">
+        <summary class="shithub-button">Add inline comment</summary>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/review-comments">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="text" name="file_path" placeholder="path" required>
+          <input type="number" name="line" placeholder="line" required>
+          <input type="number" name="position" placeholder="position" required>
+          <input type="hidden" name="commit_sha" value="{{ .PR.HeadOid }}">
+          <input type="hidden" name="side" value="right">
+          <textarea name="body" rows="3" required></textarea>
+          <button type="submit" class="shithub-button">Add comment</button>
+        </form>
+      </details>
+      {{ end }}
+    </section>
     {{ end }}
   {{ else if eq .Tab "checks" }}
     <p class="shithub-muted">Check engine ships in S24. Today this tab is a placeholder.</p>

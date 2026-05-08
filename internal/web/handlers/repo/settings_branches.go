@@ -75,6 +75,12 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	preventDeletion := r.PostFormValue("prevent_deletion") == "on"
 	requirePR := r.PostFormValue("require_pr_for_push") == "on"
 
+	requiredReviews, _ := strconv.Atoi(strings.TrimSpace(r.PostFormValue("required_review_count")))
+	if requiredReviews < 0 {
+		requiredReviews = 0
+	}
+	dismissStale := r.PostFormValue("dismiss_stale_reviews_on_push") == "on"
+
 	allowed, err := resolveUsernameList(r, h, r.PostFormValue("allowed_pushers"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -99,6 +105,14 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: insert", "error", err)
 			http.Error(w, "failed to create rule", http.StatusInternalServerError)
 			return
+		}
+		if err := h.rq.UpdateBranchProtectionReviewSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
+			ID:                          newID,
+			RequiredReviewCount:         int32(requiredReviews),
+			DismissStaleReviewsOnPush:   dismissStale,
+			RequireCodeOwnerReview:      false,
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
@@ -126,6 +140,14 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		}); err != nil {
 			http.Error(w, "failed to update rule", http.StatusInternalServerError)
 			return
+		}
+		if err := h.rq.UpdateBranchProtectionReviewSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
+			ID:                          id,
+			RequiredReviewCount:         int32(requiredReviews),
+			DismissStaleReviewsOnPush:   dismissStale,
+			RequireCodeOwnerReview:      false,
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,

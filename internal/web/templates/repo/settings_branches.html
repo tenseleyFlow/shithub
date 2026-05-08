@@ -27,7 +27,7 @@
     {{ if .Rules }}
     <table class="shithub-branches-table">
       <thead>
-        <tr><th>Pattern</th><th>Force-push</th><th>Deletion</th><th>Allowed pushers</th><th></th></tr>
+        <tr><th>Pattern</th><th>Force-push</th><th>Deletion</th><th>Allowed pushers</th><th>Required reviews</th><th></th></tr>
       </thead>
       <tbody>
         {{ range .Rules }}
@@ -36,6 +36,7 @@
           <td>{{ if .PreventForcePush }}🚫{{ else }}allowed{{ end }}</td>
           <td>{{ if .PreventDeletion }}🚫{{ else }}allowed{{ end }}</td>
           <td>{{ len .AllowedPusherUserIds }} {{ if eq (len .AllowedPusherUserIds) 1 }}user{{ else }}users{{ end }}</td>
+          <td>{{ .RequiredReviewCount }}{{ if .DismissStaleReviewsOnPush }} · dismiss-stale{{ end }}</td>
           <td>
             <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/branches/{{ .ID }}/delete" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
@@ -64,6 +65,10 @@
       <label>Allowed pushers (comma-separated usernames; leave blank for "any collaborator")
         <input type="text" name="allowed_pushers" placeholder="alice, bob">
       </label>
+      <label>Required reviews (S23) — number of approving reviews required before merge
+        <input type="number" name="required_review_count" min="0" value="0">
+      </label>
+      <label><input type="checkbox" name="dismiss_stale_reviews_on_push"> Dismiss stale reviews on new push (S23)</label>
       <button type="submit" class="shithub-button shithub-button-primary">Create rule</button>
     </form>
   </section>
