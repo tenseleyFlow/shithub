@@ -63,6 +63,9 @@ type Deps struct {
 	// /find/* under the repo two-segment prefix. Public for read; the
 	// handler runs the policy gate per request.
 	RepoCodeMounter func(chi.Router)
+	// RepoHistoryMounter registers /commits/{ref}, /commit/{sha},
+	// /blame/{ref}/{path...}, /commits/{ref}.atom (S18).
+	RepoHistoryMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -166,10 +169,14 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		if deps.RepoNewMounter != nil {
 			deps.RepoNewMounter(r)
 		}
-		// Code-tab routes register BEFORE RepoHome's two-segment route
-		// so /{owner}/{repo}/tree/* doesn't get swallowed.
+		// Code-tab + history routes register BEFORE RepoHome's two-segment
+		// route so /{owner}/{repo}/tree/* and /commit/* don't get
+		// swallowed.
 		if deps.RepoCodeMounter != nil {
 			deps.RepoCodeMounter(r)
+		}
+		if deps.RepoHistoryMounter != nil {
+			deps.RepoHistoryMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

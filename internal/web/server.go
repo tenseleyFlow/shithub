@@ -187,6 +187,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.RepoHomeMounter = repoH.MountRepoHome
 		deps.RepoCodeMounter = repoH.MountCode
+		deps.RepoHistoryMounter = repoH.MountHistory
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
