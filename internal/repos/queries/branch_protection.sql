@@ -5,7 +5,8 @@ SELECT id, repo_id, pattern,
        prevent_force_push, prevent_deletion, require_pr_for_push,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
-       created_at, updated_at, created_by_user_id
+       created_at, updated_at, created_by_user_id,
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
 FROM branch_protection_rules
 WHERE repo_id = $1
 ORDER BY pattern;
@@ -15,7 +16,8 @@ SELECT id, repo_id, pattern,
        prevent_force_push, prevent_deletion, require_pr_for_push,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
-       created_at, updated_at, created_by_user_id
+       created_at, updated_at, created_by_user_id,
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
 FROM branch_protection_rules
 WHERE id = $1;
 
@@ -36,6 +38,15 @@ SET pattern = $2,
     prevent_deletion = $4,
     require_pr_for_push = $5,
     allowed_pusher_user_ids = $6
+WHERE id = $1;
+
+-- name: UpdateBranchProtectionReviewSettings :exec
+-- S23 surface for the review-related knobs. Branch-protection edit
+-- handler calls this alongside UpdateBranchProtectionRule.
+UPDATE branch_protection_rules
+SET required_review_count = $2,
+    dismiss_stale_reviews_on_push = $3,
+    require_code_owner_review = $4
 WHERE id = $1;
 
 -- name: DeleteBranchProtectionRule :exec

@@ -6,13 +6,34 @@ package pullsdb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	// One-shot UPDATE that flips a user's pending draft comments on a PR
+	// into the just-submitted review. Runs inside the submit-review tx.
+	AttachPendingCommentsToReview(ctx context.Context, db DBTX, arg AttachPendingCommentsToReviewParams) error
 	// ─── commits + files (refreshed on synchronize) ──────────────────────
 	ClearPullRequestCommits(ctx context.Context, db DBTX, prID int64) error
 	ClearPullRequestFiles(ctx context.Context, db DBTX, prID int64) error
+	// Used by the rate-limit gate (max 20 reviewers per PR per the spec
+	// pitfall section).
+	CountActivePRReviewRequests(ctx context.Context, db DBTX, prIssueID int64) (int32, error)
+	// Returns the counts the merge gate cares about. `approves` excludes
+	// dismissed reviews; `request_changes` includes only undismissed and
+	// unsuperseded-by-same-author reviews. The "unsuperseded" semantics
+	// (a later review by the same author wins) is computed in Go on the
+	// caller side; this query only returns the raw rows it needs.
+	CountPRReviewsForGate(ctx context.Context, db DBTX, prIssueID int64) (CountPRReviewsForGateRow, error)
 	CountPullRequestsByRepo(ctx context.Context, db DBTX, arg CountPullRequestsByRepoParams) (int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// ─── pr_reviews ──────────────────────────────────────────────────────
+	CreatePRReview(ctx context.Context, db DBTX, arg CreatePRReviewParams) (PrReview, error)
+	// ─── pr_review_comments ──────────────────────────────────────────────
+	CreatePRReviewComment(ctx context.Context, db DBTX, arg CreatePRReviewCommentParams) (PrReviewComment, error)
+	// ─── pr_review_requests ──────────────────────────────────────────────
+	CreatePRReviewRequest(ctx context.Context, db DBTX, arg CreatePRReviewRequestParams) (PrReviewRequest, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── pull_requests core ──────────────────────────────────────────────
 	// Creates the PR-side row keyed on issue_id (the caller already
@@ -20,30 +41,57 @@ type Querier interface {
 	// opened PR `mergeable_state='unknown'` until the mergeability job
 	// ticks.
 	CreatePullRequest(ctx context.Context, db DBTX, arg CreatePullRequestParams) (PullRequest, error)
+	DismissPRReview(ctx context.Context, db DBTX, arg DismissPRReviewParams) error
+	DismissPRReviewRequest(ctx context.Context, db DBTX, id int64) error
+	GetPRReviewByID(ctx context.Context, db DBTX, id int64) (PrReview, error)
+	GetPRReviewComment(ctx context.Context, db DBTX, id int64) (PrReviewComment, error)
 	GetPullRequestByIssueID(ctx context.Context, db DBTX, issueID int64) (PullRequest, error)
 	// Joins issues + pull_requests so handlers can resolve via the URL
 	// {owner}/{repo}/pulls/{number} in one round-trip.
 	GetPullRequestByRepoAndNumber(ctx context.Context, db DBTX, arg GetPullRequestByRepoAndNumberParams) (GetPullRequestByRepoAndNumberRow, error)
 	InsertPullRequestCommit(ctx context.Context, db DBTX, arg InsertPullRequestCommitParams) error
 	InsertPullRequestFile(ctx context.Context, db DBTX, arg InsertPullRequestFileParams) error
+	// Position-mapping reads only submitted comments (drafts re-anchor
+	// when the user resumes the diff view).
+	ListNonDraftCommentsForPositionMap(ctx context.Context, db DBTX, prIssueID int64) ([]ListNonDraftCommentsForPositionMapRow, error)
 	// Returns the issue_ids of every still-open PR whose head_repo_id +
 	// head_ref match the pushed ref. push:process uses this to fan-out
 	// pr:synchronize jobs after a head-side push.
 	ListOpenPRsForHeadRef(ctx context.Context, db DBTX, arg ListOpenPRsForHeadRefParams) ([]int64, error)
+	ListPRReviewComments(ctx context.Context, db DBTX, prIssueID int64) ([]PrReviewComment, error)
+	// Files-tab fetch: comments anchored to a single file path, oldest first.
+	ListPRReviewCommentsForFile(ctx context.Context, db DBTX, arg ListPRReviewCommentsForFileParams) ([]PrReviewComment, error)
+	ListPRReviewRequests(ctx context.Context, db DBTX, prIssueID int64) ([]PrReviewRequest, error)
+	ListPRReviews(ctx context.Context, db DBTX, prIssueID int64) ([]PrReview, error)
+	// Server-side draft listing: rows with pending=true belonging to one
+	// user. Ordered by creation so the submit step processes them in order.
+	ListPendingDraftCommentsForUser(ctx context.Context, db DBTX, arg ListPendingDraftCommentsForUserParams) ([]PrReviewComment, error)
+	// Reviewer's inbox feed. Excludes dismissed + satisfied requests.
+	ListPendingReviewRequestsForUser(ctx context.Context, db DBTX, requestedUserID pgtype.Int8) ([]PrReviewRequest, error)
 	ListPullRequestCommits(ctx context.Context, db DBTX, prID int64) ([]PullRequestCommit, error)
 	ListPullRequestFiles(ctx context.Context, db DBTX, prID int64) ([]PullRequestFile, error)
 	// Mirrors the issues list query: state filter via narg, pagination,
 	// ordered by recent activity.
 	ListPullRequestsByRepo(ctx context.Context, db DBTX, arg ListPullRequestsByRepoParams) ([]ListPullRequestsByRepoRow, error)
+	// Used by the merge gate to compute "latest review per author" semantics
+	// in Go. Ordered author + submitted_at so the caller can pick the last
+	// per author cheaply.
+	ListUndismissedReviewsForGate(ctx context.Context, db DBTX, prIssueID int64) ([]ListUndismissedReviewsForGateRow, error)
 	// FOR UPDATE row lock + return current shape so the merge job can
 	// decide whether to proceed (e.g. someone else just merged it).
 	LockPullRequestForMerge(ctx context.Context, db DBTX, issueID int64) (PullRequest, error)
+	SatisfyPRReviewRequest(ctx context.Context, db DBTX, arg SatisfyPRReviewRequestParams) error
+	// Position-mapping update emitted by pulls.Synchronize. NULL means
+	// the comment has gone outdated.
+	SetPRReviewCommentCurrentPosition(ctx context.Context, db DBTX, arg SetPRReviewCommentCurrentPositionParams) error
+	SetPRReviewCommentResolved(ctx context.Context, db DBTX, arg SetPRReviewCommentResolvedParams) error
 	SetPullRequestDraft(ctx context.Context, db DBTX, arg SetPullRequestDraftParams) error
 	SetPullRequestMergeability(ctx context.Context, db DBTX, arg SetPullRequestMergeabilityParams) error
 	SetPullRequestMerged(ctx context.Context, db DBTX, arg SetPullRequestMergedParams) error
 	// Updates base_oid + head_oid + last_synchronized_at after a
 	// synchronize tick.
 	SetPullRequestSnapshot(ctx context.Context, db DBTX, arg SetPullRequestSnapshotParams) error
+	UpdatePRReviewCommentBody(ctx context.Context, db DBTX, arg UpdatePRReviewCommentBodyParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -25,7 +25,8 @@ SELECT id, repo_id, pattern,
        prevent_force_push, prevent_deletion, require_pr_for_push,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
-       created_at, updated_at, created_by_user_id
+       created_at, updated_at, created_by_user_id,
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
 FROM branch_protection_rules
 WHERE id = $1
 `
@@ -46,6 +47,9 @@ func (q *Queries) GetBranchProtectionRule(ctx context.Context, db DBTX, id int64
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.RequiredReviewCount,
+		&i.DismissStaleReviewsOnPush,
+		&i.RequireCodeOwnerReview,
 	)
 	return i, err
 }
@@ -56,7 +60,8 @@ SELECT id, repo_id, pattern,
        prevent_force_push, prevent_deletion, require_pr_for_push,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
-       created_at, updated_at, created_by_user_id
+       created_at, updated_at, created_by_user_id,
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
 FROM branch_protection_rules
 WHERE repo_id = $1
 ORDER BY pattern
@@ -85,6 +90,9 @@ func (q *Queries) ListBranchProtectionRules(ctx context.Context, db DBTX, repoID
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedByUserID,
+			&i.RequiredReviewCount,
+			&i.DismissStaleReviewsOnPush,
+			&i.RequireCodeOwnerReview,
 		); err != nil {
 			return nil, err
 		}
@@ -94,6 +102,33 @@ func (q *Queries) ListBranchProtectionRules(ctx context.Context, db DBTX, repoID
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateBranchProtectionReviewSettings = `-- name: UpdateBranchProtectionReviewSettings :exec
+UPDATE branch_protection_rules
+SET required_review_count = $2,
+    dismiss_stale_reviews_on_push = $3,
+    require_code_owner_review = $4
+WHERE id = $1
+`
+
+type UpdateBranchProtectionReviewSettingsParams struct {
+	ID                        int64
+	RequiredReviewCount       int32
+	DismissStaleReviewsOnPush bool
+	RequireCodeOwnerReview    bool
+}
+
+// S23 surface for the review-related knobs. Branch-protection edit
+// handler calls this alongside UpdateBranchProtectionRule.
+func (q *Queries) UpdateBranchProtectionReviewSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionReviewSettingsParams) error {
+	_, err := db.Exec(ctx, updateBranchProtectionReviewSettings,
+		arg.ID,
+		arg.RequiredReviewCount,
+		arg.DismissStaleReviewsOnPush,
+		arg.RequireCodeOwnerReview,
+	)
+	return err
 }
 
 const updateBranchProtectionRule = `-- name: UpdateBranchProtectionRule :exec

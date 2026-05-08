@@ -403,6 +403,91 @@ func (ns NullPrMergeableState) Value() (driver.Value, error) {
 	return string(ns.PrMergeableState), nil
 }
 
+type PrReviewSide string
+
+const (
+	PrReviewSideLeft  PrReviewSide = "left"
+	PrReviewSideRight PrReviewSide = "right"
+)
+
+func (e *PrReviewSide) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrReviewSide(s)
+	case string:
+		*e = PrReviewSide(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrReviewSide: %T", src)
+	}
+	return nil
+}
+
+type NullPrReviewSide struct {
+	PrReviewSide PrReviewSide
+	Valid        bool // Valid is true if PrReviewSide is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrReviewSide) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrReviewSide, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrReviewSide.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrReviewSide) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrReviewSide), nil
+}
+
+type PrReviewState string
+
+const (
+	PrReviewStateComment        PrReviewState = "comment"
+	PrReviewStateApprove        PrReviewState = "approve"
+	PrReviewStateRequestChanges PrReviewState = "request_changes"
+)
+
+func (e *PrReviewState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrReviewState(s)
+	case string:
+		*e = PrReviewState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrReviewState: %T", src)
+	}
+	return nil
+}
+
+type NullPrReviewState struct {
+	PrReviewState PrReviewState
+	Valid         bool // Valid is true if PrReviewState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrReviewState) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrReviewState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrReviewState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrReviewState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrReviewState), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -551,18 +636,21 @@ type AuthThrottle struct {
 }
 
 type BranchProtectionRule struct {
-	ID                   int64
-	RepoID               int64
-	Pattern              string
-	PreventForcePush     bool
-	PreventDeletion      bool
-	RequirePrForPush     bool
-	AllowedPusherUserIds []int64
-	RequireSignedCommits bool
-	StatusChecksRequired []string
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
-	CreatedByUserID      pgtype.Int8
+	ID                        int64
+	RepoID                    int64
+	Pattern                   string
+	PreventForcePush          bool
+	PreventDeletion           bool
+	RequirePrForPush          bool
+	AllowedPusherUserIds      []int64
+	RequireSignedCommits      bool
+	StatusChecksRequired      []string
+	CreatedAt                 pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+	CreatedByUserID           pgtype.Int8
+	RequiredReviewCount       int32
+	DismissStaleReviewsOnPush bool
+	RequireCodeOwnerReview    bool
 }
 
 type EmailVerification struct {
@@ -689,6 +777,52 @@ type PasswordReset struct {
 	ExpiresAt pgtype.Timestamptz
 	UsedAt    pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type PrReview struct {
+	ID                int64
+	PrIssueID         int64
+	AuthorUserID      pgtype.Int8
+	State             PrReviewState
+	Body              string
+	BodyHtmlCached    pgtype.Text
+	SubmittedAt       pgtype.Timestamptz
+	DismissedAt       pgtype.Timestamptz
+	DismissedByUserID pgtype.Int8
+	DismissalReason   string
+}
+
+type PrReviewComment struct {
+	ID                int64
+	PrIssueID         int64
+	ReviewID          pgtype.Int8
+	AuthorUserID      pgtype.Int8
+	FilePath          string
+	Side              PrReviewSide
+	OriginalCommitSha string
+	OriginalLine      int32
+	OriginalPosition  int32
+	CurrentPosition   pgtype.Int4
+	Body              string
+	BodyHtmlCached    pgtype.Text
+	InReplyToID       pgtype.Int8
+	Pending           bool
+	ResolvedAt        pgtype.Timestamptz
+	ResolvedByUserID  pgtype.Int8
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	EditedAt          pgtype.Timestamptz
+}
+
+type PrReviewRequest struct {
+	ID                  int64
+	PrIssueID           int64
+	RequestedUserID     pgtype.Int8
+	RequestedTeamID     pgtype.Int8
+	RequestedByUserID   pgtype.Int8
+	RequestedAt         pgtype.Timestamptz
+	DismissedAt         pgtype.Timestamptz
+	SatisfiedByReviewID pgtype.Int8
 }
 
 type PullRequest struct {

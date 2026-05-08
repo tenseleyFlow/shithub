@@ -90,6 +90,9 @@ type Querier interface {
 	// so a user→org transfer flips both columns atomically.
 	TransferRepoOwner(ctx context.Context, db DBTX, arg TransferRepoOwnerParams) error
 	UnarchiveRepo(ctx context.Context, db DBTX, id int64) error
+	// S23 surface for the review-related knobs. Branch-protection edit
+	// handler calls this alongside UpdateBranchProtectionRule.
+	UpdateBranchProtectionReviewSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionReviewSettingsParams) error
 	UpdateBranchProtectionRule(ctx context.Context, db DBTX, arg UpdateBranchProtectionRuleParams) error
 	// Used by the default-branch settings handler. The on-disk HEAD update
 	// is a separate step done via `git symbolic-ref` from the orchestrator.
