@@ -1,0 +1,48 @@
+{{ define "page" -}}
+<section class="shithub-blame">
+  <header class="shithub-code-head">
+    <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
+      {{ range $i, $c := .Crumbs }}
+        {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
+        <a href="{{ $c.URL }}">{{ $c.Name }}</a>
+      {{ end }}
+    </nav>
+    <div class="shithub-code-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Ref }}/{{ .Path }}" class="shithub-button">View source</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}?path={{ .Path }}" class="shithub-button">History</a>
+    </div>
+  </header>
+
+  {{ if .TooLarge }}
+  <div class="shithub-blame-too-large">
+    Blame is too expensive for this file. <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Ref }}/{{ .Path }}">View source</a> instead.
+  </div>
+  {{ else if .NotBlob }}
+  <div class="shithub-blame-too-large">Blame requires a regular file.</div>
+  {{ else }}
+  <table class="shithub-blame-table">
+    <tbody>
+      {{ range .Chunks }}
+      <tr class="shithub-blame-chunk-header">
+        <td colspan="3">
+          {{ if .Author.User }}
+          <a href="/{{ .Author.Username }}">{{ .Author.DisplayName }}</a>
+          {{ else }}
+          <span>{{ .Chunk.AuthorName }}</span>
+          {{ end }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Chunk.OID }}"><code>{{ .Chunk.ShortOID }}</code></a>
+          <time datetime="{{ .Chunk.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Chunk.AuthorWhen }}</time>
+        </td>
+      </tr>
+      {{ range .Chunk.Lines }}
+      <tr id="L{{ .FinalLineNo }}">
+        <td class="shithub-blame-lineno"><a href="#L{{ .FinalLineNo }}">{{ .FinalLineNo }}</a></td>
+        <td class="shithub-blame-content"><pre>{{ .Content }}</pre></td>
+      </tr>
+      {{ end }}
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+</section>
+{{- end }}

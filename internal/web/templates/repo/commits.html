@@ -1,0 +1,54 @@
+{{ define "page" -}}
+<section class="shithub-commits">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Ref }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Commits on <code>{{ .Ref }}</code>
+    </h1>
+    <details class="shithub-ref-switcher">
+      <summary>{{ .Ref }}</summary>
+      <div class="shithub-ref-panel">
+        {{ if .Branches }}<strong>Branches</strong>
+        {{ range .Branches }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commits/{{ .Name }}">{{ .Name }}</a>{{ end }}{{ end }}
+        {{ if .Tags }}<strong>Tags</strong>
+        {{ range .Tags }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commits/{{ .Name }}">{{ .Name }}</a>{{ end }}{{ end }}
+      </div>
+    </details>
+  </header>
+
+  <form class="shithub-commits-filter" method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}">
+    <label>Path <input type="text" name="path" value="{{ .PathFilter }}" placeholder="path/to/file"></label>
+    <label>Author <input type="text" name="author" value="{{ .Author }}" placeholder="name or email"></label>
+    <label>Since <input type="date" name="since" value="{{ .Since }}"></label>
+    <label>Until <input type="date" name="until" value="{{ .Until }}"></label>
+    <button type="submit" class="shithub-button">Filter</button>
+  </form>
+
+  <ul class="shithub-commits-list">
+    {{ range .Rows }}
+    <li class="shithub-commits-row">
+      <div class="shithub-commits-author">
+        {{ if .Author.User }}
+        <a href="/{{ .Author.Username }}"><img src="{{ .Author.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
+        <a href="/{{ .Author.Username }}">{{ .Author.DisplayName }}</a>
+        {{ else }}
+        <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .Author.IdenticonSeed }}" aria-hidden="true"></span>
+        <span>{{ .Commit.AuthorName }}</span>
+        {{ end }}
+      </div>
+      <div class="shithub-commits-meta">
+        <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Commit.OID }}">{{ .Commit.Subject }}</a>
+        <code class="shithub-commits-sha">{{ .Commit.ShortOID }}</code>
+        <time datetime="{{ .Commit.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Commit.AuthorWhen }}</time>
+      </div>
+    </li>
+    {{ end }}
+  </ul>
+
+  <nav class="shithub-pager" aria-label="Pagination">
+    {{ if gt .PrevPage 0 }}<a href="?page={{ .PrevPage }}{{ if .PathFilter }}&path={{ .PathFilter }}{{ end }}{{ if .Author }}&author={{ .Author }}{{ end }}{{ if .Since }}&since={{ .Since }}{{ end }}{{ if .Until }}&until={{ .Until }}{{ end }}">Newer</a>{{ end }}
+    {{ if .HasMore }}<a href="?page={{ .NextPage }}{{ if .PathFilter }}&path={{ .PathFilter }}{{ end }}{{ if .Author }}&author={{ .Author }}{{ end }}{{ if .Since }}&since={{ .Since }}{{ end }}{{ if .Until }}&until={{ .Until }}{{ end }}">Older</a>{{ end }}
+  </nav>
+</section>
+{{- end }}

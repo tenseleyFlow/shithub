@@ -1,0 +1,78 @@
+{{ define "page" -}}
+<section class="shithub-commit-view">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Detail.OID }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      <code>{{ .Detail.ShortOID }}</code>
+    </h1>
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Detail.TreeOID }}" class="shithub-button">Browse files</a>
+  </header>
+
+  <article class="shithub-commit-meta">
+    <h2 class="shithub-commit-subject">{{ .Detail.Subject }}</h2>
+    {{ if .Detail.Body }}<div class="shithub-commit-body">{{ .BodyHTML }}</div>{{ end }}
+
+    <div class="shithub-commit-people">
+      <div class="shithub-commit-actor">
+        <span class="shithub-commit-role">Authored by</span>
+        {{ if .Author.User }}
+        <a href="/{{ .Author.Username }}"><img src="{{ .Author.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
+        <a href="/{{ .Author.Username }}">{{ .Author.DisplayName }}</a>
+        {{ else }}
+        <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .Author.IdenticonSeed }}" aria-hidden="true"></span>
+        <span>{{ .Detail.AuthorName }} &lt;{{ .Detail.AuthorEmail }}&gt;</span>
+        {{ end }}
+        <time datetime="{{ .Detail.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Detail.AuthorWhen }}</time>
+      </div>
+      {{ if ne .Detail.CommitterEmail .Detail.AuthorEmail }}
+      <div class="shithub-commit-actor">
+        <span class="shithub-commit-role">Committed by</span>
+        {{ if .Committer.User }}
+        <a href="/{{ .Committer.Username }}">{{ .Committer.DisplayName }}</a>
+        {{ else }}
+        <span>{{ .Detail.CommitterName }}</span>
+        {{ end }}
+      </div>
+      {{ end }}
+    </div>
+
+    <dl class="shithub-commit-refs">
+      <dt>SHA</dt><dd><code>{{ .Detail.OID }}</code></dd>
+      {{ if .Detail.Parents }}
+      <dt>Parents</dt>
+      <dd>
+        {{ range .Detail.Parents }}
+        <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ . }}"><code>{{ slice . 0 7 }}</code></a>
+        {{ end }}
+      </dd>
+      {{ end }}
+      <dt>Tree</dt>
+      <dd><a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Detail.OID }}"><code>{{ slice .Detail.TreeOID 0 7 }}</code></a></dd>
+    </dl>
+  </article>
+
+  <section class="shithub-commit-files">
+    <h3>{{ len .Detail.Files }} changed file{{ if ne (len .Detail.Files) 1 }}s{{ end }}</h3>
+    <table class="shithub-commit-files-table">
+      <thead>
+        <tr><th>Status</th><th>File</th><th class="shithub-num-col">+</th><th class="shithub-num-col">-</th></tr>
+      </thead>
+      <tbody>
+        {{ range .Detail.Files }}
+        <tr>
+          <td><span class="shithub-status-{{ .Status }}">{{ .Status }}</span></td>
+          <td>
+            {{ if eq .Status "R" }}<code>{{ .OldPath }}</code> → {{ end }}
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Detail.OID }}/{{ .Path }}"><code>{{ .Path }}</code></a>
+          </td>
+          <td class="shithub-num-col shithub-add">{{ if .Binary }}bin{{ else }}{{ .Insert }}{{ end }}</td>
+          <td class="shithub-num-col shithub-del">{{ if .Binary }}{{ else }}{{ .Delete }}{{ end }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <p class="shithub-hint">Per-file diff bodies render once S19 ships.</p>
+  </section>
+</section>
+{{- end }}
