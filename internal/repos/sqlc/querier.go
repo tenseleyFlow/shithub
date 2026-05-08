@@ -23,6 +23,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
+	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
 	// Used by hard-delete: drop the redirect rows pointing at this repo
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).
@@ -31,6 +32,7 @@ type Querier interface {
 	// Called by the periodic worker (transfers:expire) — flips pending
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
+	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
 	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
 	// Returns the owner_username for a repo. Used by size-recalc and other
@@ -48,6 +50,8 @@ type Querier interface {
 	// Used by `shithubd hooks reinstall --all` to enumerate every active
 	// bare repo on disk and re-link its hooks.
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
@@ -86,12 +90,17 @@ type Querier interface {
 	// so a user→org transfer flips both columns atomically.
 	TransferRepoOwner(ctx context.Context, db DBTX, arg TransferRepoOwnerParams) error
 	UnarchiveRepo(ctx context.Context, db DBTX, id int64) error
+	UpdateBranchProtectionRule(ctx context.Context, db DBTX, arg UpdateBranchProtectionRuleParams) error
+	// Used by the default-branch settings handler. The on-disk HEAD update
+	// is a separate step done via `git symbolic-ref` from the orchestrator.
+	UpdateRepoDefaultBranch(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchParams) error
 	// Set when push:process detects a commit on the repo's default branch.
 	// Pass NULL to clear (e.g. when the branch is force-deleted in a future
 	// sprint). The repo home view reads this to decide between empty and
 	// populated layouts.
 	UpdateRepoDefaultBranchOID(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchOIDParams) error
 	UpdateRepoDiskUsed(ctx context.Context, db DBTX, arg UpdateRepoDiskUsedParams) error
+	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

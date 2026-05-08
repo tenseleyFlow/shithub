@@ -204,6 +204,21 @@ type AuthThrottle struct {
 	WindowStartedAt pgtype.Timestamptz
 }
 
+type BranchProtectionRule struct {
+	ID                   int64
+	RepoID               int64
+	Pattern              string
+	PreventForcePush     bool
+	PreventDeletion      bool
+	RequirePrForPush     bool
+	AllowedPusherUserIds []int64
+	RequireSignedCommits bool
+	StatusChecksRequired []string
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	CreatedByUserID      pgtype.Int8
+}
+
 type EmailVerification struct {
 	ID          int64
 	UserEmailID int64
