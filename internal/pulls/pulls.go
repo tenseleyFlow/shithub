@@ -21,12 +21,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
@@ -322,12 +324,14 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 			MergeableState: pullsdb.PrMergeableStateDirty,
 		})
 	}
-	// Review gate. Need the issue's repo + author for the eval.
+	// Composed gate: review (S23) + required-checks (S24). Either one
+	// failing produces `blocked`. The two evaluators are independent;
+	// each loads its own slice of the protection rule.
 	issue, err := issuesdb.New().GetIssueByID(ctx, deps.Pool, prID)
 	if err != nil {
 		return fmt.Errorf("load issue: %w", err)
 	}
-	gate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
+	reviewGate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
 		RepoID:    issue.RepoID,
 		BaseRef:   pr.BaseRef,
 		PRIssueID: prID,
@@ -335,9 +339,21 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 	if err != nil {
 		return fmt.Errorf("review gate: %w", err)
 	}
+	requiredCheckNames, err := loadRequiredCheckNames(ctx, deps.Pool, issue.RepoID, pr.BaseRef)
+	if err != nil {
+		return fmt.Errorf("required-check rule lookup: %w", err)
+	}
+	checksGate, err := checks.EvaluateRequiredChecks(ctx, deps.Pool, checks.GateInputs{
+		RepoID:        issue.RepoID,
+		HeadSHA:       pr.HeadOid,
+		RequiredNames: requiredCheckNames,
+	})
+	if err != nil {
+		return fmt.Errorf("checks gate: %w", err)
+	}
 	state := pullsdb.PrMergeableStateClean
 	mergeable := true
-	if !gate.Satisfied {
+	if !reviewGate.Satisfied || !checksGate.Satisfied {
 		state = pullsdb.PrMergeableStateBlocked
 		mergeable = false
 	}
@@ -346,6 +362,33 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 		Mergeable:      pgtype.Bool{Bool: mergeable, Valid: true},
 		MergeableState: state,
 	})
+}
+
+// loadRequiredCheckNames returns the `status_checks_required` list
+// from the longest-pattern-matching protection rule for `baseRef`.
+// Empty slice means no rule, no required checks.
+func loadRequiredCheckNames(ctx context.Context, pool *pgxpool.Pool, repoID int64, baseRef string) ([]string, error) {
+	rules, err := reposdb.New().ListBranchProtectionRules(ctx, pool, repoID)
+	if err != nil {
+		return nil, err
+	}
+	var best reposdb.BranchProtectionRule
+	bestLen := -1
+	for _, r := range rules {
+		ok, _ := filepath.Match(r.Pattern, baseRef)
+		if !ok {
+			continue
+		}
+		if len(r.Pattern) > bestLen ||
+			(len(r.Pattern) == bestLen && r.Pattern < best.Pattern) {
+			best = r
+			bestLen = len(r.Pattern)
+		}
+	}
+	if bestLen < 0 {
+		return []string{}, nil
+	}
+	return best.StatusChecksRequired, nil
 }
 
 // int64FromPg unwraps a pgtype.Int8; returns 0 when invalid.

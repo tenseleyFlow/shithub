@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
@@ -85,11 +86,12 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 		return ErrMergeBlocked
 	}
 
-	// Belt-and-braces: re-evaluate the review gate inside the row
-	// lock so a `request_changes` submitted between the last
-	// Mergeability tick and this merge attempt is still honored.
-	// Spec pitfall: required-review bypass via direct API.
-	gate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
+	// Belt-and-braces: re-evaluate both gates (review + required
+	// checks) inside the row lock so a `request_changes` submitted or
+	// a check failing between the last Mergeability tick and this
+	// merge attempt is still honored. Spec pitfall: required-review/
+	// required-check bypass via direct API.
+	reviewGate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
 		RepoID:    issue.RepoID,
 		BaseRef:   pr.BaseRef,
 		PRIssueID: p.PRID,
@@ -97,7 +99,22 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 	if err != nil {
 		return fmt.Errorf("review gate: %w", err)
 	}
-	if !gate.Satisfied {
+	if !reviewGate.Satisfied {
+		return ErrMergeBlocked
+	}
+	requiredCheckNames, err := loadRequiredCheckNames(ctx, deps.Pool, issue.RepoID, pr.BaseRef)
+	if err != nil {
+		return fmt.Errorf("required-check rule lookup: %w", err)
+	}
+	checksGate, err := checks.EvaluateRequiredChecks(ctx, deps.Pool, checks.GateInputs{
+		RepoID:        issue.RepoID,
+		HeadSHA:       pr.HeadOid,
+		RequiredNames: requiredCheckNames,
+	})
+	if err != nil {
+		return fmt.Errorf("checks gate: %w", err)
+	}
+	if !checksGate.Satisfied {
 		return ErrMergeBlocked
 	}
 
