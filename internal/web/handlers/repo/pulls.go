@@ -23,6 +23,7 @@ import (
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
@@ -179,6 +180,10 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		h.handlePullCreateError(w, r, owner.Username, row, err)
 		return
 	}
+	// Auto-watch on first involvement (S26): subscribe the PR author
+	// at `participating` so notifications fan-out routes future
+	// thread events to them.
+	_ = social.AutoWatchOnInvolvement(r.Context(), h.socialDeps(), viewer.ID, row.ID)
 	// Kick off the mergeability probe right away.
 	if _, err := worker.Enqueue(r.Context(), h.d.Pool, worker.KindPRMergeability,
 		map[string]any{"pr_id": res.PullRequest.IssueID}, worker.EnqueueOptions{}); err != nil {

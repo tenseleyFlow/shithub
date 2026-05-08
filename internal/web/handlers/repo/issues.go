@@ -17,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -196,6 +197,11 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 		h.renderIssueCreateError(w, r, owner.Username, row, title, body, err)
 		return
 	}
+	// Auto-watch on first involvement (S26): subscribe the author at
+	// `participating` so notifications fan-out (S29) routes future
+	// thread events to them. Non-destructive — no-op if the user
+	// already has an explicit preference.
+	_ = social.AutoWatchOnInvolvement(r.Context(), h.socialDeps(), viewer.ID, row.ID)
 	http.Redirect(w, r,
 		"/"+owner.Username+"/"+row.Name+"/issues/"+strconv.FormatInt(created.Number, 10),
 		http.StatusSeeOther,
@@ -351,6 +357,8 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 		h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
 		return
 	}
+	// Auto-watch on first involvement (S26).
+	_ = social.AutoWatchOnInvolvement(r.Context(), h.socialDeps(), viewer.ID, row.ID)
 	h.redirectIssue(w, r, owner.Username, row.Name, issue.Number)
 }
 
