@@ -68,16 +68,3 @@ func TestCrossRepoRefRegex(t *testing.T) {
 	}
 }
 
-func TestExtractMentions(t *testing.T) {
-	t.Parallel()
-	got := extractMentions("hi @alice and @bob, also @alice again — but not foo@example.com or a@b")
-	// `a@b` doesn't match (single-char user is fine but there's no
-	// leading word-boundary punctuation that's not a `@` itself, and
-	// our regex requires the `@` to be preceded by a non-word char or
-	// the start of input — `b a@b` would match `b` itself but `b@`
-	// fails the regex).
-	want := []string{"alice", "bob"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}

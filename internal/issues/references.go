@@ -143,23 +143,3 @@ func insertReferencesFromBody(
 	return nil
 }
 
-// extractMentions returns deduplicated @username tokens from body.
-// Used by handlers / future notifications. Bounded by username regex.
-var reMention = regexp.MustCompile(`(?:^|[^\w])@([A-Za-z0-9][A-Za-z0-9_-]{0,38})\b`)
-
-func extractMentions(body string) []string {
-	if body == "" {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	out := []string{}
-	for _, m := range reMention.FindAllStringSubmatch(body, -1) {
-		name := m[1]
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
-}
