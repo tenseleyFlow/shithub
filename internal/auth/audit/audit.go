@@ -65,6 +65,10 @@ const (
 	ActionIssueCommentCreated    Action = "issue_comment_created"
 	ActionPullStateChanged       Action = "pull_state_changed"
 	ActionPullMerged             Action = "pull_merged"
+	ActionStarCreated            Action = "star_created"
+	ActionStarDeleted            Action = "star_deleted"
+	ActionWatchSet               Action = "watch_set"
+	ActionWatchUnset             Action = "watch_unset"
 )
 
 // Target is a typed target-type constant.
