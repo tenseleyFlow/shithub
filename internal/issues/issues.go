@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
@@ -33,6 +34,12 @@ type Deps struct {
 	Pool    *pgxpool.Pool
 	Limiter *throttle.Limiter
 	Logger  *slog.Logger
+	// Audit is optional; when non-nil, state-changing orchestrator
+	// calls (SetState, SetLock, AddComment) record an audit row. The
+	// repo lifecycle package writes audit rows directly via deps.Audit;
+	// this field ensures issues/PR mutations are equally traceable
+	// (S00-S25 audit, M).
+	Audit *audit.Recorder
 }
 
 // Errors returned by the orchestrator. Handlers map these to status
@@ -117,7 +124,7 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 	}
 
 	// Render markdown for the cached body html.
-	html, _ := mdrender.RenderHTML([]byte(p.Body))
+	html := renderBodyHTML(ctx, deps, p.Body)
 	row.BodyHtmlCached = pgtype.Text{String: html, Valid: html != ""}
 
 	if err := q.UpdateIssueTitleBody(ctx, tx, issuesdb.UpdateIssueTitleBodyParams{
@@ -178,7 +185,7 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 		return issuesdb.IssueComment{}, ErrIssueLocked
 	}
 
-	html, _ := mdrender.RenderHTML([]byte(body))
+	html := renderBodyHTML(ctx, deps, body)
 
 	tx, err := deps.Pool.Begin(ctx)
 	if err != nil {
@@ -209,6 +216,11 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 		return issuesdb.IssueComment{}, err
 	}
 	committed = true
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, p.AuthorUserID,
+			audit.ActionIssueCommentCreated, audit.TargetIssue, p.IssueID,
+			map[string]any{"comment_id": c.ID})
+	}
 	return c, nil
 }
 
@@ -262,6 +274,11 @@ func SetState(ctx context.Context, deps Deps, actorUserID, issueID int64, newSta
 		return err
 	}
 	committed = true
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, actorUserID,
+			audit.ActionIssueStateChanged, audit.TargetIssue, issueID,
+			map[string]any{"state": newState, "reason": reason})
+	}
 	return nil
 }
 
@@ -308,5 +325,25 @@ func SetLock(ctx context.Context, deps Deps, actorUserID, issueID int64, locked 
 		return err
 	}
 	committed = true
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, actorUserID,
+			audit.ActionIssueLockChanged, audit.TargetIssue, issueID,
+			map[string]any{"locked": locked, "reason": reason})
+	}
 	return nil
+}
+
+// renderBodyHTML wraps markdown.RenderHTML with a logger-aware error
+// path. Body length is bounded upstream (orchestrator validation +
+// DB CHECK at 65535), so ErrInputTooLarge is structurally impossible
+// here — but if it ever fires, log loudly: it means a precondition
+// somewhere upstream regressed. The audit (S00-S25, M) flagged the
+// `_`-discard pattern as the kind of slop where a real bug could hide.
+func renderBodyHTML(ctx context.Context, deps Deps, body string) string {
+	html, err := mdrender.RenderHTML([]byte(body))
+	if err != nil && deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "issues: markdown render failed",
+			"error", err, "body_bytes", len(body))
+	}
+	return html
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -43,5 +44,13 @@ func SetState(ctx context.Context, deps Deps, gitDir string, actorUserID, prID i
 			return err
 		}
 	}
-	return issues.SetState(ctx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, actorUserID, prID, newState, "")
+	if err := issues.SetState(ctx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, actorUserID, prID, newState, ""); err != nil {
+		return err
+	}
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, actorUserID,
+			audit.ActionPullStateChanged, audit.TargetPull, prID,
+			map[string]any{"state": newState})
+	}
+	return nil
 }

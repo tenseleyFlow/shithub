@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
-	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // CommentParams describes a single inline comment on a PR. When
@@ -76,7 +75,7 @@ func AddComment(ctx context.Context, deps Deps, p CommentParams) (pullsdb.PrRevi
 		}
 	}
 
-	html, _ := mdrender.RenderHTML([]byte(body))
+	html := renderBodyHTML(ctx, deps, body)
 
 	cur := pgtype.Int4{}
 	if p.CurrentPosition >= 0 {
@@ -115,7 +114,7 @@ func EditComment(ctx context.Context, deps Deps, commentID int64, body string) e
 	if len(body) > 65535 {
 		return ErrBodyTooLong
 	}
-	html, _ := mdrender.RenderHTML([]byte(body))
+	html := renderBodyHTML(ctx, deps, body)
 	return pullsdb.New().UpdatePRReviewCommentBody(ctx, deps.Pool, pullsdb.UpdatePRReviewCommentBodyParams{
 		ID: commentID, Body: body, BodyHtmlCached: pgtype.Text{String: html, Valid: html != ""},
 	})

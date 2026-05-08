@@ -60,14 +60,21 @@ const (
 	ActionRepoTransferDeclined   Action = "repo_transfer_declined"
 	ActionRepoTransferCanceled   Action = "repo_transfer_canceled"
 	ActionRepoTransferExpired    Action = "repo_transfer_expired"
+	ActionIssueStateChanged      Action = "issue_state_changed"
+	ActionIssueLockChanged       Action = "issue_lock_changed"
+	ActionIssueCommentCreated    Action = "issue_comment_created"
+	ActionPullStateChanged       Action = "pull_state_changed"
+	ActionPullMerged             Action = "pull_merged"
 )
 
 // Target is a typed target-type constant.
 type Target string
 
 const (
-	TargetUser Target = "user"
-	TargetRepo Target = "repo"
+	TargetUser  Target = "user"
+	TargetRepo  Target = "repo"
+	TargetIssue Target = "issue"
+	TargetPull  Target = "pull"
 )
 
 // Recorder writes audit rows. Bound to the sqlc queries handle.

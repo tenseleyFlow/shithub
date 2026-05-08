@@ -13,7 +13,6 @@ import (
 
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
-	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // SubmitParams describes the submit-a-review action.
@@ -44,7 +43,7 @@ func Submit(ctx context.Context, deps Deps, p SubmitParams) (pullsdb.PrReview, e
 	if len(body) > 65535 {
 		return pullsdb.PrReview{}, ErrBodyTooLong
 	}
-	html, _ := mdrender.RenderHTML([]byte(body))
+	html := renderBodyHTML(ctx, deps, body)
 
 	tx, err := deps.Pool.Begin(ctx)
 	if err != nil {

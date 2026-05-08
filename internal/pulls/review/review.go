@@ -15,10 +15,13 @@
 package review
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 )
 
 // Deps wires this package into the runtime.
@@ -44,3 +47,16 @@ var (
 // MaxReviewersPerPR caps active review requests per PR. Matches the
 // spec pitfall section.
 const MaxReviewersPerPR = 20
+
+// renderBodyHTML wraps markdown.RenderHTML with a logger-aware error
+// path. Review/comment body length is bounded upstream at 65535 chars
+// by the orchestrator. ErrInputTooLarge here means a precondition
+// regressed — log loudly. (S00-S25 audit, M.)
+func renderBodyHTML(ctx context.Context, deps Deps, body string) string {
+	html, err := mdrender.RenderHTML([]byte(body))
+	if err != nil && deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "review: markdown render failed",
+			"error", err, "body_bytes", len(body))
+	}
+	return html
+}

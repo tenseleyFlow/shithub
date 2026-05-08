@@ -21,20 +21,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
-	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
+	"github.com/tenseleyFlow/shithub/internal/repos/protection"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
@@ -42,6 +43,10 @@ import (
 type Deps struct {
 	Pool   *pgxpool.Pool
 	Logger *slog.Logger
+	// Audit is optional; when non-nil, Merge and SetState write audit
+	// rows. Mirrors the issues orchestrator's contract so PR-side
+	// state changes are equally traceable (S00-S25 audit, M).
+	Audit *audit.Recorder
 }
 
 // Errors surfaced to handlers.
@@ -372,23 +377,11 @@ func loadRequiredCheckNames(ctx context.Context, pool *pgxpool.Pool, repoID int6
 	if err != nil {
 		return nil, err
 	}
-	var best reposdb.BranchProtectionRule
-	bestLen := -1
-	for _, r := range rules {
-		ok, _ := filepath.Match(r.Pattern, baseRef)
-		if !ok {
-			continue
-		}
-		if len(r.Pattern) > bestLen ||
-			(len(r.Pattern) == bestLen && r.Pattern < best.Pattern) {
-			best = r
-			bestLen = len(r.Pattern)
-		}
-	}
-	if bestLen < 0 {
+	rule, ok := protection.MatchLongestRule(rules, baseRef)
+	if !ok {
 		return []string{}, nil
 	}
-	return best.StatusChecksRequired, nil
+	return rule.StatusChecksRequired, nil
 }
 
 // int64FromPg unwraps a pgtype.Int8; returns 0 when invalid.
@@ -412,7 +405,7 @@ func EditPR(ctx context.Context, deps Deps, prID int64, title, body string) erro
 	if len(body) > 65535 {
 		return issues.ErrBodyTooLong
 	}
-	html, _ := mdrender.RenderHTML([]byte(body))
+	html := renderBodyHTML(ctx, deps, body)
 	q := issuesdb.New()
 	return q.UpdateIssueTitleBody(ctx, deps.Pool, issuesdb.UpdateIssueTitleBodyParams{
 		ID:             prID,
@@ -467,4 +460,17 @@ func AllowedMethod(repo reposdb.Repo, method string) bool {
 		return repo.AllowRebaseMerge
 	}
 	return false
+}
+
+// renderBodyHTML wraps markdown.RenderHTML with a logger-aware error
+// path. PR body length is bounded upstream at 65535 chars by the
+// orchestrator; markdown caps at 1 MiB. ErrInputTooLarge here means
+// a precondition regressed — log loudly. (S00-S25 audit, M.)
+func renderBodyHTML(ctx context.Context, deps Deps, body string) string {
+	html, err := mdrender.RenderHTML([]byte(body))
+	if err != nil && deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "pulls: markdown render failed",
+			"error", err, "body_bytes", len(body))
+	}
+	return html
 }
