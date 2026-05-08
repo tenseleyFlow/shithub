@@ -398,3 +398,69 @@ func TestDismiss_ClearsBlock(t *testing.T) {
 		t.Errorf("post-dismiss: state=%s, want clean", got.MergeableState)
 	}
 }
+
+// TestPositionMap_ContentAware verifies the audit fix for the
+// position-mapper: a comment anchored at line N stays anchored only
+// when the line text at that position matches the original; otherwise
+// it goes outdated. Pre-fix, the mapper just checked "does line N
+// exist" (yes if file has ≥ N lines), which kept comments anchored
+// onto entirely unrelated content. (S00-S25 audit, finding C2.)
+func TestPositionMap_ContentAware(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	// Initial 3-line file.
+	commitOnBranch(t, f.gitDir, "feature", "add", "x.txt", "alpha\nbravo\ncharlie\n")
+	pr := f.openPR(t, "trunk", "feature")
+
+	// Comment anchored at line 2 ("bravo") on the original head.
+	c, err := review.AddComment(ctx, f.reviewDeps, review.CommentParams{
+		PRIssueID: pr.IssueID, AuthorUserID: f.reviewerID,
+		FilePath: "x.txt", Side: "right", OriginalCommitSHA: pr.HeadOid,
+		OriginalLine: 2, OriginalPosition: 2, CurrentPosition: 2,
+		Body: "comment on bravo",
+	})
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	// Push a new head where line 2 has been replaced with totally
+	// different content. The PR's head_oid is updated by Synchronize,
+	// which RemapAllForPR runs against. We push to feature directly.
+	commitOnBranch(t, f.gitDir, "feature", "rewrite line 2", "x.txt", "alpha\nDELTA\ncharlie\n")
+	if err := pulls.Synchronize(ctx, f.pullsDeps, f.gitDir, pr.IssueID); err != nil {
+		t.Fatalf("Synchronize: %v", err)
+	}
+
+	got, err := pullsdb.New().GetPRReviewComment(ctx, f.pool, c.ID)
+	if err != nil {
+		t.Fatalf("GetPRReviewComment: %v", err)
+	}
+	if got.CurrentPosition.Valid {
+		t.Errorf("expected current_position=NULL (outdated), got %d (line text changed)", got.CurrentPosition.Int32)
+	}
+
+	// Sanity counter-test: a comment on an unchanged line should stay
+	// anchored. Open a fresh PR for cleanliness.
+	commitOnBranch(t, f.gitDir, "trunk2", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature2", "add", "y.txt", "alpha\nbravo\ncharlie\n")
+	pr2 := f.openPR(t, "trunk2", "feature2")
+	c2, err := review.AddComment(ctx, f.reviewDeps, review.CommentParams{
+		PRIssueID: pr2.IssueID, AuthorUserID: f.reviewerID,
+		FilePath: "y.txt", Side: "right", OriginalCommitSHA: pr2.HeadOid,
+		OriginalLine: 2, OriginalPosition: 2, CurrentPosition: 2,
+		Body: "comment that should survive",
+	})
+	if err != nil {
+		t.Fatalf("AddComment 2: %v", err)
+	}
+	// Push a change to a different line of the same file.
+	commitOnBranch(t, f.gitDir, "feature2", "tweak line 1", "y.txt", "ALPHA\nbravo\ncharlie\n")
+	if err := pulls.Synchronize(ctx, f.pullsDeps, f.gitDir, pr2.IssueID); err != nil {
+		t.Fatalf("Synchronize 2: %v", err)
+	}
+	got2, _ := pullsdb.New().GetPRReviewComment(ctx, f.pool, c2.ID)
+	if !got2.CurrentPosition.Valid || got2.CurrentPosition.Int32 != 2 {
+		t.Errorf("comment on unchanged line: current_position=%v (want valid=2)", got2.CurrentPosition)
+	}
+}

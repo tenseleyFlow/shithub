@@ -13,20 +13,25 @@ import (
 )
 
 // RemapAllForPR re-anchors every non-draft review comment on a PR
-// against the new (base, head) snapshot. For each comment:
+// against the new (base, head) snapshot. For each comment we do a
+// content-aware check:
 //
-//	1. Re-walk the diff for its file at (newBase..newHead).
-//	2. If the line at original_line still appears on the chosen side
-//	   (left = base, right = head), set current_position to its new
-//	   position index. Otherwise NULL → outdated.
+//  1. Read the line text at (original_commit_sha, file_path,
+//     original_line). This is what the comment was written against.
+//  2. Read the same line number in the new blob (newHeadOID for
+//     side=right; newBaseOID for side=left).
+//  3. If the bytes are identical → keep current_position = original_line.
+//     If not → current_position = NULL (outdated). The comment still
+//     renders in the conversation timeline; the Files tab hides it
+//     until the user clicks "Show outdated."
 //
-// This is the conservative v1 implementation. The spec calls out
+// This is the conservative v1 mapper. Lines that have been re-indented,
+// shifted by an insertion above, or merely had a comma added all
+// outdate — that's the right default. The spec calls out
 // `git blame --porcelain` as a richer mapper for rebase-heavy PRs;
-// add that when the simple line-presence check proves insufficient.
+// add that when the simple presence check proves too aggressive.
 //
-// The function reads `pr_review_comments` then issues per-row
-// SetPRReviewCommentCurrentPosition updates. Idempotent: re-running
-// converges on the same answer.
+// Idempotent: re-running converges on the same answer.
 func RemapAllForPR(ctx context.Context, deps Deps, gitDir string, prID int64, newBaseOID, newHeadOID string) error {
 	if newBaseOID == "" || newHeadOID == "" {
 		return nil
@@ -40,47 +45,41 @@ func RemapAllForPR(ctx context.Context, deps Deps, gitDir string, prID int64, ne
 		return nil
 	}
 
-	// Build per-file caches keyed on (file_path, side). Each entry
-	// stores the line-text → position map for that side of the new
-	// diff. v1 reads file contents at the relevant snapshot OID and
-	// computes positions on demand.
-	type sideKey struct {
+	// Per-(ref, path) blob cache so we read each blob at most once per
+	// PR, regardless of how many comments anchor into it.
+	type blobKey struct {
+		ref  string
 		path string
-		side string
 	}
-	cache := map[sideKey]map[int]int{} // line# (from original) → new position
-
-	getMap := func(path, side string) (map[int]int, error) {
-		k := sideKey{path, side}
-		if m, ok := cache[k]; ok {
-			return m, nil
+	cache := map[blobKey][]byte{}
+	loadBlob := func(ref, path string) []byte {
+		k := blobKey{ref, path}
+		if b, ok := cache[k]; ok {
+			return b
 		}
-		// For the v1 mapper we just compute position-by-line via the
-		// snapshot file content. side=right uses newHeadOID; side=left
-		// uses newBaseOID.
-		ref := newHeadOID
-		if side == "left" {
-			ref = newBaseOID
-		}
-		// Inline cap on file size — we don't bother mapping files >
-		// 1 MiB; those comments outdate.
+		// We don't bother mapping files > 1 MiB; those comments outdate.
 		const maxBytes = 1 << 20
 		blob, err := repogit.ReadBlobBytes(ctx, gitDir, ref, path, maxBytes)
 		if err != nil {
-			cache[k] = nil // miss → outdate everything in this file
-			return nil, nil
+			cache[k] = nil
+			return nil
 		}
-		m := buildLineMap(blob)
-		cache[k] = m
-		return m, nil
+		cache[k] = blob
+		return blob
 	}
 
 	for _, c := range rows {
-		m, _ := getMap(c.FilePath, string(c.Side))
+		newRef := newHeadOID
+		if c.Side == pullsdb.PrReviewSideLeft {
+			newRef = newBaseOID
+		}
+		original := loadBlob(c.OriginalCommitSha, c.FilePath)
+		current := loadBlob(newRef, c.FilePath)
+
 		var newPos pgtype.Int4
-		if m != nil {
-			if pos, ok := m[int(c.OriginalLine)]; ok {
-				newPos = pgtype.Int4{Int32: int32(pos), Valid: true}
+		if line, ok := lineAt(original, int(c.OriginalLine)); ok {
+			if cur, ok := lineAt(current, int(c.OriginalLine)); ok && bytesEqual(line, cur) {
+				newPos = pgtype.Int4{Int32: c.OriginalLine, Valid: true}
 			}
 		}
 		if err := q.SetPRReviewCommentCurrentPosition(ctx, deps.Pool, pullsdb.SetPRReviewCommentCurrentPositionParams{
@@ -93,25 +92,41 @@ func RemapAllForPR(ctx context.Context, deps Deps, gitDir string, prID int64, ne
 	return nil
 }
 
-// buildLineMap returns line-number → position-index for a blob. v1
-// just maps line N to position N — line numbers in the blob *are*
-// the positions for the simple "line still exists" check. The map
-// will be replaced with a content-aware mapping when we add the
-// blame-based variant.
-func buildLineMap(blob []byte) map[int]int {
-	out := map[int]int{}
-	line := 1
-	pos := 1
+// lineAt returns the bytes of line N (1-indexed) in blob, excluding
+// the trailing newline. Returns (nil, false) when the blob is nil/empty
+// or N is out of range.
+func lineAt(blob []byte, n int) ([]byte, bool) {
+	if blob == nil || n < 1 {
+		return nil, false
+	}
+	start, line := 0, 1
 	for i := 0; i < len(blob); i++ {
 		if blob[i] == '\n' {
-			out[line] = pos
+			if line == n {
+				return blob[start:i], true
+			}
 			line++
-			pos++
+			start = i + 1
 		}
 	}
-	// Trailing line without newline.
-	if len(blob) > 0 && blob[len(blob)-1] != '\n' {
-		out[line] = pos
+	// Trailing line without terminator.
+	if line == n && start < len(blob) {
+		return blob[start:], true
 	}
-	return out
+	return nil, false
+}
+
+// bytesEqual is a tiny escape hatch so the test fixtures stay readable.
+// `bytes.Equal` would do, but pulling the whole package in for one call
+// adds noise to the position-map dependency graph.
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
