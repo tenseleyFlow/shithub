@@ -195,6 +195,14 @@ func Run(ctx context.Context, opts Options) error {
 				repoH.MountSettingsBranches(r)
 			})
 		}
+		// Issues GETs are public (subject to policy.Can), POSTs require
+		// auth. The handler enforces auth + policy per request, so we
+		// register the whole surface in the public group; an unauth
+		// POST hits the policy gate and 404s out of the existence-leak
+		// path. Browser flows still need RequireUser to redirect-to-login,
+		// so the POST routes get wrapped through the same group with
+		// RequireUser inserted only for state-mutating verbs.
+		deps.RepoIssuesMounter = repoH.MountIssues
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {

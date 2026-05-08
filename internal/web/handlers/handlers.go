@@ -71,6 +71,10 @@ type Deps struct {
 	// RepoSettingsBranchesMounter registers /settings/branches +
 	// /settings/default-branch (S20). Auth-required.
 	RepoSettingsBranchesMounter func(chi.Router)
+	// RepoIssuesMounter registers /{owner}/{repo}/issues, /labels, and
+	// /milestones routes (S21). Reads are public (per-repo policy gate);
+	// writes are auth-required.
+	RepoIssuesMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -188,6 +192,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoSettingsBranchesMounter != nil {
 			deps.RepoSettingsBranchesMounter(r)
+		}
+		if deps.RepoIssuesMounter != nil {
+			deps.RepoIssuesMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)
