@@ -29,13 +29,23 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Patterns that smell like an inline auth decision.
+# Patterns that smell like an inline auth decision. The audit found
+# negation forms (`!=`) slipping past the original equality-only set,
+# so both directions are covered. Same for the visibility shape — both
+# `== "private"` literal and the typed-enum compare.
 PATTERNS=(
   '\.OwnerUserID == '
+  '\.OwnerUserID != '
   '\.OwnerUserID\.Int64 == '
+  '\.OwnerUserID\.Int64 != '
   '== .*\.OwnerUserID'
+  '!= .*\.OwnerUserID'
   '\.Visibility == .*RepoVisibility'
+  '\.Visibility != .*RepoVisibility'
+  '\.Visibility == "(public|private)"'
+  '\.Visibility != "(public|private)"'
   'if .*\.IsArchived '
+  'if !.*\.IsArchived '
 )
 
 # Files we're guarding — anywhere a request handler or hook lives.
