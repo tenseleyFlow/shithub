@@ -1263,3 +1263,46 @@ code {
 .shithub-button-danger { color: #cf222e; }
 .shithub-error { padding: 0.75rem; background: #ffebe9; border: 1px solid #ffcecb; border-radius: 6px; color: #82061e; margin-bottom: 1rem; }
 .shithub-muted { color: var(--fg-muted); }
+
+/* ========== Pull Requests (S22) ========== */
+.shithub-pulls, .shithub-pull-view {
+  max-width: 64rem;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+}
+.shithub-pull-head { margin-bottom: 0.75rem; }
+.shithub-pull-merged { background: #8250df22; color: #8250df; }
+.shithub-pull-tabs {
+  display: flex; gap: 1.5rem;
+  border-bottom: 1px solid var(--border-default);
+  margin: 0.75rem 0 1rem;
+}
+.shithub-pull-tab {
+  color: var(--fg-muted);
+  padding: 0.4rem 0;
+  border-bottom: 2px solid transparent;
+}
+.shithub-pull-tab-active {
+  color: var(--fg-default);
+  border-bottom-color: var(--accent-emphasis, #0969da);
+  font-weight: 600;
+}
+.shithub-pull-grid { display: grid; grid-template-columns: 1fr 16rem; gap: 1.5rem; }
+@media (max-width: 768px) { .shithub-pull-grid { grid-template-columns: 1fr; } }
+.shithub-pull-merge { padding: 0.75rem; border: 1px solid var(--border-default); border-radius: 6px; }
+.shithub-pull-merge h3 { font-size: 0.85rem; text-transform: uppercase; color: var(--fg-muted); margin: 0 0 0.5rem; }
+.shithub-pull-state-clean { color: #1a7f37; font-weight: 600; }
+.shithub-pull-state-dirty { color: #cf222e; font-weight: 600; }
+.shithub-pull-state-behind { color: #9a6700; }
+.shithub-pull-state-unknown { color: var(--fg-muted); }
+.shithub-pull-merge-form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; }
+.shithub-pull-merge-form select { padding: 0.4rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit; }
+.shithub-pull-state-form { margin-top: 0.5rem; }
+.shithub-pull-refs { display: flex; gap: 0.4rem; align-items: flex-end; }
+.shithub-pull-refs label { flex: 1; }
+.shithub-pull-arrow { font-size: 1.4rem; padding: 0 0.4rem; align-self: center; }
+.shithub-pull-commits { list-style: none; padding: 0; }
+.shithub-pull-commits li {
+  padding: 0.4rem 0; border-bottom: 1px solid var(--border-default);
+  display: flex; gap: 0.6rem; align-items: baseline;
+}

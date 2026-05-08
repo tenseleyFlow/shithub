@@ -1,0 +1,52 @@
+{{ define "page" -}}
+<section class="shithub-pulls">
+  <header class="shithub-issues-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Pull requests
+    </h1>
+    <div class="shithub-issues-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/compare/{{ .Repo.DefaultBranch }}...{{ .Repo.DefaultBranch }}" class="shithub-button shithub-button-primary">New pull request</a>
+    </div>
+  </header>
+
+  <nav class="shithub-issues-filter">
+    <a href="?state=open" class="shithub-issues-tab {{ if eq .State "open" }}shithub-issues-tab-active{{ end }}">
+      <span class="shithub-issues-dot shithub-issues-dot-open"></span>
+      {{ .OpenCount }} Open
+    </a>
+    <a href="?state=closed" class="shithub-issues-tab {{ if eq .State "closed" }}shithub-issues-tab-active{{ end }}">
+      <span class="shithub-issues-dot shithub-issues-dot-closed"></span>
+      {{ .ClosedCount }} Closed
+    </a>
+  </nav>
+
+  {{ if .Items }}
+  <ul class="shithub-issues-list">
+    {{ range .Items }}
+    <li class="shithub-issues-row">
+      <span class="shithub-issues-state shithub-issues-state-{{ printf "%s" .Row.State }}">
+        {{ if .Row.MergedAt.Valid }}⏵{{ else if eq (printf "%s" .Row.State) "open" }}{{ if .Row.Draft }}◔{{ else }}●{{ end }}{{ else }}✗{{ end }}
+      </span>
+      <div class="shithub-issues-body">
+        <a class="shithub-issues-title" href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .Row.Number }}">
+          {{ .Row.Title }}
+        </a>
+        {{ if .Row.Draft }}<span class="shithub-pill">Draft</span>{{ end }}
+        <div class="shithub-issues-meta">
+          #{{ .Row.Number }}
+          <code>{{ .Row.HeadRef }}</code> → <code>{{ .Row.BaseRef }}</code>
+          opened
+          <time datetime="{{ .Row.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Row.CreatedAt.Time }}</time>
+          {{ if .AuthorName }}by <a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+        </div>
+      </div>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-issues-empty">No {{ .State }} pull requests.</p>
+  {{ end }}
+</section>
+{{- end }}

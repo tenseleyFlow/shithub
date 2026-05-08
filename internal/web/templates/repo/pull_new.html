@@ -1,0 +1,46 @@
+{{ define "page" -}}
+<section class="shithub-issue-new">
+  <header class="shithub-issues-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls">Pull requests</a>
+      <span class="shithub-code-sep">/</span>
+      New
+    </h1>
+  </header>
+
+  {{ if .Error }}<div class="shithub-error" role="alert">{{ .Error }}</div>{{ end }}
+
+  <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-issue-form">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <div class="shithub-form-row shithub-pull-refs">
+      <label>
+        <span>Base</span>
+        <input type="text" name="base" value="{{ .Base }}" required>
+      </label>
+      <span class="shithub-pull-arrow">←</span>
+      <label>
+        <span>Head</span>
+        <input type="text" name="head" value="{{ .Head }}" required>
+      </label>
+    </div>
+    <label class="shithub-form-row">
+      <span>Title</span>
+      <input type="text" name="title" maxlength="256" required value="{{ .FormTitle }}" autofocus>
+    </label>
+    <label class="shithub-form-row">
+      <span>Body (Markdown)</span>
+      <textarea name="body" rows="14" maxlength="65535">{{ .FormBody }}</textarea>
+    </label>
+    <label class="shithub-form-row">
+      <input type="checkbox" name="draft" value="on">
+      Open as draft
+    </label>
+    <div class="shithub-form-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-button">Cancel</a>
+      <button type="submit" class="shithub-button shithub-button-primary">Create pull request</button>
+    </div>
+  </form>
+</section>
+{{- end }}
