@@ -6,7 +6,8 @@ SELECT id, repo_id, pattern,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
-       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
+       dismiss_stale_status_checks_on_push
 FROM branch_protection_rules
 WHERE repo_id = $1
 ORDER BY pattern;
@@ -17,7 +18,8 @@ SELECT id, repo_id, pattern,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
-       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
+       dismiss_stale_status_checks_on_push
 FROM branch_protection_rules
 WHERE id = $1;
 
@@ -47,6 +49,14 @@ UPDATE branch_protection_rules
 SET required_review_count = $2,
     dismiss_stale_reviews_on_push = $3,
     require_code_owner_review = $4
+WHERE id = $1;
+
+-- name: UpdateBranchProtectionCheckSettings :exec
+-- S24 surface for the required-status-check knobs. Branch-protection
+-- edit handler calls this alongside UpdateBranchProtectionRule.
+UPDATE branch_protection_rules
+SET status_checks_required = $2,
+    dismiss_stale_status_checks_on_push = $3
 WHERE id = $1;
 
 -- name: DeleteBranchProtectionRule :exec

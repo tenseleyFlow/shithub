@@ -26,7 +26,8 @@ SELECT id, repo_id, pattern,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
-       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
+       dismiss_stale_status_checks_on_push
 FROM branch_protection_rules
 WHERE id = $1
 `
@@ -50,6 +51,7 @@ func (q *Queries) GetBranchProtectionRule(ctx context.Context, db DBTX, id int64
 		&i.RequiredReviewCount,
 		&i.DismissStaleReviewsOnPush,
 		&i.RequireCodeOwnerReview,
+		&i.DismissStaleStatusChecksOnPush,
 	)
 	return i, err
 }
@@ -61,7 +63,8 @@ SELECT id, repo_id, pattern,
        allowed_pusher_user_ids,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
-       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review
+       required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
+       dismiss_stale_status_checks_on_push
 FROM branch_protection_rules
 WHERE repo_id = $1
 ORDER BY pattern
@@ -93,6 +96,7 @@ func (q *Queries) ListBranchProtectionRules(ctx context.Context, db DBTX, repoID
 			&i.RequiredReviewCount,
 			&i.DismissStaleReviewsOnPush,
 			&i.RequireCodeOwnerReview,
+			&i.DismissStaleStatusChecksOnPush,
 		); err != nil {
 			return nil, err
 		}
@@ -102,6 +106,26 @@ func (q *Queries) ListBranchProtectionRules(ctx context.Context, db DBTX, repoID
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateBranchProtectionCheckSettings = `-- name: UpdateBranchProtectionCheckSettings :exec
+UPDATE branch_protection_rules
+SET status_checks_required = $2,
+    dismiss_stale_status_checks_on_push = $3
+WHERE id = $1
+`
+
+type UpdateBranchProtectionCheckSettingsParams struct {
+	ID                             int64
+	StatusChecksRequired           []string
+	DismissStaleStatusChecksOnPush bool
+}
+
+// S24 surface for the required-status-check knobs. Branch-protection
+// edit handler calls this alongside UpdateBranchProtectionRule.
+func (q *Queries) UpdateBranchProtectionCheckSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionCheckSettingsParams) error {
+	_, err := db.Exec(ctx, updateBranchProtectionCheckSettings, arg.ID, arg.StatusChecksRequired, arg.DismissStaleStatusChecksOnPush)
+	return err
 }
 
 const updateBranchProtectionReviewSettings = `-- name: UpdateBranchProtectionReviewSettings :exec

@@ -90,6 +90,9 @@ type Querier interface {
 	// so a user→org transfer flips both columns atomically.
 	TransferRepoOwner(ctx context.Context, db DBTX, arg TransferRepoOwnerParams) error
 	UnarchiveRepo(ctx context.Context, db DBTX, id int64) error
+	// S24 surface for the required-status-check knobs. Branch-protection
+	// edit handler calls this alongside UpdateBranchProtectionRule.
+	UpdateBranchProtectionCheckSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionCheckSettingsParams) error
 	// S23 surface for the review-related knobs. Branch-protection edit
 	// handler calls this alongside UpdateBranchProtectionRule.
 	UpdateBranchProtectionReviewSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionReviewSettingsParams) error

@@ -12,6 +12,98 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CheckConclusion string
+
+const (
+	CheckConclusionSuccess        CheckConclusion = "success"
+	CheckConclusionFailure        CheckConclusion = "failure"
+	CheckConclusionNeutral        CheckConclusion = "neutral"
+	CheckConclusionCancelled      CheckConclusion = "cancelled"
+	CheckConclusionSkipped        CheckConclusion = "skipped"
+	CheckConclusionTimedOut       CheckConclusion = "timed_out"
+	CheckConclusionActionRequired CheckConclusion = "action_required"
+	CheckConclusionStale          CheckConclusion = "stale"
+)
+
+func (e *CheckConclusion) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CheckConclusion(s)
+	case string:
+		*e = CheckConclusion(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CheckConclusion: %T", src)
+	}
+	return nil
+}
+
+type NullCheckConclusion struct {
+	CheckConclusion CheckConclusion
+	Valid           bool // Valid is true if CheckConclusion is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCheckConclusion) Scan(value interface{}) error {
+	if value == nil {
+		ns.CheckConclusion, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CheckConclusion.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCheckConclusion) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CheckConclusion), nil
+}
+
+type CheckStatus string
+
+const (
+	CheckStatusQueued     CheckStatus = "queued"
+	CheckStatusInProgress CheckStatus = "in_progress"
+	CheckStatusCompleted  CheckStatus = "completed"
+	CheckStatusPending    CheckStatus = "pending"
+)
+
+func (e *CheckStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CheckStatus(s)
+	case string:
+		*e = CheckStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CheckStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCheckStatus struct {
+	CheckStatus CheckStatus
+	Valid       bool // Valid is true if CheckStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCheckStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CheckStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CheckStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCheckStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CheckStatus), nil
+}
+
 type CollabRole string
 
 const (
@@ -636,21 +728,50 @@ type AuthThrottle struct {
 }
 
 type BranchProtectionRule struct {
-	ID                        int64
-	RepoID                    int64
-	Pattern                   string
-	PreventForcePush          bool
-	PreventDeletion           bool
-	RequirePrForPush          bool
-	AllowedPusherUserIds      []int64
-	RequireSignedCommits      bool
-	StatusChecksRequired      []string
-	CreatedAt                 pgtype.Timestamptz
-	UpdatedAt                 pgtype.Timestamptz
-	CreatedByUserID           pgtype.Int8
-	RequiredReviewCount       int32
-	DismissStaleReviewsOnPush bool
-	RequireCodeOwnerReview    bool
+	ID                             int64
+	RepoID                         int64
+	Pattern                        string
+	PreventForcePush               bool
+	PreventDeletion                bool
+	RequirePrForPush               bool
+	AllowedPusherUserIds           []int64
+	RequireSignedCommits           bool
+	StatusChecksRequired           []string
+	CreatedAt                      pgtype.Timestamptz
+	UpdatedAt                      pgtype.Timestamptz
+	CreatedByUserID                pgtype.Int8
+	RequiredReviewCount            int32
+	DismissStaleReviewsOnPush      bool
+	RequireCodeOwnerReview         bool
+	DismissStaleStatusChecksOnPush bool
+}
+
+type CheckRun struct {
+	ID          int64
+	SuiteID     int64
+	RepoID      int64
+	HeadSha     string
+	Name        string
+	Status      CheckStatus
+	Conclusion  NullCheckConclusion
+	StartedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+	DetailsUrl  string
+	Output      []byte
+	ExternalID  pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type CheckSuite struct {
+	ID         int64
+	RepoID     int64
+	HeadSha    string
+	AppSlug    string
+	Status     CheckStatus
+	Conclusion NullCheckConclusion
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
 }
 
 type EmailVerification struct {
