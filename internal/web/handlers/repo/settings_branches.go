@@ -81,6 +81,12 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	}
 	dismissStale := r.PostFormValue("dismiss_stale_reviews_on_push") == "on"
 
+	// S24 required-status-check names: comma-separated input. Empty
+	// list means no required checks. Names are matched verbatim
+	// against `check_runs.name` at gate time.
+	requiredChecks := splitCommaList(r.PostFormValue("required_status_check_names"))
+	dismissStaleChecks := r.PostFormValue("dismiss_stale_status_checks_on_push") == "on"
+
 	allowed, err := resolveUsernameList(r, h, r.PostFormValue("allowed_pushers"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -113,6 +119,13 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			RequireCodeOwnerReview:      false,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
+		}
+		if err := h.rq.UpdateBranchProtectionCheckSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
+			ID:                              newID,
+			StatusChecksRequired:            requiredChecks,
+			DismissStaleStatusChecksOnPush:  dismissStaleChecks,
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
@@ -148,6 +161,13 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			RequireCodeOwnerReview:      false,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
+		}
+		if err := h.rq.UpdateBranchProtectionCheckSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
+			ID:                              id,
+			StatusChecksRequired:            requiredChecks,
+			DismissStaleStatusChecksOnPush:  dismissStaleChecks,
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
@@ -243,6 +263,30 @@ func (h *Handlers) settingsDefaultBranch(w http.ResponseWriter, r *http.Request)
 		map[string]any{"action": "default_branch_changed", "from": row.DefaultBranch, "to": newDefault})
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=default-changed", http.StatusSeeOther)
+}
+
+// splitCommaList parses a comma-separated string into a deduplicated,
+// trimmed slice. Empty entries drop. Used by S24's required-check
+// name input on the protection-rule form.
+func splitCommaList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, p := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(p)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 // resolveUsernameList parses a comma-separated username list and

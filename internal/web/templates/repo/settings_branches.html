@@ -36,7 +36,7 @@
           <td>{{ if .PreventForcePush }}🚫{{ else }}allowed{{ end }}</td>
           <td>{{ if .PreventDeletion }}🚫{{ else }}allowed{{ end }}</td>
           <td>{{ len .AllowedPusherUserIds }} {{ if eq (len .AllowedPusherUserIds) 1 }}user{{ else }}users{{ end }}</td>
-          <td>{{ .RequiredReviewCount }}{{ if .DismissStaleReviewsOnPush }} · dismiss-stale{{ end }}</td>
+          <td>{{ .RequiredReviewCount }}{{ if .DismissStaleReviewsOnPush }} · dismiss-stale{{ end }}{{ if .StatusChecksRequired }} · checks: {{ range $i, $n := .StatusChecksRequired }}{{ if $i }}, {{ end }}<code>{{ $n }}</code>{{ end }}{{ end }}</td>
           <td>
             <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/branches/{{ .ID }}/delete" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
@@ -69,6 +69,10 @@
         <input type="number" name="required_review_count" min="0" value="0">
       </label>
       <label><input type="checkbox" name="dismiss_stale_reviews_on_push"> Dismiss stale reviews on new push (S23)</label>
+      <label>Required status checks (S24) — comma-separated check-run names that must succeed on the head SHA
+        <input type="text" name="required_status_check_names" placeholder="lint, unit-tests">
+      </label>
+      <label><input type="checkbox" name="dismiss_stale_status_checks_on_push"> Mark in-flight checks stale on new push (S24)</label>
       <button type="submit" class="shithub-button shithub-button-primary">Create rule</button>
     </form>
   </section>
