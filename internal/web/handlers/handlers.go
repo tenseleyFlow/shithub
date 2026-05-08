@@ -59,6 +59,10 @@ type Deps struct {
 	// transfer accept/decline/cancel, inbox). All routes are auth-
 	// required; the handler enforces policy.Can per route.
 	RepoLifecycleMounter func(chi.Router)
+	// RepoCodeMounter, when non-nil, registers /tree/* /blob/* /raw/*
+	// /find/* under the repo two-segment prefix. Public for read; the
+	// handler runs the policy gate per request.
+	RepoCodeMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -116,6 +120,10 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
 		r.Handle("/static/*", http.StripPrefix("/static/", staticFileServer(deps.StaticFS)))
+		// S17: Chroma highlight CSS is generated at runtime from the
+		// theme; serve under /static/css/chroma.css so the layout can
+		// link it without a build step.
+		r.Get("/static/css/chroma.css", chromaCSSHandler())
 		r.Get("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 		if deps.MetricsHandler != nil {
@@ -157,6 +165,11 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoNewMounter != nil {
 			deps.RepoNewMounter(r)
+		}
+		// Code-tab routes register BEFORE RepoHome's two-segment route
+		// so /{owner}/{repo}/tree/* doesn't get swallowed.
+		if deps.RepoCodeMounter != nil {
+			deps.RepoCodeMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

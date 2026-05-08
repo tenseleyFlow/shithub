@@ -192,6 +192,9 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// S17: when the repo has any branch, the canonical view is the
+	// tree at default_branch. The S11 quick-setup placeholder still
+	// covers the empty case.
 	diskPath, fsErr := h.d.RepoFS.RepoPath(owner, row.Name)
 	hasBranch := false
 	if fsErr == nil {
@@ -200,6 +203,10 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.d.Logger.WarnContext(r.Context(), "repo: HasAnyBranch", "error", herr)
 		}
+	}
+	if hasBranch {
+		http.Redirect(w, r, "/"+owner+"/"+row.Name+"/tree/"+row.DefaultBranch, http.StatusSeeOther)
+		return
 	}
 
 	common := map[string]any{
@@ -214,24 +221,9 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if !hasBranch {
-		if err := h.d.Render.RenderPage(w, r, "repo/empty", common); err != nil {
-			h.d.Logger.ErrorContext(r.Context(), "repo: render empty", "error", err)
-		}
-		return
-	}
-
-	// Populated path. Look up the head of the default branch — if missing
-	// (push went to a non-default branch only), fall through to a
-	// branch-not-yet-on-default note.
-	head, found, herr := repogit.HeadOf(r.Context(), diskPath, row.DefaultBranch)
-	if herr != nil {
-		h.d.Logger.WarnContext(r.Context(), "repo: HeadOf", "error", herr)
-	}
-	common["HeadFound"] = found
-	common["Head"] = head
-	if err := h.d.Render.RenderPage(w, r, "repo/populated", common); err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "repo: render populated", "error", err)
+	// Empty path only — populated repos already redirected above.
+	if err := h.d.Render.RenderPage(w, r, "repo/empty", common); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo: render empty", "error", err)
 	}
 }
 
