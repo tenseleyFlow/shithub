@@ -75,6 +75,9 @@ type Deps struct {
 	// /milestones routes (S21). Reads are public (per-repo policy gate);
 	// writes are auth-required.
 	RepoIssuesMounter func(chi.Router)
+	// RepoPullsMounter registers /{owner}/{repo}/pulls* routes (S22).
+	// Same auth shape as issues — reads public, writes auth-required.
+	RepoPullsMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -195,6 +198,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoIssuesMounter != nil {
 			deps.RepoIssuesMounter(r)
+		}
+		if deps.RepoPullsMounter != nil {
+			deps.RepoPullsMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

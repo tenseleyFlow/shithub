@@ -203,6 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 		// so the POST routes get wrapped through the same group with
 		// RequireUser inserted only for state-mutating verbs.
 		deps.RepoIssuesMounter = repoH.MountIssues
+		deps.RepoPullsMounter = repoH.MountPulls
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {

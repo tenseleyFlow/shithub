@@ -22,6 +22,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -61,6 +62,7 @@ type Handlers struct {
 	rq *reposdb.Queries
 	uq *usersdb.Queries
 	iq *issuesdb.Queries
+	pq *pullsdb.Queries
 }
 
 // New constructs the handler set, validating Deps.
@@ -80,7 +82,7 @@ func New(d Deps) (*Handlers, error) {
 	if d.Limiter == nil {
 		d.Limiter = throttle.NewLimiter()
 	}
-	return &Handlers{d: d, rq: reposdb.New(), uq: usersdb.New(), iq: issuesdb.New()}, nil
+	return &Handlers{d: d, rq: reposdb.New(), uq: usersdb.New(), iq: issuesdb.New(), pq: pullsdb.New()}, nil
 }
 
 // MountNew registers /new (auth-required). Caller wraps with
