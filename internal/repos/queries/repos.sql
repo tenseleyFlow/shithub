@@ -11,14 +11,16 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           default_branch, is_archived, archived_at, deleted_at,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method;
+          allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+          star_count, watcher_count;
 
 -- name: GetRepoByID :one
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE id = $1;
 
@@ -36,7 +38,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -51,7 +54,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;

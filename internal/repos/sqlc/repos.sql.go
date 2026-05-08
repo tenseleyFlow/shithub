@@ -35,7 +35,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           default_branch, is_archived, archived_at, deleted_at,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+          allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+          star_count, watcher_count
 `
 
 type CreateRepoParams struct {
@@ -86,6 +87,8 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.AllowRebaseMerge,
 		&i.AllowMergeCommit,
 		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
 	)
 	return i, err
 }
@@ -114,7 +117,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE id = $1
 `
@@ -146,6 +150,8 @@ func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, err
 		&i.AllowRebaseMerge,
 		&i.AllowMergeCommit,
 		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
 	)
 	return i, err
 }
@@ -155,7 +161,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -192,6 +199,8 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.AllowRebaseMerge,
 		&i.AllowMergeCommit,
 		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
 	)
 	return i, err
 }
@@ -262,7 +271,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
-       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -301,6 +311,8 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.AllowRebaseMerge,
 			&i.AllowMergeCommit,
 			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
 		); err != nil {
 			return nil, err
 		}
