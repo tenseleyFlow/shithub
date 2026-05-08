@@ -1,0 +1,41 @@
+{{ define "page" -}}
+<section class="shithub-profile">
+  <header class="shithub-profile-header">
+    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="120" height="120">
+    <div class="shithub-profile-id">
+      <h1 class="shithub-profile-name">
+        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
+      </h1>
+      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
+      <nav class="shithub-profile-tabs">
+        <a href="/{{ .User.Username }}" class="shithub-button">Overview</a>
+        <a href="?tab=stars" class="shithub-button shithub-button-primary">Stars</a>
+      </nav>
+    </div>
+  </header>
+
+  {{ if .Stars }}
+  <ul class="shithub-social-list">
+    {{ range .Stars }}
+    <li>
+      <a href="/{{ .OwnerName }}/{{ .RepoName }}"><strong>{{ .OwnerName }}/{{ .RepoName }}</strong></a>
+      {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
+      {{ if .PrimaryLanguage }}<small>{{ .PrimaryLanguage }}</small>{{ end }}
+      <small>★ {{ .StarCount }}</small>
+      <small><time datetime="{{ .StarredAt.Format "2006-01-02T15:04:05Z" }}">starred {{ relativeTime .StarredAt }}</time></small>
+      {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-empty">No starred repositories visible.</p>
+  {{ end }}
+
+  {{ if or .HasPrev .HasNext }}
+  <nav class="shithub-pagination">
+    {{ if .HasPrev }}<a href="?tab=stars&page={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ end }}
+    {{ if .HasNext }}<a href="?tab=stars&page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
+  </nav>
+  {{ end }}
+</section>
+{{- end }}

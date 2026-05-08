@@ -114,6 +114,14 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	isSelf := viewer.ID != 0 && viewer.ID == user.ID
 
+	// S26 Stars tab: `?tab=stars` switches to the user's starred-repos
+	// view. Per-row visibility filtering happens in serveStarsTab so
+	// private-repo stars only show to viewers who can see them.
+	if r.URL.Query().Get("tab") == "stars" {
+		h.serveStarsTab(w, r, user, viewer, isSelf)
+		return
+	}
+
 	// Anonymous: ETag + small max-age. Self-view: no-cache.
 	if isSelf {
 		w.Header().Set("Cache-Control", "no-cache, private")
