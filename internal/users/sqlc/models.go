@@ -270,6 +270,139 @@ func (ns NullMilestoneState) Value() (driver.Value, error) {
 	return string(ns.MilestoneState), nil
 }
 
+type PrFileStatus string
+
+const (
+	PrFileStatusAdded    PrFileStatus = "added"
+	PrFileStatusModified PrFileStatus = "modified"
+	PrFileStatusDeleted  PrFileStatus = "deleted"
+	PrFileStatusRenamed  PrFileStatus = "renamed"
+	PrFileStatusCopied   PrFileStatus = "copied"
+)
+
+func (e *PrFileStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrFileStatus(s)
+	case string:
+		*e = PrFileStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrFileStatus: %T", src)
+	}
+	return nil
+}
+
+type NullPrFileStatus struct {
+	PrFileStatus PrFileStatus
+	Valid        bool // Valid is true if PrFileStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrFileStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrFileStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrFileStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrFileStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrFileStatus), nil
+}
+
+type PrMergeMethod string
+
+const (
+	PrMergeMethodMerge  PrMergeMethod = "merge"
+	PrMergeMethodSquash PrMergeMethod = "squash"
+	PrMergeMethodRebase PrMergeMethod = "rebase"
+)
+
+func (e *PrMergeMethod) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrMergeMethod(s)
+	case string:
+		*e = PrMergeMethod(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrMergeMethod: %T", src)
+	}
+	return nil
+}
+
+type NullPrMergeMethod struct {
+	PrMergeMethod PrMergeMethod
+	Valid         bool // Valid is true if PrMergeMethod is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrMergeMethod) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrMergeMethod, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrMergeMethod.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrMergeMethod) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrMergeMethod), nil
+}
+
+type PrMergeableState string
+
+const (
+	PrMergeableStateUnknown PrMergeableState = "unknown"
+	PrMergeableStateClean   PrMergeableState = "clean"
+	PrMergeableStateDirty   PrMergeableState = "dirty"
+	PrMergeableStateBlocked PrMergeableState = "blocked"
+	PrMergeableStateBehind  PrMergeableState = "behind"
+)
+
+func (e *PrMergeableState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrMergeableState(s)
+	case string:
+		*e = PrMergeableState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrMergeableState: %T", src)
+	}
+	return nil
+}
+
+type NullPrMergeableState struct {
+	PrMergeableState PrMergeableState
+	Valid            bool // Valid is true if PrMergeableState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrMergeableState) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrMergeableState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrMergeableState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrMergeableState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrMergeableState), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -558,6 +691,49 @@ type PasswordReset struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type PullRequest struct {
+	IssueID            int64
+	BaseRef            string
+	HeadRef            string
+	HeadRepoID         int64
+	BaseOid            string
+	HeadOid            string
+	Draft              bool
+	Mergeable          pgtype.Bool
+	MergeableState     PrMergeableState
+	MergeCommitSha     pgtype.Text
+	MergedAt           pgtype.Timestamptz
+	MergedByUserID     pgtype.Int8
+	MergeMethod        NullPrMergeMethod
+	BaseOidAtMerge     pgtype.Text
+	HeadOidAtMerge     pgtype.Text
+	LastSynchronizedAt pgtype.Timestamptz
+}
+
+type PullRequestCommit struct {
+	PrID           int64
+	Sha            string
+	Position       int32
+	AuthorName     string
+	AuthorEmail    string
+	CommitterName  string
+	CommitterEmail string
+	Subject        string
+	Body           string
+	AuthoredAt     pgtype.Timestamptz
+	CommittedAt    pgtype.Timestamptz
+}
+
+type PullRequestFile struct {
+	PrID      int64
+	Path      string
+	Status    PrFileStatus
+	OldPath   pgtype.Text
+	Additions int32
+	Deletions int32
+	Changes   int32
+}
+
 type PushEvent struct {
 	ID           int64
 	RepoID       int64
@@ -572,25 +748,29 @@ type PushEvent struct {
 }
 
 type Repo struct {
-	ID               int64
-	OwnerUserID      pgtype.Int8
-	OwnerOrgID       pgtype.Int8
-	Name             string
-	Description      string
-	Visibility       RepoVisibility
-	DefaultBranch    string
-	IsArchived       bool
-	ArchivedAt       pgtype.Timestamptz
-	DeletedAt        pgtype.Timestamptz
-	DiskUsedBytes    int64
-	ForkOfRepoID     pgtype.Int8
-	LicenseKey       pgtype.Text
-	PrimaryLanguage  pgtype.Text
-	HasIssues        bool
-	HasPulls         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	DefaultBranchOid pgtype.Text
+	ID                 int64
+	OwnerUserID        pgtype.Int8
+	OwnerOrgID         pgtype.Int8
+	Name               string
+	Description        string
+	Visibility         RepoVisibility
+	DefaultBranch      string
+	IsArchived         bool
+	ArchivedAt         pgtype.Timestamptz
+	DeletedAt          pgtype.Timestamptz
+	DiskUsedBytes      int64
+	ForkOfRepoID       pgtype.Int8
+	LicenseKey         pgtype.Text
+	PrimaryLanguage    pgtype.Text
+	HasIssues          bool
+	HasPulls           bool
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	DefaultBranchOid   pgtype.Text
+	AllowSquashMerge   bool
+	AllowRebaseMerge   bool
+	AllowMergeCommit   bool
+	DefaultMergeMethod PrMergeMethod
 }
 
 type RepoCollaborator struct {
