@@ -1,0 +1,65 @@
+{{ define "page" -}}
+<section class="shithub-code">
+  <header class="shithub-code-head">
+    <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
+      {{ range $i, $c := .Crumbs }}
+        {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
+        <a href="{{ $c.URL }}">{{ $c.Name }}</a>
+      {{ end }}
+    </nav>
+    <div class="shithub-code-actions">
+      <details class="shithub-ref-switcher">
+        <summary>{{ .Ref }}</summary>
+        <div class="shithub-ref-panel">
+          {{ if .Branches }}
+          <strong>Branches</strong>
+          {{ range .Branches }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
+          {{ end }}
+          {{ end }}
+          {{ if .Tags }}
+          <strong>Tags</strong>
+          {{ range .Tags }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
+          {{ end }}
+          {{ end }}
+        </div>
+      </details>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-button">Go to file</a>
+    </div>
+  </header>
+
+  <table class="shithub-tree">
+    <tbody>
+      {{ range .Entries }}
+      <tr>
+        <td class="shithub-tree-icon" aria-hidden="true">
+          {{ if eq (printf "%s" .Kind) "tree" }}{{ octicon "directory" }}
+          {{ else if eq (printf "%s" .Kind) "commit" }}{{ octicon "submodule" }}
+          {{ else if eq (printf "%s" .Kind) "symlink" }}{{ octicon "symlink" }}
+          {{ else }}{{ octicon "file" }}{{ end }}
+        </td>
+        <td class="shithub-tree-name">
+          {{ if eq (printf "%s" .Kind) "tree" }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
+          {{ else if eq (printf "%s" .Kind) "blob" }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
+          {{ else if eq (printf "%s" .Kind) "symlink" }}
+          {{ .Name }} <em class="shithub-tree-symlink">(symlink)</em>
+          {{ else }}
+          {{ .Name }} <em class="shithub-tree-submodule">@ {{ slice .OID 0 7 }}</em>
+          {{ end }}
+        </td>
+        <td class="shithub-tree-size">{{ if gt .Size 0 }}{{ .Size }}{{ end }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+
+  {{ if .README }}
+  <section class="shithub-readme" aria-label="README">
+    {{ .README }}
+  </section>
+  {{ end }}
+</section>
+{{- end }}

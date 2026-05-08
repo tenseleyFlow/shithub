@@ -1,0 +1,44 @@
+{{ define "page" -}}
+<section class="shithub-blob">
+  <header class="shithub-code-head">
+    <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
+      {{ range $i, $c := .Crumbs }}
+        {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
+        <a href="{{ $c.URL }}">{{ $c.Name }}</a>
+      {{ end }}
+    </nav>
+    <div class="shithub-code-actions">
+      <span class="shithub-blob-meta">{{ .Language }} · {{ .Size }} bytes</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/raw/{{ .Ref }}/{{ .Path }}" class="shithub-button">Raw</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Ref }}/{{ .Path }}#blame" class="shithub-button shithub-button-disabled" title="Coming in S18">Blame</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}/{{ .Path }}" class="shithub-button shithub-button-disabled" title="Coming in S18">History</a>
+    </div>
+  </header>
+
+  {{ if .IsLarge }}
+  <div class="shithub-blob-too-large">
+    This file is too large to display ({{ .Size }} bytes).
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/raw/{{ .Ref }}/{{ .Path }}">Download raw</a>.
+  </div>
+  {{ else if .IsBinary }}
+    {{ if .IsImage }}
+    <div class="shithub-blob-image">
+      <img src="/{{ .Owner }}/{{ .Repo.Name }}/raw/{{ .Ref }}/{{ .Path }}" alt="{{ .Path }}">
+    </div>
+    {{ else }}
+    <div class="shithub-blob-binary">
+      Binary file — {{ .Size }} bytes.
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/raw/{{ .Ref }}/{{ .Path }}">Download raw</a>.
+    </div>
+    {{ end }}
+  {{ else if .IsMarkdown }}
+    <div class="shithub-blob-markdown">{{ .MarkdownHTML }}</div>
+    <details class="shithub-blob-source">
+      <summary>View source</summary>
+      {{ .HighlightedHTML }}
+    </details>
+  {{ else }}
+    <div class="shithub-blob-source">{{ .HighlightedHTML }}</div>
+  {{ end }}
+</section>
+{{- end }}

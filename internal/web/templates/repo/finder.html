@@ -1,0 +1,22 @@
+{{ define "page" -}}
+<section class="shithub-finder">
+  <header>
+    <h1>Find file in <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Ref }}">{{ .Owner }}/{{ .Repo.Name }}@{{ .Ref }}</a></h1>
+    <form method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-finder-form">
+      <label>Filter <input type="text" name="q" value="{{ .Query }}" autofocus placeholder="type to filter"></label>
+      <button type="submit" class="shithub-button">Search</button>
+    </form>
+  </header>
+  {{ if .Matches }}
+  <ul class="shithub-finder-results">
+    {{ range .Matches }}
+    <li><a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Ref }}/{{ .Path }}">{{ .Path }}</a></li>
+    {{ end }}
+  </ul>
+  {{ else if .Query }}
+  <p>No files match <code>{{ .Query }}</code>.</p>
+  {{ else }}
+  <p>Type a query to filter the tree.</p>
+  {{ end }}
+</section>
+{{- end }}

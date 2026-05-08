@@ -891,3 +891,103 @@ code {
   background: var(--canvas-default);
 }
 .shithub-repo-populated-note { margin-top: 1rem; font-size: 0.8rem; color: var(--fg-muted); }
+
+/* ========== Code tab (S17) ========== */
+.shithub-code, .shithub-blob, .shithub-finder {
+  max-width: 64rem;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+}
+.shithub-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-code-crumbs { font-size: 1rem; }
+.shithub-code-crumbs a { color: var(--fg-default); }
+.shithub-code-sep { color: var(--fg-muted); margin: 0 0.25rem; }
+.shithub-code-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+.shithub-ref-switcher { position: relative; }
+.shithub-ref-switcher > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.shithub-ref-switcher > summary::-webkit-details-marker { display: none; }
+.shithub-ref-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  min-width: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.shithub-ref-panel a {
+  display: block;
+  padding: 0.3rem 0.4rem;
+  color: var(--fg-default);
+  font-size: 0.875rem;
+}
+.shithub-ref-panel strong { display: block; margin: 0.4rem 0 0.2rem; font-size: 0.75rem; color: var(--fg-muted); text-transform: uppercase; }
+
+.shithub-tree {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.shithub-tree td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-tree-icon { width: 24px; color: var(--fg-muted); }
+.shithub-tree-icon svg { display: block; }
+.shithub-tree-name a { color: var(--fg-default); }
+.shithub-tree-size { width: 100px; text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.shithub-tree-symlink, .shithub-tree-submodule { color: var(--fg-muted); font-style: italic; font-size: 0.8rem; }
+
+.shithub-readme {
+  margin-top: 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-readme h1, .shithub-readme h2 { border-bottom: 1px solid var(--border-default); padding-bottom: 0.3rem; }
+.shithub-readme code { font-family: monospace; padding: 0.1em 0.3em; background: var(--canvas-default); border-radius: 3px; }
+.shithub-readme pre code { padding: 0; background: none; }
+.shithub-readme-plain { white-space: pre-wrap; }
+
+.shithub-blob-meta { color: var(--fg-muted); font-size: 0.85rem; margin-right: 0.5rem; }
+.shithub-blob-too-large, .shithub-blob-binary {
+  padding: 1rem;
+  border: 1px dashed var(--border-default);
+  border-radius: 6px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+.shithub-blob-image { text-align: center; padding: 1rem; background: var(--canvas-subtle); border-radius: 6px; }
+.shithub-blob-image img { max-width: 100%; max-height: 80vh; }
+.shithub-blob-source { overflow-x: auto; }
+.shithub-blob-source .chroma { font-size: 0.85rem; }
+.shithub-blob-markdown { padding: 1rem; }
+.shithub-button-disabled { opacity: 0.5; pointer-events: none; }
+
+.shithub-finder-form { display: flex; gap: 0.5rem; align-items: center; margin: 1rem 0; }
+.shithub-finder-form input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--border-default); border-radius: 6px; flex: 1; }
+.shithub-finder-results { list-style: none; padding: 0; }
+.shithub-finder-results li { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border-default); font-family: monospace; font-size: 0.875rem; }
