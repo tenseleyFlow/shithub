@@ -1,0 +1,19 @@
+{{ define "admin-nav" -}}
+<aside class="shithub-settings-side" aria-label="Admin sections">
+  <h2 class="shithub-settings-side-title">Site admin</h2>
+  <nav>
+    <ul>
+      <li{{ if eq .AdminActive "dashboard" }} class="active"{{ end }}><a href="/admin">Dashboard</a></li>
+      <li{{ if eq .AdminActive "users" }} class="active"{{ end }}><a href="/admin/users">Users</a></li>
+      <li{{ if eq .AdminActive "repos" }} class="active"{{ end }}><a href="/admin/repos">Repositories</a></li>
+      <li{{ if eq .AdminActive "jobs" }} class="active"{{ end }}><a href="/admin/jobs">Jobs</a></li>
+      <li{{ if eq .AdminActive "audit" }} class="active"{{ end }}><a href="/admin/audit">Audit log</a></li>
+    </ul>
+    <h3 class="shithub-settings-side-group">System</h3>
+    <ul>
+      <li{{ if eq .AdminActive "system" }} class="active"{{ end }}><a href="/admin/system">System</a></li>
+      <li{{ if eq .AdminActive "email" }} class="active"{{ end }}><a href="/admin/email">Email queue</a></li>
+    </ul>
+  </nav>
+</aside>
+{{- end }}
