@@ -1,0 +1,12 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>{{ .Heading }}</h1>
+    <section class="shithub-settings-section">
+      <p>{{ .Body }}</p>
+      <p class="shithub-hint">This tab is reserved so the navigation matches the eventual surface; the underlying machinery isn't wired yet.</p>
+    </section>
+  </div>
+</div>
+{{- end }}
