@@ -1,0 +1,110 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Access</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Direct collaborators</h2>
+      <p class="shithub-hint">Users granted explicit access to this repository, in addition to the owner.</p>
+      {{ if .Collaborators }}
+      <table class="shithub-branches-table">
+        <thead>
+          <tr><th>User</th><th>Role</th><th>Added</th><th></th></tr>
+        </thead>
+        <tbody>
+          {{ range .Collaborators }}
+          <tr>
+            <td><a href="/{{ .Username }}">{{ .Username }}</a>{{ if .DisplayName }} <span class="shithub-fg-muted">{{ .DisplayName }}</span>{{ end }}</td>
+            <td>{{ .Role }}</td>
+            <td>{{ relativeTime .AddedAt.Time }}</td>
+            <td>
+              <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/access/collaborators/remove" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="user_id" value="{{ .UserID }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No direct collaborators yet.</p>
+      {{ end }}
+
+      <h3>Add a collaborator</h3>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/access/collaborators">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>Username <input type="text" name="username" required></label>
+        <label>Role
+          <select name="role">
+            <option value="read">Read</option>
+            <option value="triage">Triage</option>
+            <option value="write" selected>Write</option>
+            <option value="maintain">Maintain</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Add</button>
+      </form>
+    </section>
+
+    {{ if .OwnerKindOrg }}
+    <section class="shithub-settings-section">
+      <h2>Team grants</h2>
+      <p class="shithub-hint">Teams from <a href="/orgs/{{ .Owner }}/teams">{{ .Owner }}</a> with access to this repo.</p>
+      {{ if .TeamGrants }}
+      <table class="shithub-branches-table">
+        <thead>
+          <tr><th>Team</th><th>Role</th><th>Granted</th><th></th></tr>
+        </thead>
+        <tbody>
+          {{ range .TeamGrants }}
+          <tr>
+            <td><a href="/orgs/{{ $.Owner }}/teams/{{ .TeamSlug }}">{{ .TeamDisplayName }}</a> <span class="shithub-fg-muted">@{{ .TeamSlug }}</span></td>
+            <td>{{ .Role }}</td>
+            <td>{{ relativeTime .AddedAt.Time }}</td>
+            <td>
+              <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/access/teams/revoke" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="team_id" value="{{ .TeamID }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No teams have been granted access yet.</p>
+      {{ end }}
+
+      {{ if .OrgTeams }}
+      <h3>Grant team access</h3>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/access/teams">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>Team
+          <select name="team_id" required>
+            <option value="">— select a team —</option>
+            {{ range .OrgTeams }}<option value="{{ .ID }}">{{ .DisplayName }} (@{{ .Slug }})</option>{{ end }}
+          </select>
+        </label>
+        <label>Role
+          <select name="role">
+            <option value="read">Read</option>
+            <option value="triage">Triage</option>
+            <option value="write" selected>Write</option>
+            <option value="maintain">Maintain</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Grant</button>
+      </form>
+      {{ end }}
+    </section>
+    {{ end }}
+  </div>
+</div>
+{{- end }}
