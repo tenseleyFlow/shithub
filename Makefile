@@ -2,7 +2,7 @@
 # Targets mirror what CI runs. The Makefile is the source of truth.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-secret-logs fmt tidy clean ci assets install-tools version
+.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-secret-logs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging
 
 # Build metadata embedded into the binary via -ldflags.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -152,3 +152,26 @@ version: ## Print version info that would be embedded into the binary.
 	@echo "Version: $(VERSION)"
 	@echo "Commit:  $(COMMIT)"
 	@echo "Built:   $(BUILT)"
+
+# --- deploy ---
+# Inventory selection: ANSIBLE_INVENTORY=production make deploy (default: staging).
+ANSIBLE_INVENTORY ?= staging
+ANSIBLE_TAGS      ?=
+ANSIBLE_LIMIT     ?=
+
+deploy-check: ## Dry-run the Ansible playbook (--check) against $$ANSIBLE_INVENTORY.
+	cd deploy/ansible && ansible-playbook -i inventory/$(ANSIBLE_INVENTORY) site.yml --check --diff \
+		$(if $(ANSIBLE_TAGS),--tags $(ANSIBLE_TAGS)) \
+		$(if $(ANSIBLE_LIMIT),--limit $(ANSIBLE_LIMIT))
+
+deploy: ## Apply the Ansible playbook against $$ANSIBLE_INVENTORY (set to production for prod).
+	cd deploy/ansible && ansible-playbook -i inventory/$(ANSIBLE_INVENTORY) site.yml \
+		$(if $(ANSIBLE_TAGS),--tags $(ANSIBLE_TAGS)) \
+		$(if $(ANSIBLE_LIMIT),--limit $(ANSIBLE_LIMIT))
+
+restore-drill: ## Run the restore drill on the backup host (must be run via ssh on that host).
+	deploy/restore-drill/run.sh
+
+bench-staging: ## Run the bench harness against staging (BENCH_TARGET must be set to the staging URL).
+	@if [ -z "$$BENCH_TARGET" ]; then echo "set BENCH_TARGET=https://staging.shithub.example"; exit 2; fi
+	go run ./bench -target=$$BENCH_TARGET -iters=$${BENCH_ITERS:-50}
