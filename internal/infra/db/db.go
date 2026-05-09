@@ -77,6 +77,11 @@ func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	pcfg.MaxConns = cfg.MaxConns
 	pcfg.MinConns = cfg.MinConns
 	pcfg.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
+	// QueryCounter is a no-op when the request context wasn't built
+	// with WithCounter — production traffic pays one map lookup per
+	// query. Tests that assert "this route does ≤ N queries" wrap the
+	// request context to opt in.
+	pcfg.ConnConfig.Tracer = QueryCounter{}
 
 	openCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()
