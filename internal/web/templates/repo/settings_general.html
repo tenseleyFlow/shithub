@@ -1,0 +1,69 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>General</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Repository details</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/general">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Description</span>
+          <input type="text" name="description" maxlength="200" value="{{ .Repo.Description }}">
+        </label>
+        <label>
+          <span>Topics</span>
+          <input type="text" name="topics" value="{{ .TopicsCSV }}" placeholder="go, postgres, web">
+          <small>Comma-separated. Lowercase letters, digits, hyphens; max 20 topics, 50 chars each.</small>
+        </label>
+        <fieldset class="shithub-settings-fieldset">
+          <legend>Features</legend>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="has_issues" {{ if .Repo.HasIssues }}checked{{ end }}>
+            <span>Issues</span>
+          </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="has_pulls" {{ if .Repo.HasPulls }}checked{{ end }}>
+            <span>Pull requests</span>
+          </label>
+        </fieldset>
+        <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Pull request merges</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/merges">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <fieldset class="shithub-settings-fieldset">
+          <legend>Allowed merge methods</legend>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="allow_merge_commit" {{ if .Repo.AllowMergeCommit }}checked{{ end }}>
+            <span>Merge commit</span>
+          </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="allow_squash_merge" {{ if .Repo.AllowSquashMerge }}checked{{ end }}>
+            <span>Squash and merge</span>
+          </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="allow_rebase_merge" {{ if .Repo.AllowRebaseMerge }}checked{{ end }}>
+            <span>Rebase and merge</span>
+          </label>
+        </fieldset>
+        <label>
+          <span>Default merge method</span>
+          <select name="default_merge_method">
+            <option value="merge" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "merge" }}selected{{ end }}>Merge commit</option>
+            <option value="squash" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "squash" }}selected{{ end }}>Squash and merge</option>
+            <option value="rebase" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "rebase" }}selected{{ end }}>Rebase and merge</option>
+          </select>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}
