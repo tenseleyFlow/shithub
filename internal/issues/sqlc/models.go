@@ -580,6 +580,49 @@ func (ns NullPrReviewState) Value() (driver.Value, error) {
 	return string(ns.PrReviewState), nil
 }
 
+type RepoInitStatus string
+
+const (
+	RepoInitStatusInitialized RepoInitStatus = "initialized"
+	RepoInitStatusInitPending RepoInitStatus = "init_pending"
+	RepoInitStatusInitFailed  RepoInitStatus = "init_failed"
+)
+
+func (e *RepoInitStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RepoInitStatus(s)
+	case string:
+		*e = RepoInitStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RepoInitStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRepoInitStatus struct {
+	RepoInitStatus RepoInitStatus
+	Valid          bool // Valid is true if RepoInitStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRepoInitStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RepoInitStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RepoInitStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRepoInitStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RepoInitStatus), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -1083,6 +1126,8 @@ type Repo struct {
 	DefaultMergeMethod PrMergeMethod
 	StarCount          int64
 	WatcherCount       int64
+	ForkCount          int64
+	InitStatus         RepoInitStatus
 }
 
 type RepoCollaborator struct {

@@ -12,7 +12,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-          star_count, watcher_count;
+          star_count, watcher_count, fork_count, init_status;
 
 -- name: GetRepoByID :one
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
@@ -20,7 +20,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE id = $1;
 
@@ -39,7 +39,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -55,7 +55,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
@@ -88,3 +88,58 @@ FROM repos r
 JOIN users u ON u.id = r.owner_user_id
 WHERE r.deleted_at IS NULL
 ORDER BY r.id;
+
+-- ─── S27 forks ─────────────────────────────────────────────────────
+
+-- name: CreateForkRepo :one
+-- Insert a fork shell. Distinct from CreateRepo because forks set
+-- `fork_of_repo_id` (which fires the fork_count trigger) and start
+-- at init_status='init_pending' so the worker job can flip them to
+-- 'initialized' once `git clone --bare --shared` finishes.
+INSERT INTO repos (
+    owner_user_id, owner_org_id, name, description, visibility,
+    default_branch, fork_of_repo_id, init_status
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, 'init_pending'
+)
+RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
+          default_branch, is_archived, archived_at, deleted_at,
+          disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+          has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+          allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+          star_count, watcher_count, fork_count, init_status;
+
+-- name: SetRepoInitStatus :exec
+-- Promotes a fork from init_pending to initialized (or init_failed).
+-- The DB row is created up-front so the URL resolves immediately and
+-- the user sees a "preparing your fork" placeholder while the worker
+-- runs `git clone --bare --shared`.
+UPDATE repos SET init_status = $2 WHERE id = $1;
+
+-- name: ListForksOfRepo :many
+-- Forks of a given source repo, paginated, recency-sorted. Joined
+-- with users for the owner display name. Excludes soft-deleted.
+SELECT r.id, r.name, r.description, r.visibility, r.created_at,
+       r.star_count, r.fork_count, r.init_status,
+       u.username AS owner_username, u.display_name AS owner_display_name
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.fork_of_repo_id = $1
+  AND r.deleted_at IS NULL
+ORDER BY r.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountForksOfRepo :one
+SELECT count(*) FROM repos
+WHERE fork_of_repo_id = $1 AND deleted_at IS NULL;
+
+-- name: ListForksOfRepoForRepack :many
+-- Used by S16's hard-delete cascade (S27 amendment): before deleting
+-- a source repo, every fork must `git repack -a -d --no-shared` so
+-- it has its own copy of the objects. Returns just enough to locate
+-- the bare repo on disk.
+SELECT r.id, r.name, u.username AS owner_username
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.fork_of_repo_id = $1
+  AND r.deleted_at IS NULL;

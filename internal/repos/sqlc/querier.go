@@ -14,12 +14,19 @@ type Querier interface {
 	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
+	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
 	// ─── rename rate limit support ─────────────────────────────────────────
 	// Used to enforce the 5-per-30-days rename rate limit. The redirect
 	// row is the audit trail for renames; counting them per repo gives a
 	// reliable cap.
 	CountRecentRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	// ─── S27 forks ─────────────────────────────────────────────────────
+	// Insert a fork shell. Distinct from CreateRepo because forks set
+	// `fork_of_repo_id` (which fires the fork_count trigger) and start
+	// at init_status='init_pending' so the worker job can flip them to
+	// 'initialized' once `git clone --bare --shared` finishes.
+	CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRepoParams) (Repo, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
@@ -56,6 +63,14 @@ type Querier interface {
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
+	// Forks of a given source repo, paginated, recency-sorted. Joined
+	// with users for the owner display name. Excludes soft-deleted.
+	ListForksOfRepo(ctx context.Context, db DBTX, arg ListForksOfRepoParams) ([]ListForksOfRepoRow, error)
+	// Used by S16's hard-delete cascade (S27 amendment): before deleting
+	// a source repo, every fork must `git repack -a -d --no-shared` so
+	// it has its own copy of the objects. Returns just enough to locate
+	// the bare repo on disk.
+	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
@@ -84,6 +99,11 @@ type Querier interface {
 	// redirect row is INSERTed in the same tx.
 	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
+	// Promotes a fork from init_pending to initialized (or init_failed).
+	// The DB row is created up-front so the URL resolves immediately and
+	// the user sees a "preparing your fork" placeholder while the worker
+	// runs `git clone --bare --shared`.
+	SetRepoInitStatus(ctx context.Context, db DBTX, arg SetRepoInitStatusParams) error
 	SetRepoVisibility(ctx context.Context, db DBTX, arg SetRepoVisibilityParams) error
 	SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	// Distinct name from S11's SoftDeleteRepo so future code that wants to

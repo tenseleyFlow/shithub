@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countForksOfRepo = `-- name: CountForksOfRepo :one
+SELECT count(*) FROM repos
+WHERE fork_of_repo_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, countForksOfRepo, forkOfRepoID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countReposForOwnerUser = `-- name: CountReposForOwnerUser :one
 SELECT count(*) FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
@@ -21,6 +33,80 @@ func (q *Queries) CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUser
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const createForkRepo = `-- name: CreateForkRepo :one
+
+INSERT INTO repos (
+    owner_user_id, owner_org_id, name, description, visibility,
+    default_branch, fork_of_repo_id, init_status
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, 'init_pending'
+)
+RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
+          default_branch, is_archived, archived_at, deleted_at,
+          disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+          has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+          allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+          star_count, watcher_count, fork_count, init_status
+`
+
+type CreateForkRepoParams struct {
+	OwnerUserID   pgtype.Int8
+	OwnerOrgID    pgtype.Int8
+	Name          string
+	Description   string
+	Visibility    RepoVisibility
+	DefaultBranch string
+	ForkOfRepoID  pgtype.Int8
+}
+
+// ─── S27 forks ─────────────────────────────────────────────────────
+// Insert a fork shell. Distinct from CreateRepo because forks set
+// `fork_of_repo_id` (which fires the fork_count trigger) and start
+// at init_status='init_pending' so the worker job can flip them to
+// 'initialized' once `git clone --bare --shared` finishes.
+func (q *Queries) CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRepoParams) (Repo, error) {
+	row := db.QueryRow(ctx, createForkRepo,
+		arg.OwnerUserID,
+		arg.OwnerOrgID,
+		arg.Name,
+		arg.Description,
+		arg.Visibility,
+		arg.DefaultBranch,
+		arg.ForkOfRepoID,
+	)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.OwnerOrgID,
+		&i.Name,
+		&i.Description,
+		&i.Visibility,
+		&i.DefaultBranch,
+		&i.IsArchived,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.DiskUsedBytes,
+		&i.ForkOfRepoID,
+		&i.LicenseKey,
+		&i.PrimaryLanguage,
+		&i.HasIssues,
+		&i.HasPulls,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultBranchOid,
+		&i.AllowSquashMerge,
+		&i.AllowRebaseMerge,
+		&i.AllowMergeCommit,
+		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
+	)
+	return i, err
 }
 
 const createRepo = `-- name: CreateRepo :one
@@ -36,7 +122,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-          star_count, watcher_count
+          star_count, watcher_count, fork_count, init_status
 `
 
 type CreateRepoParams struct {
@@ -89,6 +175,8 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.DefaultMergeMethod,
 		&i.StarCount,
 		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
 	)
 	return i, err
 }
@@ -118,7 +206,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE id = $1
 `
@@ -152,6 +240,8 @@ func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, err
 		&i.DefaultMergeMethod,
 		&i.StarCount,
 		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
 	)
 	return i, err
 }
@@ -162,7 +252,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -201,6 +291,8 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.DefaultMergeMethod,
 		&i.StarCount,
 		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
 	)
 	return i, err
 }
@@ -266,13 +358,115 @@ func (q *Queries) ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllR
 	return items, nil
 }
 
+const listForksOfRepo = `-- name: ListForksOfRepo :many
+SELECT r.id, r.name, r.description, r.visibility, r.created_at,
+       r.star_count, r.fork_count, r.init_status,
+       u.username AS owner_username, u.display_name AS owner_display_name
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.fork_of_repo_id = $1
+  AND r.deleted_at IS NULL
+ORDER BY r.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListForksOfRepoParams struct {
+	ForkOfRepoID pgtype.Int8
+	Limit        int32
+	Offset       int32
+}
+
+type ListForksOfRepoRow struct {
+	ID               int64
+	Name             string
+	Description      string
+	Visibility       RepoVisibility
+	CreatedAt        pgtype.Timestamptz
+	StarCount        int64
+	ForkCount        int64
+	InitStatus       RepoInitStatus
+	OwnerUsername    string
+	OwnerDisplayName string
+}
+
+// Forks of a given source repo, paginated, recency-sorted. Joined
+// with users for the owner display name. Excludes soft-deleted.
+func (q *Queries) ListForksOfRepo(ctx context.Context, db DBTX, arg ListForksOfRepoParams) ([]ListForksOfRepoRow, error) {
+	rows, err := db.Query(ctx, listForksOfRepo, arg.ForkOfRepoID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListForksOfRepoRow{}
+	for rows.Next() {
+		var i ListForksOfRepoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.CreatedAt,
+			&i.StarCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.OwnerUsername,
+			&i.OwnerDisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listForksOfRepoForRepack = `-- name: ListForksOfRepoForRepack :many
+SELECT r.id, r.name, u.username AS owner_username
+FROM repos r
+JOIN users u ON u.id = r.owner_user_id
+WHERE r.fork_of_repo_id = $1
+  AND r.deleted_at IS NULL
+`
+
+type ListForksOfRepoForRepackRow struct {
+	ID            int64
+	Name          string
+	OwnerUsername string
+}
+
+// Used by S16's hard-delete cascade (S27 amendment): before deleting
+// a source repo, every fork must `git repack -a -d --no-shared` so
+// it has its own copy of the objects. Returns just enough to locate
+// the bare repo on disk.
+func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error) {
+	rows, err := db.Query(ctx, listForksOfRepoForRepack, forkOfRepoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListForksOfRepoForRepackRow{}
+	for rows.Next() {
+		var i ListForksOfRepoForRepackRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.OwnerUsername); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReposForOwnerUser = `-- name: ListReposForOwnerUser :many
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count
+       star_count, watcher_count, fork_count, init_status
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -313,6 +507,8 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.DefaultMergeMethod,
 			&i.StarCount,
 			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -322,6 +518,24 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 		return nil, err
 	}
 	return items, nil
+}
+
+const setRepoInitStatus = `-- name: SetRepoInitStatus :exec
+UPDATE repos SET init_status = $2 WHERE id = $1
+`
+
+type SetRepoInitStatusParams struct {
+	ID         int64
+	InitStatus RepoInitStatus
+}
+
+// Promotes a fork from init_pending to initialized (or init_failed).
+// The DB row is created up-front so the URL resolves immediately and
+// the user sees a "preparing your fork" placeholder while the worker
+// runs `git clone --bare --shared`.
+func (q *Queries) SetRepoInitStatus(ctx context.Context, db DBTX, arg SetRepoInitStatusParams) error {
+	_, err := db.Exec(ctx, setRepoInitStatus, arg.ID, arg.InitStatus)
+	return err
 }
 
 const softDeleteRepo = `-- name: SoftDeleteRepo :exec
