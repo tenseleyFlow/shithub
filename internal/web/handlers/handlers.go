@@ -120,6 +120,10 @@ type Deps struct {
 	// OrgInvitationsMounter registers /invitations/{token} +
 	// accept/decline. RequireUser at the wiring layer.
 	OrgInvitationsMounter func(chi.Router)
+	// AdminMounter, when non-nil, registers /admin/* routes (S34).
+	// The mounter wraps the handler chain in RequireUser +
+	// RequireSiteAdmin so non-admins receive 404, not 403.
+	AdminMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -288,6 +292,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// Lifecycle danger-zone + transfers + restore. Order: after
 		// RepoHome so explicit settings paths are matched first, before
 		// Profile's /{username} catch-all.
+		if deps.AdminMounter != nil {
+			deps.AdminMounter(r)
+		}
 		if deps.RepoLifecycleMounter != nil {
 			deps.RepoLifecycleMounter(r)
 		}
