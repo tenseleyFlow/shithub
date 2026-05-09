@@ -17,6 +17,12 @@ type Actor struct {
 	IsAnonymous bool
 	IsSuspended bool
 	IsSiteAdmin bool
+	// Impersonating reports whether this actor was constructed from
+	// an admin viewing-as another user. ImpersonateWriteOK enables
+	// the admin's writes during the impersonation; without it, every
+	// write action gets denied (the canonical foot-gun guard).
+	Impersonating      bool
+	ImpersonateWriteOK bool
 }
 
 // AnonymousActor returns the canonical anonymous Actor. Use in tests
