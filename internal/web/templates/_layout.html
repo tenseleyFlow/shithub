@@ -34,6 +34,36 @@
 {{ template "page" . }}
 </main>
 {{ template "footer" . }}
+<script>
+  // Click-to-copy on clone-dropdown buttons. Walk every button with
+  // data-clone-copy="<selector>" and wire it once. Falls back to a
+  // visual flash on the input when navigator.clipboard is unavailable
+  // (older browsers, file:// dev pages, etc).
+  (function () {
+    var buttons = document.querySelectorAll("[data-clone-copy]");
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var sel = btn.getAttribute("data-clone-copy");
+        var input = document.querySelector(sel);
+        if (!input) return;
+        var ok = false;
+        try {
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(input.value);
+            ok = true;
+          }
+        } catch (e) { ok = false; }
+        if (!ok) {
+          input.select();
+          try { document.execCommand("copy"); ok = true; } catch (e) {}
+        }
+        var prev = btn.getAttribute("title") || "";
+        btn.setAttribute("title", ok ? "Copied" : "Press ⌘/Ctrl-C to copy");
+        setTimeout(function () { btn.setAttribute("title", prev); }, 1200);
+      });
+    });
+  })();
+</script>
 </body>
 </html>
 {{- end }}

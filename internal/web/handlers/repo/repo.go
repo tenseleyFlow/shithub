@@ -42,6 +42,17 @@ type CloneURLs struct {
 	SSHHost    string // e.g. "git@shithub.example" — only used when SSHEnabled
 }
 
+// cloneHTTPS / cloneSSH compose the per-repo URL strings that every
+// "Code" view drops into the clone dropdown. Centralized so the
+// per-template plumbing in code views and the repo home stay
+// consistent (and switching to a `git://` later is a one-line edit).
+func (h *Handlers) cloneHTTPS(owner, name string) string {
+	return h.d.CloneURLs.BaseURL + "/" + owner + "/" + name + ".git"
+}
+func (h *Handlers) cloneSSH(owner, name string) string {
+	return h.d.CloneURLs.SSHHost + ":" + owner + "/" + name + ".git"
+}
+
 // Deps wires the handler set.
 type Deps struct {
 	Logger    *slog.Logger
@@ -221,9 +232,9 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		"Owner":         owner,
 		"Repo":          row,
 		"DefaultBranch": row.DefaultBranch,
-		"HTTPSCloneURL": h.d.CloneURLs.BaseURL + "/" + owner + "/" + row.Name + ".git",
+		"HTTPSCloneURL": h.cloneHTTPS(owner, row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
-		"SSHCloneURL":   h.d.CloneURLs.SSHHost + ":" + owner + "/" + row.Name + ".git",
+		"SSHCloneURL":   h.cloneSSH(owner, row.Name),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

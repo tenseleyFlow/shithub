@@ -945,6 +945,37 @@ code {
 }
 .shithub-ref-panel strong { display: block; margin: 0.4rem 0 0.2rem; font-size: 0.75rem; color: var(--fg-muted); text-transform: uppercase; }
 
+.shithub-clone-dropdown { position: relative; }
+.shithub-clone-dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+.shithub-clone-dropdown > summary::-webkit-details-marker { display: none; }
+.shithub-clone-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 320px;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.shithub-clone-row + .shithub-clone-row { margin-top: 0.6rem; }
+.shithub-clone-row label { display: block; font-size: 0.75rem; color: var(--fg-muted); margin-bottom: 0.25rem; }
+.shithub-clone-input { display: flex; gap: 0.4rem; }
+.shithub-clone-input input {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+}
+.shithub-clone-input button { padding: 0.3rem 0.5rem; }
+.shithub-clone-hint { margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--fg-muted); }
+
 .shithub-tree {
   width: 100%;
   border-collapse: collapse;

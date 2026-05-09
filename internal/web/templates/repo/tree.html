@@ -26,6 +26,28 @@
         </div>
       </details>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-button">Go to file</a>
+      <details class="shithub-clone-dropdown">
+        <summary class="shithub-button shithub-button-primary">{{ octicon "download" }} Code</summary>
+        <div class="shithub-clone-panel" role="dialog" aria-label="Clone this repository">
+          <div class="shithub-clone-row">
+            <label for="clone-https">Clone with HTTPS</label>
+            <div class="shithub-clone-input">
+              <input id="clone-https" type="text" readonly value="{{ .HTTPSCloneURL }}" onclick="this.select()">
+              <button type="button" class="shithub-button" data-clone-copy="#clone-https" title="Copy">{{ octicon "copy" }}</button>
+            </div>
+          </div>
+          {{ if .SSHEnabled }}
+          <div class="shithub-clone-row">
+            <label for="clone-ssh">Clone with SSH</label>
+            <div class="shithub-clone-input">
+              <input id="clone-ssh" type="text" readonly value="{{ .SSHCloneURL }}" onclick="this.select()">
+              <button type="button" class="shithub-button" data-clone-copy="#clone-ssh" title="Copy">{{ octicon "copy" }}</button>
+            </div>
+          </div>
+          {{ end }}
+          <p class="shithub-clone-hint">Use Git or checkout with SVN using the web URL.</p>
+        </div>
+      </details>
     </div>
   </header>
 

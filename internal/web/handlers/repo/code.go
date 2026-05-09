@@ -148,17 +148,20 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 	readmeHTML := h.findAndRenderREADME(r, cc, entries)
 
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
-		"Title":     cc.row.Name + " · " + cc.owner,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     cc.owner,
-		"Repo":      cc.row,
-		"Ref":       cc.ref,
-		"Path":      cc.subpath,
-		"Crumbs":    breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
-		"Entries":   entries,
-		"Branches":  cc.refs.Branches,
-		"Tags":      cc.refs.Tags,
-		"README":    template.HTML(readmeHTML), //nolint:gosec // sanitized by mdrender
+		"Title":         cc.row.Name + " · " + cc.owner,
+		"CSRFToken":     middleware.CSRFTokenForRequest(r),
+		"Owner":         cc.owner,
+		"Repo":          cc.row,
+		"Ref":           cc.ref,
+		"Path":          cc.subpath,
+		"Crumbs":        breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
+		"Entries":       entries,
+		"Branches":      cc.refs.Branches,
+		"Tags":          cc.refs.Tags,
+		"README":        template.HTML(readmeHTML), //nolint:gosec // sanitized by mdrender
+		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
+		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
+		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
 	})
 }
 

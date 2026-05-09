@@ -82,6 +82,10 @@ var reservedNames = map[string]struct{}{
 	"shithub":       {},
 	"shithubd":      {},
 	"shithubbot":    {},
+	// S29 — notification subscribe/unsubscribe per thread.
+	"threads":       {},
+	// S30 — invitation accept/decline.
+	"invitations":   {},
 }
 
 // IsReserved reports whether name is on the reserved list. The check is
