@@ -1685,6 +1685,13 @@ type PushEvent struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type RateLimit struct {
+	Scope           string
+	Key             string
+	Hits            int32
+	WindowStartedAt pgtype.Timestamptz
+}
+
 type Repo struct {
 	ID                 int64
 	OwnerUserID        pgtype.Int8
@@ -1761,6 +1768,12 @@ type RepoTransferRequest struct {
 type ReposSearch struct {
 	RepoID int64
 	Tsv    interface{}
+}
+
+type SignupIpThrottle struct {
+	Cidr            netip.Addr
+	Hits            int32
+	WindowStartedAt pgtype.Timestamptz
 }
 
 type Star struct {
