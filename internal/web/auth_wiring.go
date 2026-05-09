@@ -22,6 +22,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
@@ -112,6 +113,7 @@ func buildAuthHandlers(
 			KeyLen:  32,
 		},
 		Limiter:                  throttle.NewLimiter(),
+		RateLimiter:              ratelimit.New(pool),
 		RequireEmailVerification: cfg.Auth.RequireEmailVerification,
 		SecretBox:                box,
 		Audit:                    audit.NewRecorder(),
