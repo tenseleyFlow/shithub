@@ -90,3 +90,57 @@ func TestOrgOwner_ImplicitAdmin(t *testing.T) {
 		t.Fatalf("plain org member should NOT have implicit read on private repo: %+v", got)
 	}
 }
+
+// TestOrgSuspended_BlocksWrites pins the S30 contract: when an org
+// is suspended, every write action against an org-owned repo is
+// denied — even for the org owner. Reads still allow.
+func TestOrgSuspended_BlocksWrites(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	creator, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "alice", DisplayName: "Alice", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	deps := orgs.Deps{Pool: pool}
+	org, err := orgs.Create(ctx, deps, orgs.CreateParams{
+		Slug: "acme", DisplayName: "Acme", CreatedByUserID: creator.ID,
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerUserID:   pgtype.Int8{Valid: false},
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	// Suspend the org via raw UPDATE (mirrors what the admin
+	// surface will eventually do).
+	if _, err := pool.Exec(ctx, `UPDATE orgs SET suspended_at=now() WHERE id=$1`, org.ID); err != nil {
+		t.Fatalf("suspend org: %v", err)
+	}
+
+	ref := policy.NewRepoRefFromRepo(repo)
+	actor := policy.UserActor(creator.ID, "alice", false, false)
+	pdeps := policy.Deps{Pool: pool}
+
+	// Reads still allowed.
+	if got := policy.Can(ctx, pdeps, actor, policy.ActionRepoRead, ref); !got.Allow {
+		t.Fatalf("reads on suspended-org repo should allow: %+v", got)
+	}
+	// Writes denied with the typed code.
+	got := policy.Can(ctx, pdeps, actor, policy.ActionRepoWrite, ref)
+	if got.Allow {
+		t.Fatal("write on suspended-org repo should deny")
+	}
+	if got.Code != policy.DenyOrgSuspended {
+		t.Fatalf("want DenyOrgSuspended code, got %v (reason=%q)", got.Code, got.Reason)
+	}
+}

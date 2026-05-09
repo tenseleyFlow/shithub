@@ -34,6 +34,11 @@ const (
 	DenyRoleTooLow    // logged-in but role insufficient
 	DenyAnonymous     // login required (e.g. star/fork)
 	DenyDBError
+	// DenyOrgSuspended is returned for write actions on a repo whose
+	// owning org is currently suspended. Reads stay allowed (the spec
+	// preserves visibility into suspended-org content); writes flip
+	// off uniformly.
+	DenyOrgSuspended
 )
 
 // Decision is the verdict from Can. Allow is the only field handlers
@@ -123,6 +128,24 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	//    earlier but keeping the flow uniform makes the matrix readable.)
 	if repo.IsArchived && isWriteAction(action) {
 		return deny(DenyArchived, "repo archived")
+	}
+
+	// 7b. Org suspension (S30): writes against any repo owned by a
+	//     suspended org are denied uniformly. Reads stay allowed (the
+	//     org's contributions to the broader graph aren't erased).
+	//     The check is gated on a write action AND a non-zero
+	//     OwnerOrgID so user-owned repos pay nothing for it.
+	if repo.OwnerOrgID != 0 && isWriteAction(action) {
+		if d.Pool != nil {
+			var suspended bool
+			err := d.Pool.QueryRow(ctx,
+				`SELECT suspended_at IS NOT NULL FROM orgs WHERE id = $1`,
+				repo.OwnerOrgID,
+			).Scan(&suspended)
+			if err == nil && suspended {
+				return deny(DenyOrgSuspended, "owning org suspended")
+			}
+		}
 	}
 
 	// 8. Map action → minimum required role; check.
