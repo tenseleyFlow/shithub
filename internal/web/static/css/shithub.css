@@ -1625,3 +1625,25 @@ code {
 .shithub-quick-section ul { list-style: none; padding: 0; margin: 0; }
 .shithub-quick-section li { padding: 0.25rem 0; }
 .shithub-quick-footer { padding: 0.5rem 0; border-top: 1px solid var(--border-default); text-align: center; }
+
+/* S34 — admin impersonation banner. Sticky-top, loud red so the
+   admin can't lose track of "I am viewing as someone else right
+   now." Position: fixed-on-scroll keeps it visible no matter where
+   on the page they navigate. */
+.shithub-imp-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--danger-fg);
+  color: #ffffff;
+  padding: 0.5rem 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+}
+.shithub-imp-banner .shithub-button {
+  background: rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.shithub-imp-write { background: #ffd33d; color: #1a1f24; padding: 0 0.4em; border-radius: 4px; font-weight: 600; }
+.shithub-imp-read  { background: rgba(255, 255, 255, 0.2); padding: 0 0.4em; border-radius: 4px; }
