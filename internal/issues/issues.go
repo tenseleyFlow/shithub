@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ var (
 	ErrEmptyTitle        = errors.New("issues: title is required")
 	ErrTitleTooLong      = errors.New("issues: title too long (max 256)")
 	ErrBodyTooLong       = errors.New("issues: body too long")
+	ErrEmptyComment      = errors.New("issues: comment body is required")
 	ErrCommentTooLong    = errors.New("issues: comment too long")
 	ErrIssueLocked       = errors.New("issues: issue is locked")
 	ErrCommentRateLimit  = errors.New("issues: comment rate limit exceeded")
@@ -174,7 +176,10 @@ type CommentCreateParams struct {
 // and indexes references. Returns the fresh comment.
 func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb.IssueComment, error) {
 	body := strings.TrimSpace(p.Body)
-	if body == "" || len(body) > 65535 {
+	if body == "" {
+		return issuesdb.IssueComment{}, ErrEmptyComment
+	}
+	if len(body) > 65535 {
 		return issuesdb.IssueComment{}, ErrCommentTooLong
 	}
 	if deps.Limiter != nil && p.AuthorUserID != 0 {
@@ -252,6 +257,18 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 // SetState closes or reopens an issue and emits an `closed` /
 // `reopened` event.
 func SetState(ctx context.Context, deps Deps, actorUserID, issueID int64, newState, reason string) error {
+	return setState(ctx, deps, actorUserID, issueID, newState, reason, 0)
+}
+
+// SetStateWithComment is used by the issue comment form when the submit
+// button both creates a comment and changes state. The timeline event stores
+// the comment id so the UI can keep the state badge adjacent to the comment
+// that caused it.
+func SetStateWithComment(ctx context.Context, deps Deps, actorUserID, issueID int64, newState, reason string, commentID int64) error {
+	return setState(ctx, deps, actorUserID, issueID, newState, reason, commentID)
+}
+
+func setState(ctx context.Context, deps Deps, actorUserID, issueID int64, newState, reason string, commentID int64) error {
 	if newState != "open" && newState != "closed" {
 		return errors.New("issues: state must be open or closed")
 	}
@@ -287,11 +304,15 @@ func SetState(ctx context.Context, deps Deps, actorUserID, issueID int64, newSta
 	if newState == "open" {
 		kind = "reopened"
 	}
+	meta := emptyMeta
+	if commentID != 0 {
+		meta = []byte(`{"comment_id":` + strconv.FormatInt(commentID, 10) + `}`)
+	}
 	if _, err := q.InsertIssueEvent(ctx, tx, issuesdb.InsertIssueEventParams{
 		IssueID:     issueID,
 		ActorUserID: pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},
 		Kind:        kind,
-		Meta:        emptyMeta,
+		Meta:        meta,
 	}); err != nil {
 		return err
 	}

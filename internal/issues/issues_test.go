@@ -4,6 +4,7 @@ package issues_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"strings"
@@ -247,6 +248,44 @@ func TestSetState_EmitsEvent(t *testing.T) {
 	want := []string{"closed", "reopened"}
 	if len(kinds) != 2 || kinds[0] != want[0] || kinds[1] != want[1] {
 		t.Errorf("got events %v, want %v", kinds, want)
+	}
+}
+
+func TestSetStateWithComment_LinksTimelineEvent(t *testing.T) {
+	pool, deps, uid, rid := setup(t)
+	ctx := context.Background()
+	row, err := issues.Create(ctx, deps, issues.CreateParams{
+		RepoID: rid, AuthorUserID: uid, Title: "close-with-comment", Body: "",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	comment, err := issues.AddComment(ctx, deps, issues.CommentCreateParams{
+		IssueID: row.ID, AuthorUserID: uid, Body: "closing this out", IsCollab: true,
+	})
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	if err := issues.SetStateWithComment(ctx, deps, uid, row.ID, "closed", "", comment.ID); err != nil {
+		t.Fatalf("SetStateWithComment: %v", err)
+	}
+	iq := issuesdb.New()
+	events, err := iq.ListIssueEvents(ctx, pool, row.ID)
+	if err != nil {
+		t.Fatalf("ListIssueEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	if events[0].Kind != "closed" {
+		t.Fatalf("kind = %q, want closed", events[0].Kind)
+	}
+	var meta map[string]int64
+	if err := json.Unmarshal(events[0].Meta, &meta); err != nil {
+		t.Fatalf("meta json: %v", err)
+	}
+	if meta["comment_id"] != comment.ID {
+		t.Fatalf("comment_id = %d, want %d", meta["comment_id"], comment.ID)
 	}
 }
 
