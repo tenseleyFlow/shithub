@@ -97,6 +97,17 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 						DefaultBranchOid: pgtype.Text{String: newOID, Valid: true},
 					})
 				}
+				// S28: kick a code-search reindex of the new
+				// default-branch tip. The reindex job is idempotent
+				// + atomic-swap, so a concurrent push that lands
+				// before this finishes simply gets re-indexed on
+				// the NEXT push. The reconciler heals any drift.
+				if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindRepoIndexCode,
+					map[string]any{"repo_id": repo.ID},
+					worker.EnqueueOptions{}); err != nil {
+					deps.Logger.WarnContext(ctx, "push:process: enqueue index_code",
+						"push_event_id", event.ID, "error", err)
+				}
 			}
 		}
 

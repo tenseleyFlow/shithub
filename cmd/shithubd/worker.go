@@ -101,6 +101,13 @@ var workerCmd = &cobra.Command{
 			Pool: pool, RepoFS: rfs, Logger: logger, ShithubdPath: shithubdPath,
 		}))
 
+		p.Register(worker.KindRepoIndexCode, jobs.RepoIndexCode(jobs.IndexCodeDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger,
+		}))
+		p.Register(worker.KindRepoIndexReconcile, jobs.RepoIndexReconcile(jobs.IndexReconcileDeps{
+			Pool: pool, Logger: logger,
+		}))
+
 		return p.Run(ctx)
 	},
 }

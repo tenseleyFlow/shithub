@@ -55,6 +55,15 @@ const (
 	KindRepoForkClone Kind = "repo:fork_clone"
 )
 
+// S28 code-search kinds. index_code re-indexes a repo's default
+// branch (paths + content). Enqueued by push:process when the
+// default branch advances; also by index_reconcile when drift
+// between default_branch_oid and last_indexed_oid is detected.
+const (
+	KindRepoIndexCode      Kind = "repo:index_code"
+	KindRepoIndexReconcile Kind = "repo:index_reconcile"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the
