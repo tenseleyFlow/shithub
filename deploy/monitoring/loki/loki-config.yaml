@@ -1,0 +1,56 @@
+# Loki — single-binary mode on the monitoring host. Promtail on
+# each app host tails /var/log/shithubd/*.log and ships here over
+# the wg0 mesh. Retention is short; long-term log archival is the
+# OS journal + Spaces backup.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 10.50.0.10
+  path_prefix: /var/lib/loki
+  storage:
+    filesystem:
+      chunks_directory: /var/lib/loki/chunks
+      rules_directory: /var/lib/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  max_streams_per_user: 5000
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules
+  rule_path: /tmp/loki-rules
+  alertmanager_url: http://10.50.0.10:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+
+compactor:
+  working_directory: /var/lib/loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem

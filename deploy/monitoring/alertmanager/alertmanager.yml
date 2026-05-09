@@ -1,0 +1,40 @@
+# Alertmanager — routes pages to the operator's pager and ticket-
+# severity alerts to email. Webhook URL is templated from the
+# operator's secret store; never commit a real one here.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: tickets
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 6h
+  routes:
+    - matchers: [severity="page"]
+      receiver: pager
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: tickets
+    email_configs:
+      - to: ops@shithub.example
+        from: alertmanager@shithub.example
+        smarthost: smtp.shithub.example:587
+        auth_username: alertmanager@shithub.example
+        auth_password_file: /etc/alertmanager/smtp.password
+        require_tls: true
+        send_resolved: true
+
+  - name: pager
+    webhook_configs:
+      - url_file: /etc/alertmanager/pager.url
+        send_resolved: true
+
+inhibit_rules:
+  # If the whole web tier is down, suppress per-route latency noise.
+  - source_matchers: [alertname="ShithubdWebDown"]
+    target_matchers: [alertname="HighRequestLatencyP95"]
+    equal: [cluster]
