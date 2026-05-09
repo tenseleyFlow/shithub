@@ -24,13 +24,17 @@ func (h *Handlers) labelsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	labels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueLabel, policy.NewRepoRefFromRepo(row)).Allow
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/labels", map[string]any{
-		"Title":     "Labels · " + row.Name,
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Labels":    labels,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Title":          "Labels · " + row.Name,
+		"Owner":          owner.Username,
+		"Repo":           row,
+		"Labels":         labels,
+		"CanManageIssue": canManage,
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
 	})
 }
 
@@ -119,13 +123,17 @@ func (h *Handlers) milestonesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ms, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueLabel, policy.NewRepoRefFromRepo(row)).Allow
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/milestones", map[string]any{
-		"Title":      "Milestones · " + row.Name,
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"Milestones": ms,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Title":          "Milestones · " + row.Name,
+		"Owner":          owner.Username,
+		"Repo":           row,
+		"Milestones":     ms,
+		"CanManageIssue": canManage,
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
 	})
 }
 

@@ -8,7 +8,7 @@
     </h1>
   </header>
 
-  {{ if .Viewer.ID }}
+  {{ if .CanManageIssue }}
   <details class="shithub-label-create">
     <summary class="shithub-button shithub-button-primary">New label</summary>
     <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-label-form">
@@ -26,7 +26,7 @@
     <li class="shithub-labels-row">
       <span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>
       {{ if .Description }}<span class="shithub-muted">{{ .Description }}</span>{{ end }}
-      {{ if $.Viewer.ID }}
+      {{ if $.CanManageIssue }}
       <details class="shithub-label-edit">
         <summary class="shithub-button">Edit</summary>
         <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/labels/{{ .ID }}/update" class="shithub-label-form">

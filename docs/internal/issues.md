@@ -90,6 +90,15 @@ Issue creation and commenting follow GitHub's public-participation
 model: any logged-in user may open or comment on issues in a public
 repo, while private repos require `read` access.
 
+The issue page is capability-driven:
+
+- The comment box appears only when `policy.Can(issue:comment)` allows
+  and the issue is not locked, unless the viewer is triage+.
+- Close/reopen appears for triage+ users and for the issue author.
+- Labels, assignees, milestones, and lock controls appear only for the
+  matching triage-level policy action. Public participants should not
+  see forms that only lead to 403s.
+
 ## Cross-reference indexing
 
 `internal/issues/references.go::insertReferencesFromBody` parses

@@ -85,6 +85,12 @@ without starting a review" path) is `pending=false` from the start,
 The settings/branches handler now also accepts
 `required_review_count` and `dismiss_stale_reviews_on_push`.
 
+The PR template hides review-request, review-submit, inline-comment,
+and thread-resolve controls unless `policy.Can(pull:review)` allows
+the viewer. Merge and close controls are similarly driven by
+`pull:merge` and `pull:close` decisions. Public viewers who can read a
+PR should not see forms that only lead to 403s.
+
 ## Required-review gate
 
 `internal/pulls/review/required.go::Evaluate` is the authoritative
