@@ -50,8 +50,3 @@ func RoleAtLeast(have, want Role) bool {
 func roleFromDB(r policydb.CollabRole) Role {
 	return Role(r)
 }
-
-// roleToDB is the inverse, used by callers that mutate collaborators.
-func roleToDB(r Role) policydb.CollabRole {
-	return policydb.CollabRole(r)
-}
