@@ -37,7 +37,7 @@ with `K6_SCENARIO=auth-mix make load-test` etc.
 ## Running against staging
 
 ```sh
-export BASE=https://staging.shithub.example
+export BASE=https://staging.shithub.sh
 export TOKEN=shp_<a-pat-on-a-test-account>
 export REPO=loadtest/issue-storm  # for the comment-storm scenario
 export FIRST_ISSUE=1

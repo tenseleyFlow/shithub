@@ -10,7 +10,7 @@ your domain; the site serves the staging cert (or no cert).
 Most often:
 
 - DNS doesn't yet point at the host. Verify with `dig +short
-  shithub.example`.
+  shithub.sh`.
 - Port 80 is blocked. Let's Encrypt's HTTP-01 challenge needs
   port 80 reachable from the public internet (Caddy redirects
   to 443 *after* obtaining the cert). UFW must allow 80.

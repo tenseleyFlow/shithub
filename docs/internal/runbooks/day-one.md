@@ -26,7 +26,7 @@ Open three tabs and walk this list:
    - A flood of ERROR lines from the same handler is a bug —
      bisect.
 
-3. **Status page on docs.shithub.example/status.html.**
+3. **Status page on docs.shithub.sh/status.html.**
    - Confirm "All systems normal." with a current timestamp.
    - If you've had any blip, even a 30-second one, log it under
      "Recent incidents" with what happened. Trust comes from
@@ -58,7 +58,7 @@ if you haven't.
 3. **Mirror push to GitHub.** The mirror job runs hourly. Confirm:
    ```sh
    git ls-remote https://github.com/tenseleyFlow/shithub.git trunk
-   git ls-remote https://shithub.example/shithub/shithub.git trunk
+   git ls-remote https://shithub.sh/shithub/shithub.git trunk
    ```
    Both should report the same SHA (within an hour of the latest
    push to shithub).
@@ -71,7 +71,7 @@ if you haven't.
    - Suspended accounts: log who and why for the retro.
 
 5. **Issue tracker.** Open
-   `https://shithub.example/shithub/shithub/issues`. Triage every
+   `https://shithub.sh/shithub/shithub/issues`. Triage every
    new issue:
    - **P0** — site down / data loss / security. Fix immediately.
    - **P1** — broken core flow (signup, push, merge). Fix this
@@ -81,7 +81,7 @@ if you haven't.
    - Reply on every issue within 24h, even if just "tracked, P2."
 
 6. **Retro.** Update
-   `docs/internal/retro/v1.0.0.md` — fill the "Numbers" table,
+   `docs/internal/retro/v0.1.0.md` — fill the "Numbers" table,
    the "What surprised us" section, the top-3 issues table.
 
 ## "First incident?"

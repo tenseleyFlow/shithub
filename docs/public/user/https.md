@@ -24,7 +24,7 @@ into your password manager — we never display it again.
 ## 2. Clone
 
 ```sh
-git clone https://shithub.example/<owner>/<repo>.git
+git clone https://shithub.sh/<owner>/<repo>.git
 ```
 
 When git asks for credentials:
@@ -53,7 +53,7 @@ the URL or `~/.netrc`. Use a token with the narrowest scope the
 job needs and a short expiration.
 
 ```sh
-git clone https://x-access-token:${SHITHUB_PAT}@shithub.example/owner/repo.git
+git clone https://x-access-token:${SHITHUB_PAT}@shithub.sh/owner/repo.git
 ```
 
 Because the token is in the URL, make sure your CI doesn't echo

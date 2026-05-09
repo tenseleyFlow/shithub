@@ -7,7 +7,7 @@
 # is reachable, the API authenticates a known PAT.
 #
 # Usage:
-#   deploy/cutover/smoke.sh https://shithub.example
+#   deploy/cutover/smoke.sh https://shithub.sh
 #
 # Optional env (when set, the script also exercises the API):
 #   SHITHUB_SMOKE_PAT     — a valid shp_ token for `user:read`

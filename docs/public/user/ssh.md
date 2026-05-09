@@ -43,7 +43,7 @@ what `ssh-keygen -l -f ~/.ssh/id_ed25519.pub` prints locally.
 ## 4. Test the connection
 
 ```sh
-ssh -T git@shithub.example
+ssh -T git@shithub.sh
 ```
 
 You'll see a confirmation message. The `-T` disables PTY allocation;
@@ -52,7 +52,7 @@ shithub's SSH service refuses TTYs anyway.
 ## 5. Clone with SSH
 
 ```sh
-git clone git@shithub.example:<owner>/<repo>.git
+git clone git@shithub.sh:<owner>/<repo>.git
 ```
 
 Subsequent pushes don't prompt — the agent presents the key, the

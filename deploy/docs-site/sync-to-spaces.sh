@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Build the public docs site and sync it to the Spaces bucket
-# that Caddy serves docs.shithub.example from.
+# that Caddy serves docs.shithub.sh from.
 #
 # Run from CI on every push to main, or from an operator's
 # workstation as a one-off. Idempotent: rclone sync only touches

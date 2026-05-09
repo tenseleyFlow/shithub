@@ -25,7 +25,7 @@ on the small dataset.
 make bench-small
 
 # Pin a different target / iteration count.
-BENCH_TARGET=http://staging.shithub.example BENCH_ITERS=100 make bench-small
+BENCH_TARGET=http://staging.shithub.sh BENCH_ITERS=100 make bench-small
 ```
 
 Output is one JSON line per scenario:

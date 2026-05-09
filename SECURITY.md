@@ -2,9 +2,9 @@
 
 ## Reporting a vulnerability
 
-Email **`security@shithub.example`**. PGP-encrypt the report
+Email **`security@shithub.sh`**. PGP-encrypt the report
 using the key fingerprint published at
-`https://shithub.example/.well-known/pgp-key.asc` if your finding
+`https://shithub.sh/.well-known/pgp-key.asc` if your finding
 is sensitive.
 
 The mailbox auto-acknowledges receipt within minutes. A human
@@ -19,7 +19,7 @@ hall of fame on resolution unless you ask not to be named.
 
 In scope:
 
-- The hosted shithub instance (`shithub.example`).
+- The hosted shithub instance (`shithub.sh`).
 - The shithub source as published on GitHub
   (`github.com/tenseleyFlow/shithub`), exploited against any
   reasonably-deployed self-hosted instance running an unmodified

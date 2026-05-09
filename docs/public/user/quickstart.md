@@ -38,7 +38,7 @@ token](./personal-access-tokens.md) — your account password does
 not work for git operations.
 
 ```sh
-git clone https://shithub.example/<your-username>/<repo>.git
+git clone https://shithub.sh/<your-username>/<repo>.git
 cd <repo>
 ```
 

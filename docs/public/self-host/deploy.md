@@ -85,11 +85,11 @@ through `/admin/users/{id}`.
 
 ## 5. Smoke
 
-- `https://shithub.example/` — Caddy serves the home page.
-- `https://shithub.example/-/health` — returns `200 OK` with the
+- `https://shithub.sh/` — Caddy serves the home page.
+- `https://shithub.sh/-/health` — returns `200 OK` with the
   build version.
 - Sign in as the bootstrap admin. Create a test repo. Push to it.
-- `https://shithub.example/admin/` — admin dashboard renders.
+- `https://shithub.sh/admin/` — admin dashboard renders.
 
 ## 6. Production
 

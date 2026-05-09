@@ -47,9 +47,9 @@ on top of that.
 
 You need:
 
-- A domain you control (e.g. `shithub.example`).
-- DNS records for the app (`shithub.example`) and the docs
-  subdomain (`docs.shithub.example`).
+- A domain you control (e.g. `shithub.sh`).
+- DNS records for the app (`shithub.sh`) and the docs
+  subdomain (`docs.shithub.sh`).
 - A TLS certificate. Caddy obtains and renews via Let's Encrypt
   automatically — no manual cert management — but the DNS records
   must point at your public IP first.

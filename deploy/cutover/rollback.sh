@@ -91,7 +91,7 @@ make deploy ANSIBLE_INVENTORY=production
 # file; falls back to asking.
 BASE="${SHITHUB_PROD_URL:-}"
 if [[ -z "$BASE" ]]; then
-  read -r -p "Smoke base URL (e.g. https://shithub.example): " BASE
+  read -r -p "Smoke base URL (e.g. https://shithub.sh): " BASE
 fi
 echo ""
 echo "running smoke against $BASE..."

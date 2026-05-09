@@ -37,7 +37,7 @@ killed instantly. Use this if you suspect an unauthorized sign-in.
 
 ## SSH and GPG keys
 
-- **SSH keys** authenticate `git@shithub.example:...` operations.
+- **SSH keys** authenticate `git@shithub.sh:...` operations.
 - **GPG keys** verify signed commits — when a commit's signature
   matches a registered GPG key, the commit shows a "Verified"
   badge in history.

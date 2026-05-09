@@ -60,7 +60,7 @@ public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable
 behavior may be reported to the project team at
-**`conduct@shithub.example`**. All complaints will be reviewed
+**`conduct@shithub.sh`**. All complaints will be reviewed
 and investigated promptly and fairly.
 
 All project maintainers are obligated to respect the privacy and

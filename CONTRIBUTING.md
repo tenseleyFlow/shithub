@@ -97,4 +97,4 @@ run the deploy.
   `proposal`.
 - **Day-to-day chat:** the project doesn't run a Slack/Discord
   yet; PR comments and issues are the channel.
-- **Security:** `security@shithub.example` (see SECURITY.md).
+- **Security:** `security@shithub.sh` (see SECURITY.md).

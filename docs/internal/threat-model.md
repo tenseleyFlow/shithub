@@ -178,7 +178,7 @@ keep an eye on them:
   is enforced; we don't yet do reproducible-build verification.
 - **The docs subdomain serving from Spaces.** A bucket
   policy mistake there could let an attacker stage a phishing
-  page on `docs.shithub.example`. Mitigated by Caddy's CSP
+  page on `docs.shithub.sh`. Mitigated by Caddy's CSP
   and the explicit reverse-proxy origin
   (`deploy/docs-site/Caddyfile.snippet`).
 - **PAT prefix recognition by external secret scanners.**

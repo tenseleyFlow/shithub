@@ -9,10 +9,10 @@ visual check.
 
 ## T-7 days
 
-- [ ] DNS A/AAAA for `shithub.example` published with low TTL
+- [ ] DNS A/AAAA for `shithub.sh` published with low TTL
       (300s) so cutover-day changes propagate fast. Verify:
-      `dig +short A shithub.example`.
-- [ ] DNS CNAME for `docs.shithub.example` published.
+      `dig +short A shithub.sh`.
+- [ ] DNS CNAME for `docs.shithub.sh` published.
 - [ ] Postmark domain verified; SPF/DKIM/DMARC aligned. Verify:
       Postmark dashboard → Domains → green.
 - [ ] Signup-throttle config reviewed; per-IP and per-/24
@@ -28,13 +28,13 @@ visual check.
 - [ ] Last DNS change committed. Cutover after 48h ensures no
       propagation lag.
 - [ ] S37 backup-restore drill green within last 7 days.
-- [ ] S38 docs deploy verified; `https://docs.shithub.example/`
+- [ ] S38 docs deploy verified; `https://docs.shithub.sh/`
       returns 200.
 - [ ] S39 P0/P1 bugs closed.
 - [ ] Tag the release commit:
       ```sh
-      git tag -a v1.0.0 -m "v1.0.0 — launch"
-      git push origin v1.0.0
+      git tag -a v0.1.0 -m "v0.1.0 — launch"
+      git push origin v0.1.0
       ```
 
 ## T-1 hour
@@ -49,9 +49,9 @@ visual check.
 ## T-0: cutover
 
 ```sh
-# 1. Pull the v1.0.0 tag.
+# 1. Pull the v0.1.0 tag.
 git fetch --tags
-git checkout v1.0.0
+git checkout v0.1.0
 
 # 2. Dry-run to confirm exactly what will change.
 make deploy-check ANSIBLE_INVENTORY=production
@@ -77,7 +77,7 @@ Run the smoke script as soon as the deploy reports `ok=N
 changed=N failed=0`:
 
 ```sh
-deploy/cutover/smoke.sh https://shithub.example
+deploy/cutover/smoke.sh https://shithub.sh
 ```
 
 The script exercises: home page, signup form, login form, health
@@ -127,7 +127,7 @@ git remote add github https://github.com/tenseleyFlow/shithub.git
 Confirm a test push lands on both:
 
 ```sh
-git clone https://shithub.example/shithub/shithub.git /tmp/test-clone
+git clone https://shithub.sh/shithub/shithub.git /tmp/test-clone
 cd /tmp/test-clone
 echo "launch test" >> .launch-test
 git add .launch-test
@@ -164,7 +164,7 @@ For the first 24h:
 - Refresh Grafana every 30 min.
 - Triage every alert immediately; nothing false-positive should
   page in week 1 (we tuned for it).
-- Bug reports go to `https://shithub.example/shithub/shithub/issues`
+- Bug reports go to `https://shithub.sh/shithub/shithub/issues`
   (the project's own self-hosted issues — drink your own
   champagne).
 
@@ -184,6 +184,6 @@ fixed." Honesty wins trust; deadlines under stress lose it.
 
 ## Day-one retro
 
-After the first 24h, fill in `docs/internal/retro/v1.0.0.md`
+After the first 24h, fill in `docs/internal/retro/v0.1.0.md`
 with: what worked, what surprised us, top 3 user-reported
 issues, and the next sprint's focus.
