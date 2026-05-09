@@ -1,0 +1,14 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Organization invitation</h1>
+  <p>You've been invited to join <strong>{{ .Org.DisplayName }}</strong> (@{{ .Org.Slug }}) as a <strong>{{ .Invitation.Role }}</strong>.</p>
+  <form method="POST" action="/invitations/{{ .Token }}/accept" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <button type="submit" class="shithub-button shithub-button-primary">Accept</button>
+  </form>
+  <form method="POST" action="/invitations/{{ .Token }}/decline" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <button type="submit" class="shithub-button">Decline</button>
+  </form>
+</section>
+{{- end }}

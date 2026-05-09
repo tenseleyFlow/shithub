@@ -1,0 +1,28 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Create an organization</h1>
+  {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
+  <form method="POST" action="/organizations" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <label>
+      <span>Slug</span>
+      <input type="text" name="slug" required
+             pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
+             title="lowercase letters, digits, and hyphens; 1–39 chars; cannot start or end with a hyphen"
+             value="{{ .Slug }}" autofocus>
+    </label>
+    <label>
+      <span>Display name</span>
+      <input type="text" name="display_name">
+    </label>
+    <label>
+      <span>Billing email (optional)</span>
+      <input type="email" name="billing_email" autocomplete="email">
+    </label>
+    <button type="submit" class="shithub-button shithub-button-primary">Create organization</button>
+  </form>
+  <p class="shithub-auth-aside">
+    The slug is your org's URL handle and must be unique across users + orgs. You can change the display name later.
+  </p>
+</section>
+{{- end }}

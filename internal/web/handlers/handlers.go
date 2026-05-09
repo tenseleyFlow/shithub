@@ -100,6 +100,18 @@ type Deps struct {
 	// needed, so the route lives in the public group alongside
 	// /healthz / /static.
 	NotifPublicMounter func(chi.Router)
+	// OrgCreateMounter registers /organizations/new + POST
+	// /organizations (S30). Wrapped in RequireUser at the wiring
+	// layer.
+	OrgCreateMounter func(chi.Router)
+	// OrgRoutesMounter registers /{org}/people + invite + member
+	// management. Reads (people page) are public; mutations are
+	// owner-gated inside the handler. Must register BEFORE the
+	// /{username} catch-all so the `people` segment matches.
+	OrgRoutesMounter func(chi.Router)
+	// OrgInvitationsMounter registers /invitations/{token} +
+	// accept/decline. RequireUser at the wiring layer.
+	OrgInvitationsMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -241,6 +253,17 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.NotifInboxMounter != nil {
 			deps.NotifInboxMounter(r)
+		}
+		if deps.OrgCreateMounter != nil {
+			deps.OrgCreateMounter(r)
+		}
+		if deps.OrgInvitationsMounter != nil {
+			deps.OrgInvitationsMounter(r)
+		}
+		// /{org}/people MUST register before /{username} catch-all
+		// so the explicit `people` segment matches first.
+		if deps.OrgRoutesMounter != nil {
+			deps.OrgRoutesMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

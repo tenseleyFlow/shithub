@@ -1,0 +1,74 @@
+{{ define "page" -}}
+<section class="shithub-org-people">
+  <header class="shithub-org-profile-head">
+    <h1>{{ .Org.DisplayName }} · People</h1>
+    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+  </header>
+
+  {{ if .IsOwner }}
+  <section class="shithub-org-invite">
+    <h2>Invite a new member</h2>
+    <form method="POST" action="/{{ .Org.Slug }}/people/invite">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>
+        <span>Username or email</span>
+        <input type="text" name="target" required placeholder="@username or someone@example.com">
+      </label>
+      <label>
+        <span>Role</span>
+        <select name="role">
+          <option value="member" selected>Member</option>
+          <option value="owner">Owner</option>
+        </select>
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Invite</button>
+    </form>
+  </section>
+  {{ end }}
+
+  <section class="shithub-org-members">
+    <h2>Members ({{ len .Members }})</h2>
+    <table class="shithub-table">
+      <thead><tr><th>User</th><th>Role</th><th>Joined</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
+      <tbody>
+        {{ range .Members }}
+        <tr>
+          <td><a href="/{{ .Username }}">@{{ .Username }}</a> {{ if .DisplayName }}<span class="shithub-meta">— {{ .DisplayName }}</span>{{ end }}</td>
+          <td>{{ .Role }}</td>
+          <td>{{ relativeTime .JoinedAt.Time }}</td>
+          {{ if $.IsOwner }}
+          <td>
+            <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/role" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <select name="role" onchange="this.form.submit()" aria-label="Change role">
+                <option value="member" {{ if eq (printf "%s" .Role) "member" }}selected{{ end }}>Member</option>
+                <option value="owner" {{ if eq (printf "%s" .Role) "owner" }}selected{{ end }}>Owner</option>
+              </select>
+            </form>
+            <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/remove" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button">Remove</button>
+            </form>
+          </td>
+          {{ end }}
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </section>
+
+  {{ if and .IsOwner .Pending }}
+  <section class="shithub-org-pending">
+    <h2>Pending invitations</h2>
+    <ul>
+    {{ range .Pending }}
+      <li>
+        {{ if .TargetUsername.Valid }}@{{ .TargetUsername.String }}{{ else }}{{ .TargetEmail.String }}{{ end }}
+        — {{ .Role }} — invited {{ relativeTime .CreatedAt.Time }}
+      </li>
+    {{ end }}
+    </ul>
+  </section>
+  {{ end }}
+</section>
+{{- end }}

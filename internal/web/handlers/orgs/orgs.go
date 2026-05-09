@@ -1,0 +1,370 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Package orgs wires the S30 organization web surface:
+//
+//   GET  /organizations/new            create form
+//   POST /organizations                create submit
+//   GET  /{org}/people                 members + pending invites + invite form
+//   POST /{org}/people/invite          invite by username or email
+//   POST /{org}/people/{user}/role     change role
+//   POST /{org}/people/{user}/remove   remove member
+//   GET  /invitations/{token}          accept/decline view
+//   POST /invitations/{token}/accept   accept
+//   POST /invitations/{token}/decline  decline
+//
+// Profile rendering for /{org} is dispatched from the existing
+// /{username} catch-all in internal/web/handlers/profile via the
+// principals.Resolve lookup; this handler set only owns the org-
+// specific surfaces.
+package orgs
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/web/render"
+)
+
+// Deps wires the handler set.
+type Deps struct {
+	Logger      *slog.Logger
+	Render      *render.Renderer
+	Pool        *pgxpool.Pool
+	EmailSender authemail.Sender
+	EmailFrom   string
+	SiteName    string
+	BaseURL     string
+}
+
+// Handlers groups the org surface handlers.
+type Handlers struct {
+	d Deps
+}
+
+// New constructs the handler set, validating Deps.
+func New(d Deps) (*Handlers, error) {
+	if d.Render == nil {
+		return nil, errors.New("orgs handlers: nil Render")
+	}
+	if d.Pool == nil {
+		return nil, errors.New("orgs handlers: nil Pool")
+	}
+	return &Handlers{d: d}, nil
+}
+
+// MountCreate registers /organizations/new + POST /organizations.
+// Caller wraps these in RequireUser since both require a logged-in
+// creator. The /organizations prefix is on the auth-reserved list so
+// it never shadows a user/org slug.
+func (h *Handlers) MountCreate(r chi.Router) {
+	r.Get("/organizations/new", h.newForm)
+	r.Post("/organizations", h.createSubmit)
+}
+
+// MountOrgRoutes registers the per-org surface under /{org}/people
+// and /{org}/settings. Caller MUST register this before the
+// /{username} catch-all so the `people` segment matches.
+//
+// Member-management routes live behind RequireUser at the wiring
+// layer (server.go); profile-style reads stay public.
+func (h *Handlers) MountOrgRoutes(r chi.Router) {
+	r.Get("/{org}/people", h.peoplePage)
+	r.Post("/{org}/people/invite", h.invite)
+	r.Post("/{org}/people/{userID}/role", h.changeRole)
+	r.Post("/{org}/people/{userID}/remove", h.removeMember)
+}
+
+// MountInvitations registers /invitations/{token}* — accept/decline.
+// Authed-only; the page also shows a hint when the viewer's logged-in
+// user doesn't match the invite's target email.
+func (h *Handlers) MountInvitations(r chi.Router) {
+	r.Get("/invitations/{token}", h.invitationView)
+	r.Post("/invitations/{token}/accept", h.invitationAccept)
+	r.Post("/invitations/{token}/decline", h.invitationDecline)
+}
+
+// ─── helpers ───────────────────────────────────────────────────────
+
+func (h *Handlers) deps() orgs.Deps {
+	return orgs.Deps{
+		Pool:        h.d.Pool,
+		Logger:      h.d.Logger,
+		EmailSender: h.d.EmailSender,
+		EmailFrom:   h.d.EmailFrom,
+		SiteName:    h.d.SiteName,
+		BaseURL:     h.d.BaseURL,
+	}
+}
+
+// orgFromSlug resolves the org from a {org} URL param, with an
+// existence-leak-safe 404 path.
+func (h *Handlers) orgFromSlug(w http.ResponseWriter, r *http.Request) (orgsdb.Org, bool) {
+	slug := chi.URLParam(r, "org")
+	row, err := orgsdb.New().GetOrgBySlug(r.Context(), h.d.Pool, slug)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return orgsdb.Org{}, false
+	}
+	return row, true
+}
+
+func parseUserIDParam(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
+// ─── create ────────────────────────────────────────────────────────
+
+func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next=/organizations/new", http.StatusSeeOther)
+		return
+	}
+	h.renderNewForm(w, r, "", "")
+}
+
+func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next=/organizations/new", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	slug := strings.TrimSpace(r.PostFormValue("slug"))
+	displayName := strings.TrimSpace(r.PostFormValue("display_name"))
+	billingEmail := strings.TrimSpace(r.PostFormValue("billing_email"))
+
+	row, err := orgs.Create(r.Context(), h.deps(), orgs.CreateParams{
+		Slug:            slug,
+		DisplayName:     displayName,
+		BillingEmail:    billingEmail,
+		CreatedByUserID: viewer.ID,
+	})
+	if err != nil {
+		h.renderNewForm(w, r, slug, friendlyOrgErr(err))
+		return
+	}
+	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
+}
+
+func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, slug, errMsg string) {
+	_ = h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
+		"Title":     "New organization",
+		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Slug":      slug,
+		"Error":     errMsg,
+	})
+}
+
+// ─── people ────────────────────────────────────────────────────────
+
+func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.orgFromSlug(w, r)
+	if !ok {
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	q := orgsdb.New()
+	members, err := q.ListOrgMembers(r.Context(), h.d.Pool, org.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: list members", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	var pending []orgsdb.ListPendingInvitationsForOrgRow
+	isOwner := false
+	if !viewer.IsAnonymous() {
+		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+		if isOwner {
+			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
+		}
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
+		"Title":     org.Slug + " · people",
+		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Org":       org,
+		"Members":   members,
+		"Pending":   pending,
+		"IsOwner":   isOwner,
+	})
+}
+
+func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.orgFromSlug(w, r)
+	if !ok {
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
+		return
+	}
+	owner, err := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+	if err != nil || !owner {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	target := strings.TrimSpace(r.PostFormValue("target"))
+	role := r.PostFormValue("role")
+	if role == "" {
+		role = "member"
+	}
+	p := orgs.InviteParams{
+		OrgID:           org.ID,
+		InvitedByUserID: viewer.ID,
+		Role:            role,
+	}
+	if strings.Contains(target, "@") {
+		p.TargetEmail = target
+	} else {
+		p.TargetUsername = target
+	}
+	if _, err := orgs.Invite(r.Context(), h.deps(), p); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "orgs: invite failed",
+			"org", org.Slug, "target", target, "error", err)
+	}
+	http.Redirect(w, r, "/"+org.Slug+"/people", http.StatusSeeOther)
+}
+
+func (h *Handlers) changeRole(w http.ResponseWriter, r *http.Request) {
+	h.memberMutate(w, r, func(orgID, userID int64) error {
+		role := r.PostFormValue("role")
+		return orgs.ChangeRole(r.Context(), h.deps(), orgID, userID, role)
+	})
+}
+
+func (h *Handlers) removeMember(w http.ResponseWriter, r *http.Request) {
+	h.memberMutate(w, r, func(orgID, userID int64) error {
+		return orgs.RemoveMember(r.Context(), h.deps(), orgID, userID)
+	})
+}
+
+// memberMutate is the shared owner-check + redirect wrapper for the
+// member-management POSTs. Centralizes the policy gate so each route
+// is one line.
+func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action func(orgID, userID int64) error) {
+	org, ok := h.orgFromSlug(w, r)
+	if !ok {
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
+		return
+	}
+	owner, _ := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+	if !owner {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	uid, err := parseUserIDParam(chi.URLParam(r, "userID"))
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	if err := action(org.ID, uid); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "orgs: member mutation",
+			"org", org.Slug, "user_id", uid, "error", err)
+	}
+	http.Redirect(w, r, "/"+org.Slug+"/people", http.StatusSeeOther)
+}
+
+// ─── invitations ───────────────────────────────────────────────────
+
+func (h *Handlers) invitationView(w http.ResponseWriter, r *http.Request) {
+	tok := chi.URLParam(r, "token")
+	inv, err := orgs.LookupInvitationByToken(r.Context(), h.deps(), tok)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	org, err := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, inv.OrgID)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
+		"Title":      "Organization invitation",
+		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Org":        org,
+		"Invitation": inv,
+		"Token":      tok,
+	})
+}
+
+func (h *Handlers) invitationAccept(w http.ResponseWriter, r *http.Request) {
+	h.invitationAction(w, r, true)
+}
+
+func (h *Handlers) invitationDecline(w http.ResponseWriter, r *http.Request) {
+	h.invitationAction(w, r, false)
+}
+
+func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, accept bool) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+		return
+	}
+	tok := chi.URLParam(r, "token")
+	inv, err := orgs.LookupInvitationByToken(r.Context(), h.deps(), tok)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	if accept {
+		if err := orgs.AcceptInvitation(r.Context(), h.deps(), inv, viewer.ID); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "orgs: accept invitation",
+				"id", inv.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+			return
+		}
+	} else {
+		if err := orgs.DeclineInvitation(r.Context(), h.deps(), inv, viewer.ID); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "orgs: decline invitation",
+				"id", inv.ID, "error", err)
+		}
+	}
+	org, _ := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, inv.OrgID)
+	http.Redirect(w, r, "/"+org.Slug, http.StatusSeeOther)
+}
+
+// friendlyOrgErr maps orchestrator errors to user-facing strings.
+// Unknown errors collapse to a generic message — the underlying err
+// is logged at the call site.
+func friendlyOrgErr(err error) string {
+	switch {
+	case errors.Is(err, orgs.ErrEmptySlug):
+		return "Slug is required."
+	case errors.Is(err, orgs.ErrSlugTooLong):
+		return "Slug too long (max 39 characters)."
+	case errors.Is(err, orgs.ErrSlugInvalid):
+		return "Slug must be lowercase letters, digits, or hyphens; cannot start or end with a hyphen."
+	case errors.Is(err, orgs.ErrSlugReserved):
+		return "That slug is reserved. Try another."
+	case errors.Is(err, orgs.ErrSlugTaken):
+		return "That slug is already in use. Try another."
+	}
+	return "Something went wrong creating the organization."
+}

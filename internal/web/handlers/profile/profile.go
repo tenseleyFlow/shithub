@@ -28,6 +28,9 @@ import (
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
 	"github.com/tenseleyFlow/shithub/internal/avatars"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -85,6 +88,21 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	if authpkg.IsReserved(lower) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, r.URL.Path)
 		return
+	}
+
+	// S30: principals first. The single-row lookup decides whether
+	// /{slug} dispatches to the user-profile renderer (existing) or
+	// the org-profile renderer (this sprint). On miss, fall through
+	// to username_redirects so renamed users keep redirecting.
+	if p, err := orgs.Resolve(r.Context(), h.d.Pool, lower); err == nil {
+		switch p.Kind {
+		case orgs.PrincipalOrg:
+			h.serveOrgProfile(w, r, p.ID)
+			return
+		case orgs.PrincipalUser:
+			// Fall through to the user lookup below — keeps the
+			// existing canonical-case redirect + suspension paths.
+		}
 	}
 
 	// Try direct lookup. citext makes the comparison case-insensitive.
@@ -265,3 +283,81 @@ func safeWebsite(s string) template.URL {
 // ensure context import is used by static analysis even if a future
 // refactor removes its only inline use.
 var _ = context.Background
+
+// serveOrgProfile renders /{org}. Pulls the org row + a small set of
+// the org's visible repos. Visibility scoping defers to the caller's
+// authentication state — a viewer that isn't a member sees only
+// public repos.
+func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID int64) {
+	ctx := r.Context()
+	org, err := orgsdb.New().GetOrgByID(ctx, h.d.Pool, orgID)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, r.URL.Path)
+		return
+	}
+	if org.DeletedAt.Valid {
+		// Soft-deleted orgs render the same "unavailable" shell as
+		// suspended/deleted users so the existence-leak posture is
+		// uniform.
+		h.renderUnavailable(w, r, string(org.Slug))
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	isOwner := false
+	isMember := false
+	if !viewer.IsAnonymous() {
+		isOwner, _ = orgs.IsOwner(ctx, orgs.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, org.ID, viewer.ID)
+		isMember, _ = orgs.IsMember(ctx, orgs.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, org.ID, viewer.ID)
+	}
+
+	// Org repo listing — small inline query to avoid widening sqlc
+	// for one read. Members see private + public; non-members see
+	// public only. Soft-deleted repos are excluded uniformly.
+	visClause := "AND visibility = 'public'"
+	args := []any{org.ID}
+	if isMember {
+		visClause = ""
+	}
+	rows, err := h.d.Pool.Query(ctx,
+		`SELECT id, name, description, visibility::text
+		   FROM repos
+		  WHERE owner_org_id = $1 AND deleted_at IS NULL `+visClause+`
+		  ORDER BY name ASC LIMIT 50`,
+		args...)
+	if err != nil {
+		h.d.Logger.ErrorContext(ctx, "orgs profile: list repos", "error", err)
+	}
+	type repoRow struct {
+		Name, Description, Visibility string
+	}
+	var repos []repoRow
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			var rr repoRow
+			if err := rows.Scan(&id, &rr.Name, &rr.Description, &rr.Visibility); err == nil {
+				repos = append(repos, rr)
+			}
+		}
+	}
+	memberCount := 0
+	{
+		var n int64
+		_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM org_members WHERE org_id = $1`, org.ID).Scan(&n)
+		memberCount = int(n)
+	}
+
+	_ = h.d.Render.RenderPage(w, r, "orgs/profile", map[string]any{
+		"Title":       org.DisplayName,
+		"Org":         org,
+		"Repos":       repos,
+		"MemberCount": memberCount,
+		"IsOwner":     isOwner,
+		"IsMember":    isMember,
+	})
+}
+
+// avoid the unused-import lint when reposdb is only referenced in
+// the inline raw query above.
+var _ = reposdb.New

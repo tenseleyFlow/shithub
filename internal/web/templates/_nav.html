@@ -27,6 +27,7 @@
         </div>
         <a role="menuitem" href="/{{ .Viewer.Username }}">Your profile</a>
         <a role="menuitem" href="/{{ .Viewer.Username }}?tab=repositories">Your repositories</a>
+        <a role="menuitem" href="/organizations/new">New organization</a>
         <a role="menuitem" href="/settings/profile">Settings</a>
         <form method="POST" action="/logout" class="shithub-user-menu-signout">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">

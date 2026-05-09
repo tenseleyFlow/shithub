@@ -225,6 +225,33 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.NotifPublicMounter = notifH.MountPublic
 
+		// S30 — orgs.
+		orgH, err := buildOrgHandlers(cfg, pool, deps.TemplatesFS, logger)
+		if err != nil {
+			return fmt.Errorf("org handlers: %w", err)
+		}
+		deps.OrgCreateMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				orgH.MountCreate(r)
+			})
+		}
+		// /{org}/people: GETs are public (org existence is non-secret;
+		// member lists for private orgs are deferred). Mutations are
+		// owner-checked inside the handler, but RequireUser wraps the
+		// POST routes so unauth submits redirect to /login.
+		deps.OrgRoutesMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				orgH.MountOrgRoutes(r)
+			})
+		}
+		deps.OrgInvitationsMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				orgH.MountInvitations(r)
+			})
+		}
+
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {

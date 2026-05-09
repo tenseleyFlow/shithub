@@ -1,0 +1,32 @@
+{{ define "page" -}}
+<section class="shithub-org-profile">
+  <header class="shithub-org-profile-head">
+    <h1>{{ .Org.DisplayName }}</h1>
+    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+    {{ if .Org.Description }}<p>{{ .Org.Description }}</p>{{ end }}
+    <nav class="shithub-org-tabs">
+      <a href="/{{ .Org.Slug }}/people">People ({{ .MemberCount }})</a>
+      {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile">Settings</a>{{ end }}
+    </nav>
+  </header>
+  {{ if .Org.SuspendedAt.Valid }}
+  <p class="shithub-flash shithub-flash-error">This organization is suspended. Pushes are blocked; reads continue.</p>
+  {{ end }}
+  <section class="shithub-org-repos">
+    <h2>Repositories</h2>
+    {{ if .Repos }}
+      <ul class="shithub-search-list">
+      {{ range .Repos }}
+        <li>
+          <a href="/{{ $.Org.Slug }}/{{ .Name }}"><strong>{{ $.Org.Slug }}/{{ .Name }}</strong></a>
+          {{ if eq (printf "%s" .Visibility) "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
+          {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
+        </li>
+      {{ end }}
+      </ul>
+    {{ else }}
+      <p class="shithub-empty">No repositories yet.</p>
+    {{ end }}
+  </section>
+</section>
+{{- end }}
