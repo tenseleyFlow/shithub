@@ -71,6 +71,10 @@ type Deps struct {
 	// RepoSettingsBranchesMounter registers /settings/branches +
 	// /settings/default-branch (S20). Auth-required.
 	RepoSettingsBranchesMounter func(chi.Router)
+	// RepoSettingsGeneralMounter registers the General/Access tabs and
+	// the deferred-tab placeholders (webhooks, keys, notifications,
+	// tags) under /{owner}/{repo}/settings/* (S32). Auth-required.
+	RepoSettingsGeneralMounter func(chi.Router)
 	// RepoIssuesMounter registers /{owner}/{repo}/issues, /labels, and
 	// /milestones routes (S21). Reads are public (per-repo policy gate);
 	// writes are auth-required.
@@ -235,6 +239,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoSettingsBranchesMounter != nil {
 			deps.RepoSettingsBranchesMounter(r)
+		}
+		if deps.RepoSettingsGeneralMounter != nil {
+			deps.RepoSettingsGeneralMounter(r)
 		}
 		if deps.RepoIssuesMounter != nil {
 			deps.RepoIssuesMounter(r)
