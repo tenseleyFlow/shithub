@@ -1,0 +1,85 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# shithubd app role: installs the binary, env files, systemd units.
+# Binary is built locally and uploaded — no in-place compile on prod.
+
+- name: Repo + temp dirs on the block volume
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ shithub_user }}"
+    group: "{{ shithub_group }}"
+    mode: "0750"
+  loop:
+    - "{{ shithub_data_root }}/repos"
+    - "{{ shithub_data_root }}/tmp"
+    - /var/lib/shithub/binaries
+
+- name: Upload shithubd binary (built by `make deploy` locally)
+  copy:
+    src: "{{ playbook_dir }}/../../bin/shithubd"
+    dest: "/usr/local/bin/shithubd"
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Archive a versioned copy under /var/lib/shithub/binaries (rollback path)
+  shell: cp /usr/local/bin/shithubd /var/lib/shithub/binaries/shithubd-$(date +%Y%m%d-%H%M%S)
+  args:
+    creates: /var/lib/shithub/binaries/shithubd-{{ ansible_date_time.iso8601_basic_short }}
+
+- name: Web env file (0600 — secrets)
+  template:
+    src: web.env.j2
+    dest: /etc/shithub/web.env
+    owner: "{{ shithub_user }}"
+    group: "{{ shithub_group }}"
+    mode: "0600"
+  notify: restart shithubd-web
+
+- name: Worker env file (0600 — secrets)
+  template:
+    src: worker.env.j2
+    dest: /etc/shithub/worker.env
+    owner: "{{ shithub_user }}"
+    group: "{{ shithub_group }}"
+    mode: "0600"
+  notify: restart shithubd-worker
+
+- name: systemd unit — web
+  copy:
+    src: "{{ playbook_dir }}/../systemd/shithubd-web.service"
+    dest: /etc/systemd/system/shithubd-web.service
+    mode: "0644"
+  notify: [daemon-reload, restart shithubd-web]
+
+- name: systemd unit — worker
+  copy:
+    src: "{{ playbook_dir }}/../systemd/shithubd-worker.service"
+    dest: /etc/systemd/system/shithubd-worker.service
+    mode: "0644"
+  notify: [daemon-reload, restart shithubd-worker]
+
+- name: systemd unit — cron service + timer
+  copy:
+    src: "{{ playbook_dir }}/../systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - shithubd-cron.service
+    - shithubd-cron.timer
+  notify: [daemon-reload, enable shithubd-cron]
+
+- name: sshd_config — render with AKC line for git-over-SSH
+  template:
+    src: "{{ playbook_dir }}/../sshd_config.j2"
+    dest: /etc/ssh/sshd_config
+    mode: "0644"
+  notify: restart sshd
+
+- name: Enable + start shithubd-web
+  systemd: { name: shithubd-web, state: started, enabled: yes }
+
+- name: Enable + start shithubd-worker
+  systemd: { name: shithubd-worker, state: started, enabled: yes }

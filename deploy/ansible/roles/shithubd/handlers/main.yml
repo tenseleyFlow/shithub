@@ -1,0 +1,11 @@
+---
+- name: daemon-reload
+  systemd: { daemon_reload: yes }
+- name: restart shithubd-web
+  systemd: { name: shithubd-web, state: restarted, enabled: yes }
+- name: restart shithubd-worker
+  systemd: { name: shithubd-worker, state: restarted, enabled: yes }
+- name: enable shithubd-cron
+  systemd: { name: shithubd-cron.timer, state: started, enabled: yes }
+- name: restart sshd
+  systemd: { name: ssh, state: restarted }
