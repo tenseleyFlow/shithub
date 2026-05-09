@@ -1,0 +1,46 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Users</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice">{{ . }}</p>{{ end }}
+
+    <form method="GET" action="/admin/users" class="shithub-finder-form">
+      <input type="text" name="q" value="{{ .Q }}" placeholder="username prefix">
+      <label><input type="checkbox" name="suspended" value="1" {{ if .SuspendedOnly }}checked{{ end }}> Suspended</label>
+      <label><input type="checkbox" name="deleted" value="1" {{ if .DeletedOnly }}checked{{ end }}> Deleted</label>
+      <button type="submit" class="shithub-button">Filter</button>
+    </form>
+
+    {{ if .Users }}
+    <table class="shithub-branches-table">
+      <thead><tr><th>ID</th><th>Username</th><th>Display name</th><th>State</th><th>Last login</th><th></th></tr></thead>
+      <tbody>
+        {{ range .Users }}
+        <tr>
+          <td>#{{ .ID }}</td>
+          <td><a href="/admin/users/{{ .ID }}">{{ .Username }}</a></td>
+          <td>{{ .DisplayName }}</td>
+          <td>
+            {{ if .DeletedAt.Valid }}<span class="shithub-fg-muted">deleted</span>
+            {{ else if .SuspendedAt.Valid }}<span class="shithub-fg-muted">suspended</span>
+            {{ else }}active{{ end }}
+            {{ if .IsSiteAdmin }}<span class="shithub-pill">admin</span>{{ end }}
+          </td>
+          <td>{{ if .LastLoginAt.Valid }}{{ relativeTime .LastLoginAt.Time }}{{ else }}<span class="shithub-fg-muted">never</span>{{ end }}</td>
+          <td><a href="/admin/users/{{ .ID }}">View →</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty-note">No users match.</p>
+    {{ end }}
+
+    <nav class="shithub-pagination">
+      {{ if gt .Page 1 }}<a href="?page={{ .PrevPage }}">← Prev</a>{{ end }}
+      {{ if .HasMore }}<a href="?page={{ .NextPage }}">Next →</a>{{ end }}
+    </nav>
+  </div>
+</div>
+{{- end }}

@@ -1,0 +1,37 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>System</h1>
+
+    <section class="shithub-settings-section">
+      <h2>Process</h2>
+      <ul>
+        <li>shithubd version: <code>{{ .Version }}</code></li>
+        <li>Go runtime: <code>{{ .GoVersion }}</code> ({{ .GoOS }}/{{ .GoArch }})</li>
+      </ul>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Database</h2>
+      <ul>
+        <li>Database: <code>{{ index .DB "name" }}</code> as <code>{{ index .DB "user" }}</code></li>
+        <li>Active connections: {{ index .DB "conns" }}</li>
+      </ul>
+      <h3>pgx pool</h3>
+      <ul>
+        <li>Acquired / idle / total / max: {{ index .Pool "acquired" }} / {{ index .Pool "idle" }} / {{ index .Pool "total" }} / {{ index .Pool "max" }}</li>
+        <li>Lifetime acquires: {{ index .Pool "acquireCount" }}</li>
+      </ul>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Repositories</h2>
+      <ul>
+        <li>Repos: {{ index .Repos "count" }}</li>
+        <li>Disk used (sum): {{ index .Repos "diskBytes" }} bytes</li>
+      </ul>
+    </section>
+  </div>
+</div>
+{{- end }}

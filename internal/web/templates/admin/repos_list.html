@@ -1,0 +1,47 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Repositories</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice">{{ . }}</p>{{ end }}
+
+    <form method="GET" action="/admin/repos" class="shithub-finder-form">
+      <input type="text" name="q" value="{{ .Q }}" placeholder="name prefix">
+      <select name="visibility">
+        <option value="">any visibility</option>
+        <option value="public" {{ if eq .Visibility "public" }}selected{{ end }}>public</option>
+        <option value="private" {{ if eq .Visibility "private" }}selected{{ end }}>private</option>
+      </select>
+      <label><input type="checkbox" name="archived" value="1" {{ if .ArchivedOnly }}checked{{ end }}> Archived</label>
+      <label><input type="checkbox" name="deleted" value="1" {{ if .DeletedOnly }}checked{{ end }}> Deleted</label>
+      <button type="submit" class="shithub-button">Filter</button>
+    </form>
+
+    {{ if .Repos }}
+    <table class="shithub-branches-table">
+      <thead><tr><th>ID</th><th>Owner</th><th>Name</th><th>Visibility</th><th>State</th><th>Disk</th><th></th></tr></thead>
+      <tbody>
+        {{ range .Repos }}
+        <tr>
+          <td>#{{ .ID }}</td>
+          <td>{{ if .OwnerUserUsername }}{{ .OwnerUserUsername }}{{ else if .OwnerOrgSlug }}{{ .OwnerOrgSlug }} (org){{ else }}<span class="shithub-fg-muted">—</span>{{ end }}</td>
+          <td><a href="/admin/repos/{{ .ID }}">{{ .Name }}</a></td>
+          <td><code>{{ .Visibility }}</code></td>
+          <td>{{ if .DeletedAt.Valid }}deleted{{ else if .IsArchived }}archived{{ else }}active{{ end }}</td>
+          <td>{{ .DiskUsedBytes }}</td>
+          <td><a href="/admin/repos/{{ .ID }}">View →</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty-note">No repositories match.</p>
+    {{ end }}
+
+    <nav class="shithub-pagination">
+      {{ if gt .Page 1 }}<a href="?page={{ .PrevPage }}">← Prev</a>{{ end }}
+      {{ if .HasMore }}<a href="?page={{ .NextPage }}">Next →</a>{{ end }}
+    </nav>
+  </div>
+</div>
+{{- end }}

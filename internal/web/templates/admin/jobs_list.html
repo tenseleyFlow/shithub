@@ -1,0 +1,50 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Jobs</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice">{{ . }}</p>{{ end }}
+
+    <p>
+      {{ range .Counts }}<code>{{ .Status }}</code>: {{ .N }} &nbsp; {{ end }}
+    </p>
+
+    <form method="GET" action="/admin/jobs" class="shithub-finder-form">
+      <input type="text" name="kind" value="{{ .Kind }}" placeholder="kind (e.g. push:process)">
+      <select name="status">
+        <option value="">any</option>
+        <option value="queued" {{ if eq .Status "queued" }}selected{{ end }}>queued</option>
+        <option value="running" {{ if eq .Status "running" }}selected{{ end }}>running</option>
+        <option value="failed" {{ if eq .Status "failed" }}selected{{ end }}>failed</option>
+        <option value="completed" {{ if eq .Status "completed" }}selected{{ end }}>completed</option>
+      </select>
+      <button type="submit" class="shithub-button">Filter</button>
+    </form>
+
+    {{ if .Jobs }}
+    <table class="shithub-branches-table">
+      <thead><tr><th>ID</th><th>Kind</th><th>Status</th><th>Attempts</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        {{ range .Jobs }}
+        <tr>
+          <td>#{{ .ID }}</td>
+          <td><code>{{ .Kind }}</code></td>
+          <td><code>{{ .Status }}</code></td>
+          <td>{{ .Attempts }}/{{ .MaxAttempts }}</td>
+          <td>{{ relativeTime .CreatedAt.Time }}</td>
+          <td><a href="/admin/jobs/{{ .ID }}">View →</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty-note">No jobs match.</p>
+    {{ end }}
+
+    <nav class="shithub-pagination">
+      {{ if gt .Page 1 }}<a href="?page={{ .PrevPage }}">← Prev</a>{{ end }}
+      {{ if .HasMore }}<a href="?page={{ .NextPage }}">Next →</a>{{ end }}
+    </nav>
+  </div>
+</div>
+{{- end }}

@@ -1,0 +1,55 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>{{ .User.Username }} <span class="shithub-fg-muted">#{{ .User.ID }}</span></h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Profile</h2>
+      <ul>
+        <li>Display name: {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}<span class="shithub-fg-muted">unset</span>{{ end }}</li>
+        <li>Email verified: {{ if .User.EmailVerified }}yes{{ else }}<span class="shithub-fg-muted">no</span>{{ end }}</li>
+        <li>Last login: {{ if .User.LastLoginAt.Valid }}{{ relativeTime .User.LastLoginAt.Time }}{{ else }}<span class="shithub-fg-muted">never</span>{{ end }}</li>
+        <li>Created: {{ relativeTime .User.CreatedAt.Time }}</li>
+        {{ if .User.SuspendedAt.Valid }}<li>Suspended {{ relativeTime .User.SuspendedAt.Time }} — <em>{{ .User.SuspendedReason.String }}</em></li>{{ end }}
+        {{ if .User.DeletedAt.Valid }}<li>Soft-deleted {{ relativeTime .User.DeletedAt.Time }}</li>{{ end }}
+        <li>Site admin: {{ if .User.IsSiteAdmin }}<strong>yes</strong>{{ else }}no{{ end }}</li>
+      </ul>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Actions</h2>
+      {{ if .User.SuspendedAt.Valid }}
+      <form method="POST" action="/admin/users/{{ .User.ID }}/unsuspend" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Unsuspend</button>
+      </form>
+      {{ else }}
+      <form method="POST" action="/admin/users/{{ .User.ID }}/suspend">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>Reason (visible to user) <input type="text" name="reason" maxlength="200"></label>
+        <button type="submit" class="shithub-button shithub-button-danger">Suspend</button>
+      </form>
+      {{ end }}
+
+      <form method="POST" action="/admin/users/{{ .User.ID }}/site-admin" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">{{ if .User.IsSiteAdmin }}Revoke admin{{ else }}Grant admin{{ end }}</button>
+      </form>
+
+      <form method="POST" action="/admin/users/{{ .User.ID }}/reset-password" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Send password reset</button>
+      </form>
+
+      {{ if not .User.DeletedAt.Valid }}
+      <form method="POST" action="/admin/impersonate/{{ .User.ID }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Impersonate (read-only)</button>
+      </form>
+      {{ end }}
+    </section>
+  </div>
+</div>
+{{- end }}

@@ -1,0 +1,34 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Job #{{ .Job.ID }} <span class="shithub-fg-muted">{{ .Job.Kind }}</span></h1>
+    <p><a href="/admin/jobs">← All jobs</a></p>
+
+    <section class="shithub-settings-section">
+      <h2>Summary</h2>
+      <ul>
+        <li>Attempts: {{ .Job.Attempts }} of {{ .Job.MaxAttempts }}</li>
+        <li>Run at: {{ .Job.RunAt.Time }}</li>
+        {{ if .Job.LockedBy.Valid }}<li>Locked by: <code>{{ .Job.LockedBy.String }}</code> at {{ relativeTime .Job.LockedAt.Time }}</li>{{ end }}
+        {{ if .Job.CompletedAt.Valid }}<li>Completed: {{ relativeTime .Job.CompletedAt.Time }}</li>{{ end }}
+        {{ if .Job.FailedAt.Valid }}<li>Failed: {{ relativeTime .Job.FailedAt.Time }}</li>{{ end }}
+        {{ if .Job.LastError.Valid }}<li>Last error: <code>{{ .Job.LastError.String }}</code></li>{{ end }}
+      </ul>
+      <form method="POST" action="/admin/jobs/{{ .Job.ID }}/retry" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Retry now</button>
+      </form>
+      <form method="POST" action="/admin/jobs/{{ .Job.ID }}/discard" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-danger">Discard</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Payload</h2>
+      <pre class="shithub-code-pre">{{ .PayloadStr }}</pre>
+    </section>
+  </div>
+</div>
+{{- end }}

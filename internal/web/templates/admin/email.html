@@ -1,0 +1,29 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "admin-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Email queue</h1>
+    <p class="shithub-hint">Recent transactional email (auth, settings, admin actions). Notification-fanout email lives separately in <code>notification_email_log</code> and is reachable via the audit view.</p>
+
+    {{ if .Rows }}
+    <table class="shithub-branches-table">
+      <thead><tr><th>When</th><th>Kind</th><th>To</th><th>Subject</th><th>Status</th><th>Error</th></tr></thead>
+      <tbody>
+        {{ range .Rows }}
+        <tr>
+          <td>{{ relativeTime .SentAt.Time }}</td>
+          <td><code>{{ .Kind }}</code></td>
+          <td>{{ .RecipientEmail }}</td>
+          <td>{{ .Subject }}</td>
+          <td><code>{{ .Status }}</code></td>
+          <td>{{ if .ErrorSummary.Valid }}{{ .ErrorSummary.String }}{{ end }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty-note">No transactional email logged yet.</p>
+    {{ end }}
+  </div>
+</div>
+{{- end }}
