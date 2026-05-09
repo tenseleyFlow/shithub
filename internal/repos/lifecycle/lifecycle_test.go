@@ -317,7 +317,7 @@ func TestHardDelete_PastGraceCascades(t *testing.T) {
 	// Force deleted_at past grace and pin Now likewise.
 	_, _ = env.deps.Pool.Exec(context.Background(),
 		`UPDATE repos SET deleted_at = now() - interval '8 days' WHERE id = $1`, env.repoID)
-	env.deps.Now = func() time.Time { return time.Now() }
+	env.deps.Now = time.Now
 
 	if err := lifecycle.HardDelete(context.Background(), env.deps, 0, env.repoID); err != nil {
 		t.Fatalf("HardDelete: %v", err)
