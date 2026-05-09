@@ -164,6 +164,14 @@ func CurrentUserFromContext(ctx context.Context) CurrentUser {
 	return CurrentUser{}
 }
 
+// WithCurrentUserForTest binds u onto ctx the same way the OptionalUser
+// middleware does. Test-only — production code paths reach a request
+// through OptionalUser/RequireUser and never need this. Lives here so
+// the context key stays unexported.
+func WithCurrentUserForTest(ctx context.Context, u CurrentUser) context.Context {
+	return context.WithValue(ctx, currentUserKey, u)
+}
+
 // MaxBodySize returns middleware that caps r.Body at maxBytes via
 // http.MaxBytesReader. Use this on auth POST endpoints (signup, login,
 // password reset) so a misbehaving client can't ship a 10 MB password
