@@ -1,0 +1,15 @@
+[Unit]
+Description=shithub periodic housekeeping (sweeps + purges)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=shithub
+Group=shithub
+EnvironmentFile=/etc/shithub/worker.env
+# Each subcommand is idempotent; we kick the canonical sweeps.
+# lifecycle:sweep was deferred from S16 — past-grace hard-deletes
+# + transfer expiry; the worker pool runs it on cron tick.
+ExecStart=/usr/local/bin/shithubd admin run-job lifecycle:sweep
+ExecStart=/usr/local/bin/shithubd admin run-job jobs:purge_completed
+ExecStart=/usr/local/bin/shithubd admin run-job webhook:purge_old

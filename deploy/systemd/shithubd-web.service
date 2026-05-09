@@ -1,0 +1,41 @@
+[Unit]
+Description=shithub web server
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=shithub
+Group=shithub
+EnvironmentFile=/etc/shithub/web.env
+# Run pending migrations BEFORE starting. ExecStartPre failure
+# prevents the unit from starting (correct behavior for a bad
+# migration). Recovery is documented in runbooks/upgrade.md.
+ExecStartPre=/usr/local/bin/shithubd migrate up
+ExecStart=/usr/local/bin/shithubd web
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65535
+
+# Hardening — match systemd-analyze security defaults where they
+# don't conflict with the app's needs (writes to data root, opens
+# port 8080).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/data /var/lib/shithub
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

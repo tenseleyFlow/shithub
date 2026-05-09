@@ -1,0 +1,32 @@
+[Unit]
+Description=shithub background worker pool
+After=network-online.target postgresql.service shithubd-web.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=shithub
+Group=shithub
+EnvironmentFile=/etc/shithub/worker.env
+ExecStart=/usr/local/bin/shithubd worker
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65535
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/data /var/lib/shithub
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
