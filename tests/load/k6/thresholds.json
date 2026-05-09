@@ -1,0 +1,7 @@
+{
+  "_comment": "Shared k6 thresholds. Each scenario imports this so failure modes are consistent across the load-test suite. Numbers come from S36's bench harness baselines doubled, per the S39 spec ('p95 < 2x of S36's single-user bench numbers under sustained load').",
+  "http_req_failed":   ["rate<0.01"],
+  "http_req_duration": ["p(95)<3000", "p(99)<5000"],
+  "http_reqs":         ["count>1000"],
+  "checks":            ["rate>0.99"]
+}
