@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -55,6 +56,20 @@ func buildRepoHandlers(
 		}
 	}
 
+	// Webhook secret box (S33). Reuses the TOTP key — they're both
+	// at-rest AEAD-wrapped secrets. nil-tolerant: if the key is
+	// missing/invalid the webhook surface renders a placeholder.
+	var hookBox *secretbox.Box
+	if cfg.Auth.TOTPKeyB64 != "" {
+		if box, err := secretbox.FromBase64(cfg.Auth.TOTPKeyB64); err == nil {
+			hookBox = box
+		} else if logger != nil {
+			logger.Warn("repo: webhook secretbox unavailable",
+				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
+				"error", err)
+		}
+	}
+
 	return repoh.New(repoh.Deps{
 		Logger:       logger,
 		Render:       rr,
@@ -62,6 +77,7 @@ func buildRepoHandlers(
 		RepoFS:       rfs,
 		Audit:        audit.NewRecorder(),
 		Limiter:      throttle.NewLimiter(),
+		SecretBox:    hookBox,
 		ShithubdPath: shithubdPath,
 		CloneURLs: repoh.CloneURLs{
 			BaseURL:    cfg.Auth.BaseURL,
