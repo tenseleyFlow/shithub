@@ -21,6 +21,7 @@
   --border-muted: #d8dee4;
   --accent-fg: #0969da;
   --accent-emphasis: #0969da;
+  --accent-subtle: #fff8c5; /* GitHub's "you-are-here" line highlight */
   --success-fg: #1a7f37;
   --danger-fg: #cf222e;
   --shithub-mark: var(--danger-fg);
@@ -36,6 +37,7 @@
   --border-muted: #232a33;
   --accent-fg: #4493f8;
   --accent-emphasis: #1f6feb;
+  --accent-subtle: rgba(187, 128, 9, 0.15); /* dark-mode :target wash */
   --success-fg: #3fb950;
   --danger-fg: #f85149;
 }
@@ -50,6 +52,7 @@
   --border-muted: #525964;
   --accent-fg: #71b7ff;
   --accent-emphasis: #409eff;
+  --accent-subtle: rgba(255, 215, 0, 0.25);
   --success-fg: #4ed162;
   --danger-fg: #ff6a69;
 }
@@ -917,7 +920,7 @@ code {
   overflow-x: auto;
 }
 .shithub-tree { background: var(--canvas-default); }
-.shithub-blob-source pre, .shithub-blob-source .chroma { margin: 0; }
+.shithub-blob-source { background: var(--canvas-default); }
 .shithub-code-head {
   display: flex;
   align-items: center;
@@ -1099,55 +1102,65 @@ code {
 .shithub-readme-plain { white-space: pre-wrap; }
 
 .shithub-blob-meta { color: var(--fg-muted); font-size: 0.85rem; margin-right: 0.5rem; }
-/* Blob source: Chroma's `LineNumbersInTable` mode lays the gutter
-   and code as <td>s of a single <table>. We force that table to fill
-   the panel and collapse borders so the two cells read as one
-   continuous viewer rather than two floating cards.
-   Defensive selectors: target both the `lntable` class (Chroma) AND
-   any bare <table> inside `.chroma` (the no-lexer plainPre fallback,
-   which doesn't class the table). */
-.shithub-blob-source .chroma { padding: 0; }
-.shithub-blob-source .chroma > table,
-.shithub-blob-source .chroma table.lntable {
+/* Blob source: a row-per-line <table>. We render the gutter + code
+   ourselves and feed Chroma only token spans (no <pre>, no <table>)
+   so the chrome is consistent across lexers and the no-lexer fallback,
+   per the S33 viewer refactor. Forgejo / Gitea use the same shape.
+   The reasoning is robustness: chroma's own table mode has rules we
+   can't fully override (cell padding, line-number `<a>` styles), and
+   they leak whenever a lexer changes its emit shape. Owning the table
+   makes the layout immune to that drift. */
+.shithub-blob-source .chroma { padding: 0; background: var(--canvas-default); }
+.shithub-blob-source .chroma a { color: inherit; text-decoration: none; }
+.shithub-blob-lines {
   width: 100%;
   border-collapse: collapse;
   border-spacing: 0;
   margin: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.825rem;
+  line-height: 20px;
+  tab-size: 4;
 }
-.shithub-blob-source .chroma td {
-  vertical-align: top;
-  /* Vertical-only by default. Per-cell horizontal padding below so the
-     gutter stays tight (chroma's .ln/.lnt own its horizontal spacing)
-     while the code cell gets breathing room. */
-  padding: 0.5rem 0;
-}
-/* Gutter cell: Chroma uses `lntd` on both cells with the gutter as
-   first child; the plainPre fallback uses `lntable` on the first
-   <td>. Both shapes get the muted background + non-selectable.
-   Horizontal padding is intentionally 0 — the digit's surround comes
-   from chroma's `.ln` rule (padding 0 0.4em + margin-right 0.4em),
-   which keeps the gutter tight for short files instead of stacking
-   our padding on top of chroma's. */
-.shithub-blob-source .chroma td:first-child,
-.shithub-blob-source .chroma td.lntable {
+/* Gutter cell. width:1% + white-space:nowrap forces shrink-to-fit:
+   the cell sizes itself to the max line-number width and no wider.
+   text-align:right keeps the digit flush against the divider. */
+.shithub-blob-lines td.shithub-blob-lnum {
   width: 1%;
+  min-width: 2.5rem;
+  padding: 0 12px;
   background: var(--canvas-subtle);
   border-right: 1px solid var(--border-default);
   color: var(--fg-muted);
   text-align: right;
   user-select: none;
   white-space: nowrap;
+  vertical-align: top;
 }
-.shithub-blob-source .chroma td:nth-child(2) {
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
+.shithub-blob-lines td.shithub-blob-lnum a {
+  color: inherit;
+  display: block;
 }
-.shithub-blob-source .chroma pre {
-  font-size: 0.85rem;
-  line-height: 1.55;
-  margin: 0;
+/* Code cell. white-space:pre preserves indentation; the wrapper
+   handles horizontal scroll for long lines. */
+.shithub-blob-lines td.shithub-blob-lcode {
+  padding: 0 12px;
+  vertical-align: top;
+  white-space: pre;
 }
-.shithub-blob-source .chroma a { color: inherit; text-decoration: none; }
+.shithub-blob-lines td.shithub-blob-lcode .shithub-blob-line {
+  display: inline-block;
+  min-width: 100%;
+}
+/* Hover surfaces the row; :target highlights the line referenced by
+   #L<n> in the URL (browsers handle scrolling). */
+.shithub-blob-lines tr:hover td.shithub-blob-lcode {
+  background: var(--canvas-subtle);
+}
+.shithub-blob-lines tr:target td.shithub-blob-lcode,
+.shithub-blob-lines tr:target td.shithub-blob-lnum {
+  background: var(--accent-subtle, #fff8c5);
+}
 .shithub-blob-too-large, .shithub-blob-binary {
   padding: 1rem;
   border: 1px dashed var(--border-default);
