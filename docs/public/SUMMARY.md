@@ -44,6 +44,7 @@
 
 ---
 
+[Status](./status.md)
 [Contributing](./contributing.md)
 [Security policy](./security.md)
 [Changelog](./changelog.md)
