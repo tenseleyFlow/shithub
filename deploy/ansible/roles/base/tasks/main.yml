@@ -1,0 +1,85 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Base hardening: apt baseline, ufw, fail2ban-lite, system users.
+
+- name: Apt — install baseline packages
+  apt:
+    name:
+      - curl
+      - wget
+      - ca-certificates
+      - ufw
+      - fail2ban
+      - sudo
+      - git
+      - jq
+      - rsync
+      - rclone        # cross-region Spaces sync (S37)
+      - tzdata
+      - unattended-upgrades
+    state: present
+    update_cache: yes
+
+- name: Timezone — pin to UTC for log + cron sanity
+  community.general.timezone:
+    name: UTC
+
+- name: Unattended security upgrades — enable
+  copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: UFW — defaults
+  ufw:
+    direction: incoming
+    policy: deny
+- name: UFW — allow ssh
+  ufw: { rule: allow, port: "22", proto: tcp }
+- name: UFW — allow http (Caddy redirect to https)
+  ufw: { rule: allow, port: "80", proto: tcp }
+- name: UFW — allow https
+  ufw: { rule: allow, port: "443", proto: tcp }
+- name: UFW — allow wireguard
+  ufw: { rule: allow, port: "51820", proto: udp }
+- name: UFW — enable
+  ufw: { state: enabled }
+
+- name: System users — create shithub (web/worker)
+  user:
+    name: "{{ shithub_user }}"
+    system: yes
+    home: "/var/lib/shithub"
+    shell: /usr/sbin/nologin
+    create_home: yes
+
+- name: System users — create shithub-ssh (AKC)
+  user:
+    name: shithub-ssh
+    system: yes
+    home: /var/lib/shithub-ssh
+    shell: /usr/sbin/nologin
+    create_home: yes
+
+- name: Data root — create + own
+  file:
+    path: "{{ shithub_data_root }}"
+    state: directory
+    owner: "{{ shithub_user }}"
+    group: "{{ shithub_group }}"
+    mode: "0750"
+
+- name: fail2ban — copy lite jail (sshd only at MVP)
+  copy:
+    dest: /etc/fail2ban/jail.d/shithub.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      findtime = 600
+      bantime = 3600
+    mode: "0644"
+  notify: restart fail2ban
