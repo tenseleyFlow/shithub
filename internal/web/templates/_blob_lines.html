@@ -1,0 +1,15 @@
+{{ define "blob-lines" -}}
+<div class="shithub-blob-source chroma">
+  <table class="shithub-blob-lines">
+    <tbody>
+      {{ range $i, $line := .Lines }}
+      {{ $n := add $i 1 }}
+      <tr id="L{{ $n }}">
+        <td class="shithub-blob-lnum"><a href="#L{{ $n }}" tabindex="-1">{{ $n }}</a></td>
+        <td class="shithub-blob-lcode"><span class="shithub-blob-line">{{ $line }}</span></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{- end }}
