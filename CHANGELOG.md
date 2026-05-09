@@ -6,20 +6,43 @@ conventions and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+(Empty — first post-launch entries land here.)
+
+## [1.0.0] — TBD (operator fills in cutover date)
+
+The first stable release. **Stability contract:** every migration
+from this point on is backward-compatible from v1.0.0 — see
+`docs/internal/runbooks/upgrade.md`.
+
+### Added (since pre-launch)
+- Public landing page on `/` for anonymous viewers; signed-in
+  viewers get a quick-link dashboard.
+- Lightweight status page at `docs.shithub.example/status.html`.
+- Cutover artifacts under `deploy/cutover/` — checklist, smoke
+  script, rollback script.
+- Launch announcement copy at `docs/blog/v1.0.0-launch.md`.
+- Day-one operator runbook at `docs/internal/runbooks/day-one.md`.
 - Public docs site (`docs/public/`) built with mdBook.
 - Contributor + security disclosure docs finalized for post-launch
-  posture (DCO sign-off, security@ mailbox).
+  posture (DCO sign-off, `security@shithub.example` mailbox).
 - Architecture overview + internal docs index.
 - Operator runbooks: rotate-secrets, rotate-keys, regenerate-akc,
   drain-workers, read-only-mode.
 - `THIRD_PARTY_NOTICES.md` with a CI-verified generator script.
+- a11y tooling (pa11y + axe) and k6 load-test scenarios under
+  `tests/`.
 
 ### Changed
 - README pivoted to post-launch framing (still flags WIP areas
   honestly).
+- Renderer (`internal/web/render/render.go`) walks `_*.html`
+  partials recursively and fails loud on undefined template refs
+  at startup.
+- Repo Code view restructured to GitHub's 2/3 + 1/3 layout with
+  an About sidebar (description, topics, license, language,
+  star/watch/fork counts).
 
-## [1.0.0] — TBD
+## [1.0.0] — core forge loop
 
 The first stable release. Core forge loop:
 
@@ -58,5 +81,5 @@ The first stable release. Core forge loop:
   WireGuard mesh for monitoring, Postgres WAL archive + daily
   logical backups to Spaces, cross-region DR, restore drill.
 
-[Unreleased]: https://github.com/tenseleyFlow/shithub/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/tenseleyFlow/shithub/releases/tag/v1.0.0
+[Unreleased]: https://shithub.example/shithub/shithub/compare/v1.0.0...trunk
+[1.0.0]: https://shithub.example/shithub/shithub/releases/tag/v1.0.0
