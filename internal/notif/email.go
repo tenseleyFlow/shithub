@@ -137,9 +137,7 @@ func unsubscribeURL(baseURL string, key []byte, recipientID int64, hasThread boo
 	rec := strconv.FormatInt(recipientID, 10)
 	tid := strconv.FormatInt(threadID, 10)
 	payload := rec + ":" + threadKind + ":" + tid
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(payload))
-	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	sig := HMACSig(key, payload)
 	return strings.TrimRight(baseURL, "/") + "/notifications/unsubscribe?u=" + rec +
 		"&tk=" + threadKind + "&ti=" + tid + "&sig=" + sig
 }
@@ -150,10 +148,17 @@ func VerifyUnsubscribe(key []byte, recipientID int64, threadKind string, threadI
 	rec := strconv.FormatInt(recipientID, 10)
 	tid := strconv.FormatInt(threadID, 10)
 	payload := rec + ":" + threadKind + ":" + tid
+	want := HMACSig(key, payload)
+	return hmac.Equal([]byte(sig), []byte(want))
+}
+
+// HMACSig signs a payload with the unsubscribe HMAC key. Exposed so
+// tests can build verifying signatures without re-implementing the
+// canonical wire format.
+func HMACSig(key []byte, payload string) string {
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(payload))
-	want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(sig), []byte(want))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func threadKindString(k notifdb.NullNotificationThreadKind) string {

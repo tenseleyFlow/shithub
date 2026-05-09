@@ -65,13 +65,16 @@ var Skip = Action{}
 // not routed).
 func Routing(kind string, rel Relation) Action {
 	switch kind {
-	case "issue_opened", "pull_opened":
-		// New issue / PR. Watching=all surfaces; nothing else.
+	case "issue_created", "pr_opened":
+		// New issue / PR. Watching=all surfaces; @mention slot
+		// fires too if the body mentions someone.
 		switch rel {
+		case RelMention:
+			return Action{NotifyInbox: true, EmailDefault: true, OverrideIgnore: true, Reason: ReasonMention}
 		case RelWatchingAll:
 			return Action{NotifyInbox: true, EmailDefault: true, Reason: ReasonWatching}
 		}
-	case "issue_comment", "pull_comment":
+	case "issue_comment_created", "pr_comment_created":
 		switch rel {
 		case RelMention:
 			return Action{NotifyInbox: true, EmailDefault: true, OverrideIgnore: true, Reason: ReasonMention}
@@ -86,14 +89,14 @@ func Routing(kind string, rel Relation) Action {
 		case RelWatchingAll:
 			return Action{NotifyInbox: true, EmailDefault: true, Reason: ReasonWatching}
 		}
-	case "issue_assigned", "pull_assigned":
+	case "issue_assigned", "pr_assigned":
 		switch rel {
 		case RelAssignee:
 			return Action{NotifyInbox: true, EmailDefault: true, Reason: ReasonAssignment}
 		case RelMention:
 			return Action{NotifyInbox: true, EmailDefault: true, OverrideIgnore: true, Reason: ReasonMention}
 		}
-	case "issue_closed", "pull_closed", "pull_merged":
+	case "issue_closed", "issue_reopened", "pr_closed", "pr_reopened", "pr_merged":
 		switch rel {
 		case RelAuthor:
 			return Action{NotifyInbox: true, EmailDefault: true, Reason: ReasonAuthor}
