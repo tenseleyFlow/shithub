@@ -1,0 +1,59 @@
+# Managed by Ansible.
+#
+# Caddy reverse-proxies shithubd-web (127.0.0.1:8080). Auto-cert
+# from Let's Encrypt for {{ shithub_domain }}; HTTP→HTTPS redirect
+# is automatic when a `https://` site is declared. Long-timeout
+# overrides on the git smart-HTTP routes match the 30-minute
+# upstream timeout from S12 so push of a large repo doesn't get
+# guillotined by Caddy's defaults.
+
+{
+    # Operator email used for Let's Encrypt account + expiry alerts.
+    email {{ shithub_admin_email | default("ops@" + shithub_domain) }}
+
+    # Use staging during dry-runs to avoid LE rate limits.
+    # Comment the next line out for production cert.
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{{ shithub_domain }} {
+    encode gzip
+
+    # Long-timeout git smart-HTTP routes (S12). The fetch + push
+    # subprotocols stream and benefit from the buffer being off.
+    @git path_regexp gitp ^/[^/]+/[^/]+\.git/(info/refs|git-upload-pack|git-receive-pack)$
+    handle @git {
+        reverse_proxy 127.0.0.1:8080 {
+            transport http {
+                read_timeout 30m
+                write_timeout 30m
+                response_header_timeout 30m
+            }
+            flush_interval -1
+        }
+    }
+
+    # Static assets: long cache.
+    @static path /static/*
+    handle @static {
+        header Cache-Control "public, max-age=86400"
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:8080 {
+            transport http {
+                read_timeout 60s
+                write_timeout 60s
+            }
+        }
+    }
+
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100mb
+            roll_keep 14
+        }
+        format json
+    }
+}
