@@ -69,6 +69,8 @@ const (
 	ActionStarDeleted            Action = "star_deleted"
 	ActionWatchSet               Action = "watch_set"
 	ActionWatchUnset             Action = "watch_unset"
+	ActionRepoForked             Action = "repo_forked"
+	ActionRepoForkSynced         Action = "repo_fork_synced"
 )
 
 // Target is a typed target-type constant.
