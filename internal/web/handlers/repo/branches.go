@@ -49,6 +49,16 @@ func (h *Handlers) branchesList(w http.ResponseWriter, r *http.Request) {
 	rules, _ := h.rq.ListBranchProtectionRules(r.Context(), h.d.Pool, row.ID)
 
 	defaultBranch := row.DefaultBranch
+	// Resolve the default's OID once so the cached AheadBehind key is
+	// OID-based (immutable across same-OID pushes; cache stays hot
+	// when other branches advance).
+	defaultOID := ""
+	for _, b := range refs.Branches {
+		if b.Name == defaultBranch {
+			defaultOID = b.OID
+			break
+		}
+	}
 	rows := make([]branchRow, 0, len(refs.Branches))
 	now := time.Now()
 	for _, b := range refs.Branches {
@@ -62,10 +72,12 @@ func (h *Handlers) branchesList(w http.ResponseWriter, r *http.Request) {
 			br.LastWhen = hc.AuthorWhen
 			br.Stale = now.Sub(hc.AuthorWhen) > 90*24*time.Hour
 		}
-		if b.Name != defaultBranch {
-			ahead, behind, _ := repogit.AheadBehind(r.Context(), gitDir, defaultBranch, b.Name)
-			br.Ahead = ahead
-			br.Behind = behind
+		if b.Name != defaultBranch && defaultOID != "" {
+			res, _ := repogit.AheadBehindCached(r.Context(), gitDir, repogit.AheadBehindKey{
+				RepoID: row.ID, BaseOID: defaultOID, HeadOID: b.OID,
+			})
+			br.Ahead = res.Ahead
+			br.Behind = res.Behind
 		}
 		br.IsDefault = b.Name == defaultBranch
 		br.Protected = isBranchProtected(rules, b.Name)
