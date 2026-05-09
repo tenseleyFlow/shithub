@@ -67,6 +67,56 @@ func CommitsBetween(ctx context.Context, gitDir, base, head string, max int) ([]
 	return parseLogOutput(out)
 }
 
+// UpdateRefCAS performs an atomic compare-and-swap on a ref: only
+// succeeds if the ref currently points at oldOID. Returns
+// ErrRefRaced when the ref moved underneath us (a concurrent push
+// is the canonical case). Used by S27's sync-fork to fast-forward
+// the fork's default branch only when nothing else has touched it.
+//
+// The git update-ref `<oldvalue>` argument is what enforces the CAS;
+// passing it gives git's exact-match semantics (no off-by-one
+// races even when oldvalue happens to equal newvalue).
+func UpdateRefCAS(ctx context.Context, gitDir, ref, newOID, oldOID string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+		"update-ref", ref, newOID, oldOID)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	// git update-ref's "ref-changed-from-under-us" failure mode is
+	// signalled via stderr text rather than a distinct exit code.
+	// The two phrasings we care about: "old value is %s, but expected"
+	// and "cannot lock ref" — both indicate the CAS lost the race.
+	s := string(out)
+	if strings.Contains(s, "old value") || strings.Contains(s, "cannot lock ref") {
+		return ErrRefRaced
+	}
+	return fmt.Errorf("update-ref %s %s..%s: %w (%s)", ref, oldOID, newOID, err, strings.TrimSpace(s))
+}
+
+// ErrRefRaced is the typed sentinel UpdateRefCAS returns when the
+// ref moved between our read and our update.
+var ErrRefRaced = errors.New("repogit: ref moved concurrently")
+
+// FetchIntoNamespace fetches a single ref from `srcRepoDir` into
+// `dstRepoDir` under the supplied refspec. The dst-side ref name is
+// the second half of the refspec. Used by S27 cross-fork PR support
+// to pull a fork's head branch into the base repo's
+// `refs/shithub-pr/<pr_id>/head` namespace (private — never
+// advertised via `info/refs`).
+//
+// Idempotent at the git layer; calling repeatedly with the same
+// refspec just updates the dst ref.
+func FetchIntoNamespace(ctx context.Context, dstRepoDir, srcRepoDir, srcRef, dstRef string) error {
+	refspec := srcRef + ":" + dstRef
+	cmd := exec.CommandContext(ctx, "git", "-C", dstRepoDir,
+		"fetch", "--quiet", "--no-tags", srcRepoDir, refspec)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("fetch %s into %s: %w (%s)", srcRef, dstRef, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // IsAncestor reports whether commit a is an ancestor of commit b.
 // Used by the pre-receive force-push detector: a fast-forward is
 // `IsAncestor(old, new)`.
