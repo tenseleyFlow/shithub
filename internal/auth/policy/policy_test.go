@@ -346,3 +346,45 @@ func TestPermissionsDoc_CoversEveryAction(t *testing.T) {
 		}
 	}
 }
+
+// TestImpersonation_ReadOnlyDeniesWrites pins the canonical foot-gun
+// guard: an impersonating admin without ImpersonateWriteOK must not
+// be able to write, regardless of the underlying actor's role.
+func TestImpersonation_ReadOnlyDeniesWrites(t *testing.T) {
+	ctx := t.Context()
+	d := policy.Deps{Pool: nil}
+	repo := policy.RepoRef{ID: 1, OwnerUserID: 99, Visibility: "public"}
+	actor := policy.Actor{
+		UserID:        99, // the impersonated user
+		Impersonating: true,
+	}
+	dec := policy.Can(ctx, d, actor, policy.ActionIssueComment, repo)
+	if dec.Allow {
+		t.Fatalf("impersonation read-only must deny writes; got allow")
+	}
+	if dec.Code != policy.DenyImpersonationReadOnly {
+		t.Errorf("Code = %v; want DenyImpersonationReadOnly", dec.Code)
+	}
+}
+
+// TestImpersonation_WriteModeOverridesReadOnly: with ImpersonateWriteOK
+// flipped on, the policy proceeds to the normal role checks (the
+// underlying role + repo state still gate, this just lifts the
+// impersonation-specific deny).
+func TestImpersonation_WriteModeOverridesReadOnly(t *testing.T) {
+	ctx := t.Context()
+	d := policy.Deps{Pool: nil}
+	repo := policy.RepoRef{ID: 1, OwnerUserID: 99, Visibility: "public"}
+	actor := policy.Actor{
+		UserID:             99,
+		Impersonating:      true,
+		ImpersonateWriteOK: true,
+	}
+	dec := policy.Can(ctx, d, actor, policy.ActionIssueComment, repo)
+	// We don't assert Allow here because the action still passes
+	// through role checks (which will deny without DB-backed role
+	// info). The relevant assertion is "not the impersonation deny."
+	if !dec.Allow && dec.Code == policy.DenyImpersonationReadOnly {
+		t.Fatalf("write-mode should clear impersonation deny; got %v", dec)
+	}
+}
