@@ -44,12 +44,13 @@ func (h *Handlers) settingsBranches(w http.ResponseWriter, r *http.Request) {
 	refs, _ := repogit.ListRefs(r.Context(), gitDir)
 
 	h.d.Render.RenderPage(w, r, "repo/settings_branches", map[string]any{
-		"Title":     "Branch protection · " + row.Name,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Rules":     rules,
-		"Branches":  refs.Branches,
+		"Title":          "Branch protection · " + row.Name,
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"Owner":          owner.Username,
+		"Repo":           row,
+		"Rules":          rules,
+		"Branches":       refs.Branches,
+		"SettingsActive": "branches",
 	})
 }
 
