@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package highlight wraps Chroma so the rest of the project doesn't
-// import it directly. The returned HTML is Chroma's standard "html"
-// formatter output with line numbers; the caller embeds it in the
-// blob template inside a code-styled wrapper.
+// import it directly. RenderLines returns one HTML fragment per
+// source line — the caller composes the row + gutter table itself
+// (this is the GitHub-classic / Forgejo / Gitea pattern; chroma's
+// own table mode is bypassed for layout-control reasons documented
+// in RenderLines).
 package highlight
 
 import (
 	"bytes"
 	stdhtml "html"
+	"html/template"
 	"path/filepath"
 	"strings"
 
@@ -18,20 +21,25 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 )
 
-// Render returns syntax-highlighted HTML for source. filename is used
-// to guess the lexer; on miss we fall back to content sniffing, then
-// finally to plain text (no highlighting). Line numbers are always on.
+// RenderLines tokenizes source via Chroma and returns one HTML
+// fragment per line, with no surrounding `<pre>`/`<code>`/table. The
+// caller composes the gutter + line table itself (S33 blob refactor).
 //
-// The output is a `<pre class="chroma">…</pre>` block ready to embed
-// in the page; line-number cells are linkable via Chroma's `LineLinks`
-// option (rendered as `#L42`).
-func Render(filename, source string) string {
+// Per-line splitting respects multi-line tokens: a docstring or block
+// comment that spans 5 lines yields 5 fragments, each with the open
+// `<span class="…">` re-emitted at the start and a `</span>` closer
+// at the end, so every fragment is independently well-formed and the
+// surrounding row table can intersperse other markup safely.
+//
+// `filename` only drives lexer selection; the returned fragments
+// don't reference it.
+func RenderLines(filename, source string) []template.HTML {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
 		lexer = lexers.Analyse(source)
 	}
 	if lexer == nil {
-		return plainPre(source)
+		return plainLines(source)
 	}
 	lexer = chroma.Coalesce(lexer)
 	style := styles.Get("github")
@@ -39,20 +47,18 @@ func Render(filename, source string) string {
 		style = styles.Fallback
 	}
 	formatter := chromahtml.New(
-		chromahtml.WithLineNumbers(true),
-		chromahtml.WithLinkableLineNumbers(true, "L"),
-		chromahtml.LineNumbersInTable(true),
 		chromahtml.WithClasses(true),
+		chromahtml.PreventSurroundingPre(true),
 	)
 	iter, err := lexer.Tokenise(nil, source)
 	if err != nil {
-		return plainPre(source)
+		return plainLines(source)
 	}
 	var buf bytes.Buffer
 	if err := formatter.Format(&buf, style, iter); err != nil {
-		return plainPre(source)
+		return plainLines(source)
 	}
-	return buf.String()
+	return splitChromaLines(buf.String())
 }
 
 // CSS returns the `<style>`-wrappable CSS for the highlight theme so
@@ -84,7 +90,6 @@ func writeStyleCSS(name string) string {
 	}
 	formatter := chromahtml.New(
 		chromahtml.WithClasses(true),
-		chromahtml.LineNumbersInTable(true),
 	)
 	var buf bytes.Buffer
 	_ = formatter.WriteCSS(&buf, style)
@@ -153,47 +158,91 @@ func splitTopLevelRules(css string) []string {
 	return rules
 }
 
-// plainPre escapes source and wraps it in a <pre> for the no-lexer
-// fallback. We still provide line numbers via a <table> so the blob
-// template renders consistently.
-func plainPre(source string) string {
-	lines := strings.Split(source, "\n")
-	var lineNums, code bytes.Buffer
-	for i := range lines {
-		lineNums.WriteString("<a href=\"#L")
-		lineNums.WriteString(itoa(i + 1))
-		lineNums.WriteString("\">")
-		lineNums.WriteString(itoa(i + 1))
-		lineNums.WriteString("</a>\n")
+// plainLines is the no-lexer fallback: HTML-escape each line and
+// hand it back. No syntax highlighting; the row table handles the
+// gutter + line layout the same way it does for a chroma'd file.
+func plainLines(source string) []template.HTML {
+	if source == "" {
+		// A truly empty file still gets one row so the panel chrome
+		// renders consistently. The line is the empty string.
+		return []template.HTML{template.HTML("")}
 	}
-	for i, l := range lines {
-		code.WriteString("<span id=\"L")
-		code.WriteString(itoa(i + 1))
-		code.WriteString("\">")
-		code.WriteString(stdhtml.EscapeString(l))
-		code.WriteString("</span>\n")
+	raw := strings.Split(source, "\n")
+	out := make([]template.HTML, len(raw))
+	for i, l := range raw {
+		out[i] = template.HTML(stdhtml.EscapeString(l)) //nolint:gosec // EscapeString output is safe HTML
 	}
-	return `<div class="chroma"><table><tr><td class="lntable"><pre class="chroma"><code>` +
-		lineNums.String() +
-		`</code></pre></td><td><pre class="chroma"><code>` +
-		code.String() +
-		`</code></pre></td></tr></table></div>`
+	return out
 }
 
-// itoa is a tiny int-to-string used inside plainPre to avoid pulling
-// fmt for the hot path.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+// splitChromaLines walks chroma's classes-mode HTML and returns one
+// fragment per source line. The wrinkle: chroma may wrap a multi-line
+// token (docstring, block comment, raw string literal) in a single
+// `<span class="…">…</span>` that crosses line boundaries. A naive
+// strings.Split on '\n' would leave half-open spans in some lines and
+// orphan `</span>` in others, breaking the row table.
+//
+// The walker tracks the open-span stack: at every '\n' it closes any
+// currently-open spans, emits the line, then reopens the same spans
+// at the start of the next line. The result: each line's HTML is
+// independently well-formed, and a multi-line token still carries
+// the same CSS class on every line it touches.
+func splitChromaLines(html string) []template.HTML {
+	var (
+		lines    []template.HTML
+		openTags []string // verbatim "<span …>" strings, used to reopen
+		cur      strings.Builder
+	)
+	closeAll := func() {
+		for range openTags {
+			cur.WriteString("</span>")
+		}
 	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
+	reopenAll := func() {
+		for _, t := range openTags {
+			cur.WriteString(t)
+		}
 	}
-	return string(buf[i:])
+
+	i := 0
+	for i < len(html) {
+		switch {
+		case strings.HasPrefix(html[i:], "<span"):
+			end := strings.IndexByte(html[i:], '>')
+			if end < 0 {
+				// Malformed; bail to a single-line emit so the caller
+				// at least gets unbroken markup.
+				cur.WriteString(html[i:])
+				i = len(html)
+				continue
+			}
+			tag := html[i : i+end+1]
+			cur.WriteString(tag)
+			openTags = append(openTags, tag)
+			i += end + 1
+		case strings.HasPrefix(html[i:], "</span>"):
+			cur.WriteString("</span>")
+			if len(openTags) > 0 {
+				openTags = openTags[:len(openTags)-1]
+			}
+			i += len("</span>")
+		case html[i] == '\n':
+			closeAll()
+			lines = append(lines, template.HTML(cur.String())) //nolint:gosec // assembled from chroma + escaped tokens
+			cur.Reset()
+			reopenAll()
+			i++
+		default:
+			cur.WriteByte(html[i])
+			i++
+		}
+	}
+	// Trailing line (no terminating \n).
+	closeAll()
+	if cur.Len() > 0 || len(lines) == 0 {
+		lines = append(lines, template.HTML(cur.String())) //nolint:gosec // see above
+	}
+	return lines
 }
 
 // LanguageGuess returns the human-readable language name (or "Text"
