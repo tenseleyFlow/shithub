@@ -276,3 +276,56 @@ type panicHandlerFunc func(w http.ResponseWriter, r *http.Request, requestID str
 func (f panicHandlerFunc) HandlePanic(w http.ResponseWriter, r *http.Request, requestID string, recovered any) {
 	f(w, r, requestID, recovered)
 }
+
+// TestRequireSiteAdmin_NonAdminGets404 pins the existence-leak guard:
+// non-admins (anon, logged-in non-admin) must see 404, never 403, so
+// the existence of /admin isn't disclosed by the response shape.
+func TestRequireSiteAdmin_NonAdminGets404(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		user CurrentUser
+		want int
+	}{
+		{"anonymous", CurrentUser{}, http.StatusNotFound},
+		{"logged-in non-admin", CurrentUser{ID: 42, Username: "alice"}, http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			h := RequireSiteAdmin(nil)(next)
+			req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+			req = req.WithContext(context.WithValue(req.Context(), currentUserKey, tc.user))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Errorf("status = %d; want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+// TestRequireSiteAdmin_AdminPassesThrough confirms an admin actually
+// reaches the wrapped handler.
+func TestRequireSiteAdmin_AdminPassesThrough(t *testing.T) {
+	t.Parallel()
+	hit := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	})
+	h := RequireSiteAdmin(nil)(next)
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req = req.WithContext(context.WithValue(req.Context(), currentUserKey,
+		CurrentUser{ID: 1, Username: "root", IsSiteAdmin: true}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !hit {
+		t.Fatalf("admin request did not reach wrapped handler")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; want 200", rec.Code)
+	}
+}
