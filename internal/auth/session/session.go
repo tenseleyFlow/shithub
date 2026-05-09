@@ -42,6 +42,14 @@ type Session struct {
 	Flashes   []string          `json:"flashes,omitempty"`
 	Extras    map[string]string `json:"extras,omitempty"`
 	IssuedAt  int64             `json:"iat,omitempty"`
+	// ImpersonatedUserID — when non-zero, the admin (UserID above) is
+	// currently viewing as this user. ImpersonateWriteOK gates writes
+	// (defaults false; admin opts in via the typed-name confirm step
+	// in /admin/impersonate). ImpersonationStartedAt drives the
+	// inactivity timeout (S34: 1 hour idle).
+	ImpersonatedUserID     int64 `json:"imp,omitempty"`
+	ImpersonateWriteOK     bool  `json:"impw,omitempty"`
+	ImpersonationStartedAt int64 `json:"impt,omitempty"`
 }
 
 // IsAnonymous returns true when no user is bound to the session.
