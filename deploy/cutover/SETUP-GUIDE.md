@@ -157,21 +157,27 @@ attach the key to each droplet at create time (Phase B3).
 2. Name: **shithub-prod**. Purpose: **Service or API**.
    Environment: **Production**.
 
-**SSH key (account-level — not inside the Project):**
+**SSH key — easiest path: add it during droplet creation in B3.**
 
-1. Top-right corner: click your **avatar/email** dropdown →
-   **Settings**.
-2. Settings left sidebar → **Security**.
-3. Scroll to the **SSH Keys** section → **Add SSH Key**.
-4. Paste the contents of `~/.ssh/id_ed25519.pub` from your
-   laptop. Name it after the laptop ("macbook-pro").
+DO's standalone "SSH Keys" settings page keeps moving around the
+UI, so the most reliable place to add a new key is the droplet
+create form itself:
 
-The SSH key now exists at the account level — you won't see it
-inside the Project view. It will appear as a checkbox option
-when creating each droplet in Phase B3.
+- In Phase B3 step 6 ("Authentication"), click **"+ New SSH Key"**
+  on the form. Paste `~/.ssh/id_ed25519.pub` from your laptop,
+  name it after the laptop ("macbook-pro"). The key gets saved
+  to your account permanently AND attached to this droplet.
+- For droplets #2–4, the key is already in the list — just tick
+  its checkbox.
 
-**Verify:** the project shows under Projects; the SSH key shows
-in Settings → Security → SSH Keys.
+If you want to add the key in advance via the standalone page:
+use the dashboard's top search bar — type **"SSH"** — and it'll
+surface the current location. (Path varies; "Settings → Security
+→ SSH Keys" used to work, but DO reorganises this page often.)
+
+**Verify:** the project shows under Projects. The SSH key
+verification happens at droplet-create time when you tick the
+box.
 
 ### B2. Create Spaces buckets (do these BEFORE droplets — they need to exist for the docs CNAME to resolve)
 
