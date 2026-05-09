@@ -21,6 +21,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
@@ -66,6 +67,9 @@ type Deps struct {
 	Audit     *audit.Recorder
 	Limiter   *throttle.Limiter
 	CloneURLs CloneURLs
+	// SecretBox AEAD-wraps webhook secrets at rest (S33). nil disables
+	// the webhook surface (the handler renders a placeholder page).
+	SecretBox *secretbox.Box
 	// ShithubdPath is forwarded to repos.Create so newly-init'd repos
 	// have hook shims pointing at the right binary. Empty in test fixtures
 	// that don't exercise hooks.
