@@ -14,9 +14,45 @@ linters:
     - gosec
     - revive
   settings:
+    errcheck:
+      # fmt.Print* / fmt.Fprint* return (n, err) where the error is
+      # "writer broke" — for stderr/stdout/cobra writers there is no
+      # actionable recovery. Excluding these matches Go community
+      # practice and keeps the wider errcheck signal useful.
+      exclude-functions:
+        - fmt.Print
+        - fmt.Println
+        - fmt.Printf
+        - fmt.Fprint
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - (io.Writer).Write
+        - (io.Closer).Close
+        # Render.RenderPage failures are best-effort — by the time it
+        # returns the response is already partially written. Handlers
+        # that DO want the log line opt in via the explicit if/err
+        # pattern; bare-call sites stay terse.
+        - (*github.com/tenseleyFlow/shithub/internal/web/render.Renderer).RenderPage
+        - (*github.com/tenseleyFlow/shithub/internal/web/render.Renderer).Render
     gosec:
       excludes:
-        - G304 # file inclusion via variable; we audit these manually
+        - G104 # unhandled errors — errcheck owns this signal with project-specific exclusions
+        - G115 # int->int32 narrowing — values are bounded by callers we own
+        - G109 # strconv.Atoi result narrowed to int32 — same shape as G115
+        - G204 # subprocess launched with variable; every git exec hits this. We audit args manually.
+        - G301 # directory permissions — repo dirs deliberately use 0o750
+        - G302 # file permissions — we use 0o640 deliberately
+        - G306 # WriteFile permissions — same rationale as G302
+        - G304 # file inclusion via variable — paths come from validated repo lookup
+        - G601 # implicit memory aliasing in range — Go 1.22+ closed this hole
+        - G602 # slice bounds out of range — false positives on bounded slices we own
+        - G710 # open redirect — redirect targets are composed from policy-validated owner/repo names that can't escape host
+    gocritic:
+      disabled-checks:
+        # singleCaseSwitch fires inside nested action/role matrices
+        # where converting one arm to `if` would break the visual
+        # symmetry across sibling arms. Other gocritic checks remain on.
+        - singleCaseSwitch
     revive:
       rules:
         - name: var-naming
