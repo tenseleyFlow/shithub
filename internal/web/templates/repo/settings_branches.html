@@ -1,14 +1,10 @@
 {{ define "page" -}}
-<section class="shithub-settings-branches">
-  <header class="shithub-code-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Repo.DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Branch protection
-    </h1>
-  </header>
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Branches</h1>
 
-  <section class="shithub-danger-zone">
+    <section class="shithub-settings-section">
     <h2>Default branch</h2>
     <p>Current: <code>{{ .Repo.DefaultBranch }}</code></p>
     <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/default-branch">
@@ -22,7 +18,7 @@
     </form>
   </section>
 
-  <section class="shithub-danger-zone">
+    <section class="shithub-settings-section">
     <h2>Protection rules</h2>
     {{ if .Rules }}
     <table class="shithub-branches-table">
@@ -52,7 +48,7 @@
     {{ end }}
   </section>
 
-  <section class="shithub-danger-zone">
+    <section class="shithub-settings-section">
     <h2>New rule</h2>
     <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -75,6 +71,7 @@
       <label><input type="checkbox" name="dismiss_stale_status_checks_on_push"> Mark in-flight checks stale on new push (S24)</label>
       <button type="submit" class="shithub-button shithub-button-primary">Create rule</button>
     </form>
-  </section>
-</section>
+    </section>
+  </div>
+</div>
 {{- end }}
