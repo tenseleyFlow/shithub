@@ -1,0 +1,37 @@
+# Managed by Ansible. Ops admins log in as the operator user (with
+# their own ed25519 key in ~/.ssh/authorized_keys); git users are
+# all multiplexed under the `git` user via shithubd's AKC subcommand.
+
+Port 22
+Protocol 2
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PermitEmptyPasswords no
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+ClientAliveInterval 60
+ClientAliveCountMax 3
+LoginGraceTime 30
+MaxAuthTries 3
+MaxSessions 10
+MaxStartups 100:30:200
+
+# Per-user AKC: when a user named `git` connects, shithubd resolves
+# the offered key fingerprint to a shithub user via the user_ssh_keys
+# table and emits the matching authorized_keys line (including the
+# `command=...` prefix that locks the session to git protocol).
+Match User git
+    AuthorizedKeysCommand /usr/local/bin/shithubd ssh-authkeys %f
+    AuthorizedKeysCommandUser shithub-ssh
+    PermitTTY no
+    AllowAgentForwarding no
+    AllowTcpForwarding no
+    PermitOpen none
+    X11Forwarding no
+    PermitTunnel no
+    Banner none
