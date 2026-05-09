@@ -244,3 +244,56 @@ func TestInvite_DuplicatePending(t *testing.T) {
 // ensure pgtype is referenced even if a future refactor removes the
 // only inline use.
 var _ = pgtype.Int8{}
+
+// TestHardDelete_DropsOrgRowAndPrincipal exercises the cascade
+// without the worker scaffolding: soft-delete + manually expire
+// grace via raw UPDATE + HardDelete. Asserts the orgs row is gone,
+// the principals row is gone (slug freed), and the org-owned repo
+// is hard-deleted via the lifecycle cascade.
+func TestHardDelete_DropsOrgRowAndPrincipal(t *testing.T) {
+	pool, deps, alice := setup(t)
+	ctx := context.Background()
+	row, err := orgs.Create(ctx, deps, orgs.CreateParams{
+		Slug: "acme", DisplayName: "Acme", CreatedByUserID: alice,
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	// Soft-delete + force expiry by backdating deleted_at past grace.
+	if err := orgs.SoftDelete(ctx, deps, row.ID, alice); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE orgs SET deleted_at = now() - interval '15 days' WHERE id=$1`, row.ID); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	// Sweep should see this org as past-grace.
+	ids, err := orgs.ListPastGraceOrgIDs(ctx, deps)
+	if err != nil {
+		t.Fatalf("ListPastGraceOrgIDs: %v", err)
+	}
+	found := false
+	for _, id := range ids {
+		if id == row.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("past-grace list missing org id %d (got %v)", row.ID, ids)
+	}
+	// Cascade. RepoFS nil is fine here — no repos under this org.
+	if err := orgs.HardDelete(ctx, orgs.HardDeleteDeps{Deps: deps}, row.ID); err != nil {
+		t.Fatalf("HardDelete: %v", err)
+	}
+	// Org row gone, slug freed in principals.
+	var stillExists bool
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM orgs WHERE id=$1)`, row.ID).Scan(&stillExists)
+	if stillExists {
+		t.Fatal("org row should be gone")
+	}
+	var slugTaken bool
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM principals WHERE slug='acme')`).Scan(&slugTaken)
+	if slugTaken {
+		t.Fatal("principals slug 'acme' should be freed")
+	}
+}

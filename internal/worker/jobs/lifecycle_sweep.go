@@ -11,6 +11,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -66,6 +67,26 @@ func LifecycleSweep(deps LifecycleSweepDeps) worker.Handler {
 		}
 		if n > 0 {
 			deps.Logger.InfoContext(ctx, "lifecycle:sweep: expired transfers", "count", n)
+		}
+
+		// 3. S30 — hard-delete orgs past their 14-day grace window.
+		// Cascade per-repo via lifecycle.HardDelete inside the org
+		// orchestrator. Same per-row failure-tolerant shape as the
+		// repo path above.
+		odeps := orgs.Deps{Pool: deps.Pool, Logger: deps.Logger, Audit: deps.Audit}
+		ohd := orgs.HardDeleteDeps{Deps: odeps, RepoFS: deps.RepoFS, Audit: deps.Audit}
+		orgIDs, err := orgs.ListPastGraceOrgIDs(ctx, odeps)
+		if err != nil {
+			deps.Logger.WarnContext(ctx, "lifecycle:sweep: list past-grace orgs", "error", err)
+		}
+		for _, oid := range orgIDs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := orgs.HardDelete(ctx, ohd, oid); err != nil {
+				deps.Logger.WarnContext(ctx, "lifecycle:sweep: org hard delete failed",
+					"org_id", oid, "error", err)
+			}
 		}
 		return nil
 	}

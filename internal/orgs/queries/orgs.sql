@@ -54,6 +54,24 @@ UPDATE orgs SET deleted_at = now(), updated_at = now() WHERE id = $1;
 -- name: RestoreOrg :exec
 UPDATE orgs SET deleted_at = NULL, updated_at = now() WHERE id = $1;
 
+-- name: ListOrgIDsPastSoftDeleteGrace :many
+-- Sweep input for the lifecycle worker: every soft-deleted org whose
+-- 14-day grace window has elapsed. The interval is intentionally a
+-- DB literal (not a parameter) so the policy lives next to the data.
+SELECT id FROM orgs
+WHERE deleted_at IS NOT NULL
+  AND deleted_at < (now() - interval '14 days');
+
+-- name: ListOrgRepoIDs :many
+-- All repo IDs (including soft-deleted) belonging to an org. Used by
+-- the org hard-delete cascade to fan out per-repo destruction.
+SELECT id FROM repos WHERE owner_org_id = $1;
+
+-- name: HardDeleteOrgRow :exec
+-- Final row removal after the cascade finished. The principals
+-- trigger drops the matching principals row in the same tx.
+DELETE FROM orgs WHERE id = $1;
+
 -- ─── principals (read-only from this domain) ───────────────────────
 
 -- name: ResolvePrincipal :one

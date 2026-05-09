@@ -47,8 +47,18 @@ type Querier interface {
 	GetOrgInvitationByID(ctx context.Context, db DBTX, id int64) (OrgInvitation, error)
 	GetOrgInvitationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (OrgInvitation, error)
 	GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberParams) (OrgMember, error)
+	// Final row removal after the cascade finished. The principals
+	// trigger drops the matching principals row in the same tx.
+	HardDeleteOrgRow(ctx context.Context, db DBTX, id int64) error
+	// Sweep input for the lifecycle worker: every soft-deleted org whose
+	// 14-day grace window has elapsed. The interval is intentionally a
+	// DB literal (not a parameter) so the policy lives next to the data.
+	ListOrgIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
 	// Members of an org with usernames + roles for the people page.
 	ListOrgMembers(ctx context.Context, db DBTX, orgID int64) ([]ListOrgMembersRow, error)
+	// All repo IDs (including soft-deleted) belonging to an org. Used by
+	// the org hard-delete cascade to fan out per-repo destruction.
+	ListOrgRepoIDs(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]int64, error)
 	// Profile-page input: every org a user is a member of, with role.
 	ListOrgsForUser(ctx context.Context, db DBTX, userID int64) ([]ListOrgsForUserRow, error)
 	ListPendingInvitationsForEmail(ctx context.Context, db DBTX, targetEmail pgtype.Text) ([]ListPendingInvitationsForEmailRow, error)

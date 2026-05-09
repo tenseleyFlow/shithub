@@ -152,6 +152,72 @@ func (q *Queries) GetOrgBySlugIncludingDeleted(ctx context.Context, db DBTX, slu
 	return i, err
 }
 
+const hardDeleteOrgRow = `-- name: HardDeleteOrgRow :exec
+DELETE FROM orgs WHERE id = $1
+`
+
+// Final row removal after the cascade finished. The principals
+// trigger drops the matching principals row in the same tx.
+func (q *Queries) HardDeleteOrgRow(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, hardDeleteOrgRow, id)
+	return err
+}
+
+const listOrgIDsPastSoftDeleteGrace = `-- name: ListOrgIDsPastSoftDeleteGrace :many
+SELECT id FROM orgs
+WHERE deleted_at IS NOT NULL
+  AND deleted_at < (now() - interval '14 days')
+`
+
+// Sweep input for the lifecycle worker: every soft-deleted org whose
+// 14-day grace window has elapsed. The interval is intentionally a
+// DB literal (not a parameter) so the policy lives next to the data.
+func (q *Queries) ListOrgIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error) {
+	rows, err := db.Query(ctx, listOrgIDsPastSoftDeleteGrace)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgRepoIDs = `-- name: ListOrgRepoIDs :many
+SELECT id FROM repos WHERE owner_org_id = $1
+`
+
+// All repo IDs (including soft-deleted) belonging to an org. Used by
+// the org hard-delete cascade to fan out per-repo destruction.
+func (q *Queries) ListOrgRepoIDs(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]int64, error) {
+	rows, err := db.Query(ctx, listOrgRepoIDs, ownerOrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resolvePrincipal = `-- name: ResolvePrincipal :one
 
 SELECT slug, kind, id FROM principals WHERE slug = $1
