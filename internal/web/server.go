@@ -272,6 +272,21 @@ func Run(ctx context.Context, opts Options) error {
 			})
 		}
 
+		// S34 — site admin. Gated by RequireUser + RequireSiteAdmin
+		// (404 not 403 for non-admins). Uses its own renderer so the
+		// admin templates are loaded once at boot.
+		adminH, err := buildAdminHandlers(cfg, pool, deps.TemplatesFS, logger, "dev")
+		if err != nil {
+			return fmt.Errorf("admin handlers: %w", err)
+		}
+		deps.AdminMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				r.Use(middleware.RequireSiteAdmin(nil)) // nil ⇒ http.NotFound
+				adminH.Mount(r)
+			})
+		}
+
 		gitHTTPH, err := buildGitHTTPHandlers(cfg, pool, logger)
 		if err != nil {
 			return fmt.Errorf("git-http handlers: %w", err)
