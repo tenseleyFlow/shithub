@@ -269,8 +269,9 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 		}
 		data["RawSource"] = string(body)
 	}
-	highlighted := highlight.Render(cc.subpath, string(body))
-	data["HighlightedHTML"] = template.HTML(highlighted) //nolint:gosec // chroma + classes
+	// Per-line highlighted fragments. The template composes the row
+	// table; chroma only colors the tokens inside each line.
+	data["Lines"] = highlight.RenderLines(cc.subpath, string(body))
 	h.d.Render.RenderPage(w, r, "repo/blob", data)
 }
 
