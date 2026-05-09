@@ -20,6 +20,12 @@ tmp/
 .env.local
 .air.toml.local
 
+# Real Ansible inventories carry secrets (DB passwords, AEAD keys,
+# Postmark tokens, S3 creds, WireGuard private keys). Only the
+# *.example files are committed.
+deploy/ansible/inventory/production
+deploy/ansible/inventory/staging
+
 # OS / editor junk
 .DS_Store
 Thumbs.db
