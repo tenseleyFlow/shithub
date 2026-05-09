@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -108,6 +111,17 @@ var workerCmd = &cobra.Command{
 			Pool: pool, Logger: logger,
 		}))
 
+		notifSender, _ := pickNotifEmailSender(cfg)
+		p.Register(worker.KindNotifyFanout, jobs.NotifyFanout(jobs.NotifyFanoutDeps{
+			Pool:           pool,
+			Logger:         logger,
+			EmailSender:    notifSender,
+			EmailFrom:      cfg.Auth.EmailFrom,
+			SiteName:       cfg.Auth.SiteName,
+			BaseURL:        cfg.Auth.BaseURL,
+			UnsubscribeKey: notifUnsubscribeKey(cfg, logger),
+		}))
+
 		return p.Run(ctx)
 	},
 }
@@ -115,4 +129,67 @@ var workerCmd = &cobra.Command{
 func init() {
 	workerCmd.Flags().Int("workers", 0, "Number of worker goroutines (default 4)")
 	rootCmd.AddCommand(workerCmd)
+}
+
+// pickNotifEmailSender mirrors pickAdminEmailSender / pickEmailSender
+// in the web binary. Kept local to the worker so failure to construct
+// the sender doesn't kill the process — fan-out without email is a
+// supported degraded mode (inbox rows still land).
+func pickNotifEmailSender(cfg config.Config) (email.Sender, error) {
+	switch cfg.Auth.EmailBackend {
+	case "stdout":
+		return email.NewStdoutSender(os.Stdout), nil
+	case "smtp":
+		return &email.SMTPSender{
+			Addr:     cfg.Auth.SMTP.Addr,
+			From:     cfg.Auth.EmailFrom,
+			Username: cfg.Auth.SMTP.Username,
+			Password: cfg.Auth.SMTP.Password,
+		}, nil
+	case "postmark":
+		return &email.PostmarkSender{
+			ServerToken: cfg.Auth.Postmark.ServerToken,
+			From:        cfg.Auth.EmailFrom,
+		}, nil
+	default:
+		return nil, errors.New("worker: unknown email_backend")
+	}
+}
+
+// notifUnsubscribeKey resolves the HMAC key used to sign one-click
+// unsubscribe URLs. Operators set Notif.UnsubscribeKeyB64 in prod.
+// In dev (key empty) we derive a deterministic 32-byte key from the
+// session secret so unsubscribe links survive process restarts
+// without operator action — and we log a loud warning so the
+// derivation can't sneak into prod by accident.
+func notifUnsubscribeKey(cfg config.Config, logger *slog.Logger) []byte {
+	if cfg.Notif.UnsubscribeKeyB64 != "" {
+		k, err := base64.StdEncoding.DecodeString(cfg.Notif.UnsubscribeKeyB64)
+		if err == nil && len(k) >= 16 {
+			return k
+		}
+		if logger != nil {
+			logger.Warn("notif: unsubscribe_key_b64 invalid; falling back to derived key",
+				"hint", "set Notif.UnsubscribeKeyB64 to base64-encoded 32+ random bytes")
+		}
+	}
+	if cfg.Session.KeyB64 != "" {
+		seed, err := base64.StdEncoding.DecodeString(cfg.Session.KeyB64)
+		if err == nil && len(seed) > 0 {
+			sum := sha256.Sum256(append([]byte("notif-unsub:"), seed...))
+			if logger != nil {
+				logger.Warn("notif: deriving unsubscribe key from session secret (dev fallback)",
+					"hint", "set Notif.UnsubscribeKeyB64 in prod")
+			}
+			return sum[:]
+		}
+	}
+	// Last-resort static dev key — links work but anyone with source
+	// access can mint them. Logged at WARN so operators notice in
+	// prod logs.
+	if logger != nil {
+		logger.Warn("notif: no key material — using static dev key",
+			"hint", "set Notif.UnsubscribeKeyB64 (or session.key_b64)")
+	}
+	return []byte("shithub-dev-unsub-static-key-32B")
 }

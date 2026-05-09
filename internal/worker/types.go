@@ -64,6 +64,15 @@ const (
 	KindRepoIndexReconcile Kind = "repo:index_reconcile"
 )
 
+// S29 notification kinds. notify:fanout drains the domain_events
+// table past the persisted cursor and materializes inbox rows +
+// (optional) emails. Self-throttling per FanoutBatch; loop-friendly
+// (the handler returns the count so the pool can re-enqueue when a
+// drain didn't catch up).
+const (
+	KindNotifyFanout Kind = "notify:fanout"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the

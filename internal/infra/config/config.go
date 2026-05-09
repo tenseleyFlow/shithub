@@ -37,6 +37,18 @@ type Config struct {
 	Session        SessionConfig        `toml:"session"`
 	Storage        StorageConfig        `toml:"storage"`
 	Auth           AuthConfig           `toml:"auth"`
+	Notif          NotifConfig          `toml:"notif"`
+}
+
+// NotifConfig configures the S29 notification surface. UnsubscribeKeyB64
+// is the base64-encoded HMAC-SHA256 key that signs one-click
+// unsubscribe URLs (RFC 8058). When empty (dev default), the
+// fan-out worker derives a deterministic key from the session key so
+// links are stable across restarts without operator action — this
+// derivation is NOT suitable for prod and the wiring layer logs a
+// warning when it fires.
+type NotifConfig struct {
+	UnsubscribeKeyB64 string `toml:"unsubscribe_key_b64"`
 }
 
 // WebConfig holds HTTP server settings.
