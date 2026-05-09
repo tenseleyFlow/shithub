@@ -78,19 +78,22 @@ if [[ -z "$PROJECT_ID" ]]; then
     --description "shithub.sh production environment" \
     --no-header --format ID)"
 fi
-echo "project: $PROJECT_NAME (id $PROJECT_ID)"
+echo "project: $PROJECT_NAME (id $PROJECT_ID)" >&2
 
 # --- 2. Droplets ---
+# Status messages must go to stderr so they don't pollute the captured
+# stdout (which the caller assigns to APP_ID etc.). Only the bare ID
+# goes to stdout.
 create_or_skip_droplet() {
   local name="$1" size="$2" tag="$3"
   local existing
   existing="$(doctl compute droplet list --no-header --format ID,Name | awk -v n="$name" '$2==n {print $1; exit}')"
   if [[ -n "$existing" ]]; then
-    echo "droplet $name already exists (id $existing); skipping"
+    echo "droplet $name already exists (id $existing); skipping" >&2
     echo "$existing"
     return
   fi
-  echo "creating droplet $name (size $size)..."
+  echo "creating droplet $name (size $size)..." >&2
   local id
   id="$(doctl compute droplet create "$name" \
     --image ubuntu-24-04-x64 \
@@ -110,38 +113,47 @@ BAK_ID="$(create_or_skip_droplet shithub-backup     s-1vcpu-2gb shithub-backup)"
 MON_ID="$(create_or_skip_droplet shithub-monitoring s-2vcpu-4gb shithub-monitoring)"
 
 # --- 3. Block volume + attach to shithub-app ---
+# Volume creation and attach are independent steps; on a re-run we may
+# find the volume created but never attached (if a prior run died here).
+# Handle both checks separately.
 VOL_NAME="shithub-data"
 VOL_ID="$(doctl compute volume list --no-header --format ID,Name | awk -v n="$VOL_NAME" '$2==n {print $1; exit}')"
 if [[ -z "$VOL_ID" ]]; then
-  echo "creating 100 GB volume $VOL_NAME..."
+  echo "creating 100 GB volume $VOL_NAME..." >&2
   VOL_ID="$(doctl compute volume create "$VOL_NAME" \
     --region "$PRIMARY_REGION" \
     --size 100GiB \
     --fs-type ext4 \
     --no-header --format ID)"
-  echo "attaching $VOL_NAME to shithub-app..."
-  doctl compute volume-action attach "$VOL_ID" "$APP_ID" --wait
 else
-  echo "volume $VOL_NAME already exists (id $VOL_ID); skipping create"
+  echo "volume $VOL_NAME already exists (id $VOL_ID); skipping create" >&2
+fi
+
+# Check whether the volume is already attached. doctl prints DropletIDs
+# as a JSON-style array like [123456789] or [].
+ATTACHED_TO="$(doctl compute volume get "$VOL_ID" --no-header --format DropletIDs | tr -d '[]' | xargs)"
+if [[ -z "$ATTACHED_TO" ]]; then
+  echo "attaching $VOL_NAME to shithub-app (id $APP_ID)..." >&2
+  doctl compute volume-action attach "$VOL_ID" "$APP_ID" --wait >&2
+else
+  echo "volume $VOL_NAME already attached to droplet(s) $ATTACHED_TO; skipping" >&2
 fi
 
 # --- 4. Spaces buckets ---
-# doctl's spaces support exists but is limited; fall through to the s3-compatible API
-# via the standard awscli isn't worth the extra dep here. We use doctl's native
-# Spaces commands where they exist, and fall back to instructions for the rest.
+# doctl's spaces support varies by version. We attempt the native commands;
+# if they're not present, we print a fallback and continue.
 create_or_skip_space() {
   local name="$1" region="$2"
-  if doctl spaces buckets list --no-header --format Name | grep -qx "$name" 2>/dev/null; then
-    echo "Spaces bucket $name already exists; skipping"
+  if doctl spaces buckets list --no-header --format Name 2>/dev/null | grep -qx "$name"; then
+    echo "Spaces bucket $name already exists; skipping" >&2
     return
   fi
-  echo "creating Spaces bucket $name in $region..."
-  # Newer doctl versions support `doctl spaces buckets create`; older ones don't.
+  echo "creating Spaces bucket $name in $region..." >&2
   if doctl spaces buckets create "$name" --region "$region" >/dev/null 2>&1; then
-    echo "  ok"
+    echo "  ok" >&2
   else
-    echo "  doctl can't create the bucket (CLI version doesn't support it);"
-    echo "  create '$name' in region '$region' via the dashboard."
+    echo "  doctl can't create the bucket (CLI version may not support it);" >&2
+    echo "  create '$name' in region '$region' via the dashboard." >&2
   fi
 }
 
