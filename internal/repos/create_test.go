@@ -19,6 +19,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -228,5 +229,54 @@ func TestCreate_PrivateVisibilityPersists(t *testing.T) {
 	// Sharded path layout sanity check (shard is first 2 chars of OWNER).
 	if want := filepath.Join("al", "alice", "secret.git"); !strings.HasSuffix(res.DiskPath, want) {
 		t.Errorf("DiskPath %q does not end with %q", res.DiskPath, want)
+	}
+}
+
+func TestCreate_OrgOwned(t *testing.T) {
+	t.Parallel()
+	pool, deps, uid, _, _ := setupCreateEnv(t)
+	// Create an org owned by alice (the setupCreateEnv user).
+	odeps := orgs.Deps{Pool: pool}
+	org, err := orgs.Create(context.Background(), odeps, orgs.CreateParams{
+		Slug: "acme", DisplayName: "Acme", CreatedByUserID: uid,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	res, err := repos.Create(context.Background(), deps, repos.Params{
+		OwnerOrgID:  org.ID,
+		OwnerSlug:   string(org.Slug),
+		ActorUserID: uid,
+		Name:        "demo",
+		Visibility:  "public",
+	})
+	if err != nil {
+		t.Fatalf("Create org-owned: %v", err)
+	}
+	if !res.Repo.OwnerOrgID.Valid || res.Repo.OwnerOrgID.Int64 != org.ID {
+		t.Fatalf("expected org-owned row; got owner_org_id=%v", res.Repo.OwnerOrgID)
+	}
+	if res.Repo.OwnerUserID.Valid {
+		t.Fatalf("owner_user_id should be NULL for org-owned, got %v", res.Repo.OwnerUserID)
+	}
+	// Disk path uses the org slug, not a user-namespace prefix.
+	if !strings.Contains(res.DiskPath, "acme") {
+		t.Fatalf("DiskPath %q should contain org slug 'acme'", res.DiskPath)
+	}
+}
+
+func TestCreate_RejectsBothOwnerKindsSet(t *testing.T) {
+	t.Parallel()
+	_, deps, uid, uname, _ := setupCreateEnv(t)
+	_, err := repos.Create(context.Background(), deps, repos.Params{
+		OwnerUserID:   uid,
+		OwnerUsername: uname,
+		OwnerOrgID:    999, // both set — XOR violated
+		OwnerSlug:     "x",
+		Name:          "noop",
+		Visibility:    "public",
+	})
+	if err == nil {
+		t.Fatal("expected XOR violation error, got nil")
 	}
 }

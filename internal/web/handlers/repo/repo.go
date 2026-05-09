@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 
+	"strconv"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,6 +26,7 @@ import (
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -116,6 +119,7 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 // newRepoForm renders GET /new.
 func (h *Handlers) newRepoForm(w http.ResponseWriter, r *http.Request) {
 	h.renderNewForm(w, r, formState{
+		Owner:      "user:0", // template substitutes the viewer's id below
 		Visibility: "public",
 	}, "")
 }
@@ -123,12 +127,23 @@ func (h *Handlers) newRepoForm(w http.ResponseWriter, r *http.Request) {
 // formState mirrors the new-repo form so a re-render after a validation
 // error can repopulate the user's input.
 type formState struct {
+	Owner       string // "user:<id>" or "org:<id>"
 	Name        string
 	Description string
 	Visibility  string
 	InitReadme  bool
 	License     string
 	Gitignore   string
+}
+
+// ownerOption is one entry the new-repo owner picker shows.
+type ownerOption struct {
+	Kind    string // "user" | "org"
+	ID      int64
+	Slug    string
+	Display string
+	// Token is the form value: "user:<id>" or "org:<id>".
+	Token string
 }
 
 // newRepoSubmit handles POST /new.
@@ -139,6 +154,7 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	user := middleware.CurrentUserFromContext(r.Context())
 	form := formState{
+		Owner:       strings.TrimSpace(r.PostFormValue("owner")),
 		Name:        repos.NormalizeName(r.PostFormValue("name")),
 		Description: strings.TrimSpace(r.PostFormValue("description")),
 		Visibility:  strings.TrimSpace(r.PostFormValue("visibility")),
@@ -150,6 +166,42 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 		form.Visibility = "public"
 	}
 
+	params := repos.Params{
+		ActorUserID:  user.ID,
+		Name:         form.Name,
+		Description:  form.Description,
+		Visibility:   form.Visibility,
+		InitReadme:   form.InitReadme,
+		LicenseKey:   form.License,
+		GitignoreKey: form.Gitignore,
+	}
+	// Owner picker: "org:N" routes through the org-owner branch with
+	// the per-org allow_member_repo_create gate; anything else
+	// defaults to the viewer's personal namespace.
+	if kind, id, ok := parseOwnerToken(form.Owner); ok && kind == "org" {
+		odeps := orgs.Deps{Pool: h.d.Pool, Logger: h.d.Logger}
+		org, oerr := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, id)
+		if oerr != nil || org.DeletedAt.Valid {
+			h.renderNewForm(w, r, form, "Selected organization not found.")
+			return
+		}
+		isMem, _ := orgs.IsMember(r.Context(), odeps, org.ID, user.ID)
+		if !isMem {
+			h.renderNewForm(w, r, form, "You're not a member of that organization.")
+			return
+		}
+		isOwner, _ := orgs.IsOwner(r.Context(), odeps, org.ID, user.ID)
+		if !isOwner && !org.AllowMemberRepoCreate {
+			h.renderNewForm(w, r, form, "This organization restricts repo creation to owners.")
+			return
+		}
+		params.OwnerOrgID = org.ID
+		params.OwnerSlug = string(org.Slug)
+	} else {
+		params.OwnerUserID = user.ID
+		params.OwnerUsername = user.Username
+	}
+
 	res, err := repos.Create(r.Context(), repos.Deps{
 		Pool:         h.d.Pool,
 		RepoFS:       h.d.RepoFS,
@@ -157,26 +209,47 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 		Limiter:      h.d.Limiter,
 		Logger:       h.d.Logger,
 		ShithubdPath: h.d.ShithubdPath,
-	}, repos.Params{
-		OwnerUserID:   user.ID,
-		OwnerUsername: user.Username,
-		Name:          form.Name,
-		Description:   form.Description,
-		Visibility:    form.Visibility,
-		InitReadme:    form.InitReadme,
-		LicenseKey:    form.License,
-		GitignoreKey:  form.Gitignore,
-	})
+	}, params)
 	if err != nil {
 		h.renderNewForm(w, r, form, friendlyCreateError(err))
 		return
 	}
+	ownerSlug := params.OwnerUsername
+	if ownerSlug == "" {
+		ownerSlug = params.OwnerSlug
+	}
+	http.Redirect(w, r, "/"+ownerSlug+"/"+res.Repo.Name, http.StatusSeeOther)
+}
 
-	http.Redirect(w, r, "/"+user.Username+"/"+res.Repo.Name, http.StatusSeeOther)
+// parseOwnerToken splits a value like "org:42" into ("org", 42, true).
+// Returns ok=false on missing or unparseable input.
+func parseOwnerToken(s string) (kind string, id int64, ok bool) {
+	if s == "" {
+		return "", 0, false
+	}
+	colon := strings.IndexByte(s, ':')
+	if colon <= 0 || colon == len(s)-1 {
+		return "", 0, false
+	}
+	kind = s[:colon]
+	if kind != "user" && kind != "org" {
+		return "", 0, false
+	}
+	n, err := strconv.ParseInt(s[colon+1:], 10, 64)
+	if err != nil || n <= 0 {
+		return "", 0, false
+	}
+	return kind, n, true
 }
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form formState, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	owners := h.ownerOptions(r)
+	// Default the form's owner pick to the viewer when the field is
+	// empty (first GET) so the picker has a valid pre-selection.
+	if form.Owner == "" && len(owners) > 0 {
+		form.Owner = owners[0].Token
+	}
 	if err := h.d.Render.RenderPage(w, r, "repo/new", map[string]any{
 		"Title":      "New repository",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
@@ -184,9 +257,54 @@ func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form fo
 		"Error":      errMsg,
 		"Licenses":   templates.Licenses(),
 		"Gitignores": templates.Gitignores(),
+		"Owners":     owners,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo: render new", "error", err)
 	}
+}
+
+// ownerOptions returns the entries the form's owner picker shows:
+// the viewer themselves plus every org they're a member of where
+// they're allowed to create (owner role OR allow_member_repo_create).
+func (h *Handlers) ownerOptions(r *http.Request) []ownerOption {
+	user := middleware.CurrentUserFromContext(r.Context())
+	if user.IsAnonymous() {
+		return nil
+	}
+	out := []ownerOption{{
+		Kind: "user", ID: user.ID, Slug: user.Username,
+		Display: user.Username,
+		Token:   "user:" + strconv.FormatInt(user.ID, 10),
+	}}
+	memberships, err := orgsdb.New().ListOrgsForUser(r.Context(), h.d.Pool, user.ID)
+	if err != nil {
+		return out
+	}
+	for _, m := range memberships {
+		isOwner := m.Role == orgsdb.OrgRoleOwner
+		canCreate := isOwner
+		if !isOwner {
+			full, ferr := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, m.OrgID)
+			if ferr == nil {
+				canCreate = full.AllowMemberRepoCreate
+			}
+		}
+		if !canCreate {
+			continue
+		}
+		display := m.DisplayName
+		if display == "" {
+			display = string(m.Slug)
+		}
+		out = append(out, ownerOption{
+			Kind:    "org",
+			ID:      m.OrgID,
+			Slug:    string(m.Slug),
+			Display: display + " (" + string(m.Slug) + ")",
+			Token:   "org:" + strconv.FormatInt(m.OrgID, 10),
+		})
+	}
+	return out
 }
 
 // repoHome serves GET /{owner}/{repo}. Forks on whether the bare repo

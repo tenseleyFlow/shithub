@@ -8,7 +8,16 @@
   <form method="POST" action="/new" novalidate class="shithub-repo-new-form">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
-    <div class="shithub-repo-new-row">
+    <div class="shithub-repo-new-row shithub-repo-new-owner-row">
+      <label class="shithub-repo-new-owner">
+        <span>Owner <em>*</em></span>
+        <select name="owner" required>
+          {{ range .Owners }}
+          <option value="{{ .Token }}"{{ if eq .Token $.Form.Owner }} selected{{ end }}>{{ .Display }}</option>
+          {{ end }}
+        </select>
+      </label>
+      <span class="shithub-repo-new-sep">/</span>
       <label class="shithub-repo-new-name">
         <span>Repository name <em>*</em></span>
         <input type="text" name="name" required maxlength="100" autocomplete="off"

@@ -53,9 +53,22 @@ type Deps struct {
 
 // Params describes one repo-create request as it arrives from the
 // handler, normalized but not yet validated against the DB.
+//
+// Owner is XOR (S30): either OwnerUserID set OR OwnerOrgID set.
+// OwnerUsername / OwnerSlug carry the slug for path generation
+// (the FS layer's per-owner directory uses it). ActorUserID is who
+// initiated the create — defaults to OwnerUserID for personal repos
+// and is required for org-owned creates.
 type Params struct {
 	OwnerUserID   int64
 	OwnerUsername string
+	OwnerOrgID    int64
+	OwnerSlug     string
+
+	// ActorUserID is the user performing the create. Used for
+	// audit-log + rate-limiting + initial-commit author. Defaults to
+	// OwnerUserID for personal repos when zero.
+	ActorUserID int64
 
 	Name        string // already lowercased + trimmed
 	Description string
@@ -107,20 +120,36 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %s", ErrUnknownGitignore, p.GitignoreKey)
 	}
 
-	// Rate-limit per owning user.
+	// Owner XOR — exactly one kind. Org-owner path: actor must be set
+	// (so we know who initiated for audit + initial commit).
+	switch {
+	case p.OwnerUserID != 0 && p.OwnerOrgID == 0:
+		if p.ActorUserID == 0 {
+			p.ActorUserID = p.OwnerUserID
+		}
+	case p.OwnerOrgID != 0 && p.OwnerUserID == 0:
+		if p.ActorUserID == 0 {
+			return Result{}, errors.New("repos: ActorUserID required for org-owned create")
+		}
+	default:
+		return Result{}, errors.New("repos: owner is XOR — set OwnerUserID OR OwnerOrgID, not both")
+	}
+
+	// Rate-limit per actor (NOT per owner) so a user can't bypass the
+	// per-account cap by spreading creates across orgs they manage.
 	if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
 		Scope:      "repo_create",
-		Identifier: fmt.Sprintf("user:%d", p.OwnerUserID),
+		Identifier: fmt.Sprintf("user:%d", p.ActorUserID),
 		Max:        CreateRateLimitMax,
 		Window:     CreateRateLimitWindow,
 	}); err != nil {
 		return Result{}, err
 	}
 
-	// Resolve author identity for the initial commit (only needed when we
-	// actually build one; resolved up-front so an unverified email
-	// rejects the create cleanly even if the user didn't tick init).
-	authorName, authorEmail, err := resolveAuthor(ctx, deps.Pool, p.OwnerUserID)
+	// Resolve author identity for the initial commit. The actor (the
+	// human who clicked "create") is the author — even on org repos,
+	// the seed commit attributes to them.
+	authorName, authorEmail, err := resolveAuthor(ctx, deps.Pool, p.ActorUserID)
 	wantInit := p.InitReadme || p.LicenseKey != "" || p.GitignoreKey != ""
 	if wantInit && err != nil {
 		return Result{}, err
@@ -129,8 +158,14 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	// Pre-compute disk path from RepoFS. Doing this before the tx avoids
 	// inserting a DB row for a name that fails the path-validation
 	// whitelist (which mostly mirrors our own ValidateName, but
-	// defense-in-depth never hurts).
-	diskPath, err := deps.RepoFS.RepoPath(p.OwnerUsername, p.Name)
+	// defense-in-depth never hurts). Org-owned repos use the org slug
+	// as the per-owner directory — same shape as user-owned, no
+	// `org/` prefix on disk (matches the GitHub URL layout).
+	ownerSlug := p.OwnerUsername
+	if p.OwnerOrgID != 0 {
+		ownerSlug = p.OwnerSlug
+	}
+	diskPath, err := deps.RepoFS.RepoPath(ownerSlug, p.Name)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrInvalidName, err)
 	}
@@ -148,8 +183,8 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 
 	q := reposdb.New()
 	row, err := q.CreateRepo(ctx, tx, reposdb.CreateRepoParams{
-		OwnerUserID:     pgtype.Int8{Int64: p.OwnerUserID, Valid: true},
-		OwnerOrgID:      pgtype.Int8{Valid: false},
+		OwnerUserID:     pgtype.Int8{Int64: p.OwnerUserID, Valid: p.OwnerUserID != 0},
+		OwnerOrgID:      pgtype.Int8{Int64: p.OwnerOrgID, Valid: p.OwnerOrgID != 0},
 		Name:            p.Name,
 		Description:     p.Description,
 		Visibility:      reposdb.RepoVisibility(p.Visibility),
@@ -225,7 +260,7 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	}
 	committed = true
 
-	if err := deps.Audit.Record(ctx, deps.Pool, p.OwnerUserID,
+	if err := deps.Audit.Record(ctx, deps.Pool, p.ActorUserID,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID, map[string]any{
 			"name":       p.Name,
 			"visibility": p.Visibility,

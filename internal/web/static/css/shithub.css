@@ -1046,6 +1046,11 @@ code {
 .shithub-repo-subnav-tab:hover { background: var(--canvas-subtle); border-radius: 6px 6px 0 0; }
 .shithub-repo-subnav-tab.is-active { border-bottom-color: var(--accent-emphasis, #fd8c73); font-weight: 600; }
 
+/* New-repo owner picker (S30) */
+.shithub-repo-new-owner-row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
+.shithub-repo-new-owner select { padding: 0.4rem 0.5rem; }
+.shithub-repo-new-sep { font-size: 1.5rem; color: var(--fg-muted); padding-bottom: 0.4rem; }
+
 .shithub-tree {
   width: 100%;
   border-collapse: collapse;
