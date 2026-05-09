@@ -963,6 +963,51 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 	return string(ns.TeamRole), nil
 }
 
+type TransactionalEmailStatus string
+
+const (
+	TransactionalEmailStatusQueued      TransactionalEmailStatus = "queued"
+	TransactionalEmailStatusSent        TransactionalEmailStatus = "sent"
+	TransactionalEmailStatusSoftBounced TransactionalEmailStatus = "soft_bounced"
+	TransactionalEmailStatusHardBounced TransactionalEmailStatus = "hard_bounced"
+	TransactionalEmailStatusDropped     TransactionalEmailStatus = "dropped"
+)
+
+func (e *TransactionalEmailStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TransactionalEmailStatus(s)
+	case string:
+		*e = TransactionalEmailStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TransactionalEmailStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTransactionalEmailStatus struct {
+	TransactionalEmailStatus TransactionalEmailStatus
+	Valid                    bool // Valid is true if TransactionalEmailStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTransactionalEmailStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TransactionalEmailStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TransactionalEmailStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTransactionalEmailStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TransactionalEmailStatus), nil
+}
+
 type TransferPrincipalKind string
 
 const (
@@ -1753,6 +1798,19 @@ type TeamRepoAccess struct {
 	AddedAt       pgtype.Timestamptz
 }
 
+type TransactionalEmailLog struct {
+	ID              int64
+	RecipientUserID pgtype.Int8
+	RecipientEmail  string
+	Kind            string
+	Subject         string
+	ProviderID      string
+	Status          TransactionalEmailStatus
+	ErrorSummary    pgtype.Text
+	SentAt          pgtype.Timestamptz
+	DeliveredAt     pgtype.Timestamptz
+}
+
 type User struct {
 	ID                int64
 	Username          string
@@ -1776,6 +1834,7 @@ type User struct {
 	AvatarObjectKey   pgtype.Text
 	Theme             string
 	SessionEpoch      int32
+	IsSiteAdmin       bool
 }
 
 type UserEmail struct {
