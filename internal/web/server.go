@@ -195,6 +195,12 @@ func Run(ctx context.Context, opts Options) error {
 				repoH.MountSettingsBranches(r)
 			})
 		}
+		deps.RepoSettingsGeneralMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountSettingsGeneral(r)
+			})
+		}
 		// Issues GETs are public (subject to policy.Can), POSTs require
 		// auth. The handler enforces auth + policy per request, so we
 		// register the whole surface in the public group; an unauth
