@@ -140,3 +140,49 @@ This document is reviewed at the start of every security-touching
 sprint (S35, S39 beta hardening) and on any major architecture
 change (S37 deploy, S44 GraphQL API). Significant updates require a
 PR with an explicit reviewer note in the description.
+
+## S39 hardening review (2026-05-09)
+
+The S39 internal pen-test (3 days, scoped to the OWASP top set +
+auth + git + webhook SSRF) noted the following considerations
+for v1 — none introduce a new attacker class, but they sharpen
+how A1–A6 are addressed:
+
+- **A1 — compromised account.** The S38 introduction of the
+  finalized "sign out everywhere" surface (per-account session
+  epoch) is the operator's primary lever. The audit flagged that
+  rotating the session signing key
+  (`docs/internal/runbooks/rotate-secrets.md`) is also a global
+  kill-switch — useful for "we suspect the cookie database
+  leaked." Documented; no code change.
+- **A2 — public viewer.** The render.go fix landing in S39
+  (`internal/web/render/render.go`) closes a class of silent-
+  blank-page bugs that, while not a vulnerability themselves,
+  made it harder to notice missing authorization gates during
+  development. Fail-loud at parse time is now the rule.
+- **A4 — webhook subscriber.** The SSRF defense
+  (`internal/security/ssrf/`) gets re-tested every release; S39
+  added the `audit-a11y` and `load-test` CI scaffolding but did
+  not change the SSRF surface.
+- **A6 — resource exhaustion.** The k6 scenarios in
+  `tests/load/k6/scenarios/` exercise the rate-limit floors. The
+  S39 spec calls out "0% 5xx errors; rate-limit-driven 429s
+  expected and counted" — confirmed in the load-test design.
+
+## Out-of-band watchlist (track separately)
+
+These don't fit the A1–A6 attacker model but operators should
+keep an eye on them:
+
+- **Dependency-supply-chain on the Go side.** `go.sum` pinning
+  is enforced; we don't yet do reproducible-build verification.
+- **The docs subdomain serving from Spaces.** A bucket
+  policy mistake there could let an attacker stage a phishing
+  page on `docs.shithub.example`. Mitigated by Caddy's CSP
+  and the explicit reverse-proxy origin
+  (`deploy/docs-site/Caddyfile.snippet`).
+- **PAT prefix recognition by external secret scanners.**
+  `shp_` is documented in `docs/public/user/personal-access-
+  tokens.md` and recognised by GitGuardian/GitHub's scanners;
+  if we ever rotate the prefix, coordinate with them so leaked
+  tokens still get caught upstream.
