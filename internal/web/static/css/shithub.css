@@ -893,11 +893,31 @@ code {
 .shithub-repo-populated-note { margin-top: 1rem; font-size: 0.8rem; color: var(--fg-muted); }
 
 /* ========== Code tab (S17) ========== */
-.shithub-code, .shithub-blob, .shithub-finder {
-  max-width: 64rem;
+/* The repo-page wrapper drives the outer width — every code/blob/list
+   view now gets the same wide container with consistent gutters,
+   matching GitHub's full-width code layout. The inner sections used
+   to set their own max-widths and pinched the layout into a narrow
+   column. */
+.shithub-repo-page {
+  max-width: 1280px;
   margin: 1.5rem auto;
-  padding: 0 1rem;
+  padding: 0 1.25rem;
 }
+.shithub-code, .shithub-blob, .shithub-finder {
+  margin: 0;
+  padding: 0;
+}
+/* Code body (tree + blob source) sits in a bordered panel so it
+   reads as a distinct surface — matches the panelled "Code" view in
+   the GitHub reference screenshots. */
+.shithub-tree, .shithub-blob-source {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  overflow-x: auto;
+}
+.shithub-tree { background: var(--canvas-default); }
+.shithub-blob-source pre, .shithub-blob-source .chroma { margin: 0; }
 .shithub-code-head {
   display: flex;
   align-items: center;
@@ -1079,6 +1099,19 @@ code {
 .shithub-readme-plain { white-space: pre-wrap; }
 
 .shithub-blob-meta { color: var(--fg-muted); font-size: 0.85rem; margin-right: 0.5rem; }
+/* Blob source: tighten line-numbers gutter + give the code area a
+   little internal padding so the panel looks like a viewer, not a
+   raw <pre>. Chroma's table layout puts line numbers on the left
+   <td>; we style the gutter cell. */
+.shithub-blob-source .chroma { padding: 0; }
+.shithub-blob-source .chroma .lntable { width: 100%; border-collapse: collapse; }
+.shithub-blob-source .chroma .lntd:first-child {
+  border-right: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+  user-select: none;
+}
+.shithub-blob-source .chroma .lntd { vertical-align: top; padding: 0.5rem 0.75rem; }
+.shithub-blob-source .chroma pre { font-size: 0.85rem; line-height: 1.55; }
 .shithub-blob-too-large, .shithub-blob-binary {
   padding: 1rem;
   border: 1px dashed var(--border-default);
