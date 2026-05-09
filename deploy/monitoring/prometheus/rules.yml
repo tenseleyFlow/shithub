@@ -1,0 +1,84 @@
+# Alert rules for shithubd. Keep these short and signal-heavy —
+# every alert here should map to a runbook in docs/internal/
+# runbooks/incidents.md by name.
+
+groups:
+  - name: shithubd-availability
+    interval: 30s
+    rules:
+      - alert: ShithubdWebDown
+        expr: up{job="shithubd-web"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "shithubd web {{ $labels.instance }} is down"
+          runbook: "runbooks/incidents.md#shithubd-down"
+
+      - alert: ShithubdWorkerDown
+        expr: up{job="shithubd-worker"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "shithubd worker is down"
+          runbook: "runbooks/incidents.md#worker-down"
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "postgres is down — site cannot serve writes"
+          runbook: "runbooks/incidents.md#postgres-down"
+
+  - name: shithubd-latency
+    interval: 30s
+    rules:
+      - alert: HighRequestLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (route, le)
+          ) > 1.5
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 latency on {{ $labels.route }} > 1.5s"
+
+      - alert: HighDBQueryRate
+        expr: |
+          sum(rate(pg_stat_statements_calls_total[5m])) > 5000
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "DB call rate sustained > 5k/s — possible N+1 regression"
+
+  - name: shithubd-jobs
+    interval: 30s
+    rules:
+      - alert: JobBacklogGrowing
+        expr: shithubd_job_queue_depth > 5000
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "job queue depth > 5k — worker cannot keep up"
+          runbook: "runbooks/incidents.md#job-backlog"
+
+      - alert: WebhookDeliveryFailing
+        expr: |
+          rate(shithubd_webhook_deliveries_total{result="failure"}[15m])
+            /
+          rate(shithubd_webhook_deliveries_total[15m]) > 0.5
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "webhook failure rate > 50% sustained"
+
+  - name: shithubd-backups
+    interval: 5m
+    rules:
+      - alert: BackupOverdue
+        expr: time() - shithubd_backup_last_success_seconds > 60 * 60 * 30
+        for: 0m
+        labels: {severity: page}
+        annotations:
+          summary: "no successful backup in > 30h"
+          runbook: "runbooks/backups.md#missed-backup"
