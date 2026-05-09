@@ -100,6 +100,42 @@ FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
 
+-- name: UpdateRepoGeneralSettings :exec
+-- S32: General-tab settings persist via this single query so each
+-- form post is one round-trip. The merge-method toggles are kept
+-- separate from the repo create flow because they're admin-only.
+UPDATE repos
+   SET description       = $2,
+       has_issues        = $3,
+       has_pulls         = $4,
+       updated_at        = now()
+ WHERE id = $1;
+
+-- name: UpdateRepoMergeSettings :exec
+UPDATE repos
+   SET allow_merge_commit  = $2,
+       allow_squash_merge  = $3,
+       allow_rebase_merge  = $4,
+       default_merge_method = $5,
+       updated_at          = now()
+ WHERE id = $1;
+
+-- ─── repo_topics (S32) ─────────────────────────────────────────────
+
+-- name: ListRepoTopics :many
+SELECT topic FROM repo_topics WHERE repo_id = $1 ORDER BY topic ASC;
+
+-- name: ReplaceRepoTopics :exec
+-- Atomic full-replace: callers compose the new topic set in Go,
+-- then replace the existing rows in one tx (DELETE + INSERT). The
+-- caller's tx wraps both calls for atomicity.
+DELETE FROM repo_topics WHERE repo_id = $1;
+
+-- name: InsertRepoTopic :exec
+INSERT INTO repo_topics (repo_id, topic)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
+
 -- name: SoftDeleteRepo :exec
 UPDATE repos SET deleted_at = now() WHERE id = $1;
 

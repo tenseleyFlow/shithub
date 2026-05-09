@@ -402,6 +402,22 @@ func (q *Queries) GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int6
 	return i, err
 }
 
+const insertRepoTopic = `-- name: InsertRepoTopic :exec
+INSERT INTO repo_topics (repo_id, topic)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type InsertRepoTopicParams struct {
+	RepoID int64
+	Topic  string
+}
+
+func (q *Queries) InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTopicParams) error {
+	_, err := db.Exec(ctx, insertRepoTopic, arg.RepoID, arg.Topic)
+	return err
+}
+
 const listAllRepoFullNames = `-- name: ListAllRepoFullNames :many
 SELECT
     r.id,
@@ -536,6 +552,32 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRepoTopics = `-- name: ListRepoTopics :many
+
+SELECT topic FROM repo_topics WHERE repo_id = $1 ORDER BY topic ASC
+`
+
+// ─── repo_topics (S32) ─────────────────────────────────────────────
+func (q *Queries) ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error) {
+	rows, err := db.Query(ctx, listRepoTopics, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var topic string
+		if err := rows.Scan(&topic); err != nil {
+			return nil, err
+		}
+		items = append(items, topic)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -713,6 +755,18 @@ func (q *Queries) ListReposNeedingReindex(ctx context.Context, db DBTX, limit in
 	return items, nil
 }
 
+const replaceRepoTopics = `-- name: ReplaceRepoTopics :exec
+DELETE FROM repo_topics WHERE repo_id = $1
+`
+
+// Atomic full-replace: callers compose the new topic set in Go,
+// then replace the existing rows in one tx (DELETE + INSERT). The
+// caller's tx wraps both calls for atomicity.
+func (q *Queries) ReplaceRepoTopics(ctx context.Context, db DBTX, repoID int64) error {
+	_, err := db.Exec(ctx, replaceRepoTopics, repoID)
+	return err
+}
+
 const setLastIndexedOID = `-- name: SetLastIndexedOID :exec
 UPDATE repos SET last_indexed_oid = $2::text WHERE id = $1
 `
@@ -786,5 +840,63 @@ type UpdateRepoDiskUsedParams struct {
 
 func (q *Queries) UpdateRepoDiskUsed(ctx context.Context, db DBTX, arg UpdateRepoDiskUsedParams) error {
 	_, err := db.Exec(ctx, updateRepoDiskUsed, arg.ID, arg.DiskUsedBytes)
+	return err
+}
+
+const updateRepoGeneralSettings = `-- name: UpdateRepoGeneralSettings :exec
+UPDATE repos
+   SET description       = $2,
+       has_issues        = $3,
+       has_pulls         = $4,
+       updated_at        = now()
+ WHERE id = $1
+`
+
+type UpdateRepoGeneralSettingsParams struct {
+	ID          int64
+	Description string
+	HasIssues   bool
+	HasPulls    bool
+}
+
+// S32: General-tab settings persist via this single query so each
+// form post is one round-trip. The merge-method toggles are kept
+// separate from the repo create flow because they're admin-only.
+func (q *Queries) UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error {
+	_, err := db.Exec(ctx, updateRepoGeneralSettings,
+		arg.ID,
+		arg.Description,
+		arg.HasIssues,
+		arg.HasPulls,
+	)
+	return err
+}
+
+const updateRepoMergeSettings = `-- name: UpdateRepoMergeSettings :exec
+UPDATE repos
+   SET allow_merge_commit  = $2,
+       allow_squash_merge  = $3,
+       allow_rebase_merge  = $4,
+       default_merge_method = $5,
+       updated_at          = now()
+ WHERE id = $1
+`
+
+type UpdateRepoMergeSettingsParams struct {
+	ID                 int64
+	AllowMergeCommit   bool
+	AllowSquashMerge   bool
+	AllowRebaseMerge   bool
+	DefaultMergeMethod PrMergeMethod
+}
+
+func (q *Queries) UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error {
+	_, err := db.Exec(ctx, updateRepoMergeSettings,
+		arg.ID,
+		arg.AllowMergeCommit,
+		arg.AllowSquashMerge,
+		arg.AllowRebaseMerge,
+		arg.DefaultMergeMethod,
+	)
 	return err
 }

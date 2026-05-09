@@ -61,6 +61,7 @@ type Querier interface {
 	// Both old-owner FKs are nullable; pass exactly one. The CHECK
 	// constraint on the table enforces the xor shape.
 	InsertRepoRedirect(ctx context.Context, db DBTX, arg InsertRepoRedirectParams) error
+	InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTopicParams) error
 	// ─── transfer requests ─────────────────────────────────────────────────
 	InsertTransferRequest(ctx context.Context, db DBTX, arg InsertTransferRequestParams) (RepoTransferRequest, error)
 	// Used by `shithubd hooks reinstall --all` to enumerate every active
@@ -83,6 +84,8 @@ type Querier interface {
 	// destruction. The 7-day grace is hard-coded here; if we add a config
 	// knob later, change this to a parameter.
 	ListRepoIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
+	// ─── repo_topics (S32) ─────────────────────────────────────────────
+	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
 	ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
 	// S28 code-search reconciler: returns repos whose default_branch_oid
@@ -109,6 +112,10 @@ type Querier interface {
 	// Same-owner rename. The handler validates the new name shape and the
 	// redirect row is INSERTed in the same tx.
 	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
+	// Atomic full-replace: callers compose the new topic set in Go,
+	// then replace the existing rows in one tx (DELETE + INSERT). The
+	// caller's tx wraps both calls for atomicity.
+	ReplaceRepoTopics(ctx context.Context, db DBTX, repoID int64) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
 	// S28 code-search: the worker writes the OID it finished indexing
 	// so the reconciler can detect drift (default_branch_oid moved but
@@ -145,6 +152,11 @@ type Querier interface {
 	// populated layouts.
 	UpdateRepoDefaultBranchOID(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchOIDParams) error
 	UpdateRepoDiskUsed(ctx context.Context, db DBTX, arg UpdateRepoDiskUsedParams) error
+	// S32: General-tab settings persist via this single query so each
+	// form post is one round-trip. The merge-method toggles are kept
+	// separate from the repo create flow because they're admin-only.
+	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
+	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
 }
 
