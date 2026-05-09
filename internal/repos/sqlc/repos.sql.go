@@ -48,7 +48,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-          star_count, watcher_count, fork_count, init_status
+          star_count, watcher_count, fork_count, init_status,
+          last_indexed_oid
 `
 
 type CreateForkRepoParams struct {
@@ -105,6 +106,7 @@ func (q *Queries) CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRep
 		&i.WatcherCount,
 		&i.ForkCount,
 		&i.InitStatus,
+		&i.LastIndexedOid,
 	)
 	return i, err
 }
@@ -122,7 +124,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           disk_used_bytes, fork_of_repo_id, license_key, primary_language,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-          star_count, watcher_count, fork_count, init_status
+          star_count, watcher_count, fork_count, init_status,
+          last_indexed_oid
 `
 
 type CreateRepoParams struct {
@@ -177,6 +180,7 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.WatcherCount,
 		&i.ForkCount,
 		&i.InitStatus,
+		&i.LastIndexedOid,
 	)
 	return i, err
 }
@@ -206,7 +210,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count, fork_count, init_status
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
 FROM repos
 WHERE id = $1
 `
@@ -242,6 +247,7 @@ func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, err
 		&i.WatcherCount,
 		&i.ForkCount,
 		&i.InitStatus,
+		&i.LastIndexedOid,
 	)
 	return i, err
 }
@@ -252,7 +258,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count, fork_count, init_status
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -293,6 +300,7 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.WatcherCount,
 		&i.ForkCount,
 		&i.InitStatus,
+		&i.LastIndexedOid,
 	)
 	return i, err
 }
@@ -466,7 +474,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        disk_used_bytes, fork_of_repo_id, license_key, primary_language,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
-       star_count, watcher_count, fork_count, init_status
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -509,6 +518,7 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.WatcherCount,
 			&i.ForkCount,
 			&i.InitStatus,
+			&i.LastIndexedOid,
 		); err != nil {
 			return nil, err
 		}
@@ -518,6 +528,69 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 		return nil, err
 	}
 	return items, nil
+}
+
+const listReposNeedingReindex = `-- name: ListReposNeedingReindex :many
+SELECT id, name, default_branch, default_branch_oid
+FROM repos
+WHERE deleted_at IS NULL
+  AND default_branch_oid IS NOT NULL
+  AND (last_indexed_oid IS NULL OR last_indexed_oid <> default_branch_oid)
+ORDER BY id
+LIMIT $1
+`
+
+type ListReposNeedingReindexRow struct {
+	ID               int64
+	Name             string
+	DefaultBranch    string
+	DefaultBranchOid pgtype.Text
+}
+
+// S28 code-search reconciler: returns repos whose default_branch_oid
+// has advanced past last_indexed_oid (or last_indexed_oid is NULL
+// and a default exists). Limited so a single tick of the cron
+// doesn't try to re-index the whole world.
+func (q *Queries) ListReposNeedingReindex(ctx context.Context, db DBTX, limit int32) ([]ListReposNeedingReindexRow, error) {
+	rows, err := db.Query(ctx, listReposNeedingReindex, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReposNeedingReindexRow{}
+	for rows.Next() {
+		var i ListReposNeedingReindexRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DefaultBranch,
+			&i.DefaultBranchOid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setLastIndexedOID = `-- name: SetLastIndexedOID :exec
+UPDATE repos SET last_indexed_oid = $2::text WHERE id = $1
+`
+
+type SetLastIndexedOIDParams struct {
+	ID             int64
+	LastIndexedOid pgtype.Text
+}
+
+// S28 code-search: the worker writes the OID it finished indexing
+// so the reconciler can detect drift (default_branch_oid moved but
+// last_indexed_oid lagged).
+func (q *Queries) SetLastIndexedOID(ctx context.Context, db DBTX, arg SetLastIndexedOIDParams) error {
+	_, err := db.Exec(ctx, setLastIndexedOID, arg.ID, arg.LastIndexedOid)
+	return err
 }
 
 const setRepoInitStatus = `-- name: SetRepoInitStatus :exec

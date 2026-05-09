@@ -79,6 +79,11 @@ type Querier interface {
 	// knob later, change this to a parameter.
 	ListRepoIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
+	// S28 code-search reconciler: returns repos whose default_branch_oid
+	// has advanced past last_indexed_oid (or last_indexed_oid is NULL
+	// and a default exists). Limited so a single tick of the cron
+	// doesn't try to re-index the whole world.
+	ListReposNeedingReindex(ctx context.Context, db DBTX, limit int32) ([]ListReposNeedingReindexRow, error)
 	// /settings/repositories/restore page lists these.
 	ListSoftDeletedReposForOwner(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListSoftDeletedReposForOwnerRow, error)
 	// Sender / repo-settings view.
@@ -99,6 +104,10 @@ type Querier interface {
 	// redirect row is INSERTed in the same tx.
 	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
+	// S28 code-search: the worker writes the OID it finished indexing
+	// so the reconciler can detect drift (default_branch_oid moved but
+	// last_indexed_oid lagged).
+	SetLastIndexedOID(ctx context.Context, db DBTX, arg SetLastIndexedOIDParams) error
 	// Promotes a fork from init_pending to initialized (or init_failed).
 	// The DB row is created up-front so the URL resolves immediately and
 	// the user sees a "preparing your fork" placeholder while the worker

@@ -860,6 +860,21 @@ type CheckSuite struct {
 	UpdatedAt  pgtype.Timestamptz
 }
 
+type CodeSearchContent struct {
+	RepoID      int64
+	RefName     string
+	Path        string
+	ContentTsv  interface{}
+	ContentTrgm string
+}
+
+type CodeSearchPath struct {
+	RepoID  int64
+	RefName string
+	Path    string
+	Tsv     interface{}
+}
+
 type DomainEvent struct {
 	ID          int64
 	ActorUserID pgtype.Int8
@@ -946,6 +961,15 @@ type IssueReference struct {
 	SourceKind     IssueRefSource
 	SourceObjectID pgtype.Int8
 	CreatedAt      pgtype.Timestamptz
+}
+
+type IssuesSearch struct {
+	IssueID      int64
+	RepoID       int64
+	Kind         IssueKind
+	State        IssueState
+	AuthorUserID pgtype.Int8
+	Tsv          interface{}
 }
 
 type Job struct {
@@ -1128,6 +1152,7 @@ type Repo struct {
 	WatcherCount       int64
 	ForkCount          int64
 	InitStatus         RepoInitStatus
+	LastIndexedOid     pgtype.Text
 }
 
 type RepoCollaborator struct {
@@ -1164,6 +1189,11 @@ type RepoTransferRequest struct {
 	AcceptedAt      pgtype.Timestamptz
 	DeclinedAt      pgtype.Timestamptz
 	CanceledAt      pgtype.Timestamptz
+}
+
+type ReposSearch struct {
+	RepoID int64
+	Tsv    interface{}
 }
 
 type Star struct {
@@ -1267,6 +1297,11 @@ type UsernameRedirect struct {
 	OldUsername string
 	UserID      int64
 	ChangedAt   pgtype.Timestamptz
+}
+
+type UsersSearch struct {
+	UserID int64
+	Tsv    interface{}
 }
 
 type Watch struct {
