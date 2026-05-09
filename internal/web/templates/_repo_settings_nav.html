@@ -1,0 +1,39 @@
+{{ define "repo-settings-nav" -}}
+<aside class="shithub-settings-side" aria-label="Repository settings sections">
+  <h2 class="shithub-settings-side-title">Repository settings</h2>
+  <nav>
+    <ul>
+      <li{{ if eq .SettingsActive "general" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/general">General</a>
+      </li>
+      <li{{ if eq .SettingsActive "access" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/access">Access</a>
+      </li>
+      <li{{ if eq .SettingsActive "branches" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">Branches</a>
+      </li>
+      <li{{ if eq .SettingsActive "tags" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/tags">Tags</a>
+      </li>
+    </ul>
+    <h3 class="shithub-settings-side-group">Integrations</h3>
+    <ul>
+      <li{{ if eq .SettingsActive "webhooks" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks">Webhooks</a>
+      </li>
+      <li{{ if eq .SettingsActive "keys" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/keys">Deploy keys</a>
+      </li>
+      <li{{ if eq .SettingsActive "notifications" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/notifications">Notifications</a>
+      </li>
+    </ul>
+    <h3 class="shithub-settings-side-group">Danger</h3>
+    <ul>
+      <li{{ if eq .SettingsActive "danger" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings" class="shithub-settings-danger">Danger zone</a>
+      </li>
+    </ul>
+  </nav>
+</aside>
+{{- end }}
