@@ -94,6 +94,7 @@ func (h *Handlers) serveStarsTab(w http.ResponseWriter, r *http.Request, user us
 	}
 
 	avatarURL := fmt.Sprintf("/avatars/%s", url.PathEscape(user.Username))
+	tabs := h.tabCounts(r.Context(), user.ID, viewer)
 	data := map[string]any{
 		"Title":     "Stars · " + user.DisplayName,
 		"User":      user,
@@ -103,6 +104,8 @@ func (h *Handlers) serveStarsTab(w http.ResponseWriter, r *http.Request, user us
 		"Page":      page,
 		"HasNext":   len(visible) >= starsTabPageSize,
 		"HasPrev":   page > 1,
+		"Tabs":      tabs,
+		"ActiveTab": "stars",
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderPage(w, r, "profile/stars_tab", data); err != nil {

@@ -132,11 +132,15 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	isSelf := viewer.ID != 0 && viewer.ID == user.ID
 
-	// S26 Stars tab: `?tab=stars` switches to the user's starred-repos
-	// view. Per-row visibility filtering happens in serveStarsTab so
-	// private-repo stars only show to viewers who can see them.
-	if r.URL.Query().Get("tab") == "stars" {
+	// Sub-nav dispatch. Overview is the default; ?tab=repositories
+	// and ?tab=stars take their own renderers (each one is
+	// visibility-filtered independently).
+	switch r.URL.Query().Get("tab") {
+	case "stars":
 		h.serveStarsTab(w, r, user, viewer, isSelf)
+		return
+	case "repositories":
+		h.serveRepositoriesTab(w, r, user, viewer, isSelf)
 		return
 	}
 
@@ -148,6 +152,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	avatarURL := fmt.Sprintf("/avatars/%s", url.PathEscape(user.Username))
+	tabs := h.tabCounts(r.Context(), user.ID, viewer)
 	data := map[string]any{
 		"Title":           user.DisplayName,
 		"User":            user,
@@ -158,6 +163,8 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"OGImage":         avatarURL,
 		"JoinedFormatted": user.CreatedAt.Time.Format("January 2, 2006"),
 		"WebsiteSafe":     safeWebsite(user.Website),
+		"Tabs":            tabs,
+		"ActiveTab":       "overview",
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderPage(w, r, "profile/view", data); err != nil {

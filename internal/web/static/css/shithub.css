@@ -976,6 +976,48 @@ code {
 .shithub-clone-input button { padding: 0.3rem 0.5rem; }
 .shithub-clone-hint { margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--fg-muted); }
 
+/* Profile sub-nav (S30) — Overview / Repositories / Stars tabs. */
+.shithub-profile-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0 1.25rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-profile-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  color: var(--fg-default);
+  border-bottom: 2px solid transparent;
+  font-size: 0.9rem;
+  text-decoration: none;
+  position: relative;
+  bottom: -1px;
+}
+.shithub-profile-tab:hover { background: var(--canvas-subtle); border-radius: 6px 6px 0 0; }
+.shithub-profile-tab.is-active { border-bottom-color: var(--accent-emphasis, #fd8c73); font-weight: 600; }
+.shithub-tab-count {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border-default);
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+/* Repositories tab list. */
+.shithub-repo-list { list-style: none; padding: 0; margin: 0; }
+.shithub-repo-list-row {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-repo-list-name { margin: 0; font-size: 1.1rem; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.shithub-repo-list-name a { color: var(--accent-fg, #4493f8); }
+.shithub-repo-list-meta { color: var(--fg-muted); font-size: 0.8rem; display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.4rem 0 0; }
+.shithub-pill-archived { background: #ffd35a; color: #3b2300; }
+
 .shithub-tree {
   width: 100%;
   border-collapse: collapse;

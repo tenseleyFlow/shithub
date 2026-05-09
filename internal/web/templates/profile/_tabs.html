@@ -1,0 +1,15 @@
+{{ define "profile-tabs" -}}
+<nav class="shithub-profile-tabs" aria-label="Profile sections">
+  <a href="/{{ .User.Username }}" class="shithub-profile-tab{{ if eq .ActiveTab "overview" }} is-active{{ end }}">
+    {{ octicon "shithub" }} Overview
+  </a>
+  <a href="/{{ .User.Username }}?tab=repositories" class="shithub-profile-tab{{ if eq .ActiveTab "repositories" }} is-active{{ end }}">
+    {{ octicon "directory" }} Repositories
+    {{ with .Tabs.repositories }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
+  </a>
+  <a href="/{{ .User.Username }}?tab=stars" class="shithub-profile-tab{{ if eq .ActiveTab "stars" }} is-active{{ end }}">
+    {{ octicon "star" }} Stars
+    {{ with .Tabs.stars }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
+  </a>
+</nav>
+{{- end }}

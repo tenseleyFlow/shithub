@@ -1,0 +1,39 @@
+{{ define "page" -}}
+<section class="shithub-profile">
+  <header class="shithub-profile-header">
+    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="120" height="120">
+    <div class="shithub-profile-id">
+      <h1 class="shithub-profile-name">
+        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
+      </h1>
+      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
+    </div>
+  </header>
+
+  {{ template "profile-tabs" . }}
+
+  {{ if .Repos }}
+  <ul class="shithub-repo-list">
+    {{ range .Repos }}
+    <li class="shithub-repo-list-row">
+      <h3 class="shithub-repo-list-name">
+        <a href="/{{ $.User.Username }}/{{ .Name }}">{{ $.User.Username }}/{{ .Name }}</a>
+        {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ else }}<span class="shithub-pill">public</span>{{ end }}
+        {{ if .IsArchived }}<span class="shithub-pill shithub-pill-archived">archived</span>{{ end }}
+        {{ if .IsFork }}<span class="shithub-pill">fork</span>{{ end }}
+      </h3>
+      {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
+      <p class="shithub-repo-list-meta">
+        {{ if .PrimaryLanguage }}<span>{{ .PrimaryLanguage }}</span>{{ end }}
+        <span>★ {{ .StarCount }}</span>
+        <span>⑂ {{ .ForkCount }}</span>
+        <span>updated {{ .UpdatedAt }}</span>
+      </p>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-empty">{{ if .IsSelf }}You don't have any repositories yet. <a href="/new">Create one</a>?{{ else }}No repositories visible.{{ end }}</p>
+  {{ end }}
+</section>
+{{- end }}

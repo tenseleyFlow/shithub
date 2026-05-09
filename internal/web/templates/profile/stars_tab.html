@@ -7,12 +7,10 @@
         {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
       </h1>
       <p class="shithub-profile-handle">@{{ .User.Username }}</p>
-      <nav class="shithub-profile-tabs">
-        <a href="/{{ .User.Username }}" class="shithub-button">Overview</a>
-        <a href="?tab=stars" class="shithub-button shithub-button-primary">Stars</a>
-      </nav>
     </div>
   </header>
+
+  {{ template "profile-tabs" . }}
 
   {{ if .Stars }}
   <ul class="shithub-social-list">
