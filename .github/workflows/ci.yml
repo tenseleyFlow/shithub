@@ -15,11 +15,16 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          # Read the target Go version straight from go.mod so this
+          # workflow doesn't drift from the module on every Go bump.
+          go-version-file: go.mod
           cache: true
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v8 of the action ships with golangci-lint v2 by default,
+        # which is required to parse our .golangci.yml (version: "2")
+        # and is built with a Go new enough to load the module.
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=5m
