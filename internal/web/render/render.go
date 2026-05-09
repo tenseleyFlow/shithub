@@ -14,7 +14,9 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
+	"text/template/parse"
 	"time"
 
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -36,39 +38,31 @@ type Options struct {
 	Octicons OcticonResolver
 }
 
-// New parses every page template under tmplFS. A "page template" is any file
-// at the root of tmplFS that does NOT begin with an underscore. Files that
-// begin with an underscore (e.g. "_layout.html") are partials, parsed once
-// into every page.
+// New parses every page template under tmplFS.
+//
+// Naming contract — read this before adding files to internal/web/templates/:
+//
+//   - **Pages** are .html files whose basename does NOT begin with an
+//     underscore. A page at `repo/tree.html` is registered under the
+//     lookup name `repo/tree`. Render that name from a handler.
+//   - **Partials** are .html files whose basename begins with an
+//     underscore (`_layout.html`, `profile/_tabs.html`). Partials are
+//     parsed into *every* page so the `{{ define "name" }}` blocks
+//     they declare are resolvable from any page template.
+//
+// Both pages and partials are picked up recursively. Earlier versions
+// of this loader walked only the root for partials, which caused a
+// page that referenced a subdir partial (`profile/_tabs.html`'s
+// `{{ define "tabs" }}`) to render blank — html/template silently
+// ignored the missing-template ref at exec time. We now also validate
+// that every `{{ template "name" }}` action in every parsed page
+// resolves; an undefined ref fails loud at startup with the offending
+// page + the missing name.
 func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
-	entries, err := fs.ReadDir(tmplFS, ".")
-	if err != nil {
-		return nil, fmt.Errorf("read template root: %w", err)
-	}
-
 	var (
-		partialNames []string
-		pageNames    []string
-		errorPages   []string
+		partialPaths []string
+		pagePaths    []string
 	)
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".html") {
-			continue
-		}
-		if strings.HasPrefix(name, "_") {
-			partialNames = append(partialNames, name)
-		} else {
-			pageNames = append(pageNames, name)
-		}
-	}
-
-	// Recursively pick up files in subdirectories like errors/.
-	// Each subdirectory file is registered as `<dir>/<name>` (without
-	// suffix) for Render lookups.
 	if err := fs.WalkDir(tmplFS, ".", func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -76,43 +70,100 @@ func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".html") {
 			return nil
 		}
-		if !strings.Contains(p, "/") {
-			return nil
+		if strings.HasPrefix(path.Base(p), "_") {
+			partialPaths = append(partialPaths, p)
+		} else {
+			pagePaths = append(pagePaths, p)
 		}
-		errorPages = append(errorPages, p)
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("walk templates: %w", err)
 	}
+	sort.Strings(partialPaths)
+	sort.Strings(pagePaths)
 
 	r := &Renderer{
-		pages:   make(map[string]*template.Template, len(pageNames)+len(errorPages)),
+		pages:   make(map[string]*template.Template, len(pagePaths)),
 		octicon: opts.Octicons,
 	}
 
-	parse := func(displayName string, primary string) error {
+	parsePage := func(displayName, primary string) error {
 		t := template.New(path.Base(primary)).Funcs(funcMap(r.octicon))
-		all := append([]string{}, partialNames...)
+		all := append([]string{}, partialPaths...)
 		all = append(all, primary)
 		parsed, err := t.ParseFS(tmplFS, all...)
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", displayName, err)
 		}
+		if missing := undefinedTemplateRefs(parsed); len(missing) > 0 {
+			return fmt.Errorf("page %q references undefined template(s): %s", displayName, strings.Join(missing, ", "))
+		}
 		r.pages[displayName] = parsed
 		return nil
 	}
 
-	for _, page := range pageNames {
-		if err := parse(strings.TrimSuffix(page, ".html"), page); err != nil {
-			return nil, err
-		}
-	}
-	for _, page := range errorPages {
-		if err := parse(strings.TrimSuffix(page, ".html"), page); err != nil {
+	for _, page := range pagePaths {
+		if err := parsePage(strings.TrimSuffix(page, ".html"), page); err != nil {
 			return nil, err
 		}
 	}
 	return r, nil
+}
+
+// undefinedTemplateRefs returns the names of every `{{ template "name" }}`
+// action in any parsed sub-template that does not resolve to a defined
+// template within `t`. Empty slice means every reference is satisfied.
+//
+// The standard library does not validate this at parse time — html/template
+// happily parses a page with a dangling `{{ template "missing" }}` and
+// silently emits nothing at exec time. This helper closes that hole.
+func undefinedTemplateRefs(t *template.Template) []string {
+	defined := map[string]bool{}
+	for _, child := range t.Templates() {
+		defined[child.Name()] = true
+	}
+	seen := map[string]bool{}
+	var missing []string
+	for _, child := range t.Templates() {
+		if child.Tree == nil {
+			continue
+		}
+		walkTemplateRefs(child.Tree.Root, func(name string) {
+			if defined[name] || seen[name] {
+				return
+			}
+			seen[name] = true
+			missing = append(missing, name)
+		})
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func walkTemplateRefs(n parse.Node, visit func(name string)) {
+	if n == nil {
+		return
+	}
+	switch x := n.(type) {
+	case *parse.ListNode:
+		if x == nil {
+			return
+		}
+		for _, c := range x.Nodes {
+			walkTemplateRefs(c, visit)
+		}
+	case *parse.IfNode:
+		walkTemplateRefs(x.List, visit)
+		walkTemplateRefs(x.ElseList, visit)
+	case *parse.RangeNode:
+		walkTemplateRefs(x.List, visit)
+		walkTemplateRefs(x.ElseList, visit)
+	case *parse.WithNode:
+		walkTemplateRefs(x.List, visit)
+		walkTemplateRefs(x.ElseList, visit)
+	case *parse.TemplateNode:
+		visit(x.Name)
+	}
 }
 
 // Render writes the named page to w using data as the template root context.
