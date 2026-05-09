@@ -21,6 +21,14 @@ type CurrentUser struct {
 	ID          int64
 	Username    string
 	IsSuspended bool
+	IsSiteAdmin bool
+	// ImpersonatedUserID, when non-zero, identifies the user this admin
+	// is impersonating. ID/Username/IsSuspended above reflect the
+	// IMPERSONATED user (so policy checks behave as that user); the
+	// real admin's ID is preserved in RealActorID for audit rows.
+	ImpersonatedUserID int64
+	RealActorID        int64
+	ImpersonateWriteOK bool
 }
 
 // IsAnonymous reports whether this is an unauthenticated request.
@@ -33,6 +41,7 @@ type UserLookupResult struct {
 	Username     string
 	SessionEpoch int32
 	IsSuspended  bool
+	IsSiteAdmin  bool
 }
 
 // UserLookup resolves a user_id into the data the auth middleware needs.
@@ -69,7 +78,23 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 						} else {
 							u.Username = res.Username
 							u.IsSuspended = res.IsSuspended
+							u.IsSiteAdmin = res.IsSiteAdmin
 						}
+					}
+				}
+				// Impersonation: when the session carries an
+				// ImpersonatedUserID, swap the bound identity to the
+				// target user (so policy checks render the target's
+				// view), keeping the real admin's id around for audit.
+				if bind && s.ImpersonatedUserID != 0 && u.IsSiteAdmin && lookup != nil {
+					if res, err := lookup(ctx, s.ImpersonatedUserID); err == nil {
+						u.RealActorID = u.ID
+						u.ImpersonatedUserID = s.ImpersonatedUserID
+						u.ID = s.ImpersonatedUserID
+						u.Username = res.Username
+						u.IsSuspended = res.IsSuspended
+						u.IsSiteAdmin = false // never carry admin into impersonated identity
+						u.ImpersonateWriteOK = s.ImpersonateWriteOK
 					}
 				}
 				if bind {
@@ -99,6 +124,35 @@ func RequireUser(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireSiteAdmin gates routes behind users.is_site_admin. Compose
+// AFTER RequireUser so an anonymous request hits /login first; this
+// middleware then guards the elevated surface.
+//
+// Non-admin viewers receive 404 (NOT 403) so the existence of /admin
+// isn't disclosed by the response shape. The same pattern matches
+// every other "shouldn't-know-it-exists" surface across the app.
+//
+// Impersonating admins lose their admin powers for the duration of
+// the impersonation (CurrentUser.IsSiteAdmin is forced false in that
+// path), so this gate transparently locks them out of /admin until
+// they end the impersonation. Documented in docs/internal/admin.md.
+func RequireSiteAdmin(notFound http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := CurrentUserFromContext(r.Context())
+			if !u.IsSiteAdmin {
+				if notFound != nil {
+					notFound.ServeHTTP(w, r)
+					return
+				}
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // CurrentUserFromContext returns the user bound to ctx by OptionalUser /
