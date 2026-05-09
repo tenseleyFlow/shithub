@@ -1116,11 +1116,18 @@ code {
 }
 .shithub-blob-source .chroma td {
   vertical-align: top;
-  padding: 0.5rem 0.75rem;
+  /* Vertical-only by default. Per-cell horizontal padding below so the
+     gutter stays tight (chroma's .ln/.lnt own its horizontal spacing)
+     while the code cell gets breathing room. */
+  padding: 0.5rem 0;
 }
 /* Gutter cell: Chroma uses `lntd` on both cells with the gutter as
    first child; the plainPre fallback uses `lntable` on the first
-   <td>. Both shapes get the muted background + non-selectable. */
+   <td>. Both shapes get the muted background + non-selectable.
+   Horizontal padding is intentionally 0 — the digit's surround comes
+   from chroma's `.ln` rule (padding 0 0.4em + margin-right 0.4em),
+   which keeps the gutter tight for short files instead of stacking
+   our padding on top of chroma's. */
 .shithub-blob-source .chroma td:first-child,
 .shithub-blob-source .chroma td.lntable {
   width: 1%;
@@ -1130,6 +1137,10 @@ code {
   text-align: right;
   user-select: none;
   white-space: nowrap;
+}
+.shithub-blob-source .chroma td:nth-child(2) {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
 }
 .shithub-blob-source .chroma pre {
   font-size: 0.85rem;
