@@ -7,6 +7,7 @@ import (
 	"errors"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -53,7 +54,7 @@ func insertReferencesFromBody(
 
 	q := issuesdb.New()
 	repoQ := reposdb.New()
-	userQ := usersdb.New()
+	_ = usersdb.New // owner now resolved via principals table; kept import for future username-only cases.
 
 	seen := map[int64]struct{}{}
 
@@ -86,26 +87,56 @@ func insertReferencesFromBody(
 		return nil
 	}
 
-	// Cross-repo: owner/repo#N
+	// Cross-repo: owner/repo#N. S31 cleared the user-only deferral
+	// from S21: principals.Resolve dispatches the owner segment to
+	// the user-side or org-side repo lookup, so org-owned repos now
+	// resolve too.
 	for _, m := range reCrossRepoIssueRef.FindAllStringSubmatch(body, -1) {
 		owner, name, numStr := m[1], m[2], m[3]
 		num, err := strconv.ParseInt(numStr, 10, 64)
 		if err != nil {
 			continue
 		}
-		u, err := userQ.GetUserByUsername(ctx, tx, owner)
-		if err != nil {
-			continue // org owners (S31) and unknown users get silently dropped
-		}
-		repo, err := repoQ.GetRepoByOwnerUserAndName(ctx, tx, reposdb.GetRepoByOwnerUserAndNameParams{
-			OwnerUserID: pgtype.Int8{Int64: u.ID, Valid: true},
-			Name:        name,
-		})
+		// Inline principals dispatch: resolve owner slug to (kind, id)
+		// against the principals table, then look up the repo on the
+		// matching owner column. We avoid importing the orgs package
+		// from issues (would form a cycle through repos/lifecycle).
+		var (
+			pKind string
+			pID   int64
+		)
+		err = tx.QueryRow(ctx,
+			`SELECT kind::text, id FROM principals WHERE slug = $1`,
+			strings.ToLower(owner),
+		).Scan(&pKind, &pID)
 		if err != nil {
 			continue
 		}
+		var repoID int64
+		switch pKind {
+		case "user":
+			row, err := repoQ.GetRepoByOwnerUserAndName(ctx, tx, reposdb.GetRepoByOwnerUserAndNameParams{
+				OwnerUserID: pgtype.Int8{Int64: pID, Valid: true},
+				Name:        name,
+			})
+			if err != nil {
+				continue
+			}
+			repoID = row.ID
+		case "org":
+			row, err := repoQ.GetRepoByOwnerOrgAndName(ctx, tx, reposdb.GetRepoByOwnerOrgAndNameParams{
+				OwnerOrgID: pgtype.Int8{Int64: pID, Valid: true},
+				Name:       name,
+			})
+			if err != nil {
+				continue
+			}
+			repoID = row.ID
+		default:
+			continue
+		}
 		target, err := q.GetIssueByNumber(ctx, tx, issuesdb.GetIssueByNumberParams{
-			RepoID: repo.ID, Number: num,
+			RepoID: repoID, Number: num,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
