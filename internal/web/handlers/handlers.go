@@ -82,6 +82,10 @@ type Deps struct {
 	// stargazers,watchers} (S26). Stargazer/watcher GETs are public
 	// (subject to repo visibility); the action POSTs require auth.
 	RepoSocialMounter func(chi.Router)
+	// RepoForkMounter registers /{owner}/{repo}/{fork,sync,forks}
+	// (S27). The forks list GET is public; fork + sync POSTs are
+	// auth-required.
+	RepoForkMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -208,6 +212,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoSocialMounter != nil {
 			deps.RepoSocialMounter(r)
+		}
+		if deps.RepoForkMounter != nil {
+			deps.RepoForkMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

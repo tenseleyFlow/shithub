@@ -1,0 +1,38 @@
+{{ define "page" -}}
+<section class="shithub-social">
+  <header class="shithub-code-head">
+    <h1>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
+      <span class="shithub-code-sep">/</span>
+      Forks
+    </h1>
+    <p class="shithub-meta">{{ .Total }} {{ if eq .Total 1 }}fork{{ else }}forks{{ end }}</p>
+  </header>
+
+  {{ if .Forks }}
+  <ul class="shithub-social-list">
+    {{ range .Forks }}
+    <li>
+      <a href="/{{ .OwnerUsername }}/{{ .Name }}"><strong>{{ .OwnerUsername }}/{{ .Name }}</strong></a>
+      {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
+      {{ if eq .InitStatus "init_pending" }}<span class="shithub-pill">preparing</span>{{ end }}
+      {{ if eq .InitStatus "init_failed" }}<span class="shithub-pill shithub-pill-private">failed</span>{{ end }}
+      <small>★ {{ .StarCount }}</small>
+      <small>forks: {{ .ForkCount }}</small>
+      <small><time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">forked {{ relativeTime .CreatedAt }}</time></small>
+      {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="shithub-empty">No forks yet.</p>
+  {{ end }}
+
+  {{ if or .HasPrev .HasNext }}
+  <nav class="shithub-pagination">
+    {{ if .HasPrev }}<a href="?page={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ end }}
+    {{ if .HasNext }}<a href="?page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
+  </nav>
+  {{ end }}
+</section>
+{{- end }}
