@@ -120,6 +120,13 @@ func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 // Prefer RenderPage when a *http.Request is in scope — it auto-injects the
 // viewer (current logged-in user) into map data so partials like _nav.html
 // can branch on .Viewer without every handler remembering to thread it.
+//
+// When w is an http.ResponseWriter, Render sets Content-Type to
+// `text/html; charset=utf-8` *before* the first body byte. This is
+// load-bearing: a handler that calls WriteHeader(non-200) without
+// pre-setting Content-Type otherwise produces a 4xx/5xx response with
+// no Content-Type, which the browser renders as raw text. Setting it
+// here makes that class of bug structurally impossible.
 func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	t, ok := r.pages[name]
 	if !ok {
@@ -128,6 +135,16 @@ func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 		return fmt.Errorf("execute %s: %w", name, err)
+	}
+	if rw, ok := w.(http.ResponseWriter); ok {
+		// Header().Set is a no-op once headers have been committed
+		// (e.g. an upstream WriteHeader call). That's the right
+		// behaviour: we don't try to retroactively fix a header
+		// stream that's already on the wire — the caller has to set
+		// Content-Type before WriteHeader in those cases.
+		if rw.Header().Get("Content-Type") == "" {
+			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		}
 	}
 	_, err := w.Write(buf.Bytes())
 	return err

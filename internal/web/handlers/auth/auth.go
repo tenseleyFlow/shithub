@@ -782,7 +782,13 @@ func (h *Handlers) throttleSignup(r *http.Request) error {
 func (h *Handlers) writeRetryAfter(w http.ResponseWriter, err error) {
 	var t *throttle.ErrThrottled
 	if errors.As(err, &t) {
+		// Content-Type must land BEFORE WriteHeader: callers follow
+		// this with a Render() that writes a fully-formed HTML body.
+		// Without this, the browser sees status 429 with no Content-Type
+		// and falls back to text/plain — rendering the page source as
+		// literal text instead of HTML.
 		w.Header().Set("Retry-After", strconv.Itoa(int(t.RetryAfter.Seconds())))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}
 }
