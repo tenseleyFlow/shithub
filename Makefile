@@ -2,7 +2,7 @@
 # Targets mirror what CI runs. The Makefile is the source of truth.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-secret-logs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging
+.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-secret-logs lint-spdx verify-api-docs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging docs docs-serve docs-verify gen-third-party-notices
 
 # Build metadata embedded into the binary via -ldflags.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -70,7 +70,7 @@ assets: ## Copy Primer CSS into internal/web/static/ for embedding.
 		echo "warn: .refs/primer-css/dist not found; run 'git clone https://github.com/primer/css .refs/primer-css' first"; \
 	fi
 
-ci: lint lint-policy lint-markdown lint-secret-logs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
+ci: lint lint-policy lint-markdown lint-secret-logs lint-spdx verify-api-docs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
 	@echo "ci: ok"
 
 lint-policy: ## Enforce policy-package boundary (no inline auth checks in handlers/git/cmd).
@@ -81,6 +81,12 @@ lint-markdown: ## Enforce markdown-package boundary (no goldmark/bluemonday outs
 
 lint-secret-logs: ## Fail when source emits log lines containing token-prefix patterns.
 	@scripts/lint-secret-logs.sh
+
+lint-spdx: ## Verify every Go + shell source carries the SPDX license header.
+	@scripts/verify-spdx-headers.sh
+
+verify-api-docs: ## Fail when an /api/v1 route in code is missing from docs/public/api/.
+	@scripts/verify-api-docs.sh
 
 bench-small: ## Run the bench harness against $$BENCH_TARGET (default localhost:8080).
 	@go run ./bench -target=$${BENCH_TARGET:-http://localhost:8080} -iters=$${BENCH_ITERS:-20}
@@ -175,3 +181,22 @@ restore-drill: ## Run the restore drill on the backup host (must be run via ssh 
 bench-staging: ## Run the bench harness against staging (BENCH_TARGET must be set to the staging URL).
 	@if [ -z "$$BENCH_TARGET" ]; then echo "set BENCH_TARGET=https://staging.shithub.example"; exit 2; fi
 	go run ./bench -target=$$BENCH_TARGET -iters=$${BENCH_ITERS:-50}
+
+# --- docs ---
+docs: ## Build the public docs site to build/docs/ via mdBook.
+	cd docs/public && mdbook build
+
+docs-serve: ## Serve the public docs site locally on http://127.0.0.1:3000.
+	cd docs/public && mdbook serve --port 3000
+
+docs-verify: verify-api-docs ## Verify docs are in sync (API routes documented + SPDX headers).
+	@$(MAKE) lint-spdx
+	@if command -v mdbook >/dev/null 2>&1; then \
+		cd docs/public && mdbook build >/dev/null && echo "mdbook build: ok"; \
+	else \
+		echo "mdbook not installed; skipping site build"; \
+	fi
+
+gen-third-party-notices: ## Regenerate THIRD_PARTY_NOTICES.md from the active go.mod.
+	@scripts/gen-third-party-notices.sh > THIRD_PARTY_NOTICES.md
+	@echo "gen-third-party-notices: wrote THIRD_PARTY_NOTICES.md"
