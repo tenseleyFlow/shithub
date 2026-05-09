@@ -7,14 +7,73 @@
   <p class="hello-tagline">GitHub. Open source. Without Copilot.</p>
 
   {{ if .Viewer.ID }}
+  {{/* Authed dashboard surface — concise, points at the things you
+       most likely want when you sign in. The full activity feed is a
+       post-MVP feature; until then the quicklinks ARE the dashboard. */}}
   <div class="hello-greeting">
     <p>Signed in as <strong>@{{ .Viewer.Username }}</strong>.</p>
     <nav class="hello-quicklinks" aria-label="Account quick links">
       <a href="/{{ .Viewer.Username }}">Your profile</a>
       <a href="/new">New repository</a>
+      <a href="/notifications">Notifications</a>
+      <a href="/explore">Explore</a>
       <a href="/settings/profile">Settings</a>
     </nav>
   </div>
+  {{ else }}
+  {{/* Anonymous landing — marketing copy for the v1 launch. Honest
+       and concise; the heavy "what works / what doesn't" lives in
+       the README and docs site, not on the homepage. */}}
+  <section class="shithub-landing-pitch">
+    <p>
+      A self-hostable git forge that aims to look and feel like GitHub.
+      AGPL-licensed, written in Go, no AI training on your code, no
+      Copilot. <a href="/signup">Sign up</a> to host code here, or
+      <a href="https://docs.shithub.example/self-host/deploy.html">run
+      your own instance</a> from the source.
+    </p>
+  </section>
+
+  <ul class="shithub-landing-features" aria-label="What works today">
+    <li>
+      <strong>Repos, issues, pull requests</strong>
+      <span>Branch protection, reviews, status checks, three merge methods.</span>
+    </li>
+    <li>
+      <strong>Code browsing</strong>
+      <span>Tree, blob with syntax highlighting, blame, commit history, diffs.</span>
+    </li>
+    <li>
+      <strong>Search</strong>
+      <span>Code, repos, users, issues — with the operators you'd expect.</span>
+    </li>
+    <li>
+      <strong>Webhooks &amp; notifications</strong>
+      <span>HMAC-signed deliveries with auto-retry, in-app inbox, email fan-out.</span>
+    </li>
+    <li>
+      <strong>Orgs, teams, scoped tokens</strong>
+      <span>Role-based access; PATs with revocable scopes.</span>
+    </li>
+    <li>
+      <strong>Self-host first</strong>
+      <span>One binary, Postgres, S3-compatible storage, Caddy at the edge.</span>
+    </li>
+  </ul>
+
+  <nav class="shithub-landing-cta" aria-label="Primary actions">
+    <a class="shithub-landing-cta-primary" href="/signup">Create an account</a>
+    <a class="shithub-landing-cta-secondary" href="/login">Sign in</a>
+    <a class="shithub-landing-cta-secondary" href="https://docs.shithub.example/">Read the docs</a>
+    <a class="shithub-landing-cta-secondary" href="/shithub/shithub">Read the source</a>
+  </nav>
+
+  <p class="shithub-landing-honest">
+    Newly launched. Some surfaces (SSH transport, Actions/CI, GraphQL,
+    packages, releases) are planned but not shipped yet. The
+    <a href="https://docs.shithub.example/">docs</a> are honest about
+    what works and what's still in flight.
+  </p>
   {{ end }}
 
   <dl class="hello-meta">
@@ -22,16 +81,5 @@
     <dt>Commit</dt><dd>{{ .Commit }}</dd>
     <dt>Built</dt><dd>{{ .BuiltAt }}</dd>
   </dl>
-
-  <p class="hello-status">
-    Pre-launch. Sprint 02 — the web shell — is shipping. The chi router,
-    middleware stack, error pages, and Primer-themed chrome are now in.
-  </p>
-
-  <nav class="hello-links" aria-label="Health endpoints">
-    <a href="/healthz">/healthz</a>
-    <a href="/readyz">/readyz</a>
-    <a href="/internal/panic">/internal/panic</a>
-  </nav>
 </section>
 {{- end }}

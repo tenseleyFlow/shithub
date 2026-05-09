@@ -311,6 +311,78 @@ code {
   font-size: 0.875rem;
 }
 
+/* ========== Landing (anonymous home) ========== */
+
+.shithub-landing-pitch {
+  max-width: 36rem;
+  margin: 0 auto 2rem;
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
+.shithub-landing-features {
+  list-style: none;
+  margin: 0 auto 2rem;
+  padding: 0;
+  max-width: 60rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  text-align: left;
+}
+.shithub-landing-features li {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  background: var(--canvas-subtle);
+}
+.shithub-landing-features li strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
+}
+.shithub-landing-features li span {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.shithub-landing-cta {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 auto 1.5rem;
+}
+.shithub-landing-cta a {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+.shithub-landing-cta-primary {
+  background: var(--accent-fg, #1f6feb);
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+.shithub-landing-cta-primary:hover { filter: brightness(1.1); }
+.shithub-landing-cta-secondary {
+  background: transparent;
+  color: var(--fg-default);
+  border: 1px solid var(--border-default);
+}
+.shithub-landing-cta-secondary:hover { background: var(--canvas-subtle); }
+
+.shithub-landing-honest {
+  max-width: 36rem;
+  margin: 0 auto 2rem;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 /* ========== Error pages ========== */
 
 .error-page {
