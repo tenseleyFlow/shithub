@@ -1,0 +1,14 @@
+# Staging inventory — bare-metal box that doubles as the monitoring host.
+# Used for restore-drill + bench-staging targets.
+
+[shithub]
+shithub-staging ansible_host=10.0.0.2 ansible_user=root
+
+[shithub:vars]
+shithub_domain=staging.shithub.example
+shithub_user=shithub
+shithub_group=shithub
+shithub_data_root=/data
+shithub_db_pool_max=8
+shithub_email_from="shithub-staging <noreply@staging.shithub.example>"
+shithub_email_backend=stdout    # no real outbound mail in staging

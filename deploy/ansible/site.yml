@@ -1,0 +1,33 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# shithub site.yml — top-level provisioning play.
+#
+# Run: `ansible-playbook -i inventory/production deploy/ansible/site.yml`
+#
+# Roles run in dependency order: base hardening first, then the data
+# layer (postgres + block-volume mounts), then the network surface
+# (caddy, sshd via shithubd role), then operator plumbing
+# (wireguard mesh + backup cron + monitoring-client).
+#
+# Idempotent: re-running converges to the desired state. Secrets are
+# pulled from sops-encrypted files (or 1Password CLI in dev) — never
+# in plaintext under deploy/.
+
+- hosts: all
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: base
+    - role: postgres
+      tags: [db, postgres]
+    - role: shithubd
+      tags: [app, shithubd]
+    - role: caddy
+      tags: [edge, caddy]
+    - role: wireguard
+      tags: [net, wireguard]
+    - role: backup
+      tags: [backup, ops]
+    - role: monitoring-client
+      tags: [monitoring, ops]

@@ -1,0 +1,26 @@
+# shithub production inventory — single-droplet at launch (S37 design).
+#
+# Copy to `inventory/production` and edit before deploying. The real
+# inventory file is .gitignored; this example documents the variables
+# the roles read.
+
+[shithub]
+shithub-prod ansible_host=192.0.2.10 ansible_user=root
+
+[shithub:vars]
+# Public host shithubd serves under (Caddy auto-cert covers this).
+shithub_domain=shithub.example
+# Container/process owner (created by the base role).
+shithub_user=shithub
+shithub_group=shithub
+# Block-volume mount point. ALL stateful data (repos, pgdata, tmp)
+# lives under here so the root disk never fills up.
+shithub_data_root=/data
+# pgx pool size; matches the worker pool too.
+shithub_db_pool_max=20
+# Postmark sender + DKIM are configured before the deploy.
+shithub_email_from="shithub <noreply@shithub.example>"
+shithub_email_backend=postmark
+# WireGuard peer for the bare-metal monitoring box.
+wg_metal_endpoint=metal.shithub.example:51820
+wg_metal_pubkey=REPLACE_ME
