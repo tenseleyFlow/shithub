@@ -1,0 +1,19 @@
+{{ define "repo-header" -}}
+<header class="shithub-repo-header">
+  <div class="shithub-repo-header-inner">
+    <h1 class="shithub-repo-page-title">
+      <span class="shithub-repo-title-icon">{{ octicon "repo" }}</span>
+      <a href="/{{ .Owner }}">{{ .Owner }}</a>
+      <span class="shithub-code-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-repo-name">{{ .Repo.Name }}</a>
+      {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+    </h1>
+    <div class="shithub-repo-actions" aria-label="Repository actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/watchers" class="shithub-repo-action">{{ octicon "eye" }} Watch <span>{{ .Repo.WatcherCount }}</span></a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/forks" class="shithub-repo-action">{{ octicon "repo-forked" }} Fork <span>{{ .Repo.ForkCount }}</span></a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/stargazers" class="shithub-repo-action">{{ octicon "star" }} Star <span>{{ .Repo.StarCount }}</span></a>
+    </div>
+  </div>
+  {{ template "repo-subnav" . }}
+</header>
+{{- end }}
