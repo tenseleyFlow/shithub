@@ -288,21 +288,37 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 			authorName = u.Username
 		}
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	pdeps := policy.Deps{Pool: h.d.Pool}
+	repoRef := policy.NewRepoRefFromRepo(row)
+	stateRef := repoRef
+	if issue.AuthorUserID.Valid {
+		stateRef.AuthorUserID = issue.AuthorUserID.Int64
+	}
+	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
+	canCommentThroughLock := policy.HasRoleAtLeast(r.Context(), pdeps, actor, repoRef, policy.RoleTriage)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_view", map[string]any{
-		"Title":      issue.Title + " · " + row.Name,
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"Issue":      issue,
-		"AuthorName": authorName,
-		"Comments":   cs,
-		"Events":     events,
-		"Labels":     labels,
-		"Assignees":  assignees,
-		"AllLabels":  allLabels,
-		"Milestones": milestones,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Title":                 issue.Title + " · " + row.Name,
+		"Owner":                 owner.Username,
+		"Repo":                  row,
+		"Issue":                 issue,
+		"AuthorName":            authorName,
+		"Comments":              cs,
+		"Events":                events,
+		"Labels":                labels,
+		"Assignees":             assignees,
+		"AllLabels":             allLabels,
+		"Milestones":            milestones,
+		"CanComment":            canCommentAction && (!issue.Locked || canCommentThroughLock),
+		"CanSetIssueState":      policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, stateRef).Allow,
+		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
+		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
+		"CSRFToken":             middleware.CSRFTokenForRequest(r),
 	})
 }
 

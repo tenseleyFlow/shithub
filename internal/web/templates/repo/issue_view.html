@@ -49,7 +49,7 @@
       </div>
       {{ end }}
 
-      {{ if .Viewer.ID }}
+      {{ if .CanComment }}
       <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/comments" class="shithub-comment-form">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
         <label>
@@ -57,14 +57,29 @@
           <textarea name="body" rows="6" maxlength="65535" required></textarea>
         </label>
         <div class="shithub-form-actions">
+          {{ if .CanSetIssueState }}
           {{ if eq (printf "%s" .Issue.State) "open" }}
           <button type="submit" formaction="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/state" name="state" value="closed" class="shithub-button">Close issue</button>
           {{ else }}
           <button type="submit" formaction="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/state" name="state" value="open" class="shithub-button">Reopen issue</button>
           {{ end }}
+          {{ end }}
           <button type="submit" class="shithub-button shithub-button-primary">Comment</button>
         </div>
       </form>
+      {{ else if .CanSetIssueState }}
+      <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/state" class="shithub-comment-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <div class="shithub-form-actions">
+          {{ if eq (printf "%s" .Issue.State) "open" }}
+          <button type="submit" name="state" value="closed" class="shithub-button">Close issue</button>
+          {{ else }}
+          <button type="submit" name="state" value="open" class="shithub-button">Reopen issue</button>
+          {{ end }}
+        </div>
+      </form>
+      {{ else if .Viewer.ID }}
+        {{ if .Issue.Locked }}<p class="shithub-issue-signedout">This conversation is locked.</p>{{ end }}
       {{ else }}
       <p class="shithub-issue-signedout"><a href="/login">Sign in</a> to comment.</p>
       {{ end }}
@@ -76,7 +91,7 @@
         {{ if .Labels }}
           {{ range .Labels }}<span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>{{ end }}
         {{ else }}<p class="shithub-muted">None yet</p>{{ end }}
-        {{ if .Viewer.ID }}
+        {{ if .CanEditIssueLabels }}
         <details>
           <summary>Edit labels</summary>
           <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/labels">
@@ -101,7 +116,7 @@
         {{ if .Assignees }}
           {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ end }}
         {{ else }}<p class="shithub-muted">No one assigned</p>{{ end }}
-        {{ if .Viewer.ID }}
+        {{ if .CanEditIssueAssignees }}
         <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/assignees" class="shithub-assignee-form">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="text" name="username" placeholder="username" required>
@@ -117,7 +132,7 @@
           {{ $mid := .Issue.MilestoneID.Int64 }}
           {{ range .Milestones }}{{ if eq .ID $mid }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones">{{ .Title }}</a>{{ end }}{{ end }}
         {{ else }}<p class="shithub-muted">No milestone</p>{{ end }}
-        {{ if .Viewer.ID }}
+        {{ if .CanEditIssueMilestone }}
         <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/milestone">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <select name="milestone_id">
@@ -129,7 +144,7 @@
         {{ end }}
       </section>
 
-      {{ if .Viewer.ID }}
+      {{ if .CanLockIssue }}
       <section>
         <h3>Lock</h3>
         <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .Issue.Number }}/lock">

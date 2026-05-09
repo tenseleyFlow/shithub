@@ -96,7 +96,7 @@
         </section>
         {{ end }}
 
-        {{ if .Viewer.ID }}
+        {{ if .CanReviewPull }}
         <details class="shithub-pull-request-reviewer">
           <summary class="shithub-button">Request review</summary>
           <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviewers">
@@ -136,7 +136,8 @@
           <p class="shithub-pull-state-{{ printf "%s" .PR.MergeableState }}">
             {{ printf "%s" .PR.MergeableState }}
           </p>
-          {{ if .Viewer.ID }}
+        {{ if or .CanMergePull .CanSetPullState .CanReadyPull }}
+            {{ if .CanMergePull }}
             {{ if eq (printf "%s" .PR.MergeableState) "clean" }}
               <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/merge" class="shithub-pull-merge-form">
                 <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -154,11 +155,14 @@
             {{ else }}
               <p class="shithub-muted">Mergeability is being computed…</p>
             {{ end }}
+            {{ end }}
+            {{ if .CanSetPullState }}
             <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/state" class="shithub-pull-state-form">
               <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
               <button type="submit" name="state" value="closed" class="shithub-button">Close pull request</button>
             </form>
-            {{ if .PR.Draft }}
+            {{ end }}
+            {{ if and .CanReadyPull .PR.Draft }}
               <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/ready">
                 <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
                 <button type="submit" class="shithub-button">Ready for review</button>
@@ -206,7 +210,7 @@
               <div class="shithub-comment-body markdown-body">
                 {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
               </div>
-              {{ if $.Viewer.ID }}
+              {{ if $.CanReviewPull }}
               <div class="shithub-pull-thread-actions">
                 <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/reply">
                   <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
@@ -225,7 +229,7 @@
         {{ end }}
       {{ end }}
 
-      {{ if .Viewer.ID }}
+      {{ if .CanReviewPull }}
       <details class="shithub-pull-add-comment">
         <summary class="shithub-button">Add inline comment</summary>
         <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/review-comments">

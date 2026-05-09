@@ -8,7 +8,7 @@
     </h1>
   </header>
 
-  {{ if .Viewer.ID }}
+  {{ if .CanManageIssue }}
   <details class="shithub-milestone-create">
     <summary class="shithub-button shithub-button-primary">New milestone</summary>
     <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-milestone-form">
@@ -29,7 +29,7 @@
         {{ if .DueOn.Valid }}<small>due {{ .DueOn.Time.Format "Jan 2, 2006" }}</small>{{ end }}
       </h3>
       {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
-      {{ if $.Viewer.ID }}
+      {{ if $.CanManageIssue }}
       <div class="shithub-milestone-actions">
         <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/state">
           <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">

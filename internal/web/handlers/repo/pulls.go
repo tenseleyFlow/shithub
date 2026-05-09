@@ -281,6 +281,18 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		"Tab":        tab,
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	pdeps := policy.Deps{Pool: h.d.Pool}
+	repoRef := policy.NewRepoRefFromRepo(row)
+	stateRef := repoRef
+	if pr.IAuthorUserID.Valid {
+		stateRef.AuthorUserID = pr.IAuthorUserID.Int64
+	}
+	data["CanReviewPull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullReview, repoRef).Allow
+	data["CanMergePull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullMerge, repoRef).Allow
+	data["CanSetPullState"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullClose, stateRef).Allow
+	data["CanReadyPull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullCreate, repoRef).Allow
 	for k, v := range extras {
 		data[k] = v
 	}
