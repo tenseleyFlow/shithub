@@ -86,6 +86,9 @@ SQL `INSERT … ON CONFLICT DO NOTHING`.
 Public reads still pass through `policy.Can(ActionIssueRead)` so
 private repos return the existence-leak 404. RequireUser on writes
 gives anonymous browsers a `/login` redirect instead of the same 404.
+Issue creation and commenting follow GitHub's public-participation
+model: any logged-in user may open or comment on issues in a public
+repo, while private repos require `read` access.
 
 ## Cross-reference indexing
 
@@ -123,9 +126,10 @@ the cached HTML doesn't contain `<script` while still rendering
 
 `SetLock` flips `locked` + emits a `locked`/`unlocked` event. Comments
 hit the locked gate inside `AddComment`: non-collaborators get
-`ErrIssueLocked`. The `IsCollab` flag is the caller's responsibility —
-for v1 the web handler treats the repo owner as the only collaborator;
-S15's `repo_collaborators` table is wired but the lookup is deferred.
+`ErrIssueLocked`. The `IsCollab` flag is the caller's responsibility;
+the web handler resolves it via `policy.HasRoleAtLeast(..., RoleTriage)`,
+so owners, direct collaborators, and team-derived triage+ roles can
+comment through a lock.
 
 ## Rate limit
 

@@ -114,7 +114,26 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return allow("public repo read")
 	}
 
-	// 6. From here we need the actor's effective role on the repo.
+	// 6. Public issue participation: any logged-in user can open or
+	//    comment on issues in a public repo. Private repos still fall
+	//    through to the role check below, where read access is required.
+	//    Archive/org-suspension write gates stay below role resolution
+	//    for the general case, so enforce them explicitly here before
+	//    allowing a non-collaborator public-repo issue action.
+	if isIssueParticipationAction(action) && repo.IsPublic() {
+		if actor.IsAnonymous {
+			return deny(DenyAnonymous, "anonymous cannot create/comment on issues")
+		}
+		if repo.IsArchived {
+			return deny(DenyArchived, "repo archived")
+		}
+		if repo.OwnerOrgID != 0 && isOrgSuspended(ctx, d, repo.OwnerOrgID) {
+			return deny(DenyOrgSuspended, "owning org suspended")
+		}
+		return allow("public issue participation")
+	}
+
+	// 7. From here we need the actor's effective role on the repo.
 	//    Owner short-circuits to admin; collaborator role from DB
 	//    otherwise; org membership stub for S31.
 	role, err := effectiveRole(ctx, d, actor, repo)
@@ -124,7 +143,7 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return deny(DenyDBError, "role lookup failed: "+err.Error())
 	}
 
-	// 6a. Author-self-close on issues and PRs. The author of an issue or
+	// 7a. Author-self-close on issues and PRs. The author of an issue or
 	//     PR is allowed to close (and reopen — same Action) their own
 	//     thread regardless of their collaborator role. Handlers populate
 	//     `repo.AuthorUserID` on the close path; everywhere else the
@@ -137,33 +156,23 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return allow("author of thread")
 	}
 
-	// 7. Archived repos: writes denied even for owners. Reads still go
+	// 8. Archived repos: writes denied even for owners. Reads still go
 	//    through the role check above. (We could short-circuit reads
 	//    earlier but keeping the flow uniform makes the matrix readable.)
 	if repo.IsArchived && isWriteAction(action) {
 		return deny(DenyArchived, "repo archived")
 	}
 
-	// 7b. Org suspension (S30): writes against any repo owned by a
+	// 8b. Org suspension (S30): writes against any repo owned by a
 	//     suspended org are denied uniformly. Reads stay allowed (the
 	//     org's contributions to the broader graph aren't erased).
 	//     The check is gated on a write action AND a non-zero
 	//     OwnerOrgID so user-owned repos pay nothing for it.
-	if repo.OwnerOrgID != 0 && isWriteAction(action) {
-		if d.Pool != nil {
-			var suspended bool
-			err := d.Pool.QueryRow(
-				ctx,
-				`SELECT suspended_at IS NOT NULL FROM orgs WHERE id = $1`,
-				repo.OwnerOrgID,
-			).Scan(&suspended)
-			if err == nil && suspended {
-				return deny(DenyOrgSuspended, "owning org suspended")
-			}
-		}
+	if repo.OwnerOrgID != 0 && isWriteAction(action) && isOrgSuspended(ctx, d, repo.OwnerOrgID) {
+		return deny(DenyOrgSuspended, "owning org suspended")
 	}
 
-	// 8. Map action → minimum required role; check.
+	// 9. Map action → minimum required role; check.
 	want := minRoleFor(action)
 	if want != RoleNone && !RoleAtLeast(role, want) {
 		// No role at all + private repo → look like a visibility deny
@@ -175,7 +184,7 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return deny(DenyRoleTooLow, "role too low")
 	}
 
-	// 9. Login-required actions: star/fork/watch-set need any
+	// 10. Login-required actions: star/fork/watch-set need any
 	//    logged-in user. Anonymous reaches here only on a public repo
 	//    (see step 4); we deny with the anonymous code so the handler
 	//    can render a friendly "log in to star" prompt.
@@ -185,6 +194,19 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	}
 
 	return allow("granted")
+}
+
+func isOrgSuspended(ctx context.Context, d Deps, orgID int64) bool {
+	if d.Pool == nil {
+		return false
+	}
+	var suspended bool
+	err := d.Pool.QueryRow(
+		ctx,
+		`SELECT suspended_at IS NOT NULL FROM orgs WHERE id = $1`,
+		orgID,
+	).Scan(&suspended)
+	return err == nil && suspended
 }
 
 // IsVisibleTo is a convenience wrapper around Can(actor, repo:read, …).
@@ -402,9 +424,13 @@ func minRoleFor(action Action) Role {
 		return RoleTriage
 
 	// Write tier — code push, branch create, PR open/comment.
-	case ActionRepoWrite, ActionPullCreate, ActionPullReview, ActionPullClose,
-		ActionIssueCreate, ActionIssueComment:
+	case ActionRepoWrite, ActionPullCreate, ActionPullReview, ActionPullClose:
 		return RoleWrite
+
+	// Issue participation on private repos requires read access. Public
+	// repos are handled by Can's public issue participation branch above.
+	case ActionIssueCreate, ActionIssueComment:
+		return RoleRead
 
 	// Maintain tier — most settings except dangerous ones.
 	case ActionRepoSettingsGeneral, ActionRepoSettingsBranches:

@@ -160,6 +160,15 @@ func expect(actor actorKind, repo repoKind, action policy.Action) bool {
 		return true
 	}
 
+	// Public issue participation: any logged-in user can open/comment
+	// on issues in a non-archived public repo.
+	if (action == policy.ActionIssueCreate || action == policy.ActionIssueComment) && !isPrivate {
+		if actor == actorAnonymous || isArchived {
+			return false
+		}
+		return true
+	}
+
 	// Compute role.
 	var have policy.Role
 	switch actor {
@@ -205,8 +214,9 @@ func mirrorMinRoleFor(a policy.Action) policy.Role {
 		return policy.RoleRead
 	case policy.ActionIssueClose, policy.ActionIssueLabel, policy.ActionIssueAssign:
 		return policy.RoleTriage
-	case policy.ActionRepoWrite, policy.ActionPullCreate, policy.ActionPullReview, policy.ActionPullClose,
-		policy.ActionIssueCreate, policy.ActionIssueComment:
+	case policy.ActionIssueCreate, policy.ActionIssueComment:
+		return policy.RoleRead
+	case policy.ActionRepoWrite, policy.ActionPullCreate, policy.ActionPullReview, policy.ActionPullClose:
 		return policy.RoleWrite
 	case policy.ActionRepoSettingsGeneral, policy.ActionRepoSettingsBranches:
 		return policy.RoleMaintain
@@ -249,6 +259,41 @@ func TestCan_Matrix(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestCan_PublicIssueParticipation(t *testing.T) {
+	t.Parallel()
+
+	d := policy.Deps{}
+	publicRepo := makeRepo(repoPublic)
+	privateRepo := makeRepo(repoPrivate)
+	archivedPublicRepo := makeRepo(repoArchivedPublic)
+	stranger := makeActor(actorUnrelated)
+	readCollab := makeActor(actorCollabRead)
+
+	for _, action := range []policy.Action{policy.ActionIssueCreate, policy.ActionIssueComment} {
+		action := action
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+
+			if got := policy.Can(context.Background(), d, stranger, action, publicRepo); !got.Allow {
+				t.Fatalf("logged-in non-collab on public repo should be allowed to %s: %#v", action, got)
+			}
+			if got := policy.Can(context.Background(), d, policy.AnonymousActor(), action, publicRepo); got.Allow || got.Code != policy.DenyAnonymous {
+				t.Fatalf("anonymous public repo %s = %#v, want DenyAnonymous", action, got)
+			}
+			ctx := ctxWithCollabRole(t, actorCollabRead)
+			if got := policy.Can(ctx, d, readCollab, action, privateRepo); !got.Allow {
+				t.Fatalf("read collab on private repo should be allowed to %s: %#v", action, got)
+			}
+			if got := policy.Can(context.Background(), d, stranger, action, privateRepo); got.Allow || got.Code != policy.DenyVisibility {
+				t.Fatalf("stranger private repo %s = %#v, want DenyVisibility", action, got)
+			}
+			if got := policy.Can(context.Background(), d, stranger, action, archivedPublicRepo); got.Allow || got.Code != policy.DenyArchived {
+				t.Fatalf("archived public repo %s = %#v, want DenyArchived", action, got)
+			}
+		})
 	}
 }
 

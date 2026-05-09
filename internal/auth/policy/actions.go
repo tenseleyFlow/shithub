@@ -98,3 +98,10 @@ func isWriteAction(a Action) bool {
 // isReadAction is the inverse, broken out for readability at call sites
 // that branch on intent rather than on the absence of writes.
 func isReadAction(a Action) bool { return !isWriteAction(a) }
+
+// isIssueParticipationAction is the GitHub-shaped issue conversation
+// surface: any logged-in user can open or comment on issues in a public
+// repo, while private repos require normal read access.
+func isIssueParticipationAction(a Action) bool {
+	return a == ActionIssueCreate || a == ActionIssueComment
+}

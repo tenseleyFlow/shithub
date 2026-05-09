@@ -56,8 +56,8 @@ The complete map (also enforced by the matrix test):
 | `repo:transfer`                       | `admin`          |
 | `repo:visibility`                     | `admin`          |
 | `issue:read`                          | `read` (private) |
-| `issue:create`                        | `write`          |
-| `issue:comment`                       | `write`          |
+| `issue:create`                        | logged in on public; `read` on private |
+| `issue:comment`                       | logged in on public; `read` on private |
 | `issue:close`                         | `triage`         |
 | `issue:label`                         | `triage`         |
 | `issue:assign`                        | `triage`         |
@@ -88,14 +88,17 @@ the verdict. Ordered from most-decisive to least:
 4. **Anonymous + private repo** → deny (`DenyVisibility`). Caller maps
    to 404, not 403, to avoid existence leak.
 5. **Public repo + read** → allow.
-6. Compute effective role (owner ⇒ admin; collaborator ⇒ row.role;
+6. **Public issue participation** → logged-in users can create and
+   comment on issues in public repos, subject to the suspended actor,
+   archived repo, and suspended org write gates.
+7. Compute effective role (owner ⇒ admin; collaborator ⇒ row.role;
    else `RoleNone`).
-7. **Archived repo + write** → deny (`DenyArchived`). Even owners
+8. **Archived repo + write** → deny (`DenyArchived`). Even owners
    can't push to archived repos.
-8. **Min role for action** vs effective role. Below threshold + private
+9. **Min role for action** vs effective role. Below threshold + private
    repo + no role → deny as visibility (404). Below threshold with any
    role → deny as `DenyRoleTooLow` (403).
-9. **Login-required actions** (star/fork) on anonymous → deny
+10. **Login-required actions** (star/fork) on anonymous → deny
    (`DenyAnonymous`).
 
 ## Existence-leak guard
