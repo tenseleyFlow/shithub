@@ -257,7 +257,8 @@ func (p *Pool) runOne(ctx context.Context, kind Kind, logger *slog.Logger) (bool
 	cancel()
 	metrics.WorkerJobDurationSeconds.WithLabelValues(job.Kind).Observe(time.Since(start).Seconds())
 
-	logger.InfoContext(ctx, "worker: dispatched",
+	logger.InfoContext(
+		ctx, "worker: dispatched",
 		"job_id", job.ID,
 		"kind", job.Kind,
 		"attempt", job.Attempts,

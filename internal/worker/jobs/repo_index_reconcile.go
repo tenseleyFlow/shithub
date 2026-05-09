@@ -42,7 +42,8 @@ func RepoIndexReconcile(deps IndexReconcileDeps) worker.Handler {
 			return err
 		}
 		for _, r := range repos {
-			if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindRepoIndexCode,
+			if _, err := worker.Enqueue(
+				ctx, deps.Pool, worker.KindRepoIndexCode,
 				map[string]any{"repo_id": r.ID},
 				worker.EnqueueOptions{},
 			); err != nil {

@@ -53,14 +53,14 @@ func TestIsForbiddenIPClassifiesCorrectly(t *testing.T) {
 		"10.0.0.1", "10.255.255.255",
 		"172.16.0.1", "172.31.255.255",
 		"192.168.0.1",
-		"100.64.0.1",       // CGNAT
+		"100.64.0.1",      // CGNAT
 		"169.254.169.254", // AWS metadata service
 		"0.0.0.0",
 		"255.255.255.255",
 		"::1",
-		"fe80::1",        // link-local
-		"fd00::1",        // ULA
-		"fc00::1",        // ULA
+		"fe80::1", // link-local
+		"fd00::1", // ULA
+		"fc00::1", // ULA
 	}
 	for _, addr := range forbidden {
 		ip := net.ParseIP(addr)

@@ -13,9 +13,9 @@ import (
 
 // Job kinds shipped by S33. Registered by cmd/shithubd/worker.go.
 const (
-	KindWebhookFanout    worker.Kind = "webhook:fanout"
-	KindWebhookDeliver   worker.Kind = "webhook:deliver"
-	KindWebhookPurgeOld  worker.Kind = "webhook:purge_old"
+	KindWebhookFanout   worker.Kind = "webhook:fanout"
+	KindWebhookDeliver  worker.Kind = "webhook:deliver"
+	KindWebhookPurgeOld worker.Kind = "webhook:purge_old"
 )
 
 // deliverPayload is the schema for a `webhook:deliver` job. The

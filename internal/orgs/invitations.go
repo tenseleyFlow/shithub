@@ -102,13 +102,13 @@ func Invite(ctx context.Context, deps Deps, p InviteParams) (InviteResult, error
 		return InviteResult{}, fmt.Errorf("invite token: %w", err)
 	}
 	row, err := q.CreateOrgInvitation(ctx, deps.Pool, orgsdb.CreateOrgInvitationParams{
-		OrgID:            p.OrgID,
-		InvitedByUserID:  pgtype.Int8{Int64: p.InvitedByUserID, Valid: true},
-		TargetUserID:     targetUserID,
-		TargetEmail:      emailToCitext(targetEmail),
-		Role:             role,
-		TokenHash:        tokHash,
-		ExpiresAt:        pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+		OrgID:           p.OrgID,
+		InvitedByUserID: pgtype.Int8{Int64: p.InvitedByUserID, Valid: true},
+		TargetUserID:    targetUserID,
+		TargetEmail:     emailToCitext(targetEmail),
+		Role:            role,
+		TokenHash:       tokHash,
+		ExpiresAt:       pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
 	})
 	if err != nil {
 		return InviteResult{}, fmt.Errorf("create invitation: %w", err)

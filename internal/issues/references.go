@@ -19,8 +19,8 @@ import (
 
 // Two patterns:
 //
-//   #N            — same-repo reference. Captured digits.
-//   owner/repo#N  — cross-repo reference. Captured owner, repo, digits.
+//	#N            — same-repo reference. Captured digits.
+//	owner/repo#N  — cross-repo reference. Captured owner, repo, digits.
 //
 // Word-boundary on the leading side so we don't grab "abc#1". The N is
 // limited to 1–9 leading digit + arbitrary digits, capped at 9 total to
@@ -105,7 +105,8 @@ func insertReferencesFromBody(
 			pKind string
 			pID   int64
 		)
-		err = tx.QueryRow(ctx,
+		err = tx.QueryRow(
+			ctx,
 			`SELECT kind::text, id FROM principals WHERE slug = $1`,
 			strings.ToLower(owner),
 		).Scan(&pKind, &pID)
@@ -173,4 +174,3 @@ func insertReferencesFromBody(
 
 	return nil
 }
-

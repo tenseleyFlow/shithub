@@ -67,4 +67,3 @@ func TestCrossRepoRefRegex(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
-

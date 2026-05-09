@@ -34,14 +34,14 @@ func gitCmd(args ...string) *exec.Cmd {
 }
 
 type fx struct {
-	pool        *pgxpool.Pool
-	pullsDeps   pulls.Deps
-	reviewDeps  review.Deps
-	authorID    int64
-	reviewerID  int64
-	otherID     int64
-	repoID      int64
-	gitDir      string
+	pool       *pgxpool.Pool
+	pullsDeps  pulls.Deps
+	reviewDeps review.Deps
+	authorID   int64
+	reviewerID int64
+	otherID    int64
+	repoID     int64
+	gitDir     string
 }
 
 func setup(t *testing.T) fx {
@@ -96,7 +96,7 @@ func setup(t *testing.T) fx {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return fx{
-		pool: pool,
+		pool:       pool,
 		pullsDeps:  pulls.Deps{Pool: pool, Logger: logger},
 		reviewDeps: review.Deps{Pool: pool, Logger: logger},
 		authorID:   author.ID,

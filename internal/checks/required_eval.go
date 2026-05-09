@@ -15,15 +15,15 @@ import (
 
 // GateInputs is the small struct the merge gate cares about.
 type GateInputs struct {
-	RepoID         int64
-	HeadSHA        string
-	RequiredNames  []string // from branch_protection_rules.status_checks_required
+	RepoID        int64
+	HeadSHA       string
+	RequiredNames []string // from branch_protection_rules.status_checks_required
 }
 
 // GateResult mirrors the spec's blocked-with-reason vocabulary.
 type GateResult struct {
 	Satisfied bool
-	Reason    string  // "" when Satisfied; otherwise human-readable cause
+	Reason    string // "" when Satisfied; otherwise human-readable cause
 	// Missing is the subset of RequiredNames that haven't yet succeeded
 	// or returned neutral on HeadSHA. Populated for UI tooltips.
 	Missing []string

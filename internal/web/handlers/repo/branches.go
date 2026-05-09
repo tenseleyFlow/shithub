@@ -146,12 +146,12 @@ func (h *Handlers) tagsList(w http.ResponseWriter, r *http.Request) {
 	refs, _ := repogit.ListRefs(r.Context(), gitDir)
 
 	type tagRow struct {
-		Name        string
-		OID         string
-		ShortOID    string
-		Subject     string
-		AuthorName  string
-		AuthorWhen  time.Time
+		Name       string
+		OID        string
+		ShortOID   string
+		Subject    string
+		AuthorName string
+		AuthorWhen time.Time
 	}
 	rows := make([]tagRow, 0, len(refs.Tags))
 	for _, t := range refs.Tags {
@@ -235,20 +235,20 @@ func (h *Handlers) compareView(w http.ResponseWriter, r *http.Request) {
 
 	refs, _ := repogit.ListRefs(r.Context(), gitDir)
 	h.d.Render.RenderPage(w, r, "repo/compare", map[string]any{
-		"Title":     "Compare · " + row.Name,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Base":      base,
-		"Head":      head,
-		"Ahead":     ahead,
-		"Behind":    behind,
-		"Commits":   commits,
-		"DiffHTML":  diffHTML,
-		"NotFound":  notFound,
+		"Title":      "Compare · " + row.Name,
+		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Owner":      owner.Username,
+		"Repo":       row,
+		"Base":       base,
+		"Head":       head,
+		"Ahead":      ahead,
+		"Behind":     behind,
+		"Commits":    commits,
+		"DiffHTML":   diffHTML,
+		"NotFound":   notFound,
 		"CommitsErr": cerr != nil,
-		"Branches":  refs.Branches,
-		"Tags":      refs.Tags,
+		"Branches":   refs.Branches,
+		"Tags":       refs.Tags,
 	})
 }
 

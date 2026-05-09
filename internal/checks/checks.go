@@ -42,16 +42,16 @@ const (
 
 // Errors surfaced to API + handlers.
 var (
-	ErrEmptyName              = errors.New("checks: name is required")
-	ErrNameTooLong            = errors.New("checks: name too long (max 200)")
-	ErrInvalidStatus          = errors.New("checks: status must be queued, in_progress, completed, or pending")
-	ErrInvalidConclusion      = errors.New("checks: invalid conclusion")
+	ErrEmptyName                = errors.New("checks: name is required")
+	ErrNameTooLong              = errors.New("checks: name too long (max 200)")
+	ErrInvalidStatus            = errors.New("checks: status must be queued, in_progress, completed, or pending")
+	ErrInvalidConclusion        = errors.New("checks: invalid conclusion")
 	ErrCompletedNeedsConclusion = errors.New("checks: completed status requires conclusion")
-	ErrOutputTextTooLarge     = errors.New("checks: output.text exceeds 256 KiB cap")
-	ErrOutputSummaryTooLarge  = errors.New("checks: output.summary exceeds 64 KiB cap")
-	ErrShortHeadSHA           = errors.New("checks: head_sha must be at least 7 hex chars")
-	ErrCheckRunNotFound       = errors.New("checks: run not found")
-	ErrSuiteNotFound          = errors.New("checks: suite not found")
+	ErrOutputTextTooLarge       = errors.New("checks: output.text exceeds 256 KiB cap")
+	ErrOutputSummaryTooLarge    = errors.New("checks: output.summary exceeds 64 KiB cap")
+	ErrShortHeadSHA             = errors.New("checks: head_sha must be at least 7 hex chars")
+	ErrCheckRunNotFound         = errors.New("checks: run not found")
+	ErrSuiteNotFound            = errors.New("checks: suite not found")
 )
 
 // validStatus / validConclusion mirror the Postgres enums.

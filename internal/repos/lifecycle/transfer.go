@@ -19,11 +19,11 @@ import (
 
 // TransferRequestParams describes a new transfer offer.
 type TransferRequestParams struct {
-	ActorUserID    int64
-	RepoID         int64
-	FromUserID     int64
+	ActorUserID     int64
+	RepoID          int64
+	FromUserID      int64
 	ToPrincipalKind string // "user" — "org" arrives in S31
-	ToPrincipalID  int64
+	ToPrincipalID   int64
 }
 
 // RequestTransfer creates a pending transfer with a 7-day TTL. Returns
@@ -39,12 +39,12 @@ func RequestTransfer(ctx context.Context, deps Deps, p TransferRequestParams) (i
 
 	rq := reposdb.New()
 	row, err := rq.InsertTransferRequest(ctx, deps.Pool, reposdb.InsertTransferRequestParams{
-		RepoID:           p.RepoID,
-		FromUserID:       p.FromUserID,
-		ToPrincipalKind:  reposdb.TransferPrincipalKind(p.ToPrincipalKind),
-		ToPrincipalID:    p.ToPrincipalID,
-		CreatedBy:        p.ActorUserID,
-		ExpiresAt:        pgtype.Timestamptz{Time: deps.now().Add(transferTTL), Valid: true},
+		RepoID:          p.RepoID,
+		FromUserID:      p.FromUserID,
+		ToPrincipalKind: reposdb.TransferPrincipalKind(p.ToPrincipalKind),
+		ToPrincipalID:   p.ToPrincipalID,
+		CreatedBy:       p.ActorUserID,
+		ExpiresAt:       pgtype.Timestamptz{Time: deps.now().Add(transferTTL), Valid: true},
 	})
 	if err != nil {
 		return 0, fmt.Errorf("insert transfer: %w", err)
@@ -122,10 +122,10 @@ func AcceptTransfer(ctx context.Context, deps Deps, actorUserID, transferID int6
 	// Update owner. We keep the same name; if it collides on the
 	// recipient, the unique index trips and the tx rolls back.
 	if err := rq.TransferRepoOwner(ctx, tx, reposdb.TransferRepoOwnerParams{
-		ID:           repo.ID,
-		Name:         repo.Name,
-		OwnerUserID:  pgtype.Int8{Int64: actorUserID, Valid: true},
-		OwnerOrgID:   pgtype.Int8{Valid: false},
+		ID:          repo.ID,
+		Name:        repo.Name,
+		OwnerUserID: pgtype.Int8{Int64: actorUserID, Valid: true},
+		OwnerOrgID:  pgtype.Int8{Valid: false},
 	}); err != nil {
 		var pgErr *pgconn.PgError
 		if errAs(err, &pgErr) && pgErr.Code == "23505" {

@@ -10,9 +10,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
-
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -23,8 +22,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
-	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -54,6 +53,7 @@ type CloneURLs struct {
 func (h *Handlers) cloneHTTPS(owner, name string) string {
 	return h.d.CloneURLs.BaseURL + "/" + owner + "/" + name + ".git"
 }
+
 func (h *Handlers) cloneSSH(owner, name string) string {
 	return h.d.CloneURLs.SSHHost + ":" + owner + "/" + name + ".git"
 }

@@ -26,10 +26,10 @@ import (
 // the rule set. Allow=true means the push proceeds; Allow=false
 // surfaces the reason+rule pattern back to the user via stderr.
 type Decision struct {
-	Allow      bool
-	Reason     string
-	RuleID     int64
-	Pattern    string
+	Allow   bool
+	Reason  string
+	RuleID  int64
+	Pattern string
 }
 
 // Update is one ref update from the pre-receive hook's stdin.
@@ -178,4 +178,3 @@ func FriendlyMessage(d Decision) string {
 	}
 	return fmt.Sprintf("shithub: %s (rule pattern %q).", d.Reason, d.Pattern)
 }
-

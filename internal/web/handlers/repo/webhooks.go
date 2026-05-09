@@ -13,9 +13,9 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	webhookdb "github.com/tenseleyFlow/shithub/internal/webhook/sqlc"
-	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 // MountWebhooks registers the per-repo webhook CRUD + delivery views.

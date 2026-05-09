@@ -100,13 +100,13 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	if idStr == "" {
 		// Create.
 		newID, err := h.rq.UpsertBranchProtectionRule(r.Context(), h.d.Pool, reposdb.UpsertBranchProtectionRuleParams{
-			RepoID:                row.ID,
-			Pattern:               pattern,
-			PreventForcePush:      preventForcePush,
-			PreventDeletion:       preventDeletion,
-			RequirePrForPush:      requirePR,
-			AllowedPusherUserIds:  allowed,
-			CreatedByUserID:       pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+			RepoID:               row.ID,
+			Pattern:              pattern,
+			PreventForcePush:     preventForcePush,
+			PreventDeletion:      preventDeletion,
+			RequirePrForPush:     requirePR,
+			AllowedPusherUserIds: allowed,
+			CreatedByUserID:      pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
 		})
 		if err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: insert", "error", err)
@@ -114,17 +114,17 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err := h.rq.UpdateBranchProtectionReviewSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
-			ID:                          newID,
-			RequiredReviewCount:         int32(requiredReviews),
-			DismissStaleReviewsOnPush:   dismissStale,
-			RequireCodeOwnerReview:      false,
+			ID:                        newID,
+			RequiredReviewCount:       int32(requiredReviews),
+			DismissStaleReviewsOnPush: dismissStale,
+			RequireCodeOwnerReview:    false,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
 		if err := h.rq.UpdateBranchProtectionCheckSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
-			ID:                              newID,
-			StatusChecksRequired:            requiredChecks,
-			DismissStaleStatusChecksOnPush:  dismissStaleChecks,
+			ID:                             newID,
+			StatusChecksRequired:           requiredChecks,
+			DismissStaleStatusChecksOnPush: dismissStaleChecks,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
@@ -156,17 +156,17 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err := h.rq.UpdateBranchProtectionReviewSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
-			ID:                          id,
-			RequiredReviewCount:         int32(requiredReviews),
-			DismissStaleReviewsOnPush:   dismissStale,
-			RequireCodeOwnerReview:      false,
+			ID:                        id,
+			RequiredReviewCount:       int32(requiredReviews),
+			DismissStaleReviewsOnPush: dismissStale,
+			RequireCodeOwnerReview:    false,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
 		if err := h.rq.UpdateBranchProtectionCheckSettings(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
-			ID:                              id,
-			StatusChecksRequired:            requiredChecks,
-			DismissStaleStatusChecksOnPush:  dismissStaleChecks,
+			ID:                             id,
+			StatusChecksRequired:           requiredChecks,
+			DismissStaleStatusChecksOnPush: dismissStaleChecks,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}

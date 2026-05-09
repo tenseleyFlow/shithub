@@ -289,10 +289,10 @@ func presentRun(r checksdb.CheckRun) map[string]any {
 
 func presentSuite(s checksdb.CheckSuite) map[string]any {
 	out := map[string]any{
-		"id":        s.ID,
-		"head_sha":  s.HeadSha,
-		"app_slug":  s.AppSlug,
-		"status":    string(s.Status),
+		"id":       s.ID,
+		"head_sha": s.HeadSha,
+		"app_slug": s.AppSlug,
+		"status":   string(s.Status),
 	}
 	if s.Conclusion.Valid {
 		out["conclusion"] = string(s.Conclusion.CheckConclusion)

@@ -124,13 +124,13 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	}
 
 	prRow, err := pullsdb.New().CreatePullRequest(ctx, deps.Pool, pullsdb.CreatePullRequestParams{
-		IssueID:     issueRow.ID,
-		BaseRef:     base,
-		HeadRef:     head,
-		HeadRepoID:  p.RepoID,
-		BaseOid:     baseOID,
-		HeadOid:     headOID,
-		Draft:       p.Draft,
+		IssueID:    issueRow.ID,
+		BaseRef:    base,
+		HeadRef:    head,
+		HeadRepoID: p.RepoID,
+		BaseOid:    baseOID,
+		HeadOid:    headOID,
+		Draft:      p.Draft,
 	})
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("create pull_request: %w", err)

@@ -14,8 +14,8 @@ import "strings"
 // to take effect (a bare `repo:foo` without slash is treated as
 // free text).
 type ParsedQuery struct {
-	Text         string  // free-text query (what tsvector matches against)
-	Phrase       string  // when a quoted phrase was supplied; empty when not
+	Text         string // free-text query (what tsvector matches against)
+	Phrase       string // when a quoted phrase was supplied; empty when not
 	RepoFilter   *RepoFilter
 	StateFilter  string // "open" | "closed" | ""
 	AuthorFilter string // username or empty

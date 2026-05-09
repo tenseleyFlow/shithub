@@ -222,7 +222,8 @@ func (h *Handlers) requireOrgOwner(w http.ResponseWriter, r *http.Request, orgID
 
 func (h *Handlers) userIDByUsername(r *http.Request, username string) (int64, bool) {
 	var id int64
-	err := h.d.Pool.QueryRow(r.Context(),
+	err := h.d.Pool.QueryRow(
+		r.Context(),
 		`SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL`,
 		username,
 	).Scan(&id)
@@ -255,7 +256,8 @@ func (h *Handlers) canSeeTeam(r *http.Request, team orgsdb.Team, viewer middlewa
 		return false
 	}
 	var member bool
-	_ = h.d.Pool.QueryRow(r.Context(),
+	_ = h.d.Pool.QueryRow(
+		r.Context(),
 		`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
 		team.ID, viewer.ID,
 	).Scan(&member)
@@ -282,7 +284,8 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 			continue
 		}
 		var member bool
-		err := h.d.Pool.QueryRow(r.Context(),
+		err := h.d.Pool.QueryRow(
+			r.Context(),
 			`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
 			t.ID, viewer.ID,
 		).Scan(&member)

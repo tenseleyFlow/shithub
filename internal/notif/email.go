@@ -106,7 +106,8 @@ func sendNotificationEmail(
 // participating threads master toggle, default on").
 func emailPrefOn(ctx context.Context, pool *pgxpool.Pool, userID int64, key string) (bool, error) {
 	var raw json.RawMessage
-	err := pool.QueryRow(ctx,
+	err := pool.QueryRow(
+		ctx,
 		`SELECT value FROM user_notification_prefs WHERE user_id = $1 AND key = $2`,
 		userID, key,
 	).Scan(&raw)

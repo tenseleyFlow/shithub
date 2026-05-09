@@ -123,8 +123,8 @@ func TestRender_HostileInputs(t *testing.T) {
 func TestRender_AllowsSafeHTML(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name      string
-		src       string
+		name        string
+		src         string
 		mustContain []string
 	}{
 		{

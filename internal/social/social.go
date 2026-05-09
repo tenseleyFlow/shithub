@@ -32,7 +32,7 @@ type Deps struct {
 
 // Errors surfaced to handlers.
 var (
-	ErrNotLoggedIn      = errors.New("social: login required")
+	ErrNotLoggedIn       = errors.New("social: login required")
 	ErrInvalidWatchLevel = errors.New("social: watch level must be all, participating, or ignore")
-	ErrStarRateLimit    = errors.New("social: star/unstar rate limit exceeded")
+	ErrStarRateLimit     = errors.New("social: star/unstar rate limit exceeded")
 )

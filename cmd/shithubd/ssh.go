@@ -156,7 +156,8 @@ var sshShellCmd = &cobra.Command{
 		if dispatchErr != nil {
 			pool.Close()
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), protocol.FriendlyMessageFor(dispatchErr, ""))
-			logger.WarnContext(ctx, "ssh-shell: denied",
+			logger.WarnContext(
+				ctx, "ssh-shell: denied",
 				"user_id", userID,
 				"original", original,
 				"remote_ip", remoteIP,
@@ -164,7 +165,8 @@ var sshShellCmd = &cobra.Command{
 			)
 			return dispatchErr
 		}
-		logger.InfoContext(ctx, "ssh-shell: dispatch",
+		logger.InfoContext(
+			ctx, "ssh-shell: dispatch",
 			"user_id", userID,
 			"op", string(parsed.Service),
 			"owner", parsed.Owner,

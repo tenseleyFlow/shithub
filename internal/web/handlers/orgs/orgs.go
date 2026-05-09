@@ -2,15 +2,15 @@
 
 // Package orgs wires the S30 organization web surface:
 //
-//   GET  /organizations/new            create form
-//   POST /organizations                create submit
-//   GET  /{org}/people                 members + pending invites + invite form
-//   POST /{org}/people/invite          invite by username or email
-//   POST /{org}/people/{user}/role     change role
-//   POST /{org}/people/{user}/remove   remove member
-//   GET  /invitations/{token}          accept/decline view
-//   POST /invitations/{token}/accept   accept
-//   POST /invitations/{token}/decline  decline
+//	GET  /organizations/new            create form
+//	POST /organizations                create submit
+//	GET  /{org}/people                 members + pending invites + invite form
+//	POST /{org}/people/invite          invite by username or email
+//	POST /{org}/people/{user}/role     change role
+//	POST /{org}/people/{user}/remove   remove member
+//	GET  /invitations/{token}          accept/decline view
+//	POST /invitations/{token}/accept   accept
+//	POST /invitations/{token}/decline  decline
 //
 // Profile rendering for /{org} is dispatched from the existing
 // /{username} catch-all in internal/web/handlers/profile via the

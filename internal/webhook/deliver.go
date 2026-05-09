@@ -374,4 +374,3 @@ func Redeliver(ctx context.Context, deps FanoutDeps, originalID int64) (int64, e
 	}
 	return row.ID, nil
 }
-

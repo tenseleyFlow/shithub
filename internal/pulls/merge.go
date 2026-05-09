@@ -296,4 +296,3 @@ func fetchCommitsForLinkScan(ctx context.Context, db pullsdb.DBTX, prID int64) [
 	}
 	return out
 }
-

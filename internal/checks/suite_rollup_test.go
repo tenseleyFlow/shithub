@@ -23,10 +23,10 @@ func run(status string, conclusion string) checksdb.CheckRun {
 func TestDeriveSuiteRollup(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name        string
-		runs        []checksdb.CheckRun
-		wantStatus  string
-		wantConcl   string
+		name       string
+		runs       []checksdb.CheckRun
+		wantStatus string
+		wantConcl  string
 	}{
 		{
 			"empty → queued",

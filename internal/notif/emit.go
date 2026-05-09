@@ -28,8 +28,8 @@ type Event struct {
 	RepoID      int64  // 0 → user-scoped event (NULL).
 	SourceKind  string // "issue", "pull", "repo", "user", …
 	SourceID    int64
-	Public      bool     // matches repo visibility (caller decides).
-	Mentions    []int64  // resolved user-ids to fan out @-mentions to.
+	Public      bool    // matches repo visibility (caller decides).
+	Mentions    []int64 // resolved user-ids to fan out @-mentions to.
 	Extra       map[string]any
 }
 

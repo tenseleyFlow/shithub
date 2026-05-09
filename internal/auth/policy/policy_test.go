@@ -56,9 +56,9 @@ func (k repoKind) String() string {
 }
 
 const (
-	ownerID  int64 = 100
-	otherID  int64 = 200
-	repoIDV  int64 = 1000
+	ownerID int64 = 100
+	otherID int64 = 200
+	repoIDV int64 = 1000
 )
 
 func makeActor(k actorKind) policy.Actor {
@@ -320,7 +320,6 @@ func TestCacheInvalidate(t *testing.T) {
 		t.Errorf("after invalidate, admin should deny without role row")
 	}
 }
-
 
 // TestPermissionsDoc_CoversEveryAction guards against drift between
 // the policy package and docs/internal/permissions.md. The doc's

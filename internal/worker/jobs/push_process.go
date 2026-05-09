@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -22,8 +23,6 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
-
-	"path/filepath"
 )
 
 // PushProcessDeps wires the data this handler needs.

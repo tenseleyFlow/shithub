@@ -18,10 +18,10 @@ import (
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
-	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -193,7 +193,8 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		h.d.Logger.WarnContext(r.Context(), "pulls: enqueue mergeability", "error", err)
 	}
 	_ = worker.Notify(r.Context(), h.d.Pool)
-	http.Redirect(w, r,
+	http.Redirect(
+		w, r,
 		"/"+owner.Username+"/"+row.Name+"/pulls/"+strconv.FormatInt(res.Issue.Number, 10),
 		http.StatusSeeOther,
 	)
@@ -421,9 +422,9 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 		threadsByFile[f.Path] = out
 	}
 	h.renderPullPage(w, r, "files", map[string]any{
-		"Files":          files,
-		"DiffHTML":       diffHTML,
-		"ThreadsByFile":  threadsByFile,
+		"Files":         files,
+		"DiffHTML":      diffHTML,
+		"ThreadsByFile": threadsByFile,
 	})
 }
 
@@ -440,9 +441,9 @@ func (h *Handlers) pullChecks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type runRow struct {
-		R              checksdb.CheckRun
-		SummaryHTML    template.HTML
-		AppSlug        string
+		R           checksdb.CheckRun
+		SummaryHTML template.HTML
+		AppSlug     string
 	}
 	type suiteGroup struct {
 		Suite checksdb.CheckSuite

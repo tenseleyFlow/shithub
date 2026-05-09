@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tenseleyFlow/shithub/internal/worker"
 	webhookdb "github.com/tenseleyFlow/shithub/internal/webhook/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 // FanoutConsumer is the consumer name in domain_events_processed.
@@ -130,18 +130,18 @@ func dispatchEvent(ctx context.Context, deps FanoutDeps, q *webhookdb.Queries, e
 		}
 		idem := idempotencyKey(w.ID, ev.ID, body)
 		row, err := q.CreateDelivery(ctx, deps.Pool, webhookdb.CreateDeliveryParams{
-			WebhookID:       w.ID,
-			EventKind:       ev.Kind,
-			EventID:         pgtype.Int8{Int64: ev.ID, Valid: true},
-			Payload:         body,
-			RequestHeaders:  headersJSON,
-			RequestBody:     body,
-			Attempt:         1,
-			MaxAttempts:     8,
-			NextRetryAt:     pgtype.Timestamptz{Time: time.Now(), Valid: true},
-			Status:          webhookdb.WebhookDeliveryStatusPending,
-			IdempotencyKey:  idem,
-			RedeliverOf:     pgtype.Int8{Valid: false},
+			WebhookID:      w.ID,
+			EventKind:      ev.Kind,
+			EventID:        pgtype.Int8{Int64: ev.ID, Valid: true},
+			Payload:        body,
+			RequestHeaders: headersJSON,
+			RequestBody:    body,
+			Attempt:        1,
+			MaxAttempts:    8,
+			NextRetryAt:    pgtype.Timestamptz{Time: time.Now(), Valid: true},
+			Status:         webhookdb.WebhookDeliveryStatusPending,
+			IdempotencyKey: idem,
+			RedeliverOf:    pgtype.Int8{Valid: false},
 		})
 		if err != nil {
 			return fmt.Errorf("create delivery: %w", err)

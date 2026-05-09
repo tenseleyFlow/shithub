@@ -17,11 +17,11 @@ import (
 
 // CreateParams describes a create-org request.
 type CreateParams struct {
-	Slug             string
-	DisplayName      string
-	Description      string
-	BillingEmail     string
-	CreatedByUserID  int64
+	Slug            string
+	DisplayName     string
+	Description     string
+	BillingEmail    string
+	CreatedByUserID int64
 }
 
 // slugRE mirrors the username pattern (lowercase letters, digits,
@@ -86,10 +86,10 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (orgsdb.Org, error) 
 	}
 
 	if err := q.AddOrgMember(ctx, tx, orgsdb.AddOrgMemberParams{
-		OrgID:            row.ID,
-		UserID:           p.CreatedByUserID,
-		Role:             orgsdb.OrgRoleOwner,
-		InvitedByUserID:  pgtype.Int8{Valid: false},
+		OrgID:           row.ID,
+		UserID:          p.CreatedByUserID,
+		Role:            orgsdb.OrgRoleOwner,
+		InvitedByUserID: pgtype.Int8{Valid: false},
 	}); err != nil {
 		return orgsdb.Org{}, fmt.Errorf("seed owner: %w", err)
 	}

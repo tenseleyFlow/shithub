@@ -36,8 +36,10 @@ func TestParseQuery(t *testing.T) {
 		{"", search.ParsedQuery{}},
 		{"hello world", search.ParsedQuery{Text: "hello world"}},
 		{`"quoted phrase"`, search.ParsedQuery{Phrase: "quoted phrase"}},
-		{"repo:alice/demo bug", search.ParsedQuery{Text: "bug",
-			RepoFilter: &search.RepoFilter{Owner: "alice", Name: "demo"}}},
+		{"repo:alice/demo bug", search.ParsedQuery{
+			Text:       "bug",
+			RepoFilter: &search.RepoFilter{Owner: "alice", Name: "demo"},
+		}},
 		{"repo:noslash bug", search.ParsedQuery{Text: "repo:noslash bug"}},
 		{"is:open broken", search.ParsedQuery{Text: "broken", StateFilter: "open"}},
 		{"state:closed bug", search.ParsedQuery{Text: "bug", StateFilter: "closed"}},

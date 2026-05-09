@@ -90,7 +90,8 @@ func CommitsBetweenDetail(ctx context.Context, gitDir, baseOID, headOID string, 
 		"%cn", "%ce", "%ct",
 		"%s",
 	}, sep) + sep + "%b" + recordEnd
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := exec.CommandContext(
+		ctx, "git", "-C", gitDir,
 		"log", "--reverse",
 		"--max-count="+strconv.Itoa(max),
 		"--format="+format,
@@ -147,7 +148,8 @@ func parseCommitDetail(out []byte) []CommitDetail {
 // changes from merge-base to head). Status is git's letter code,
 // renames carry the old path as the second column.
 func FilesChangedBetween(ctx context.Context, gitDir, baseOID, headOID string) ([]PRFileChange, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := exec.CommandContext(
+		ctx, "git", "-C", gitDir,
 		"diff", "--name-status", "-M", "-C",
 		baseOID+"..."+headOID,
 	)
@@ -159,7 +161,8 @@ func FilesChangedBetween(ctx context.Context, gitDir, baseOID, headOID string) (
 		}
 		return nil, wrapExecErr(err)
 	}
-	cmd = exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd = exec.CommandContext(
+		ctx, "git", "-C", gitDir,
 		"diff", "--numstat", "-M", "-C",
 		baseOID+"..."+headOID,
 	)
@@ -291,14 +294,16 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 
 	// Identity for the merge commit. `--no-edit` + a baked subject
 	// keeps the merge non-interactive.
-	envBase := append(os.Environ(),
+	envBase := append(
+		os.Environ(),
 		"GIT_AUTHOR_NAME="+opts.AuthorName,
 		"GIT_AUTHOR_EMAIL="+opts.AuthorEmail,
 		"GIT_COMMITTER_NAME="+opts.CommitterName,
 		"GIT_COMMITTER_EMAIL="+opts.CommitterEmail,
 	)
 	if !opts.When.IsZero() {
-		envBase = append(envBase,
+		envBase = append(
+			envBase,
 			"GIT_AUTHOR_DATE="+opts.When.Format(time.RFC3339),
 			"GIT_COMMITTER_DATE="+opts.When.Format(time.RFC3339),
 		)

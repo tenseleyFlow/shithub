@@ -55,9 +55,9 @@ type Deps struct {
 
 // Errors surfaced by the orchestrator.
 var (
-	ErrNotFound        = errors.New("notif: notification not found")
-	ErrUnauthorized    = errors.New("notif: not your notification")
-	ErrUnsubscribeBad  = errors.New("notif: invalid unsubscribe token")
+	ErrNotFound       = errors.New("notif: notification not found")
+	ErrUnauthorized   = errors.New("notif: not your notification")
+	ErrUnsubscribeBad = errors.New("notif: invalid unsubscribe token")
 )
 
 // FanoutBatch is the per-tick cap on how many domain_events the
@@ -70,8 +70,8 @@ const FanoutBatch = 200
 // 10 minutes (the spec's day-1 lean). Per-recipient absolute cap
 // is 100 emails per hour.
 const (
-	StormPerThreadCap   = 1
-	StormPerThreadMins  = 10
-	StormAbsoluteCap    = 100
-	StormAbsoluteMins   = 60
+	StormPerThreadCap  = 1
+	StormPerThreadMins = 10
+	StormAbsoluteCap   = 100
+	StormAbsoluteMins  = 60
 )

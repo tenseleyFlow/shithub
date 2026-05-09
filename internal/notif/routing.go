@@ -13,10 +13,10 @@ const (
 	ReasonMention         Reason = "mention"
 	ReasonAssignment      Reason = "assignment"
 	ReasonReviewRequested Reason = "review_requested"
-	ReasonAuthor          Reason = "author"          // you opened the thread
-	ReasonCommenter       Reason = "commenter"       // you commented earlier
-	ReasonSubscribed      Reason = "subscribed"      // explicit thread sub
-	ReasonWatching        Reason = "watching"        // repo-level watch
+	ReasonAuthor          Reason = "author"     // you opened the thread
+	ReasonCommenter       Reason = "commenter"  // you commented earlier
+	ReasonSubscribed      Reason = "subscribed" // explicit thread sub
+	ReasonWatching        Reason = "watching"   // repo-level watch
 	ReasonRepoAdminAction Reason = "repo_admin_action"
 )
 

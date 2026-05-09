@@ -75,9 +75,9 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (checksdb.CheckRun, 
 	}()
 
 	suite, err := q.GetOrCreateCheckSuite(ctx, tx, checksdb.GetOrCreateCheckSuiteParams{
-		RepoID:   p.RepoID,
-		HeadSha:  p.HeadSHA,
-		AppSlug:  p.AppSlug,
+		RepoID:  p.RepoID,
+		HeadSha: p.HeadSHA,
+		AppSlug: p.AppSlug,
 	})
 	if err != nil {
 		return checksdb.CheckRun{}, fmt.Errorf("suite: %w", err)

@@ -39,10 +39,10 @@ type CreateParams struct {
 // CreateErrors surfaces user-friendly validation failures so handlers
 // can render them in-page.
 var (
-	ErrBadURL          = errors.New("webhook: URL must be http or https with a host")
-	ErrBadContentType  = errors.New("webhook: content_type must be json or form")
-	ErrBadOwnerKind    = errors.New("webhook: owner_kind must be repo or org")
-	ErrBadEvent        = errors.New("webhook: event names must be 1–64 lowercase chars")
+	ErrBadURL         = errors.New("webhook: URL must be http or https with a host")
+	ErrBadContentType = errors.New("webhook: content_type must be json or form")
+	ErrBadOwnerKind   = errors.New("webhook: owner_kind must be repo or org")
+	ErrBadEvent       = errors.New("webhook: event names must be 1–64 lowercase chars")
 )
 
 // Create persists a new webhook + emits a synthetic ping delivery so

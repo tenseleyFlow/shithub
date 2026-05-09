@@ -50,7 +50,8 @@ func CommitsBetween(ctx context.Context, gitDir, base, head string, max int) ([]
 	const sep = "\x1f"
 	const recordEnd = "\x1e"
 	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%at", "%s"}, sep) + sep + "%b" + recordEnd
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := exec.CommandContext(
+		ctx, "git", "-C", gitDir,
 		"log",
 		"--max-count="+strconv.Itoa(max),
 		"--format="+format,

@@ -150,7 +150,8 @@ func (ic InitialCommit) commitTree(ctx context.Context, tree string) (string, er
 	//nolint:gosec // G204: tree is git's stdout (40-char OID); gitDir validated.
 	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "commit-tree", tree, "-m", ic.Message)
 	stamp := ic.When.Format(time.RFC3339)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		"GIT_AUTHOR_NAME="+ic.AuthorName,
 		"GIT_AUTHOR_EMAIL="+ic.AuthorEmail,
 		"GIT_AUTHOR_DATE="+stamp,

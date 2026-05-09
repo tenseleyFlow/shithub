@@ -105,7 +105,8 @@ func emitAssignmentEventTx(
 // which is the safe default for the public-feed flag on the event row.
 func repoVisibilityPublic(ctx context.Context, db pgxRow, repoID int64) (bool, error) {
 	var vis string
-	err := db.QueryRow(ctx,
+	err := db.QueryRow(
+		ctx,
 		`SELECT visibility::text FROM repos WHERE id = $1`,
 		repoID,
 	).Scan(&vis)

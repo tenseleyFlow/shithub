@@ -61,7 +61,8 @@ func Request(ctx context.Context, deps Deps, p RequestParams) (pullsdb.PrReviewR
 	issue, ierr := issuesdb.New().GetIssueByID(ctx, deps.Pool, p.PRIssueID)
 	if ierr == nil {
 		var public bool
-		_ = deps.Pool.QueryRow(ctx,
+		_ = deps.Pool.QueryRow(
+			ctx,
 			`SELECT visibility = 'public' FROM repos WHERE id = $1`,
 			issue.RepoID,
 		).Scan(&public)

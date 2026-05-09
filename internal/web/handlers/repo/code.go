@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/repos/finder"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/highlight"
-	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -44,13 +44,13 @@ func (h *Handlers) MountCode(r chi.Router) {
 // derive once at the top. Owner+repo come from chi; ref+path come from
 // the wildcard, resolved against the repo's ref list.
 type codeContext struct {
-	owner    string
-	row      reposdb.Repo
-	gitDir   string
-	refs     repogit.RefListing
-	allRefs  []string
-	ref      string // matched ref name (or 40-hex sha)
-	subpath  string // path inside the ref, no leading slash
+	owner   string
+	row     reposdb.Repo
+	gitDir  string
+	refs    repogit.RefListing
+	allRefs []string
+	ref     string // matched ref name (or 40-hex sha)
+	subpath string // path inside the ref, no leading slash
 }
 
 // loadCodeContext does the resolve dance for tree/blob/raw/find. On

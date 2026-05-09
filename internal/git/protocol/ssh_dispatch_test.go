@@ -174,7 +174,8 @@ func TestDispatch_PushToArchivedIsArchived(t *testing.T) {
 func TestDispatch_SuspendedUserSuspended(t *testing.T) {
 	t.Parallel()
 	env := setupDispatch(t)
-	if _, err := env.pool.Exec(context.Background(),
+	if _, err := env.pool.Exec(
+		context.Background(),
 		"UPDATE users SET suspended_at = now(), suspended_reason = 'test' WHERE id = $1",
 		env.alice,
 	); err != nil {

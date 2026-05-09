@@ -205,7 +205,8 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	// thread events to them. Non-destructive — no-op if the user
 	// already has an explicit preference.
 	_ = social.AutoWatchOnInvolvement(r.Context(), h.socialDeps(), viewer.ID, row.ID)
-	http.Redirect(w, r,
+	http.Redirect(
+		w, r,
 		"/"+owner.Username+"/"+row.Name+"/issues/"+strconv.FormatInt(created.Number, 10),
 		http.StatusSeeOther,
 	)

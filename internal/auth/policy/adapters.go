@@ -25,4 +25,3 @@ func NewRepoRefFromRepo(r reposdb.Repo) RepoRef {
 	}
 	return ref
 }
-

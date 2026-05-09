@@ -84,7 +84,8 @@ func newTokenServer(t *testing.T) (srv *httptest.Server, cli *client, captor *ca
 			epoch       int32
 			suspendedAt sql.NullTime
 		)
-		err = c.QueryRow(ctx,
+		err = c.QueryRow(
+			ctx,
 			"SELECT username, session_epoch, suspended_at FROM users WHERE id = $1", id,
 		).Scan(&name, &epoch, &suspendedAt)
 		return middleware.UserLookupResult{

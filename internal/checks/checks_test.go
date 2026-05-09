@@ -261,10 +261,10 @@ func TestUpdate_TimestampsRoundTrip(t *testing.T) {
 		RepoID: f.repoID, HeadSHA: strings.Repeat("a", 40), Name: "lint",
 	})
 	if _, err := checks.Update(ctx, f.deps, checks.UpdateParams{
-		RunID:          run.ID,
-		HasStatus:      true, Status: "completed",
-		HasConclusion:  true, Conclusion: "success",
-		HasStartedAt:   true, StartedAt: when,
+		RunID:     run.ID,
+		HasStatus: true, Status: "completed",
+		HasConclusion: true, Conclusion: "success",
+		HasStartedAt: true, StartedAt: when,
 		HasCompletedAt: true, CompletedAt: when.Add(30 * time.Second),
 	}); err != nil {
 		t.Fatalf("Update: %v", err)

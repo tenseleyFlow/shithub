@@ -39,6 +39,7 @@ func (c *captureSender) Send(_ context.Context, m email.Message) error {
 	c.messages = append(c.messages, m)
 	return nil
 }
+
 func (c *captureSender) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -312,10 +313,10 @@ func TestFanout_VisibilityRecheck_PrivateRepo(t *testing.T) {
 func TestUnsubscribe_HMACRoundtrip(t *testing.T) {
 	key := []byte("test-key-32-bytes-aaaaaaaaaaaaaa")
 	const (
-		uid  = int64(123)
-		tk   = "issue"
-		tid  = int64(45)
-		bad  = "issues"
+		uid   = int64(123)
+		tk    = "issue"
+		tid   = int64(45)
+		bad   = "issues"
 		other = int64(46)
 	)
 	// Build by parsing the URL the same path the email-side uses.

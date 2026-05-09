@@ -17,8 +17,8 @@ import (
 // arrive via `git log --format=...`; the per-file stats live on
 // CommitDetail.
 type Commit struct {
-	OID         string    // full 40-char SHA
-	ShortOID    string    // git's --abbrev result, typically 7 chars
+	OID         string // full 40-char SHA
+	ShortOID    string // git's --abbrev result, typically 7 chars
 	AuthorName  string
 	AuthorEmail string
 	AuthorWhen  time.Time
@@ -57,7 +57,8 @@ func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
 	// don't confuse SplitN.
 	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%at", "%s"}, sep) + sep + "%b" + recordEnd
 
-	args := []string{"-C", gitDir, "log",
+	args := []string{
+		"-C", gitDir, "log",
 		"--max-count=" + strconv.Itoa(o.MaxCount),
 		"--skip=" + strconv.Itoa(o.Skip),
 		"--format=" + format,
@@ -134,12 +135,12 @@ type CommitDetail struct {
 // Status is git's letter code: A added, M modified, D deleted, R renamed,
 // C copied, T type-changed.
 type FileChange struct {
-	Status   string
-	Path     string
-	OldPath  string // populated for R/C
-	Insert   int
-	Delete   int
-	Binary   bool
+	Status  string
+	Path    string
+	OldPath string // populated for R/C
+	Insert  int
+	Delete  int
+	Binary  bool
 }
 
 // GetCommit returns the full detail for one SHA. Two commands: one for

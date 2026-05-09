@@ -133,7 +133,8 @@ func TestDanger_PostGracePermanent(t *testing.T) {
 	// be treated as nonexistent. Uses the SAME pool the test server is
 	// reading from — a fresh dbtest.NewTestDB call would clone a brand
 	// new database.
-	if _, err := pool.Exec(context.Background(),
+	if _, err := pool.Exec(
+		context.Background(),
 		"UPDATE users SET deleted_at = $1 WHERE username = 'dangb'",
 		time.Now().Add(-30*24*time.Hour),
 	); err != nil {

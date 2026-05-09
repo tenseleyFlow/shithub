@@ -68,10 +68,10 @@ const (
 
 // Line is one rendered row in a hunk.
 type Line struct {
-	Kind        LineKind
-	OldLineNo   int    // 0 when the line is a pure addition
-	NewLineNo   int    // 0 when the line is a pure deletion
-	Content     string // without the leading +/-/space marker, no trailing newline
+	Kind      LineKind
+	OldLineNo int    // 0 when the line is a pure addition
+	NewLineNo int    // 0 when the line is a pure deletion
+	Content   string // without the leading +/-/space marker, no trailing newline
 }
 
 // Parse consumes a unified diff stream into the typed shape. The

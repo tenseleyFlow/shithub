@@ -119,8 +119,8 @@ func Dismiss(ctx context.Context, deps Deps, actorUserID, reviewID int64, reason
 		return err
 	}
 	return q.DismissPRReview(ctx, deps.Pool, pullsdb.DismissPRReviewParams{
-		ID:                 reviewID,
-		DismissedByUserID:  pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},
-		DismissalReason:    strings.TrimSpace(reason),
+		ID:                reviewID,
+		DismissedByUserID: pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},
+		DismissalReason:   strings.TrimSpace(reason),
 	})
 }

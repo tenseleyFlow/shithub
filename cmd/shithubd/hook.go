@@ -146,13 +146,13 @@ type hookCtx struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
 
-	userID     int64
-	username   string
-	repoID     int64
-	repoFull   string
-	protocol   string
-	remoteIP   string
-	requestID  string
+	userID    int64
+	username  string
+	repoID    int64
+	repoFull  string
+	protocol  string
+	remoteIP  string
+	requestID string
 }
 
 func loadHookCtx(ctx context.Context) (*hookCtx, error) {
@@ -297,13 +297,13 @@ func postReceiveEnqueue(ctx context.Context, h *hookCtx, refs []refUpdate) error
 	}
 	for _, r := range refs {
 		event, err := wq.InsertPushEvent(ctx, tx, workerdb.InsertPushEventParams{
-			RepoID:        h.repoID,
-			BeforeSha:     r.before,
-			AfterSha:      r.after,
-			Ref:           r.ref,
-			Protocol:      protocol,
-			PusherUserID:  pgtype.Int8{Int64: h.userID, Valid: h.userID != 0},
-			RequestID:     pgtype.Text{String: h.requestID, Valid: h.requestID != ""},
+			RepoID:       h.repoID,
+			BeforeSha:    r.before,
+			AfterSha:     r.after,
+			Ref:          r.ref,
+			Protocol:     protocol,
+			PusherUserID: pgtype.Int8{Int64: h.userID, Valid: h.userID != 0},
+			RequestID:    pgtype.Text{String: h.requestID, Valid: h.requestID != ""},
 		})
 		if err != nil {
 			return fmt.Errorf("insert push_event: %w", err)
@@ -381,4 +381,3 @@ func init() {
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(hooksParentCmd)
 }
-

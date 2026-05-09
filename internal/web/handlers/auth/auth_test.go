@@ -149,7 +149,8 @@ func newTestServerWithPool(t *testing.T, requireVerify bool) (*httptest.Server, 
 			epoch       int32
 			suspendedAt sql.NullTime
 		)
-		err = u.QueryRow(ctx,
+		err = u.QueryRow(
+			ctx,
 			"SELECT username, session_epoch, suspended_at FROM users WHERE id = $1", id,
 		).Scan(&name, &epoch, &suspendedAt)
 		return middleware.UserLookupResult{

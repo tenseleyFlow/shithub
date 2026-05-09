@@ -84,7 +84,8 @@ func Restore(ctx context.Context, deps Deps, orgID, actorUserID int64) error {
 	// soft-delete). Refuse to restore if so — the operator can rename
 	// the conflicting principal and retry.
 	var taken bool
-	if err := deps.Pool.QueryRow(ctx,
+	if err := deps.Pool.QueryRow(
+		ctx,
 		`SELECT EXISTS(SELECT 1 FROM principals WHERE slug = $1)`,
 		row.Slug,
 	).Scan(&taken); err != nil {

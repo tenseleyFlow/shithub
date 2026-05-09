@@ -86,7 +86,8 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 	}
 	// Enqueue the on-disk clone. The fork row exists with
 	// init_status='init_pending' so the URL resolves immediately.
-	if _, err := worker.Enqueue(r.Context(), h.d.Pool, worker.KindRepoForkClone,
+	if _, err := worker.Enqueue(
+		r.Context(), h.d.Pool, worker.KindRepoForkClone,
 		map[string]any{"source_repo_id": res.Source.ID, "fork_repo_id": res.Fork.ID},
 		worker.EnqueueOptions{},
 	); err != nil {
@@ -250,4 +251,3 @@ func (h *Handlers) handleForkError(w http.ResponseWriter, r *http.Request, err e
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 	}
 }
-

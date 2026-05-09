@@ -101,22 +101,23 @@ type Mention struct {
 //	#14               user mention: username
 //	#16               commit prefix
 //	#18               emoji name
-var reCombined = regexp.MustCompile(`` +
-	// cross-repo: alice/proj#3 — left boundary required so we don't
-	// chew into a preceding word.
-	`(?:^|[^\w/])([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)#([0-9]{1,9})\b` +
-	// or same-repo: #3
-	`|(?:^|[^\w/])#([0-9]{1,9})\b` +
-	// or team mention: @org/team — comes BEFORE @user so the
-	// trailing `/team` doesn't get split off as text. Slug shape
-	// matches users.username + teams.slug.
-	`|(?:^|[^\w])@([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)/([a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?)\b` +
-	// or user mention: @alice
-	`|(?:^|[^\w])@([A-Za-z0-9][A-Za-z0-9_-]{0,38})\b` +
-	// or commit SHA: 7–40 lowercase hex
-	`|(?:^|[^\w/])([0-9a-f]{7,40})\b` +
-	// or emoji shortcode: :smile:
-	`|:([a-z0-9_+\-]+):`,
+var reCombined = regexp.MustCompile(
+	`` +
+		// cross-repo: alice/proj#3 — left boundary required so we don't
+		// chew into a preceding word.
+		`(?:^|[^\w/])([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)#([0-9]{1,9})\b` +
+		// or same-repo: #3
+		`|(?:^|[^\w/])#([0-9]{1,9})\b` +
+		// or team mention: @org/team — comes BEFORE @user so the
+		// trailing `/team` doesn't get split off as text. Slug shape
+		// matches users.username + teams.slug.
+		`|(?:^|[^\w])@([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)/([a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?)\b` +
+		// or user mention: @alice
+		`|(?:^|[^\w])@([A-Za-z0-9][A-Za-z0-9_-]{0,38})\b` +
+		// or commit SHA: 7–40 lowercase hex
+		`|(?:^|[^\w/])([0-9a-f]{7,40})\b` +
+		// or emoji shortcode: :smile:
+		`|:([a-z0-9_+\-]+):`,
 )
 
 // Extension is a goldmark.Extender that registers the AST transformer.
@@ -181,12 +182,12 @@ func (t *transformer) replaceText(txt *ast.Text, source []byte) {
 		// content starts (excluding the regex-consumed boundary
 		// char, if any).
 		var (
-			isCrossRepo  = m[2] >= 0
-			isSameRepo   = m[8] >= 0
-			isTeamMen    = m[10] >= 0
-			isMention    = m[14] >= 0
-			isCommit     = m[16] >= 0
-			isEmoji      = m[18] >= 0
+			isCrossRepo = m[2] >= 0
+			isSameRepo  = m[8] >= 0
+			isTeamMen   = m[10] >= 0
+			isMention   = m[14] >= 0
+			isCommit    = m[16] >= 0
+			isEmoji     = m[18] >= 0
 		)
 		var contentStart int
 		switch {
@@ -379,4 +380,3 @@ func (t *transformer) appendCommitLink(parent, before ast.Node, shaPrefix string
 	}
 	return true
 }
-

@@ -68,7 +68,8 @@ func (h *Handlers) settingsAvatarUpload(w http.ResponseWriter, r *http.Request) 
 		if v.Size == variants[0].Size {
 			key = largestKey
 		}
-		if _, err := h.d.ObjectStore.Put(r.Context(), key,
+		if _, err := h.d.ObjectStore.Put(
+			r.Context(), key,
 			bytes.NewReader(v.Data),
 			storage.PutOpts{ContentType: "image/png", ContentLength: int64(len(v.Data))},
 		); err != nil {

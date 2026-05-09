@@ -184,7 +184,8 @@ func renderHunksUnified(f *parse.File, opts Options) string {
 		for _, l := range h.Lines {
 			old, neu := lineNoCells(l)
 			content := highlightOrEscape(f.NewPath, l.Content, opts)
-			fmt.Fprintf(&buf,
+			fmt.Fprintf(
+				&buf,
 				`<tr class="%s"><td class="shithub-diff-lineno">%s</td><td class="shithub-diff-lineno">%s</td><td class="shithub-diff-content"><pre>%s%s</pre></td></tr>`,
 				lineClass(l.Kind), old, neu, lineMarker(l.Kind), content,
 			)
@@ -221,7 +222,8 @@ func renderHunksSplit(f *parse.File, opts Options) string {
 				rightNo = numStr(p.right.NewLineNo)
 				rightContent = lineMarker(p.right.Kind) + highlightOrEscape(f.NewPath, p.right.Content, opts)
 			}
-			fmt.Fprintf(&buf,
+			fmt.Fprintf(
+				&buf,
 				`<tr><td class="shithub-diff-lineno %s">%s</td><td class="shithub-diff-content %s"><pre>%s</pre></td><td class="shithub-diff-lineno %s">%s</td><td class="shithub-diff-content %s"><pre>%s</pre></td></tr>`,
 				leftClass, leftNo, leftClass, leftContent,
 				rightClass, rightNo, rightClass, rightContent,

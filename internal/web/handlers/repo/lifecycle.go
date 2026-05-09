@@ -15,8 +15,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
-	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 // MountLifecycle registers the repo settings danger-zone routes plus
@@ -72,8 +72,8 @@ func (h *Handlers) loadRepoAndAuthorize(w http.ResponseWriter, r *http.Request, 
 		return reposdb.Repo{}, usersdb.User{}, false
 	}
 	var (
-		row    reposdb.Repo
-		owner  usersdb.User
+		row   reposdb.Repo
+		owner usersdb.User
 	)
 	switch principal.Kind {
 	case orgs.PrincipalUser:

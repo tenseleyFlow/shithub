@@ -37,7 +37,8 @@ type Options struct {
 // root commit (no parent) we diff against the empty tree by using
 // `git diff-tree -p -r --root`.
 func FromCommit(ctx context.Context, gitDir, sha string, opts Options) ([]byte, error) {
-	args := []string{"-C", gitDir,
+	args := []string{
+		"-C", gitDir,
 		"diff-tree", "-p", "-r", "--root",
 		"--no-color", "--no-ext-diff",
 		"--full-index",
@@ -54,7 +55,8 @@ func FromCommit(ctx context.Context, gitDir, sha string, opts Options) ([]byte, 
 // FromRange returns the two-dot diff base..head. Use for "show me
 // every change between these two refs", regardless of merge graph.
 func FromRange(ctx context.Context, gitDir, base, head string, opts Options) ([]byte, error) {
-	args := []string{"-C", gitDir,
+	args := []string{
+		"-C", gitDir,
 		"diff", "--patch",
 		"--no-color", "--no-ext-diff",
 		"--full-index",
@@ -72,7 +74,8 @@ func FromRange(ctx context.Context, gitDir, base, head string, opts Options) ([]
 // `git diff $(git merge-base base head)..head`. Used by PR / compare
 // pages — shows only what `head` adds over the common ancestor.
 func FromMergeBase(ctx context.Context, gitDir, base, head string, opts Options) ([]byte, error) {
-	args := []string{"-C", gitDir,
+	args := []string{
+		"-C", gitDir,
 		"diff", "--patch",
 		"--no-color", "--no-ext-diff",
 		"--full-index",
