@@ -19,9 +19,11 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	"github.com/tenseleyFlow/shithub/internal/worker/jobs"
 )
@@ -121,6 +123,31 @@ var workerCmd = &cobra.Command{
 			BaseURL:        cfg.Auth.BaseURL,
 			UnsubscribeKey: notifUnsubscribeKey(cfg, logger),
 		}))
+
+		// Webhook delivery (S33). The fan-out drains domain_events
+		// past its own cursor; deliver runs per-row HTTP POSTs;
+		// purge-old prunes terminal rows past the retention window.
+		// We reuse the TOTP key as the at-rest secretbox key — both
+		// are encrypted-blob columns in the same trust domain.
+		hookBox, hookBoxErr := secretbox.FromBase64(cfg.Auth.TOTPKeyB64)
+		if hookBoxErr != nil {
+			logger.Warn("webhook: secretbox unavailable; webhook delivery disabled",
+				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
+				"error", hookBoxErr)
+		} else {
+			p.Register(webhook.KindWebhookFanout, jobs.WebhookFanout(jobs.WebhookFanoutDeps{
+				Pool: pool, Logger: logger,
+			}))
+			p.Register(webhook.KindWebhookDeliver, jobs.WebhookDeliver(jobs.WebhookDeliverDeps{
+				Pool:      pool,
+				Logger:    logger,
+				SecretBox: hookBox,
+				SSRF:      webhook.DefaultSSRFConfig(),
+			}))
+			p.Register(webhook.KindWebhookPurgeOld, jobs.WebhookPurgeOld(jobs.WebhookPurgeOldDeps{
+				Pool: pool, Logger: logger, Retention: 30 * 24 * time.Hour,
+			}))
+		}
 
 		return p.Run(ctx)
 	},
