@@ -1,0 +1,100 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Edit webhook</h1>
+    <p><a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks">← All webhooks</a></p>
+
+    <section class="shithub-settings-section">
+      <h2>Configuration</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Payload URL</span>
+          <input type="text" name="url" required maxlength="2048" value="{{ .Webhook.Url }}">
+        </label>
+        <label>
+          <span>Content type</span>
+          <select name="content_type">
+            <option value="json" {{ if eq (printf "%s" .Webhook.ContentType) "json" }}selected{{ end }}>application/json</option>
+            <option value="form" {{ if eq (printf "%s" .Webhook.ContentType) "form" }}selected{{ end }}>application/x-www-form-urlencoded</option>
+          </select>
+        </label>
+        <label>
+          <span>New secret (leave blank to keep current)</span>
+          <input type="text" name="new_secret" maxlength="200">
+        </label>
+        <label>
+          <span>Events (comma-separated; blank = all)</span>
+          <input type="text" name="events" value="{{ .EventsCSV }}">
+        </label>
+        <fieldset class="shithub-settings-fieldset">
+          <legend>Options</legend>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="active" {{ if .Webhook.Active }}checked{{ end }}>
+            <span>Active</span>
+          </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="ssl_verification" {{ if .Webhook.SslVerification }}checked{{ end }}>
+            <span>Verify SSL</span>
+          </label>
+        </fieldset>
+        <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Test + lifecycle</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}/ping" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Send ping</button>
+      </form>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}/toggle" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">{{ if .Webhook.Active }}Disable{{ else }}Enable{{ end }}</button>
+      </form>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}/delete" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-danger" onclick="return confirm('Delete this webhook?')">Delete</button>
+      </form>
+      {{ if .Webhook.DisabledAt.Valid }}
+      <p class="shithub-hint">Auto-disabled {{ relativeTime .Webhook.DisabledAt.Time }}: {{ .Webhook.DisabledReason.String }}</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Recent deliveries</h2>
+      {{ if .Deliveries }}
+      <table class="shithub-branches-table">
+        <thead>
+          <tr><th></th><th>Event</th><th>Status</th><th>Started</th><th></th></tr>
+        </thead>
+        <tbody>
+          {{ range .Deliveries }}
+          <tr>
+            <td>
+              {{ if eq (printf "%s" .Status) "succeeded" }}✓
+              {{ else if eq (printf "%s" .Status) "failed_permanent" }}✗
+              {{ else if eq (printf "%s" .Status) "failed_retry" }}…
+              {{ else }}·{{ end }}
+            </td>
+            <td><code>{{ .EventKind }}</code></td>
+            <td>
+              {{ if .ResponseStatus.Valid }}HTTP {{ .ResponseStatus.Int32 }}{{ else }}{{ .Status }}{{ end }}
+              {{ if .RedeliverOf.Valid }}<span class="shithub-fg-muted">(redelivery)</span>{{ end }}
+            </td>
+            <td>{{ relativeTime .StartedAt.Time }}</td>
+            <td>
+              <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/webhooks/{{ $.Webhook.ID }}/deliveries/{{ .ID }}">View</a>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No deliveries yet.</p>
+      {{ end }}
+    </section>
+  </div>
+</div>
+{{- end }}
