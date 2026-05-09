@@ -1093,6 +1093,134 @@ func (ns NullWatchLevel) Value() (driver.Value, error) {
 	return string(ns.WatchLevel), nil
 }
 
+type WebhookContentType string
+
+const (
+	WebhookContentTypeJson WebhookContentType = "json"
+	WebhookContentTypeForm WebhookContentType = "form"
+)
+
+func (e *WebhookContentType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WebhookContentType(s)
+	case string:
+		*e = WebhookContentType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WebhookContentType: %T", src)
+	}
+	return nil
+}
+
+type NullWebhookContentType struct {
+	WebhookContentType WebhookContentType
+	Valid              bool // Valid is true if WebhookContentType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWebhookContentType) Scan(value interface{}) error {
+	if value == nil {
+		ns.WebhookContentType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WebhookContentType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWebhookContentType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WebhookContentType), nil
+}
+
+type WebhookDeliveryStatus string
+
+const (
+	WebhookDeliveryStatusPending         WebhookDeliveryStatus = "pending"
+	WebhookDeliveryStatusSucceeded       WebhookDeliveryStatus = "succeeded"
+	WebhookDeliveryStatusFailedRetry     WebhookDeliveryStatus = "failed_retry"
+	WebhookDeliveryStatusFailedPermanent WebhookDeliveryStatus = "failed_permanent"
+)
+
+func (e *WebhookDeliveryStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WebhookDeliveryStatus(s)
+	case string:
+		*e = WebhookDeliveryStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WebhookDeliveryStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWebhookDeliveryStatus struct {
+	WebhookDeliveryStatus WebhookDeliveryStatus
+	Valid                 bool // Valid is true if WebhookDeliveryStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWebhookDeliveryStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WebhookDeliveryStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WebhookDeliveryStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWebhookDeliveryStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WebhookDeliveryStatus), nil
+}
+
+type WebhookOwnerKind string
+
+const (
+	WebhookOwnerKindRepo WebhookOwnerKind = "repo"
+	WebhookOwnerKindOrg  WebhookOwnerKind = "org"
+)
+
+func (e *WebhookOwnerKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WebhookOwnerKind(s)
+	case string:
+		*e = WebhookOwnerKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WebhookOwnerKind: %T", src)
+	}
+	return nil
+}
+
+type NullWebhookOwnerKind struct {
+	WebhookOwnerKind WebhookOwnerKind
+	Valid            bool // Valid is true if WebhookOwnerKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWebhookOwnerKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.WebhookOwnerKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WebhookOwnerKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWebhookOwnerKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WebhookOwnerKind), nil
+}
+
 type AuthAuditLog struct {
 	ID         int64
 	ActorID    pgtype.Int8
@@ -1732,6 +1860,52 @@ type Watch struct {
 	RepoID    int64
 	Level     WatchLevel
 	UpdatedAt pgtype.Timestamptz
+}
+
+type Webhook struct {
+	ID                   int64
+	OwnerKind            WebhookOwnerKind
+	OwnerID              int64
+	Url                  string
+	ContentType          WebhookContentType
+	Events               []string
+	SecretCiphertext     []byte
+	SecretNonce          []byte
+	Active               bool
+	SslVerification      bool
+	ConsecutiveFailures  int32
+	AutoDisableThreshold int32
+	DisabledAt           pgtype.Timestamptz
+	DisabledReason       pgtype.Text
+	LastSuccessAt        pgtype.Timestamptz
+	LastFailureAt        pgtype.Timestamptz
+	CreatedByUserID      pgtype.Int8
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type WebhookDelivery struct {
+	ID                int64
+	WebhookID         int64
+	EventKind         string
+	EventID           pgtype.Int8
+	DeliveryUuid      pgtype.UUID
+	Payload           []byte
+	RequestHeaders    []byte
+	RequestBody       []byte
+	ResponseStatus    pgtype.Int4
+	ResponseHeaders   []byte
+	ResponseBody      []byte
+	ResponseTruncated bool
+	StartedAt         pgtype.Timestamptz
+	CompletedAt       pgtype.Timestamptz
+	Attempt           int32
+	MaxAttempts       int32
+	NextRetryAt       pgtype.Timestamptz
+	Status            WebhookDeliveryStatus
+	IdempotencyKey    string
+	ErrorSummary      pgtype.Text
+	RedeliverOf       pgtype.Int8
 }
 
 type WebhookEventsPending struct {
