@@ -119,7 +119,7 @@ func TestParse_Empty(t *testing.T) {
 
 func TestParse_MultipleFiles(t *testing.T) {
 	t.Parallel()
-	patch := samplePatch + "\n" + strings.Replace(samplePatch, "hello.txt", "world.txt", -1)
+	patch := samplePatch + "\n" + strings.ReplaceAll(samplePatch, "hello.txt", "world.txt")
 	d, err := parse.ParseBytes([]byte(patch))
 	if err != nil {
 		t.Fatalf("ParseBytes: %v", err)
