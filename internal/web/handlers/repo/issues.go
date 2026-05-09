@@ -3,10 +3,13 @@
 package repo
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -266,38 +269,57 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
 
-	// Resolve usernames for comment authors.
-	type commentRow struct {
-		C          issuesdb.IssueComment
-		AuthorName string
-	}
-	cs := make([]commentRow, 0, len(comments))
-	for _, c := range comments {
-		cr := commentRow{C: c}
-		if c.AuthorUserID.Valid {
-			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, c.AuthorUserID.Int64); err == nil {
-				cr.AuthorName = u.Username
-			}
+	usernames := map[int64]string{}
+	usernameFor := func(id int64) string {
+		if id == 0 {
+			return ""
 		}
-		cs = append(cs, cr)
+		if name, ok := usernames[id]; ok {
+			return name
+		}
+		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, id); err == nil {
+			usernames[id] = u.Username
+			return u.Username
+		}
+		return ""
 	}
-	// Author username on the issue itself.
+
 	authorName := ""
 	if issue.AuthorUserID.Valid {
-		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, issue.AuthorUserID.Int64); err == nil {
-			authorName = u.Username
-		}
+		authorName = usernameFor(issue.AuthorUserID.Int64)
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
 	pdeps := policy.Deps{Pool: h.d.Pool}
 	repoRef := policy.NewRepoRefFromRepo(row)
-	stateRef := repoRef
-	if issue.AuthorUserID.Valid {
-		stateRef.AuthorUserID = issue.AuthorUserID.Int64
-	}
+	stateRef := issueStateRepoRef(row, issue)
 	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
 	canCommentThroughLock := policy.HasRoleAtLeast(r.Context(), pdeps, actor, repoRef, policy.RoleTriage)
+	canSetIssueState := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, stateRef).Allow
+	timeline := h.issueTimelineRows(comments, events, allLabels, milestones, usernameFor)
+	viewerAssigned := false
+	participants := map[string]struct{}{}
+	if authorName != "" {
+		participants[authorName] = struct{}{}
+	}
+	for _, c := range comments {
+		if c.AuthorUserID.Valid {
+			if name := usernameFor(c.AuthorUserID.Int64); name != "" {
+				participants[name] = struct{}{}
+			}
+		}
+	}
+	for _, a := range assignees {
+		participants[a.Username] = struct{}{}
+		if a.UserID == viewer.ID {
+			viewerAssigned = true
+		}
+	}
+	participantNames := make([]string, 0, len(participants))
+	for name := range participants {
+		participantNames = append(participantNames, name)
+	}
+	sort.Strings(participantNames)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_view", map[string]any{
@@ -306,20 +328,171 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"Repo":                  row,
 		"Issue":                 issue,
 		"AuthorName":            authorName,
-		"Comments":              cs,
-		"Events":                events,
+		"CommentCount":          len(comments),
+		"Timeline":              timeline,
 		"Labels":                labels,
 		"Assignees":             assignees,
+		"Participants":          participantNames,
+		"ViewerAssigned":        viewerAssigned,
 		"AllLabels":             allLabels,
 		"Milestones":            milestones,
 		"CanComment":            canCommentAction && (!issue.Locked || canCommentThroughLock),
-		"CanSetIssueState":      policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, stateRef).Allow,
+		"CanSetIssueState":      canSetIssueState,
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
 		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
 		"CSRFToken":             middleware.CSRFTokenForRequest(r),
 	})
+}
+
+type issueTimelineRow struct {
+	Type        string
+	C           issuesdb.IssueComment
+	E           issuesdb.IssueEvent
+	CreatedAt   time.Time
+	AuthorName  string
+	ActorName   string
+	Message     string
+	LabelName   string
+	LabelColor  string
+	CommentID   int64
+	LinkedState bool
+}
+
+func (h *Handlers) issueTimelineRows(
+	comments []issuesdb.IssueComment,
+	events []issuesdb.IssueEvent,
+	labels []issuesdb.Label,
+	milestones []issuesdb.Milestone,
+	usernameFor func(int64) string,
+) []issueTimelineRow {
+	labelByID := map[int64]issuesdb.Label{}
+	for _, l := range labels {
+		labelByID[l.ID] = l
+	}
+	milestoneByID := map[int64]issuesdb.Milestone{}
+	for _, m := range milestones {
+		milestoneByID[m.ID] = m
+	}
+	rows := make([]issueTimelineRow, 0, len(comments)+len(events))
+	for _, c := range comments {
+		row := issueTimelineRow{Type: "comment", C: c, CreatedAt: c.CreatedAt.Time}
+		if c.AuthorUserID.Valid {
+			row.AuthorName = usernameFor(c.AuthorUserID.Int64)
+		}
+		rows = append(rows, row)
+	}
+	for _, e := range events {
+		row := issueTimelineRow{
+			Type:      "event",
+			E:         e,
+			CreatedAt: e.CreatedAt.Time,
+			Message:   issueEventMessage(e.Kind),
+		}
+		if e.ActorUserID.Valid {
+			row.ActorName = usernameFor(e.ActorUserID.Int64)
+		}
+		meta := issueEventMeta(e.Meta)
+		if id := metaInt64(meta, "comment_id"); id != 0 {
+			row.CommentID = id
+			row.LinkedState = e.Kind == "closed" || e.Kind == "reopened"
+		}
+		if id := metaInt64(meta, "label_id"); id != 0 {
+			if l, ok := labelByID[id]; ok {
+				row.LabelName = l.Name
+				row.LabelColor = l.Color
+			}
+		}
+		if id := metaInt64(meta, "milestone_id"); id != 0 {
+			if m, ok := milestoneByID[id]; ok {
+				switch e.Kind {
+				case "milestoned":
+					row.Message = "added this to the " + m.Title + " milestone"
+				case "demilestoned":
+					row.Message = "removed this from the " + m.Title + " milestone"
+				}
+			}
+		}
+		if id := metaInt64(meta, "user_id"); id != 0 {
+			if name := usernameFor(id); name != "" {
+				switch e.Kind {
+				case "assigned":
+					row.Message = "assigned " + name
+				case "unassigned":
+					row.Message = "unassigned " + name
+				}
+			}
+		}
+		rows = append(rows, row)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
+	})
+	return rows
+}
+
+func issueEventMeta(raw []byte) map[string]any {
+	var out map[string]any
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func metaInt64(meta map[string]any, key string) int64 {
+	if meta == nil {
+		return 0
+	}
+	switch v := meta[key].(type) {
+	case float64:
+		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func issueEventMessage(kind string) string {
+	switch kind {
+	case "closed":
+		return "closed this issue"
+	case "reopened":
+		return "reopened this issue"
+	case "locked":
+		return "locked this conversation"
+	case "unlocked":
+		return "unlocked this conversation"
+	case "labeled":
+		return "added a label"
+	case "unlabeled":
+		return "removed a label"
+	case "milestoned":
+		return "added this to a milestone"
+	case "demilestoned":
+		return "removed this from a milestone"
+	case "assigned":
+		return "assigned a user"
+	case "unassigned":
+		return "unassigned a user"
+	case "referenced":
+		return "referenced this issue"
+	default:
+		return kind
+	}
+}
+
+func issueStateRepoRef(row reposdb.Repo, issue issuesdb.Issue) policy.RepoRef {
+	ref := policy.NewRepoRefFromRepo(row)
+	if issue.AuthorUserID.Valid {
+		ref.AuthorUserID = issue.AuthorUserID.Int64
+	}
+	return ref
 }
 
 func (h *Handlers) loadIssueByNumber(w http.ResponseWriter, r *http.Request, repo reposdb.Repo) (issuesdb.Issue, bool) {
@@ -357,7 +530,9 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	body := r.PostFormValue("body")
+	body := strings.TrimSpace(r.PostFormValue("body"))
+	state := strings.TrimSpace(r.PostFormValue("state"))
+	reason := strings.TrimSpace(r.PostFormValue("reason"))
 
 	// IsCollab is the locked-issue bypass: triage+ on the repo can comment
 	// past a `locked=true` flag (the gate exists to silence drive-by
@@ -367,15 +542,39 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
 	isCollab := policy.HasRoleAtLeast(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.NewRepoRefFromRepo(row), policy.RoleTriage)
 
-	_, err := issues.AddComment(r.Context(), h.issuesDeps(), issues.CommentCreateParams{
-		IssueID:      issue.ID,
-		AuthorUserID: viewer.ID,
-		Body:         body,
-		IsCollab:     isCollab,
-	})
-	if err != nil {
-		h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
+	var commentID int64
+	if body != "" {
+		c, err := issues.AddComment(r.Context(), h.issuesDeps(), issues.CommentCreateParams{
+			IssueID:      issue.ID,
+			AuthorUserID: viewer.ID,
+			Body:         body,
+			IsCollab:     isCollab,
+		})
+		if err != nil {
+			h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
+			return
+		}
+		commentID = c.ID
+	} else if state == "" {
+		h.handleIssueWriteError(w, r, owner.Username, row, issue, issues.ErrEmptyComment)
 		return
+	}
+	if state != "" {
+		stateRef := issueStateRepoRef(row, issue)
+		if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueClose, stateRef); !dec.Allow {
+			h.d.Render.HTTPError(w, r, policy.Maybe404(dec, stateRef, actor), "")
+			return
+		}
+		var err error
+		if commentID != 0 {
+			err = issues.SetStateWithComment(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason, commentID)
+		} else {
+			err = issues.SetState(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason)
+		}
+		if err != nil {
+			h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
+			return
+		}
 	}
 	// Auto-watch on first involvement (S26).
 	_ = social.AutoWatchOnInvolvement(r.Context(), h.socialDeps(), viewer.ID, row.ID)
@@ -398,12 +597,9 @@ func (h *Handlers) issueSetState(w http.ResponseWriter, r *http.Request) {
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
-	repoRef := policy.NewRepoRefFromRepo(row)
-	if issue.AuthorUserID.Valid {
-		repoRef.AuthorUserID = issue.AuthorUserID.Int64
-	}
-	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueClose, repoRef); !dec.Allow {
-		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
+	stateRef := issueStateRepoRef(row, issue)
+	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueClose, stateRef); !dec.Allow {
+		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, stateRef, actor), "")
 		return
 	}
 	state := strings.TrimSpace(r.PostFormValue("state"))
@@ -519,6 +715,8 @@ func (h *Handlers) handleIssueWriteError(w http.ResponseWriter, r *http.Request,
 		h.d.Render.HTTPError(w, r, http.StatusLocked, "issue is locked")
 	case errors.Is(err, issues.ErrCommentRateLimit):
 		h.d.Render.HTTPError(w, r, http.StatusTooManyRequests, "rate limit")
+	case errors.Is(err, issues.ErrEmptyComment):
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "comment body required")
 	case errors.Is(err, issues.ErrCommentTooLong):
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "comment too long")
 	default:

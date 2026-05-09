@@ -1394,10 +1394,13 @@ code {
 .shithub-issues-assignees { font-size: 0.85rem; }
 .shithub-issues-empty { color: var(--fg-muted); padding: 2rem; text-align: center; border: 1px dashed var(--border-default); border-radius: 6px; }
 .shithub-issue-num { color: var(--fg-muted); font-weight: 400; margin-left: 0.5rem; }
-.shithub-issue-title { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
-.shithub-issue-meta { color: var(--fg-muted); margin: 0.5rem 0 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-.shithub-issue-grid { display: grid; grid-template-columns: 1fr 16rem; gap: 1.5rem; }
-@media (max-width: 768px) { .shithub-issue-grid { grid-template-columns: 1fr; } }
+.shithub-issue-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border-default); padding-bottom: 0.75rem; }
+.shithub-issue-title { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin: 0; }
+.shithub-issue-head-actions { display: flex; gap: 0.5rem; flex: 0 0 auto; }
+.shithub-issue-meta { color: var(--fg-muted); margin: 0.75rem 0 1.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.shithub-issue-meta .shithub-pill, .shithub-comment-form .shithub-button, .shithub-sidebar-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; }
+.shithub-issue-grid { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 1.5rem; }
+@media (max-width: 900px) { .shithub-issue-grid { grid-template-columns: 1fr; } }
 .shithub-comment {
   border: 1px solid var(--border-default);
   border-radius: 6px;
@@ -1412,8 +1415,42 @@ code {
   color: var(--fg-muted);
 }
 .shithub-comment-body { padding: 0.75rem; }
-.shithub-event { color: var(--fg-muted); font-size: 0.85rem; padding: 0.4rem 0.75rem; border-left: 2px solid var(--border-default); margin-left: 0.75rem; }
-.shithub-event-kind { text-transform: lowercase; }
+.shithub-event {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  margin: 0 0 1rem 1.2rem;
+  position: relative;
+}
+.shithub-event::before {
+  content: "";
+  position: absolute;
+  top: -1rem;
+  bottom: -1rem;
+  left: 0.6rem;
+  border-left: 2px solid var(--border-default);
+  z-index: 0;
+}
+.shithub-event-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--canvas-default);
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+.shithub-event-icon svg { width: 0.8rem; height: 0.8rem; }
+.shithub-event-linked .shithub-event-icon { color: var(--fg-muted); }
+.shithub-event a { font-weight: 600; }
 .shithub-comment-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
 .shithub-comment-form textarea, .shithub-issue-form textarea, .shithub-issue-form input[type=text] {
   font: inherit; padding: 0.5rem; border: 1px solid var(--border-default); border-radius: 6px; width: 100%;
@@ -1423,8 +1460,60 @@ code {
 .shithub-form-row { display: flex; flex-direction: column; gap: 0.25rem; }
 .shithub-form-row span { font-weight: 600; font-size: 0.9rem; }
 .shithub-form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.shithub-issue-sidebar section { padding: 0.75rem 0; border-bottom: 1px solid var(--border-default); }
-.shithub-issue-sidebar h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted); margin: 0 0 0.5rem; }
+.shithub-form-actions-start { justify-content: flex-start; }
+.shithub-issue-sidebar section { padding: 0.75rem 0; border-bottom: 1px solid var(--border-default); position: relative; }
+.shithub-sidebar-heading { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem; }
+.shithub-issue-sidebar h3 { font-size: 0.85rem; color: var(--fg-muted); margin: 0; }
+.shithub-sidebar-icon, .shithub-sidebar-editor > summary {
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+.shithub-sidebar-editor > summary { list-style: none; }
+.shithub-sidebar-editor > summary::-webkit-details-marker { display: none; }
+.shithub-popover {
+  position: absolute;
+  right: 0;
+  top: 2rem;
+  z-index: 20;
+  min-width: 17rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+}
+.shithub-popover input[type=text], .shithub-popover select {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+}
+.shithub-inline-form { display: inline; }
+.shithub-link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-emphasis, #0969da);
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.shithub-sidebar-button { width: 100%; }
+.shithub-participant { display: inline-block; margin: 0 0.35rem 0.35rem 0; }
+.shithub-issue-actions form { margin: 0.25rem 0; }
 .shithub-issue-signedout { color: var(--fg-muted); padding: 1rem; text-align: center; border: 1px dashed var(--border-default); border-radius: 6px; }
 .shithub-label {
   display: inline-block;
