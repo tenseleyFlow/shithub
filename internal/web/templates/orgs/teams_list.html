@@ -1,0 +1,47 @@
+{{ define "page" -}}
+<section class="shithub-org-teams">
+  <header class="shithub-org-profile-head">
+    <h1>{{ .Org.DisplayName }} · Teams</h1>
+    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+  </header>
+
+  {{ if .IsOwner }}
+  <section class="shithub-org-invite">
+    <h2>New team</h2>
+    <form method="POST" action="/{{ .Org.Slug }}/teams">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label><span>Slug</span><input type="text" name="slug" required pattern="[a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?"></label>
+      <label><span>Display name</span><input type="text" name="display_name"></label>
+      <label><span>Description</span><input type="text" name="description"></label>
+      <label><span>Privacy</span>
+        <select name="privacy">
+          <option value="visible">Visible</option>
+          <option value="secret">Secret</option>
+        </select>
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Create team</button>
+    </form>
+  </section>
+  {{ end }}
+
+  <section class="shithub-org-members">
+    <h2>Teams ({{ len .Teams }})</h2>
+    {{ if .Teams }}
+    <ul class="shithub-repo-list">
+      {{ range .Teams }}
+      <li class="shithub-repo-list-row">
+        <h3 class="shithub-repo-list-name">
+          <a href="/{{ $.Org.Slug }}/teams/{{ .Slug }}">{{ .Slug }}</a>
+          {{ if eq (printf "%s" .Privacy) "secret" }}<span class="shithub-pill shithub-pill-private">secret</span>{{ end }}
+          {{ if .ParentTeamID.Valid }}<small class="shithub-meta">child team</small>{{ end }}
+        </h3>
+        {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <p class="shithub-empty">No teams yet.</p>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

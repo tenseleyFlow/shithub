@@ -82,6 +82,7 @@ func (h *Handlers) MountOrgRoutes(r chi.Router) {
 	r.Post("/{org}/people/invite", h.invite)
 	r.Post("/{org}/people/{userID}/role", h.changeRole)
 	r.Post("/{org}/people/{userID}/remove", h.removeMember)
+	h.MountTeams(r)
 }
 
 // MountInvitations registers /invitations/{token}* — accept/decline.

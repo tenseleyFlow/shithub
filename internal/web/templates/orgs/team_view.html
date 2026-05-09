@@ -1,0 +1,102 @@
+{{ define "page" -}}
+<section class="shithub-org-team">
+  <header class="shithub-org-profile-head">
+    <h1>{{ .Org.DisplayName }} / {{ .Team.Slug }}</h1>
+    <p class="shithub-meta">
+      <a href="/{{ .Org.Slug }}/teams">← teams</a>
+      {{ if eq (printf "%s" .Team.Privacy) "secret" }}<span class="shithub-pill shithub-pill-private">secret</span>{{ end }}
+    </p>
+    {{ if .Team.Description }}<p>{{ .Team.Description }}</p>{{ end }}
+  </header>
+
+  {{ if .IsOwner }}
+  <section class="shithub-org-invite">
+    <h2>Add member</h2>
+    <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/members">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label><span>Username</span><input type="text" name="username" required></label>
+      <label><span>Role</span>
+        <select name="role">
+          <option value="member" selected>Member</option>
+          <option value="maintainer">Maintainer</option>
+        </select>
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Add</button>
+    </form>
+
+    <h2>Grant repo access</h2>
+    <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/repos">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label><span>Repo ID</span><input type="number" name="repo_id" required min="1"></label>
+      <label><span>Role</span>
+        <select name="role">
+          <option value="read">Read</option>
+          <option value="triage">Triage</option>
+          <option value="write" selected>Write</option>
+          <option value="maintain">Maintain</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Grant</button>
+    </form>
+  </section>
+  {{ end }}
+
+  <section class="shithub-org-members">
+    <h2>Members ({{ len .Members }})</h2>
+    <table class="shithub-table">
+      <thead><tr><th>User</th><th>Team role</th><th>Joined</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
+      <tbody>
+        {{ range .Members }}
+        <tr>
+          <td><a href="/{{ .Username }}">@{{ .Username }}</a></td>
+          <td>{{ .Role }}</td>
+          <td>{{ relativeTime .AddedAt.Time }}</td>
+          {{ if $.IsOwner }}
+          <td>
+            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/members" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <input type="hidden" name="username" value="{{ .Username }}">
+              <input type="hidden" name="action" value="remove">
+              <button type="submit" class="shithub-button">Remove</button>
+            </form>
+          </td>
+          {{ end }}
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="shithub-org-members">
+    <h2>Repo access ({{ len .Repos }})</h2>
+    {{ if .Repos }}
+    <table class="shithub-table">
+      <thead><tr><th>Repo</th><th>Role</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
+      <tbody>
+        {{ range .Repos }}
+        <tr>
+          <td><a href="/{{ $.Org.Slug }}/{{ .RepoName }}">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+            {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
+          </td>
+          <td>{{ .Role }}</td>
+          {{ if $.IsOwner }}
+          <td>
+            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/repos" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <input type="hidden" name="repo_id" value="{{ .RepoID }}">
+              <input type="hidden" name="action" value="remove">
+              <button type="submit" class="shithub-button">Revoke</button>
+            </form>
+          </td>
+          {{ end }}
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty">No repos granted to this team.</p>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

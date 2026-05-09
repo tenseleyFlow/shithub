@@ -6,6 +6,7 @@
     {{ if .Org.Description }}<p>{{ .Org.Description }}</p>{{ end }}
     <nav class="shithub-org-tabs">
       <a href="/{{ .Org.Slug }}/people">People ({{ .MemberCount }})</a>
+      <a href="/{{ .Org.Slug }}/teams">Teams</a>
       {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile">Settings</a>{{ end }}
     </nav>
   </header>
