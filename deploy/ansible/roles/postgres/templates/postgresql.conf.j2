@@ -1,0 +1,36 @@
+# Managed by Ansible — edits here are overwritten on next deploy.
+# Tunes for shithub's MVP single-droplet workload.
+
+listen_addresses = 'localhost'        # over WG only; no public Postgres
+port = 5432
+max_connections = 100
+shared_buffers = 512MB                # ~25% of 2GB droplet RAM
+effective_cache_size = 1500MB         # rough working set hint
+maintenance_work_mem = 64MB
+work_mem = 8MB
+wal_level = replica                   # required for WAL archiving (S37)
+archive_mode = on
+archive_command = '/usr/local/bin/shithub-pg-archive %p %f'
+archive_timeout = 60                  # at least one segment per minute
+checkpoint_completion_target = 0.9
+
+# pg_stat_statements (S36 perf-pass requirement; S37 deploy installs).
+shared_preload_libraries = 'pg_stat_statements'
+pg_stat_statements.max = 5000
+pg_stat_statements.track = all
+
+# Logging — minimal noise, slow-query attention.
+log_destination = 'stderr'
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%a.log'
+log_rotation_age = 1d
+log_rotation_size = 0
+log_min_duration_statement = 500       # log queries slower than 500ms
+log_line_prefix = '%t [%p]: db=%d,user=%u,app=%a '
+log_lock_waits = on
+log_temp_files = 0
+
+# Autovacuum — defaults are fine for our row volume; document here so
+# the next operator knows we considered it.
+autovacuum = on

@@ -1,0 +1,150 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Postgres 16 self-hosted, data dir on the block volume. Tunes for
+# WAL archiving + pg_stat_statements (S36 perf, S37 backups). The
+# `shithub_hook` role is provisioned with the minimum-needed grants
+# (S14 deferral, S37 amendment).
+
+- name: Postgres — install pg16 + contrib (pg_stat_statements lives in contrib)
+  apt:
+    name:
+      - postgresql-16
+      - postgresql-contrib-16
+      - postgresql-client-16
+    state: present
+    update_cache: yes
+
+- name: Stop postgres before relocating data dir
+  systemd: { name: postgresql, state: stopped }
+
+- name: pgdata — create on block volume
+  file:
+    path: "{{ shithub_data_root }}/pgdata"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: pgdata — initdb on block volume if empty
+  shell: |
+    if [ ! -f "{{ shithub_data_root }}/pgdata/PG_VERSION" ]; then
+      sudo -u postgres /usr/lib/postgresql/16/bin/initdb \
+        -D "{{ shithub_data_root }}/pgdata"
+    fi
+  args:
+    creates: "{{ shithub_data_root }}/pgdata/PG_VERSION"
+
+- name: postgresql.conf — render
+  template:
+    src: postgresql.conf.j2
+    dest: "{{ shithub_data_root }}/pgdata/postgresql.conf"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  notify: restart postgres
+
+- name: pg_hba.conf — render
+  template:
+    src: pg_hba.conf.j2
+    dest: "{{ shithub_data_root }}/pgdata/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  notify: restart postgres
+
+- name: archive_command — install
+  copy:
+    src: "{{ playbook_dir }}/../postgres/archive_command.sh"
+    dest: /usr/local/bin/shithub-pg-archive
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: systemd unit override — pin DATA_DIR to block volume
+  copy:
+    dest: /etc/systemd/system/postgresql@16-main.service.d/datadir.conf
+    content: |
+      [Service]
+      Environment=PGDATA={{ shithub_data_root }}/pgdata
+    mode: "0644"
+  notify:
+    - daemon-reload
+    - restart postgres
+
+- name: Start + enable postgres
+  systemd: { name: postgresql, state: started, enabled: yes }
+
+- name: Roles — create shithub app role
+  community.postgresql.postgresql_user:
+    name: shithub
+    password: "{{ shithub_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+  become_user: postgres
+
+- name: Roles — create shithub_hook (minimum-needed grants — S14 deferral)
+  community.postgresql.postgresql_user:
+    name: shithub_hook
+    password: "{{ shithub_hook_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+  become_user: postgres
+
+- name: Database — create shithub
+  community.postgresql.postgresql_db:
+    name: shithub
+    owner: shithub
+    encoding: UTF8
+    state: present
+  become_user: postgres
+
+- name: Extensions — pg_stat_statements + citext
+  community.postgresql.postgresql_ext:
+    name: "{{ item }}"
+    db: shithub
+  loop:
+    - pg_stat_statements
+    - citext
+  become_user: postgres
+
+# Hook-role grant recipe: matches what cmd/shithubd/hook.go writes
+# (push_events, jobs, domain_events, audit) and reads (users, repos,
+# repo_collaborators). Update this BOTH HERE AND in the audit
+# checklist if hook.go grows new touched tables.
+- name: Hook role — grant exact write surface
+  community.postgresql.postgresql_privs:
+    db: shithub
+    role: shithub_hook
+    type: table
+    objs: "push_events,jobs,domain_events,auth_audit_log"
+    privs: INSERT
+  become_user: postgres
+
+- name: Hook role — grant exact read surface
+  community.postgresql.postgresql_privs:
+    db: shithub
+    role: shithub_hook
+    type: table
+    objs: "users,repos,repo_collaborators,branch_protection_rules"
+    privs: SELECT
+  become_user: postgres
+
+- name: Hook role — grant USAGE on schema (otherwise grants are inaccessible)
+  community.postgresql.postgresql_privs:
+    db: shithub
+    role: shithub_hook
+    type: schema
+    objs: public
+    privs: USAGE
+  become_user: postgres
+
+- name: Hook role — grant sequence USAGE so INSERTs can claim ids
+  community.postgresql.postgresql_privs:
+    db: shithub
+    role: shithub_hook
+    type: sequence
+    objs: ALL_IN_SCHEMA
+    schema: public
+    privs: USAGE
+  become_user: postgres

@@ -1,0 +1,13 @@
+# Managed by Ansible.
+#
+# Local socket: peer auth for the postgres superuser only.
+# TCP localhost: scram-sha-256 password auth — both shithub and
+#                shithub_hook roles connect over loopback.
+# No external listen — Postgres binds 127.0.0.1 only.
+
+# TYPE  DATABASE    USER            ADDRESS         METHOD
+local   all         postgres                        peer
+local   all         all                             scram-sha-256
+host    shithub     shithub         127.0.0.1/32    scram-sha-256
+host    shithub     shithub_hook    127.0.0.1/32    scram-sha-256
+host    all         all             ::1/128         scram-sha-256
