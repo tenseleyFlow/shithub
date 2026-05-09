@@ -40,6 +40,11 @@ const (
 	// preserves visibility into suspended-org content); writes flip
 	// off uniformly.
 	DenyOrgSuspended
+	// DenyImpersonationReadOnly is returned when an admin in
+	// impersonation mode attempts a write without first opting into
+	// write-mode (the typed-name confirm step in /admin/impersonate).
+	// The default is read-only on the canonical foot-gun grounds.
+	DenyImpersonationReadOnly
 )
 
 // Decision is the verdict from Can. Allow is the only field handlers
@@ -88,6 +93,13 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	//    suspension semantics).
 	if actor.IsSuspended && isWriteAction(action) {
 		return deny(DenyActorSuspended, "actor suspended")
+	}
+
+	// 3a. Impersonation: an admin viewing-as another user is read-only
+	//     by default. Writes require ImpersonateWriteOK to have been
+	//     opted into via the typed-name confirmation step.
+	if actor.Impersonating && !actor.ImpersonateWriteOK && isWriteAction(action) {
+		return deny(DenyImpersonationReadOnly, "impersonation in read-only mode")
 	}
 
 	// 4. Anonymous + private: existence-leak-safe deny. Handler maps to
