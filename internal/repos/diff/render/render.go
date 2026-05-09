@@ -326,10 +326,11 @@ func highlightOrEscape(filename, content string, opts Options) string {
 	if filename == "" || filename == "/dev/null" {
 		return html.EscapeString(content)
 	}
-	// Chroma at line granularity — use Render but strip the table
-	// wrapper. Cheaper alternative for v1: just escape; the page
-	// already has a "view source" link to the highlighted blob.
-	_ = highlight.Render
+	// Per-line chroma highlight is available via highlight.RenderLines
+	// for callers that want token classes, but the diff renderer just
+	// escapes for now — the page already has a "view source" link to
+	// the highlighted blob.
+	_ = highlight.RenderLines
 	return html.EscapeString(content)
 }
 
