@@ -108,20 +108,20 @@ func Backoff(attempts int, jitter func() float64) time.Duration {
 		attempts = 1
 	}
 	const (
-		base = 30 * time.Second
-		cap_ = time.Hour
+		base     = 30 * time.Second
+		maxDelay = time.Hour
 	)
 	// Compute base * 2^(attempts-1), guarding against overflow.
 	d := base
 	for i := 1; i < attempts; i++ {
 		d *= 2
-		if d >= cap_ {
-			d = cap_
+		if d >= maxDelay {
+			d = maxDelay
 			break
 		}
 	}
-	if d > cap_ {
-		d = cap_
+	if d > maxDelay {
+		d = maxDelay
 	}
 	if jitter != nil {
 		// jitter() in [0,1) → multiplier in [0.8, 1.2)
