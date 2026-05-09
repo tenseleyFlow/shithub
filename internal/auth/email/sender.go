@@ -73,6 +73,12 @@ type SMTPSender struct {
 
 // Send implements Sender. Builds a multipart/alternative body so MUAs can
 // pick the variant they prefer.
+//
+// The SMTP envelope sender is the bare address — `MAIL FROM:<...>` per
+// RFC 5321 forbids nested angle brackets, so a configured `From` like
+// `shithub <noreply@shithub.local>` only goes in the message header.
+// The displayed-name form lives unchanged in the `From:` header inside
+// the body.
 func (s *SMTPSender) Send(_ context.Context, m Message) error {
 	if m.From == "" {
 		m.From = s.From
@@ -87,7 +93,19 @@ func (s *SMTPSender) Send(_ context.Context, m Message) error {
 		}
 		auth = smtp.PlainAuth("", s.Username, s.Password, host)
 	}
-	return smtp.SendMail(s.Addr, auth, m.From, []string{m.To}, body)
+	return smtp.SendMail(s.Addr, auth, envelopeAddress(m.From), []string{m.To}, body)
+}
+
+// envelopeAddress extracts the bare email address from a possibly-
+// displayed-name form like `Name <addr@example>`. Returns the input
+// unchanged when no angle brackets are present (already bare).
+func envelopeAddress(from string) string {
+	if i := strings.IndexByte(from, '<'); i >= 0 {
+		if j := strings.IndexByte(from[i+1:], '>'); j >= 0 {
+			return from[i+1 : i+1+j]
+		}
+	}
+	return from
 }
 
 // boundary is a fixed multipart boundary. Per RFC 2046 the boundary need

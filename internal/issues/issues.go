@@ -370,22 +370,13 @@ func SetLock(ctx context.Context, deps Deps, actorUserID, issueID int64, locked 
 	return nil
 }
 
-// renderBodyHTML wraps markdown.RenderHTML with a logger-aware error
-// path. Body length is bounded upstream (orchestrator validation +
-// DB CHECK at 65535), so ErrInputTooLarge is structurally impossible
-// here — but if it ever fires, log loudly: it means a precondition
-// somewhere upstream regressed. The audit (S00-S25, M) flagged the
-// `_`-discard pattern as the kind of slop where a real bug could hide.
-func renderBodyHTML(ctx context.Context, deps Deps, body string) string {
-	html, _ := renderBody(ctx, deps, body)
-	return html
-}
-
-// renderBody is the mention-aware variant. Returns the cleaned HTML
-// plus the resolved mentions list — callers that emit notification
-// events use the mentions to fan out @-pings. The `_` shimming under
-// renderBodyHTML keeps existing call sites that don't care about
-// mentions untouched.
+// renderBody renders markdown to sanitized HTML and returns the
+// resolved mention list. Body length is bounded upstream
+// (orchestrator validation + DB CHECK at 65535), so
+// ErrInputTooLarge is structurally impossible here — but if it ever
+// fires, log loudly: it means a precondition somewhere upstream
+// regressed. Mentions feed the S29 fan-out worker via the event
+// payload's `mentions` array.
 func renderBody(ctx context.Context, deps Deps, body string) (string, []mdrender.Mention) {
 	if body == "" {
 		return "", nil

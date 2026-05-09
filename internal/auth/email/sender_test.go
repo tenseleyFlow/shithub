@@ -9,6 +9,22 @@ import (
 	"testing"
 )
 
+func TestEnvelopeAddress_StripsDisplayName(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"shithub <noreply@shithub.local>", "noreply@shithub.local"},
+		{"<bare@example.com>", "bare@example.com"},
+		{"plain@example.com", "plain@example.com"},
+		{"Name With Spaces <a@b>", "a@b"},
+		{"malformed <still works", "malformed <still works"},
+	}
+	for _, c := range cases {
+		if got := envelopeAddress(c.in); got != c.want {
+			t.Errorf("envelopeAddress(%q): want %q, got %q", c.in, c.want, got)
+		}
+	}
+}
+
 func TestStdoutSender_WritesBothBodies(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
