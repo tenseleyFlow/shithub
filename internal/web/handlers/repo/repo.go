@@ -311,10 +311,8 @@ func (h *Handlers) ownerOptions(r *http.Request) []ownerOption {
 	return out
 }
 
-// repoHome serves GET /{owner}/{repo}. Forks on whether the bare repo
-// has any branches: empty → quick-setup placeholder; populated → a slim
-// "post-push" view with the head commit on the default branch. The full
-// tree/file listing is S17.
+// repoHome serves GET /{owner}/{repo}. Empty repos render the quick setup
+// placeholder; populated repos render the Code tab at the repository home URL.
 func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 	owner := chi.URLParam(r, "owner")
 	name := chi.URLParam(r, "repo")
@@ -332,9 +330,8 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// S17: when the repo has any branch, the canonical view is the
-	// tree at default_branch. The S11 quick-setup placeholder still
-	// covers the empty case.
+	// Keep the populated repository home at /owner/name, matching GitHub's
+	// Code tab instead of forcing users through the /tree/default-branch URL.
 	diskPath, fsErr := h.d.RepoFS.RepoPath(owner, row.Name)
 	hasBranch := false
 	if fsErr == nil {
@@ -345,7 +342,19 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if hasBranch {
-		http.Redirect(w, r, "/"+owner+"/"+row.Name+"/tree/"+row.DefaultBranch, http.StatusSeeOther)
+		refs, refsErr := repogit.ListRefs(r.Context(), diskPath)
+		if refsErr != nil {
+			h.d.Logger.WarnContext(r.Context(), "repo: ListRefs", "error", refsErr)
+		}
+		h.renderRepoTree(w, r, &codeContext{
+			owner:   owner,
+			row:     row,
+			gitDir:  diskPath,
+			refs:    refs,
+			allRefs: refNames(refs),
+			ref:     row.DefaultBranch,
+			subpath: "",
+		})
 		return
 	}
 

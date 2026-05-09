@@ -1,9 +1,9 @@
 {{ define "page" -}}
-<section class="shithub-issue-new">
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-issue-new">
   <header class="shithub-issues-head">
     <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues">Issues</a>
       <span class="shithub-code-sep">/</span>
       New
@@ -27,5 +27,6 @@
       <button type="submit" class="shithub-button shithub-button-primary">Submit new issue</button>
     </div>
   </form>
+  </section>
 </section>
 {{- end }}

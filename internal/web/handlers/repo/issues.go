@@ -172,10 +172,13 @@ func (h *Handlers) issueNewForm(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_new", map[string]any{
-		"Title":     "New issue · " + row.Name,
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Title":        "New issue · " + row.Name,
+		"Owner":        owner.Username,
+		"Repo":         row,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "issues",
 	})
 }
 
@@ -228,13 +231,16 @@ func (h *Handlers) renderIssueCreateError(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_new", map[string]any{
-		"Title":     "New issue · " + row.Name,
-		"Owner":     owner,
-		"Repo":      row,
-		"FormTitle": title,
-		"FormBody":  body,
-		"Error":     msg,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Title":        "New issue · " + row.Name,
+		"Owner":        owner,
+		"Repo":         row,
+		"FormTitle":    title,
+		"FormBody":     body,
+		"Error":        msg,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "issues",
 	})
 }
 
@@ -343,6 +349,9 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
 		"CSRFToken":             middleware.CSRFTokenForRequest(r),
+		"RepoCounts":            h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":           h.canViewSettings(viewer),
+		"ActiveSubnav":          "issues",
 	})
 }
 
