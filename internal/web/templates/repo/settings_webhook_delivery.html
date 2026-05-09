@@ -1,0 +1,42 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Delivery #{{ .Delivery.ID }}</h1>
+    <p>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}">← Back to webhook</a>
+    </p>
+
+    <section class="shithub-settings-section">
+      <h2>Summary</h2>
+      <ul>
+        <li>Event: <code>{{ .Delivery.EventKind }}</code></li>
+        <li>Status: <code>{{ .Delivery.Status }}</code></li>
+        <li>Attempt: {{ .Delivery.Attempt }} of {{ .Delivery.MaxAttempts }}</li>
+        <li>Started: {{ relativeTime .Delivery.StartedAt.Time }}</li>
+        {{ if .Delivery.CompletedAt.Valid }}<li>Completed: {{ relativeTime .Delivery.CompletedAt.Time }}</li>{{ end }}
+        {{ if .Delivery.NextRetryAt.Valid }}<li>Next retry: {{ relativeTime .Delivery.NextRetryAt.Time }}</li>{{ end }}
+        {{ if .Delivery.ResponseStatus.Valid }}<li>HTTP response: <code>{{ .Delivery.ResponseStatus.Int32 }}</code>{{ if .Delivery.ResponseTruncated }} (body truncated){{ end }}</li>{{ end }}
+        {{ if .Delivery.RedeliverOf.Valid }}<li>Redelivery of #{{ .Delivery.RedeliverOf.Int64 }}</li>{{ end }}
+        {{ if .Delivery.ErrorSummary.Valid }}<li>Error: <code>{{ .Delivery.ErrorSummary.String }}</code></li>{{ end }}
+      </ul>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks/{{ .Webhook.ID }}/deliveries/{{ .Delivery.ID }}/redeliver">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Redeliver</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Request payload</h2>
+      <pre class="shithub-code-pre">{{ .PayloadPretty }}</pre>
+    </section>
+
+    {{ with .ResponseBody }}
+    <section class="shithub-settings-section">
+      <h2>Response body{{ if $.Delivery.ResponseTruncated }} (truncated){{ end }}</h2>
+      <pre class="shithub-code-pre">{{ . }}</pre>
+    </section>
+    {{ end }}
+  </div>
+</div>
+{{- end }}
