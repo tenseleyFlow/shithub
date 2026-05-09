@@ -48,6 +48,13 @@ const (
 	KindPRMergeability Kind = "pr:mergeability"
 )
 
+// S27 fork kinds. fork_clone runs `git clone --bare --shared` for a
+// freshly created fork shell; the fork's init_status flips from
+// init_pending → initialized (or init_failed) on success/failure.
+const (
+	KindRepoForkClone Kind = "repo:fork_clone"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the

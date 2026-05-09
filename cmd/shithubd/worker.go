@@ -96,6 +96,11 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindPRSynchronize, jobs.PRSynchronize(prDeps))
 		p.Register(worker.KindPRMergeability, jobs.PRMergeability(prDeps))
 
+		shithubdPath, _ := shithubdBinaryPath()
+		p.Register(worker.KindRepoForkClone, jobs.RepoForkClone(jobs.ForkCloneDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger, ShithubdPath: shithubdPath,
+		}))
+
 		return p.Run(ctx)
 	},
 }
