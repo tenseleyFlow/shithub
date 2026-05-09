@@ -10,11 +10,13 @@
 
 ---
 
-**Honest status: very much a work in progress.**
+**Status: v1.0.0 launched — early days. Honest about WIP areas.**
 
-shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are nowhere near that yet. It will be some time before it looks and feels the way GitHub does. There is a lot of GitHub.
+shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are not there yet. The core forge loop works end-to-end (see "What works today"); large surfaces (SSH transport, Actions/CI, GraphQL, Packages) are explicitly not shipped at v1.0.0.
 
-If you came here expecting drop-in parity, it's not ready for you. If you came here to watch (or help) one get built in the open, welcome.
+The hosted instance is at **[shithub.example](https://shithub.example)**. The project's own source has migrated here from GitHub; this GitHub repo is a one-way mirror for the first 90 days post-launch as a recovery surface.
+
+If you came here expecting drop-in parity with everything GitHub does, you'll find specific gaps. If you came here for an honest, AI-free, self-hostable forge, this is for you.
 
 ## What works today
 
