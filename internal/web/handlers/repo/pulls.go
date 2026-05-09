@@ -115,15 +115,18 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/pulls_list", map[string]any{
-		"Title":       "Pull requests · " + row.Name,
-		"Owner":       owner.Username,
-		"Repo":        row,
-		"Items":       items,
-		"State":       state,
-		"OpenCount":   openCount,
-		"ClosedCount": closedCount,
-		"Page":        page,
-		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Title":        "Pull requests · " + row.Name,
+		"Owner":        owner.Username,
+		"Repo":         row,
+		"Items":        items,
+		"State":        state,
+		"OpenCount":    openCount,
+		"ClosedCount":  closedCount,
+		"Page":         page,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "pulls",
 	})
 }
 

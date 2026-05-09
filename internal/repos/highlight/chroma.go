@@ -57,9 +57,28 @@ func Render(filename, source string) string {
 
 // CSS returns the `<style>`-wrappable CSS for the highlight theme so
 // the operator can serve it once at /static/css/chroma.css. Generated
-// from the same `github` style Render uses, so colors stay consistent.
+// from BOTH the light (`github`) and dark (`github-dark`) Chroma styles
+// so blob views render correctly under either theme. Each block is
+// gated by `[data-theme="…"]` (the layout sets that on <html>) so only
+// one set of rules is active per view. Without the dark variant the
+// blob viewer renders code on a light background regardless of the
+// page's theme — invisible text in dark mode.
 func CSS() string {
-	style := styles.Get("github")
+	light := writeStyleCSS("github")
+	dark := writeStyleCSS("github-dark")
+
+	var buf bytes.Buffer
+	buf.WriteString("/* light (default) — applies when [data-theme] is unset or 'light' */\n")
+	buf.WriteString(prefixChromaSelectors(light, `[data-theme="light"] `, ""))
+	buf.WriteString("\n/* dark */\n")
+	buf.WriteString(prefixChromaSelectors(dark, `[data-theme="dark"] `, ""))
+	return buf.String()
+}
+
+// writeStyleCSS emits Chroma's classes-mode CSS for a named style.
+// Falls back to the Fallback style when the name is unknown.
+func writeStyleCSS(name string) string {
+	style := styles.Get(name)
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -70,6 +89,68 @@ func CSS() string {
 	var buf bytes.Buffer
 	_ = formatter.WriteCSS(&buf, style)
 	return buf.String()
+}
+
+// prefixChromaSelectors prefixes every selector in css with `prefix`
+// so the rule only applies under the given theme attribute. Chroma's
+// CSS rules all start with `.chroma` (or its line-number child
+// classes); we walk top-level rules and prefix each.
+//
+// `_` is a placeholder for a future per-theme suffix (e.g. !important
+// on borders) — currently unused.
+func prefixChromaSelectors(css, prefix, _ string) string {
+	var out bytes.Buffer
+	for _, raw := range splitTopLevelRules(css) {
+		rule := strings.TrimSpace(raw)
+		if rule == "" {
+			continue
+		}
+		brace := strings.IndexByte(rule, '{')
+		if brace < 0 {
+			out.WriteString(rule)
+			continue
+		}
+		selectors := rule[:brace]
+		body := rule[brace:]
+		// Selector lists like ".chroma .nx, .chroma .nf" — prefix each.
+		parts := strings.Split(selectors, ",")
+		for i, p := range parts {
+			parts[i] = prefix + strings.TrimSpace(p)
+		}
+		out.WriteString(strings.Join(parts, ", "))
+		out.WriteString(" ")
+		out.WriteString(body)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
+
+// splitTopLevelRules splits a CSS blob on `}` boundaries while
+// preserving the brace as part of the preceding rule. Chroma's output
+// has no nested rules so naive depth-1 splitting is sufficient.
+func splitTopLevelRules(css string) []string {
+	var rules []string
+	start := 0
+	depth := 0
+	for i := 0; i < len(css); i++ {
+		switch css[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				rules = append(rules, css[start:i+1])
+				start = i + 1
+			}
+		}
+	}
+	if start < len(css) {
+		tail := strings.TrimSpace(css[start:])
+		if tail != "" {
+			rules = append(rules, tail)
+		}
+	}
+	return rules
 }
 
 // plainPre escapes source and wraps it in a <pre> for the no-lexer

@@ -1,11 +1,17 @@
 {{ define "page" -}}
+<section class="shithub-repo-page">
+  <header class="shithub-repo-page-head">
+    <h1 class="shithub-repo-page-title">
+      <a href="/{{ .Owner }}">{{ .Owner }}</a>
+      <span class="shithub-code-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
+      {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ else }}<span class="shithub-pill">public</span>{{ end }}
+    </h1>
+  </header>
+  {{ template "repo-subnav" . }}
 <section class="shithub-issues">
   <header class="shithub-issues-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Issues
-    </h1>
+    <h1>Issues</h1>
     <div class="shithub-issues-actions">
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-button">Labels</a>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-button">Milestones</a>
@@ -55,5 +61,6 @@
   {{ else }}
   <p class="shithub-issues-empty">No {{ .State }} issues. <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues/new">Open one</a>.</p>
   {{ end }}
+</section>
 </section>
 {{- end }}

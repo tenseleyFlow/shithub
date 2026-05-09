@@ -68,6 +68,38 @@ ORDER BY updated_at DESC;
 SELECT count(*) FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL;
 
+-- name: GetRepoByOwnerOrgAndName :one
+-- S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
+-- name) partial unique index from 0017 backs this lookup with the same
+-- O(1) cost the user-side path enjoys.
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL;
+
+-- name: ExistsRepoForOwnerOrg :one
+SELECT EXISTS(
+    SELECT 1 FROM repos
+    WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL
+);
+
+-- name: ListReposForOwnerOrg :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC;
+
 -- name: SoftDeleteRepo :exec
 UPDATE repos SET deleted_at = now() WHERE id = $1;
 

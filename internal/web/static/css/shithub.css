@@ -1018,6 +1018,34 @@ code {
 .shithub-repo-list-meta { color: var(--fg-muted); font-size: 0.8rem; display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.4rem 0 0; }
 .shithub-pill-archived { background: #ffd35a; color: #3b2300; }
 
+/* Repo subnav (S30 polish): GitHub-style Code / Issues / Pulls / Settings tabs. */
+.shithub-repo-page-head {
+  margin-bottom: 0.25rem;
+}
+.shithub-repo-page-title { font-size: 1.4rem; margin: 0.5rem 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.shithub-repo-page-title a { color: var(--accent-fg, #4493f8); }
+.shithub-repo-subnav {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 1.25rem;
+  border-bottom: 1px solid var(--border-default);
+  flex-wrap: wrap;
+}
+.shithub-repo-subnav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.85rem;
+  color: var(--fg-default);
+  border-bottom: 2px solid transparent;
+  font-size: 0.9rem;
+  text-decoration: none;
+  position: relative;
+  bottom: -1px;
+}
+.shithub-repo-subnav-tab:hover { background: var(--canvas-subtle); border-radius: 6px 6px 0 0; }
+.shithub-repo-subnav-tab.is-active { border-bottom-color: var(--accent-emphasis, #fd8c73); font-weight: 600; }
+
 .shithub-tree {
   width: 100%;
   border-collapse: collapse;

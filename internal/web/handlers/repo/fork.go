@@ -193,14 +193,17 @@ func (h *Handlers) forksList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	common := map[string]any{
-		"Title":   "Forks · " + row.Name,
-		"Owner":   ownerName,
-		"Repo":    row,
-		"Forks":   visible,
-		"Total":   total,
-		"Page":    page,
-		"HasNext": int64(page*pageSize) < total,
-		"HasPrev": page > 1,
+		"Title":        "Forks · " + row.Name,
+		"Owner":        ownerName,
+		"Repo":         row,
+		"Forks":        visible,
+		"Total":        total,
+		"Page":         page,
+		"HasNext":      int64(page*pageSize) < total,
+		"HasPrev":      page > 1,
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "forks",
 	}
 	if err := h.d.Render.RenderPage(w, r, "repo/forks", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "forks render", "error", err)

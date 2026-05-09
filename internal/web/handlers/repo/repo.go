@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -235,6 +236,9 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		"HTTPSCloneURL": h.cloneHTTPS(owner, row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(owner, row.Name),
+		"RepoCounts":    h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":  "code",
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -250,15 +254,31 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 //   - AND the viewer is allowed to see it (public OR viewer is owner).
 //
 // Anything else returns ErrNoRows so the caller can 404 uniformly.
+//
+// Owner kind is dispatched via principals: ownerName resolves to
+// either a user_id or an org_id via the same single-source-of-truth
+// table that drives /{slug} routing. Both kinds resolve through the
+// same indexed lookup so the cost is identical.
 func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName string, viewer middleware.CurrentUser) (reposdb.Repo, error) {
-	owner, err := h.uq.GetUserByUsername(ctx, h.d.Pool, ownerName)
+	principal, err := orgs.Resolve(ctx, h.d.Pool, ownerName)
 	if err != nil {
-		return reposdb.Repo{}, err
+		return reposdb.Repo{}, pgx.ErrNoRows
 	}
-	row, err := h.rq.GetRepoByOwnerUserAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
-		OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
-		Name:        repoName,
-	})
+	var row reposdb.Repo
+	switch principal.Kind {
+	case orgs.PrincipalUser:
+		row, err = h.rq.GetRepoByOwnerUserAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:        repoName,
+		})
+	case orgs.PrincipalOrg:
+		row, err = h.rq.GetRepoByOwnerOrgAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+			OwnerOrgID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:       repoName,
+		})
+	default:
+		return reposdb.Repo{}, pgx.ErrNoRows
+	}
 	if err != nil {
 		return reposdb.Repo{}, err
 	}

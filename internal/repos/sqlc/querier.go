@@ -39,12 +39,17 @@ type Querier interface {
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).
 	DeleteRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) error
+	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
 	// Called by the periodic worker (transfers:expire) — flips pending
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
 	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
 	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
+	// S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
+	// name) partial unique index from 0017 backs this lookup with the same
+	// O(1) cost the user-side path enjoys.
+	GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerOrgAndNameParams) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
 	// Returns the owner_username for a repo. Used by size-recalc and other
 	// jobs that need to derive the bare-repo on-disk path without round-
@@ -78,6 +83,7 @@ type Querier interface {
 	// destruction. The 7-day grace is hard-coded here; if we add a config
 	// knob later, change this to a parameter.
 	ListRepoIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
+	ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
 	// S28 code-search reconciler: returns repos whose default_branch_oid
 	// has advanced past last_indexed_oid (or last_indexed_oid is NULL

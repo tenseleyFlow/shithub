@@ -1,4 +1,15 @@
 {{ define "page" -}}
+<section class="shithub-repo-page">
+  <header class="shithub-repo-page-head">
+    <h1 class="shithub-repo-page-title">
+      <a href="/{{ .Owner }}">{{ .Owner }}</a>
+      <span class="shithub-code-sep">/</span>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
+      {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ else }}<span class="shithub-pill">public</span>{{ end }}
+    </h1>
+  </header>
+  {{ template "repo-subnav" . }}
+
 <section class="shithub-code">
   <header class="shithub-code-head">
     <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
@@ -78,6 +89,7 @@
     </tbody>
   </table>
 
+  </section>
   {{ if .README }}
   <section class="shithub-readme" aria-label="README">
     {{ .README }}

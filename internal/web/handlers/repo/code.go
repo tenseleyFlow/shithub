@@ -162,6 +162,9 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
+		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
+		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":  "code",
 	})
 }
 
@@ -221,21 +224,24 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 	const maxReadBytes = 4 * 1024 * 1024       // never read more than 4 MiB even for highlighting
 
 	data := map[string]any{
-		"Title":      cc.subpath + " · " + cc.row.Name,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
-		"Owner":      cc.owner,
-		"Repo":       cc.row,
-		"Ref":        cc.ref,
-		"Path":       cc.subpath,
-		"Crumbs":     breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
-		"Branches":   cc.refs.Branches,
-		"Tags":       cc.refs.Tags,
-		"Size":       size,
-		"IsLarge":    size > largeFileThreshold,
-		"IsBinary":   false,
-		"IsImage":    false,
-		"IsMarkdown": false,
-		"Language":   highlight.LanguageGuess(cc.subpath),
+		"Title":        cc.subpath + " · " + cc.row.Name,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Owner":        cc.owner,
+		"Repo":         cc.row,
+		"Ref":          cc.ref,
+		"Path":         cc.subpath,
+		"Crumbs":       breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
+		"Branches":     cc.refs.Branches,
+		"Tags":         cc.refs.Tags,
+		"Size":         size,
+		"IsLarge":      size > largeFileThreshold,
+		"IsBinary":     false,
+		"IsImage":      false,
+		"IsMarkdown":   false,
+		"Language":     highlight.LanguageGuess(cc.subpath),
+		"RepoCounts":   h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "code",
 	}
 	if size > largeFileThreshold {
 		h.d.Render.RenderPage(w, r, "repo/blob", data)

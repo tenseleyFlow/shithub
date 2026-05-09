@@ -186,6 +186,13 @@ func Maybe404(decision Decision, repo RepoRef, actor Actor) int {
 // effectiveRole computes the highest-effective role for actor on repo.
 // Owner ⇒ implicit admin; collaborator role from repo_collaborators;
 // nothing otherwise.
+//
+// Org-owned repos: every `org_members.role='owner'` of the owning org
+// is treated as an implicit admin on every org-owned repo. This is
+// the S30 owner-implicit-admin contract — without it an org owner
+// can't push to their own org's repos. Org `member` role grants no
+// implicit access; teams (S31) and direct collaboration (S15) are the
+// only paths to repo permission for non-owners.
 func effectiveRole(ctx context.Context, d Deps, actor Actor, repo RepoRef) (Role, error) {
 	if actor.UserID != 0 && actor.UserID == repo.OwnerUserID {
 		return RoleAdmin, nil
@@ -201,11 +208,28 @@ func effectiveRole(ctx context.Context, d Deps, actor Actor, repo RepoRef) (Role
 		return r, nil
 	}
 
-	// DB lookup.
 	if d.Pool == nil {
 		// In tests where a Deps without Pool is passed, fail closed.
 		return RoleNone, nil
 	}
+
+	// Org-owner check fires first because it short-circuits with admin
+	// regardless of any per-repo collaborator row. The lookup is
+	// indexed on (org_id, user_id) — same cost as the collab lookup.
+	if repo.OwnerOrgID != 0 {
+		var dbOrgRole string
+		err := d.Pool.QueryRow(ctx,
+			`SELECT role::text FROM org_members WHERE org_id = $1 AND user_id = $2`,
+			repo.OwnerOrgID, actor.UserID,
+		).Scan(&dbOrgRole)
+		if err == nil && dbOrgRole == "owner" {
+			cachePut(cache, key, RoleAdmin)
+			return RoleAdmin, nil
+		}
+		// "no rows" or member-only falls through to the collab-row
+		// lookup below.
+	}
+
 	q := policydb.New()
 	dbRole, err := q.GetCollabRole(ctx, d.Pool, policydb.GetCollabRoleParams{
 		RepoID: repo.ID,

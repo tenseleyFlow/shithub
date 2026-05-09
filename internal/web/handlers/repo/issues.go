@@ -142,17 +142,20 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderPage(w, r, "repo/issues_list", map[string]any{
-		"Title":       "Issues · " + row.Name,
-		"Owner":       owner.Username,
-		"Repo":        row,
-		"Items":       items,
-		"State":       stateFilter,
-		"OpenCount":   openCount,
-		"ClosedCount": closedCount,
-		"Total":       total,
-		"Page":        page,
-		"PerPage":     perPage,
-		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Title":        "Issues · " + row.Name,
+		"Owner":        owner.Username,
+		"Repo":         row,
+		"Items":        items,
+		"State":        stateFilter,
+		"OpenCount":    openCount,
+		"ClosedCount":  closedCount,
+		"Total":        total,
+		"Page":         page,
+		"PerPage":      perPage,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "issues",
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "issues: render list", "error", err)
 	}

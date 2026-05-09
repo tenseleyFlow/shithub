@@ -185,6 +185,25 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 	return i, err
 }
 
+const existsRepoForOwnerOrg = `-- name: ExistsRepoForOwnerOrg :one
+SELECT EXISTS(
+    SELECT 1 FROM repos
+    WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL
+)
+`
+
+type ExistsRepoForOwnerOrgParams struct {
+	OwnerOrgID pgtype.Int8
+	Name       string
+}
+
+func (q *Queries) ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error) {
+	row := db.QueryRow(ctx, existsRepoForOwnerOrg, arg.OwnerOrgID, arg.Name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const existsRepoForOwnerUser = `-- name: ExistsRepoForOwnerUser :one
 SELECT EXISTS(
     SELECT 1 FROM repos
@@ -218,6 +237,62 @@ WHERE id = $1
 
 func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error) {
 	row := db.QueryRow(ctx, getRepoByID, id)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.OwnerOrgID,
+		&i.Name,
+		&i.Description,
+		&i.Visibility,
+		&i.DefaultBranch,
+		&i.IsArchived,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.DiskUsedBytes,
+		&i.ForkOfRepoID,
+		&i.LicenseKey,
+		&i.PrimaryLanguage,
+		&i.HasIssues,
+		&i.HasPulls,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultBranchOid,
+		&i.AllowSquashMerge,
+		&i.AllowRebaseMerge,
+		&i.AllowMergeCommit,
+		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
+		&i.LastIndexedOid,
+	)
+	return i, err
+}
+
+const getRepoByOwnerOrgAndName = `-- name: GetRepoByOwnerOrgAndName :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL
+`
+
+type GetRepoByOwnerOrgAndNameParams struct {
+	OwnerOrgID pgtype.Int8
+	Name       string
+}
+
+// S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
+// name) partial unique index from 0017 backs this lookup with the same
+// O(1) cost the user-side path enjoys.
+func (q *Queries) GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerOrgAndNameParams) (Repo, error) {
+	row := db.QueryRow(ctx, getRepoByOwnerOrgAndName, arg.OwnerOrgID, arg.Name)
 	var i Repo
 	err := row.Scan(
 		&i.ID,
@@ -458,6 +533,68 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 	for rows.Next() {
 		var i ListForksOfRepoForRepackRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.OwnerUsername); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReposForOwnerOrg = `-- name: ListReposForOwnerOrg :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC
+`
+
+func (q *Queries) ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error) {
+	rows, err := db.Query(ctx, listReposForOwnerOrg, ownerOrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
