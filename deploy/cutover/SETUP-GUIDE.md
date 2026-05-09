@@ -146,17 +146,32 @@ bot — won't repeat that here.
 
 ### B1. DO project + SSH key
 
+These are two unrelated resources — the project is a workspace
+grouping, the SSH key is an account-wide credential. You'll
+attach the key to each droplet at create time (Phase B3).
+
+**Project:**
+
 1. <https://cloud.digitalocean.com> → **Projects** (left sidebar)
    → **New Project**.
 2. Name: **shithub-prod**. Purpose: **Service or API**.
    Environment: **Production**.
-3. **SSH key:** Account (top-right) → Settings → Security →
-   **Add SSH Key**. Paste the contents of
-   `~/.ssh/id_ed25519.pub` from your laptop. Name it after the
-   laptop ("macbook-pro").
 
-**Verify:** the project shows in the dropdown; the SSH key
-shows under Settings → Security.
+**SSH key (account-level — not inside the Project):**
+
+1. Top-right corner: click your **avatar/email** dropdown →
+   **Settings**.
+2. Settings left sidebar → **Security**.
+3. Scroll to the **SSH Keys** section → **Add SSH Key**.
+4. Paste the contents of `~/.ssh/id_ed25519.pub` from your
+   laptop. Name it after the laptop ("macbook-pro").
+
+The SSH key now exists at the account level — you won't see it
+inside the Project view. It will appear as a checkbox option
+when creating each droplet in Phase B3.
+
+**Verify:** the project shows under Projects; the SSH key shows
+in Settings → Security → SSH Keys.
 
 ### B2. Create Spaces buckets (do these BEFORE droplets — they need to exist for the docs CNAME to resolve)
 
