@@ -47,6 +47,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/passwords"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -58,14 +59,19 @@ var usernameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
 // Deps is everything the auth handlers need. Constructed by the web
 // package and injected at registration time.
 type Deps struct {
-	Logger                   *slog.Logger
-	Render                   *render.Renderer
-	Pool                     *pgxpool.Pool
-	SessionStore             session.Store
-	Email                    email.Sender
-	Branding                 email.Branding
-	Argon2                   password.Params
-	Limiter                  *throttle.Limiter
+	Logger       *slog.Logger
+	Render       *render.Renderer
+	Pool         *pgxpool.Pool
+	SessionStore session.Store
+	Email        email.Sender
+	Branding     email.Branding
+	Argon2       password.Params
+	Limiter      *throttle.Limiter
+	// RateLimiter wraps the S35 generalised rate-limit table. Used
+	// for the per-/24 signup throttle (anti-abuse heuristic). nil
+	// disables the secondary throttle; the per-IP S05 limiter still
+	// applies.
+	RateLimiter              *ratelimit.Limiter
 	RequireEmailVerification bool
 	// SecretBox encrypts at-rest TOTP secrets. May be nil; when nil, the
 	// 2FA enrollment endpoints are not registered.
@@ -770,11 +776,27 @@ func (h *Handlers) renderPage(w http.ResponseWriter, r *http.Request, page strin
 }
 
 func (h *Handlers) throttleSignup(r *http.Request) error {
+	// Layer 1 — per-IP cap (S05). Tight per-host throttle so a single
+	// machine can't spin up dozens of accounts in an hour.
 	if err := h.d.Limiter.Hit(r.Context(), h.d.Pool, throttle.Limit{
 		Scope: "signup", Identifier: "ip:" + clientIP(r),
 		Max: 5, Window: time.Hour,
 	}); err != nil {
 		return err
+	}
+	// Layer 2 — per-/24 cap (S35 anti-abuse). Catches spray-from-many-
+	// IPs-on-the-same-network patterns. The threshold is intentionally
+	// looser (20/hour) than the per-IP cap so legitimate shared-NAT
+	// users (universities, corporate networks) aren't false-positives.
+	// nil RateLimiter skips this layer — the single-IP throttle still
+	// applies.
+	if h.d.RateLimiter != nil {
+		if ip, ok := ratelimit.ClientIP(r, false); ok {
+			d, err := h.d.RateLimiter.AllowSignupIP(r.Context(), ip, 20, time.Hour)
+			if err == nil && !d.Allowed {
+				return &throttle.ErrThrottled{RetryAfter: d.RetryAfter, Hits: d.Limit + 1}
+			}
+		}
 	}
 	return nil
 }
