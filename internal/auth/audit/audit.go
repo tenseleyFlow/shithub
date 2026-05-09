@@ -71,6 +71,23 @@ const (
 	ActionWatchUnset            Action = "watch_unset"
 	ActionRepoForked            Action = "repo_forked"
 	ActionRepoForkSynced        Action = "repo_fork_synced"
+
+	// S34 — site admin actions. Always recorded with the real admin's
+	// id in actor_id; impersonation flows additionally carry the
+	// impersonated user's id in meta.impersonated_user_id.
+	ActionAdminSiteAdminGranted   Action = "admin_site_admin_granted"
+	ActionAdminSiteAdminRevoked   Action = "admin_site_admin_revoked"
+	ActionAdminUserSuspended      Action = "admin_user_suspended"
+	ActionAdminUserUnsuspended    Action = "admin_user_unsuspended"
+	ActionAdminUserForceDeleted   Action = "admin_user_force_deleted"
+	ActionAdminUserPasswordReset  Action = "admin_user_password_reset"
+	ActionAdminRepoForceArchived  Action = "admin_repo_force_archived"
+	ActionAdminRepoForceDeleted   Action = "admin_repo_force_deleted"
+	ActionAdminJobRetried         Action = "admin_job_retried"
+	ActionAdminJobDiscarded       Action = "admin_job_discarded"
+	ActionAdminImpersonateStarted Action = "admin_impersonate_started"
+	ActionAdminImpersonateStopped Action = "admin_impersonate_stopped"
+	ActionAdminImpersonateWriteOn Action = "admin_impersonate_write_on"
 )
 
 // Target is a typed target-type constant.
