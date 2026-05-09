@@ -403,6 +403,32 @@ func TestSignup_Verify_Login_Logout(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+func TestLogin_AcceptsEmailAddress(t *testing.T) {
+	t.Parallel()
+	srv, sender := newTestServer(t, true)
+	cli := newClient(t, srv)
+
+	mustSignup(t, cli, "emailuser", "emailuser@example.com", "correct horse battery staple")
+	tok := extractTokenFromMessage(t, sender.all()[0], "/verify-email")
+	resp := cli.get(t, "/verify-email/"+tok)
+	_ = resp.Body.Close()
+
+	csrf := cli.extractCSRF(t, "/login")
+	resp = cli.post(t, "/login", url.Values{
+		"csrf_token": {csrf},
+		"username":   {"EmailUser@Example.com"},
+		"password":   {"correct horse battery staple"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("email login: status %d body=%s", resp.StatusCode, body)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/" {
+		t.Fatalf("email login redirect: %q, want /", loc)
+	}
+	_ = resp.Body.Close()
+}
+
 func TestPasswordReset_EndToEnd(t *testing.T) {
 	t.Parallel()
 	srv, sender := newTestServer(t, false)

@@ -337,6 +337,17 @@ type loginForm struct {
 	Username string
 }
 
+func (h *Handlers) loginUser(ctx context.Context, identifier string) (usersdb.User, error) {
+	if strings.Contains(identifier, "@") {
+		em, err := h.q.GetUserEmailByAddress(ctx, h.d.Pool, identifier)
+		if err != nil {
+			return usersdb.User{}, err
+		}
+		return h.q.GetUserIncludingDeleted(ctx, h.d.Pool, em.UserID)
+	}
+	return h.q.GetUserByUsernameIncludingDeleted(ctx, h.d.Pool, identifier)
+}
+
 func (h *Handlers) loginForm(w http.ResponseWriter, r *http.Request) {
 	notice := ""
 	switch r.URL.Query().Get("notice") {
@@ -363,7 +374,7 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
 		return
 	}
-	username := strings.ToLower(strings.TrimSpace(r.PostFormValue("username")))
+	identifier := strings.ToLower(strings.TrimSpace(r.PostFormValue("username")))
 	pw := r.PostFormValue("password")
 	next := r.PostFormValue("next")
 
@@ -371,13 +382,13 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderPage(w, r, "auth/login", map[string]any{
 			"Title":     "Sign in",
 			"CSRFToken": middleware.CSRFTokenForRequest(r),
-			"Form":      loginForm{Username: username},
+			"Form":      loginForm{Username: identifier},
 			"Error":     msg,
 			"Next":      next,
 		})
 	}
 
-	throttleKey := fmt.Sprintf("ip:%s|%s", clientIP(r), username)
+	throttleKey := fmt.Sprintf("ip:%s|%s", clientIP(r), identifier)
 	if err := h.d.Limiter.Hit(r.Context(), h.d.Pool, throttle.Limit{
 		Scope: "login", Identifier: throttleKey,
 		Max: 6, Window: 15 * time.Minute,
@@ -390,7 +401,7 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// IncludingDeleted lets us spot soft-deleted users so we can restore
 	// them on login during the grace window. Past the window they look
 	// indistinguishable from "doesn't exist" — same response, same timing.
-	user, err := h.q.GetUserByUsernameIncludingDeleted(r.Context(), h.d.Pool, username)
+	user, err := h.loginUser(r.Context(), identifier)
 	if err != nil {
 		// User doesn't exist — still hash to keep timing constant.
 		password.VerifyAgainstDummy(pw)
