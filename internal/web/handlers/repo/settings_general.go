@@ -32,7 +32,6 @@ func (h *Handlers) MountSettingsGeneral(r chi.Router) {
 	r.Post("/{owner}/{repo}/settings/access/collaborators/remove", h.settingsCollabRemove)
 	r.Post("/{owner}/{repo}/settings/access/teams", h.settingsTeamGrant)
 	r.Post("/{owner}/{repo}/settings/access/teams/revoke", h.settingsTeamRevoke)
-	r.Get("/{owner}/{repo}/settings/webhooks", h.settingsPlaceholder("webhooks", "Webhooks", "Webhook delivery and signing keys ship in a follow-up sprint."))
 	r.Get("/{owner}/{repo}/settings/keys", h.settingsPlaceholder("keys", "Deploy keys", "Per-repo deploy keys (read-only or read-write SSH keys scoped to one repo) ship in a follow-up sprint."))
 	r.Get("/{owner}/{repo}/settings/notifications", h.settingsPlaceholder("notifications", "Notifications", "Repo-scoped notification routing rules ship in a follow-up sprint."))
 	r.Get("/{owner}/{repo}/settings/tags", h.settingsPlaceholder("tags", "Tags", "Tag-protection rules ship alongside the wider release tooling."))
