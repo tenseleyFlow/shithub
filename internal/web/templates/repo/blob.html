@@ -43,12 +43,12 @@
     {{ end }}
   {{ else if .IsMarkdown }}
     <div class="shithub-blob-markdown">{{ .MarkdownHTML }}</div>
-    <details class="shithub-blob-source">
+    <details class="shithub-blob-source-toggle">
       <summary>View source</summary>
-      {{ .HighlightedHTML }}
+      {{ template "blob-lines" . }}
     </details>
   {{ else }}
-    <div class="shithub-blob-source">{{ .HighlightedHTML }}</div>
+    {{ template "blob-lines" . }}
   {{ end }}
 </section>
 </section>
