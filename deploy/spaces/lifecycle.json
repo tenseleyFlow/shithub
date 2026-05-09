@@ -1,0 +1,23 @@
+{
+  "_comment": "DigitalOcean Spaces lifecycle (S3-compatible). Apply with `s3cmd setlifecycle lifecycle.json s3://shithub-backups`. Two prefixes: WAL segments (cheaper to keep, archive sooner) and daily logical dumps (kept longer, primary recovery path).",
+  "Rules": [
+    {
+      "ID": "wal-30day-retention",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "Expiration": {"Days": 30}
+    },
+    {
+      "ID": "daily-90day-retention",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "daily/"},
+      "Expiration": {"Days": 90}
+    },
+    {
+      "ID": "abort-stale-multipart",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 2}
+    }
+  ]
+}
