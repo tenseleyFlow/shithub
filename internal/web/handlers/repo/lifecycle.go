@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -54,18 +55,51 @@ func (h *Handlers) MountLifecycle(r chi.Router) {
 // loadRepoAndAuthorize is the common preamble for every settings-route
 // handler. Resolves owner+repo, applies policy.Can with the chosen
 // action, and either returns the row or writes the response.
+//
+// Owner kind dispatch goes through principals (S30) so org-owned
+// repos resolve through the same path as user-owned ones. The
+// returned `usersdb.User` is the OWNING USER for user-owned repos,
+// or a synthetic row carrying just `ID` + `Username` (= the org slug)
+// for org-owned repos — handlers that re-construct paths only need
+// the slug, and the few that need a real users row already short-
+// circuit via `viewer`.
 func (h *Handlers) loadRepoAndAuthorize(w http.ResponseWriter, r *http.Request, action policy.Action) (reposdb.Repo, usersdb.User, bool) {
 	ownerName := chi.URLParam(r, "owner")
 	repoName := chi.URLParam(r, "repo")
-	owner, err := h.uq.GetUserByUsername(r.Context(), h.d.Pool, ownerName)
+	principal, err := orgs.Resolve(r.Context(), h.d.Pool, ownerName)
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return reposdb.Repo{}, usersdb.User{}, false
 	}
-	row, err := h.rq.GetRepoByOwnerUserAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
-		OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
-		Name:        repoName,
-	})
+	var (
+		row    reposdb.Repo
+		owner  usersdb.User
+	)
+	switch principal.Kind {
+	case orgs.PrincipalUser:
+		owner, err = h.uq.GetUserByID(r.Context(), h.d.Pool, principal.ID)
+		if err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+			return reposdb.Repo{}, usersdb.User{}, false
+		}
+		row, err = h.rq.GetRepoByOwnerUserAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
+			Name:        repoName,
+		})
+	case orgs.PrincipalOrg:
+		row, err = h.rq.GetRepoByOwnerOrgAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+			OwnerOrgID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:       repoName,
+		})
+		// Synthesize an owner with the slug so callers that read
+		// `owner.Username` for path composition still work. ID is
+		// the org id; the field is repurposed but no caller treats
+		// it as a user id in path-only contexts.
+		owner = usersdb.User{ID: principal.ID, Username: principal.Slug}
+	default:
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return reposdb.Repo{}, usersdb.User{}, false
+	}
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return reposdb.Repo{}, usersdb.User{}, false
@@ -96,11 +130,12 @@ func (h *Handlers) repoSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	transfers, _ := h.rq.ListTransfersForRepo(r.Context(), h.d.Pool, row.ID)
 	h.d.Render.RenderPage(w, r, "repo/settings", map[string]any{
-		"Title":     "Settings · " + row.Name,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Transfers": transfers,
+		"Title":          "Settings · " + row.Name,
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"Owner":          owner.Username,
+		"Repo":           row,
+		"Transfers":      transfers,
+		"SettingsActive": "danger",
 	})
 }
 
