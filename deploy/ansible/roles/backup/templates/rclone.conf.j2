@@ -1,0 +1,19 @@
+# Managed by Ansible.
+# Two remotes: primary (where shithubd writes) and dr (cross-region
+# backup target). Sync runs hourly via cron.
+
+[spaces-prod]
+type = s3
+provider = DigitalOcean
+access_key_id = {{ spaces_prod_access_key }}
+secret_access_key = {{ spaces_prod_secret_key }}
+endpoint = {{ spaces_prod_endpoint }}
+acl = private
+
+[spaces-dr]
+type = s3
+provider = DigitalOcean
+access_key_id = {{ spaces_dr_access_key }}
+secret_access_key = {{ spaces_dr_secret_key }}
+endpoint = {{ spaces_dr_endpoint }}
+acl = private

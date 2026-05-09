@@ -1,0 +1,39 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Logical backup cron + cross-region Spaces sync. The actual scripts
+# live under deploy/postgres/ and deploy/spaces/ so they can be
+# read/edited without booting Ansible.
+
+- name: Backup scripts — install
+  copy:
+    src: "{{ playbook_dir }}/../{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  loop:
+    - { src: postgres/backup-daily.sh,    dest: /usr/local/bin/shithub-backup-daily }
+    - { src: spaces/sync-cross-region.sh, dest: /usr/local/bin/shithub-spaces-sync }
+
+- name: rclone config dir
+  file:
+    path: /root/.config/rclone
+    state: directory
+    mode: "0700"
+
+- name: rclone config — Spaces credentials
+  template:
+    src: rclone.conf.j2
+    dest: /root/.config/rclone/rclone.conf
+    mode: "0600"
+
+- name: cron — daily logical backup
+  cron:
+    name: shithub-backup-daily
+    job: /usr/local/bin/shithub-backup-daily >> /var/log/shithub-backup.log 2>&1
+    minute: "17"
+    hour: "3"
+
+- name: cron — hourly cross-region sync
+  cron:
+    name: shithub-spaces-sync
+    job: /usr/local/bin/shithub-spaces-sync >> /var/log/shithub-spaces-sync.log 2>&1
+    minute: "23"
