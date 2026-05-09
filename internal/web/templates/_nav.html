@@ -14,6 +14,7 @@
   </nav>
   <div class="shithub-nav-actions">
   {{- if .Viewer.ID }}
+    <a href="/notifications" class="shithub-button shithub-button-ghost" title="Notifications" aria-label="Notifications">{{ octicon "bell" }}</a>
     <a href="/new" class="shithub-button shithub-button-ghost" title="New repository">+ New</a>
     <details class="shithub-user-menu">
       <summary aria-label="User menu" aria-haspopup="menu">
