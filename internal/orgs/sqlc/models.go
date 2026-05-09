@@ -1564,6 +1564,12 @@ type RepoRedirect struct {
 	RedirectedAt   pgtype.Timestamptz
 }
 
+type RepoTopic struct {
+	RepoID    int64
+	Topic     string
+	CreatedAt pgtype.Timestamptz
+}
+
 type RepoTransferRequest struct {
 	ID              int64
 	RepoID          int64
