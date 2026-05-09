@@ -58,6 +58,7 @@ func usernameLookup(pool *pgxpool.Pool) middleware.UserLookup {
 			Username:     u.Username,
 			SessionEpoch: u.SessionEpoch,
 			IsSuspended:  u.SuspendedAt.Valid,
+			IsSiteAdmin:  u.IsSiteAdmin,
 		}, nil
 	}
 }
