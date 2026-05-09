@@ -1,0 +1,30 @@
+## Managed by Ansible. WireGuard mesh used for monitoring traffic
+## (Prometheus scraping, Loki pushes) so the metrics ports never
+## have to be exposed on the public interface. The app listens on
+## 127.0.0.1; the wg0 interface gives the monitoring host a private
+## route to it.
+##
+## One peer per host. Add new hosts by appending a [Peer] block here
+## and rerunning the role; the address is allocated from 10.50.0.0/24.
+
+[Interface]
+PrivateKey = {{ wireguard_private_key }}
+Address    = {{ wireguard_address }}/24
+ListenPort = 51820
+SaveConfig = false
+
+# Lock the routing table down — only mesh traffic uses wg0.
+PostUp   = iptables -A INPUT -i wg0 -j ACCEPT
+PostDown = iptables -D INPUT -i wg0 -j ACCEPT
+
+{% for peer in wireguard_peers %}
+[Peer]
+# {{ peer.hostname }}
+PublicKey  = {{ peer.public_key }}
+AllowedIPs = {{ peer.address }}/32
+{% if peer.endpoint is defined %}
+Endpoint   = {{ peer.endpoint }}:51820
+PersistentKeepalive = 25
+{% endif %}
+
+{% endfor %}
