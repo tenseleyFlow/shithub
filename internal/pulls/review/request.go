@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/notif"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 )
 
@@ -42,10 +44,40 @@ func Request(ctx context.Context, deps Deps, p RequestParams) (pullsdb.PrReviewR
 			return pullsdb.PrReviewRequest{}, ErrReviewerAlreadyPending
 		}
 	}
-	return q.CreatePRReviewRequest(ctx, deps.Pool, pullsdb.CreatePRReviewRequestParams{
+	row, err := q.CreatePRReviewRequest(ctx, deps.Pool, pullsdb.CreatePRReviewRequestParams{
 		PrIssueID:         p.PRIssueID,
 		RequestedUserID:   pgtype.Int8{Int64: p.RequestedUserID, Valid: p.RequestedUserID != 0},
 		RequestedTeamID:   pgtype.Int8{Valid: false},
 		RequestedByUserID: pgtype.Int8{Int64: p.RequestedByUserID, Valid: p.RequestedByUserID != 0},
 	})
+	if err != nil {
+		return row, err
+	}
+	// S29: emit a domain event so the fan-out worker can route a
+	// `review_requested` notification to the requested reviewer.
+	// Best-effort — review-request side already succeeded; an emit
+	// failure is logged but doesn't fail the request (the fan-out
+	// worker isn't strict about ordering for this kind).
+	issue, ierr := issuesdb.New().GetIssueByID(ctx, deps.Pool, p.PRIssueID)
+	if ierr == nil {
+		var public bool
+		_ = deps.Pool.QueryRow(ctx,
+			`SELECT visibility = 'public' FROM repos WHERE id = $1`,
+			issue.RepoID,
+		).Scan(&public)
+		_ = notif.Emit(ctx, deps.Pool, notif.Event{
+			ActorUserID: p.RequestedByUserID,
+			Kind:        "review_requested",
+			RepoID:      issue.RepoID,
+			SourceKind:  "issue",
+			SourceID:    issue.ID,
+			Public:      public,
+			Extra: map[string]any{
+				"reviewer_user_id": p.RequestedUserID,
+				"issue_number":     issue.Number,
+				"issue_title":      issue.Title,
+			},
+		})
+	}
+	return row, nil
 }

@@ -124,7 +124,7 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 	}
 
 	// Render markdown for the cached body html.
-	html := renderBodyHTML(ctx, deps, p.Body)
+	html, mentions := renderBody(ctx, deps, p.Body)
 	row.BodyHtmlCached = pgtype.Text{String: html, Valid: html != ""}
 
 	if err := q.UpdateIssueTitleBody(ctx, tx, issuesdb.UpdateIssueTitleBodyParams{
@@ -136,6 +136,21 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 
 	if err := insertReferencesFromBody(ctx, tx, deps, row, p.Body, "issue_body", row.ID); err != nil {
 		return issuesdb.Issue{}, fmt.Errorf("refs: %w", err)
+	}
+
+	// Emit the domain event in the same tx as the issue row so a
+	// rollback drops both. Mention resolution happens *after* commit
+	// to avoid holding the row lock through user-id lookups; the
+	// fan-out worker reads payload.mentions to drive @-ping
+	// recipients.
+	mentionIDs := mentionUserIDs(ctx, deps.Pool, mentions)
+	repoVis, _ := repoVisibilityPublic(ctx, tx, p.RepoID)
+	eventKind := "issue_created"
+	if kind == "pr" {
+		eventKind = "pr_opened"
+	}
+	if err := emitIssueEventTx(ctx, tx, eventKind, row, p.AuthorUserID, repoVis, mentionIDs); err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("emit event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -185,7 +200,7 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 		return issuesdb.IssueComment{}, ErrIssueLocked
 	}
 
-	html := renderBodyHTML(ctx, deps, body)
+	html, mentions := renderBody(ctx, deps, body)
 
 	tx, err := deps.Pool.Begin(ctx)
 	if err != nil {
@@ -210,6 +225,16 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 
 	if err := insertReferencesFromBody(ctx, tx, deps, issue, body, "comment_body", c.ID); err != nil {
 		return issuesdb.IssueComment{}, err
+	}
+
+	mentionIDs := mentionUserIDs(ctx, deps.Pool, mentions)
+	repoVis, _ := repoVisibilityPublic(ctx, tx, issue.RepoID)
+	commentKind := "issue_comment_created"
+	if issue.Kind == issuesdb.IssueKindPr {
+		commentKind = "pr_comment_created"
+	}
+	if err := emitCommentEventTx(ctx, tx, commentKind, issue, c.ID, p.AuthorUserID, repoVis, mentionIDs); err != nil {
+		return issuesdb.IssueComment{}, fmt.Errorf("emit event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -269,6 +294,18 @@ func SetState(ctx context.Context, deps Deps, actorUserID, issueID int64, newSta
 		Meta:        emptyMeta,
 	}); err != nil {
 		return err
+	}
+	// Lifecycle domain event so the notif fan-out + S33 webhook
+	// pipeline pick up state changes the same way they pick up
+	// comments.
+	issue, _ := q.GetIssueByID(ctx, tx, issueID)
+	repoVis, _ := repoVisibilityPublic(ctx, tx, issue.RepoID)
+	stateKind := "issue_" + kind // issue_closed | issue_reopened
+	if issue.Kind == issuesdb.IssueKindPr {
+		stateKind = "pr_" + kind
+	}
+	if err := emitIssueEventTx(ctx, tx, stateKind, issue, actorUserID, repoVis, nil); err != nil {
+		return fmt.Errorf("emit event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -340,10 +377,26 @@ func SetLock(ctx context.Context, deps Deps, actorUserID, issueID int64, locked 
 // somewhere upstream regressed. The audit (S00-S25, M) flagged the
 // `_`-discard pattern as the kind of slop where a real bug could hide.
 func renderBodyHTML(ctx context.Context, deps Deps, body string) string {
-	html, err := mdrender.RenderHTML([]byte(body))
+	html, _ := renderBody(ctx, deps, body)
+	return html
+}
+
+// renderBody is the mention-aware variant. Returns the cleaned HTML
+// plus the resolved mentions list — callers that emit notification
+// events use the mentions to fan out @-pings. The `_` shimming under
+// renderBodyHTML keeps existing call sites that don't care about
+// mentions untouched.
+func renderBody(ctx context.Context, deps Deps, body string) (string, []mdrender.Mention) {
+	if body == "" {
+		return "", nil
+	}
+	html, _, mentions, err := mdrender.Render(ctx, []byte(body), mdrender.Options{
+		SoftBreakAsBR: true,
+	})
 	if err != nil && deps.Logger != nil {
 		deps.Logger.WarnContext(ctx, "issues: markdown render failed",
 			"error", err, "body_bytes", len(body))
+		return "", nil
 	}
-	return html
+	return string(html), mentions
 }

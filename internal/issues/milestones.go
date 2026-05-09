@@ -155,6 +155,13 @@ func AssignUser(ctx context.Context, deps Deps, actorUserID, issueID, userID int
 	}); err != nil {
 		return err
 	}
+	// S29: domain event so the fan-out worker can route an
+	// `assignment` notification to the assignee.
+	issue, _ := q.GetIssueByID(ctx, tx, issueID)
+	repoVis, _ := repoVisibilityPublic(ctx, tx, issue.RepoID)
+	if err := emitAssignmentEventTx(ctx, tx, issue, actorUserID, userID, repoVis); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
