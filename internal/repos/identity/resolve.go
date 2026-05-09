@@ -15,11 +15,9 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // identicon hash, not a security primitive
 	"encoding/hex"
-	"errors"
 	"strings"
 	"sync"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -35,22 +33,22 @@ import (
 // unverified row. The handler should render the raw author name with
 // a deterministic identicon fallback (IdenticonSeed).
 type Resolved struct {
-	User           bool
-	UserID         int64
-	Username       string
-	DisplayName    string
-	AvatarURL      string
-	IdenticonSeed  string
+	User          bool
+	UserID        int64
+	Username      string
+	DisplayName   string
+	AvatarURL     string
+	IdenticonSeed string
 }
 
 // Resolver resolves emails. Per-request memoization keeps a commits-
 // list page (30 commits, often one author) to one DB query. Construct
 // per request; do not share across requests.
 type Resolver struct {
-	pool   *pgxpool.Pool
-	q      *usersdb.Queries
-	cache  map[string]Resolved
-	mu     sync.Mutex
+	pool  *pgxpool.Pool
+	q     *usersdb.Queries
+	cache map[string]Resolved
+	mu    sync.Mutex
 }
 
 // New returns a fresh resolver tied to a pgx pool. Pass nil pool only
@@ -91,9 +89,9 @@ func (r *Resolver) Resolve(ctx context.Context, email string) Resolved {
 				out.DisplayName = user.DisplayName
 				out.AvatarURL = "/avatars/" + user.Username
 			}
-		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			// log? handler-side concern; we just fall through.
 		}
+		// Non-ErrNoRows errors fall through silently — logging is the
+		// handler's call, the resolver just doesn't fill the row.
 	}
 
 	r.mu.Lock()
