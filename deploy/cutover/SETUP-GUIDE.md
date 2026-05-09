@@ -92,18 +92,31 @@ DKIM may take 5–30 min to propagate. Other records refresh on
 their own. The verification turns green once all records are
 seen. Move on; come back to confirm.
 
-### A4. Generate Postmark API token
+### A4. Grab the Postmark API token
 
-After domain shows verified:
+You can do this immediately after creating the Server — domain
+verification is independent of token issuance.
 
 1. Postmark → **Servers** → **shithub-prod** → **API Tokens**
    tab.
 2. The default Server token shown there is what we'll use.
 3. **Copy it.** Keep in your password manager.
-4. **Sender from:** decide on the From address. Convention:
-   `shithub <noreply@shithub.sh>`. Postmark will accept any
-   address on the verified domain; no per-address signature
-   needed.
+
+**About the From address.** Postmark has no "Sender From" field
+on the Server — the From string lives in the body of each API
+call. Once your domain is DKIM-verified (Phase A2), every
+address `*@shithub.sh` is authorized to send; no per-address
+"Sender Signature" needed. We pass the literal From string to
+Postmark via the inventory in Phase D3:
+
+```
+email_from: shithub <noreply@shithub.sh>
+```
+
+The `noreply@` mailbox doesn't need to actually exist as an
+inbox — replies to it bounce, which is the documented behavior
+(`docs/public/user/notifications.md` notes that reply-by-email
+isn't supported).
 
 ### A5. Set up DNS for the app + docs subdomains
 
