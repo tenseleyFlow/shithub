@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -46,7 +47,13 @@ func Cmd(ctx context.Context, svc Service, gitDir string, advertiseRefs bool, ex
 	args = append(args, gitDir)
 	//nolint:gosec // G204: svc is an enum from a fixed set; gitDir is constructed via storage.RepoFS path validation.
 	cmd := exec.CommandContext(ctx, string(svc), args...)
-	cmd.Env = extraEnv
+	// Append, don't replace. The pre-receive / post-receive hooks
+	// re-invoke shithubd, which reads SHITHUB_DATABASE_URL etc. from
+	// the environment via config.Load. Without inheriting os.Environ
+	// the hook fails with "DB URL not set" on every push. Later
+	// entries win in Go's exec.Cmd, so the SHITHUB_USER_ID / etc.
+	// values in extraEnv override any conflicting parent-env keys.
+	cmd.Env = append(os.Environ(), extraEnv...)
 	cmd.WaitDelay = 250 * time.Millisecond
 	return cmd
 }
