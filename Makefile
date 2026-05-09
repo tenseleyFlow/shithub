@@ -82,6 +82,13 @@ lint-markdown: ## Enforce markdown-package boundary (no goldmark/bluemonday outs
 lint-secret-logs: ## Fail when source emits log lines containing token-prefix patterns.
 	@scripts/lint-secret-logs.sh
 
+bench-small: ## Run the bench harness against $$BENCH_TARGET (default localhost:8080).
+	@go run ./bench -target=$${BENCH_TARGET:-http://localhost:8080} -iters=$${BENCH_ITERS:-20}
+
+bench-full: ## Placeholder — runs nightly off-CI against big fixtures (see bench/fixtures/README.md).
+	@echo "bench-full: big-fixture generators land in a follow-up — see bench/fixtures/README.md"
+	@exit 0
+
 install-tools: ## Install development tools via 'go install'.
 	go install mvdan.cc/gofumpt@latest
 	go install golang.org/x/tools/cmd/goimports@latest
