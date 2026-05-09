@@ -1,0 +1,15 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# WireGuard peer config — droplet ↔ bare-metal monitoring host.
+- name: WireGuard — install
+  apt: { name: wireguard, state: present }
+
+- name: wg0.conf — render
+  template:
+    src: "{{ playbook_dir }}/../wireguard/wg0.conf.j2"
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+  notify: restart wg-quick
+
+- name: wg-quick@wg0 — enabled + started
+  systemd: { name: wg-quick@wg0, state: started, enabled: yes }
