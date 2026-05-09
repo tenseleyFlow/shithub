@@ -2,7 +2,7 @@
 # Targets mirror what CI runs. The Makefile is the source of truth.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev build test test-race lint lint-policy fmt tidy clean ci assets install-tools version
+.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-secret-logs fmt tidy clean ci assets install-tools version
 
 # Build metadata embedded into the binary via -ldflags.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -70,7 +70,7 @@ assets: ## Copy Primer CSS into internal/web/static/ for embedding.
 		echo "warn: .refs/primer-css/dist not found; run 'git clone https://github.com/primer/css .refs/primer-css' first"; \
 	fi
 
-ci: lint lint-policy lint-markdown test build ## Full CI pipeline (matches .github/workflows/ci.yml).
+ci: lint lint-policy lint-markdown lint-secret-logs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
 	@echo "ci: ok"
 
 lint-policy: ## Enforce policy-package boundary (no inline auth checks in handlers/git/cmd).
@@ -78,6 +78,9 @@ lint-policy: ## Enforce policy-package boundary (no inline auth checks in handle
 
 lint-markdown: ## Enforce markdown-package boundary (no goldmark/bluemonday outside internal/markdown).
 	@scripts/lint-markdown-boundary.sh
+
+lint-secret-logs: ## Fail when source emits log lines containing token-prefix patterns.
+	@scripts/lint-secret-logs.sh
 
 install-tools: ## Install development tools via 'go install'.
 	go install mvdan.cc/gofumpt@latest
