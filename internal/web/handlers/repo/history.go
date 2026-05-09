@@ -18,7 +18,6 @@ import (
 	diffrender "github.com/tenseleyFlow/shithub/internal/repos/diff/render"
 	diffsource "github.com/tenseleyFlow/shithub/internal/repos/diff/source"
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
-	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -55,7 +54,7 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	refs, _ := repogit.ListRefs(r.Context(), gitDir)
+	refs, _ := git.ListRefs(r.Context(), gitDir)
 	allNames := make([]string, 0, len(refs.Branches)+len(refs.Tags))
 	for _, b := range refs.Branches {
 		allNames = append(allNames, b.Name)
@@ -67,7 +66,7 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	ref := row.DefaultBranch
 	if rest != "" {
 		segs := strings.Split(rest, "/")
-		if matched, _, ok := repogit.ResolveRef(allNames, segs); ok {
+		if matched, _, ok := git.ResolveRef(allNames, segs); ok {
 			ref = matched
 		} else if len(segs[0]) == 40 && isHex(segs[0]) {
 			ref = segs[0]
@@ -88,7 +87,7 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	since := parseDateParam(q.Get("since"))
 	until := parseDateParam(q.Get("until"))
 
-	commits, err := repogit.Log(r.Context(), gitDir, repogit.LogOptions{
+	commits, err := git.Log(r.Context(), gitDir, git.LogOptions{
 		Ref:      ref,
 		MaxCount: perPage,
 		Skip:     (page - 1) * perPage,
@@ -148,9 +147,9 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	detail, err := repogit.GetCommit(r.Context(), gitDir, sha)
+	detail, err := git.GetCommit(r.Context(), gitDir, sha)
 	if err != nil {
-		if errors.Is(err, repogit.ErrCommitNotFound) {
+		if errors.Is(err, git.ErrCommitNotFound) {
 			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 			return
 		}
@@ -184,17 +183,17 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.d.Render.RenderPage(w, r, "repo/commit", map[string]any{
-		"Title":      detail.Subject + " · " + row.Name,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"Detail":     detail,
-		"Author":     author,
-		"Committer":  committer,
-		"BodyHTML":   template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
-		"DiffHTML":   diffHTML,
-		"DiffMode":   string(mode),
-		"HideWS":     hideWS,
+		"Title":     detail.Subject + " · " + row.Name,
+		"CSRFToken": middleware.CSRFTokenForRequest(r),
+		"Owner":     owner.Username,
+		"Repo":      row,
+		"Detail":    detail,
+		"Author":    author,
+		"Committer": committer,
+		"BodyHTML":  template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
+		"DiffHTML":  diffHTML,
+		"DiffMode":  string(mode),
+		"HideWS":    hideWS,
 	})
 }
 
@@ -205,12 +204,12 @@ func (h *Handlers) blameView(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	chunks, err := repogit.Blame(r.Context(), cc.gitDir, repogit.BlameOptions{
+	chunks, err := git.Blame(r.Context(), cc.gitDir, git.BlameOptions{
 		Ref:  cc.ref,
 		Path: cc.subpath,
 	})
-	tooLarge := errors.Is(err, repogit.ErrBlameTooLarge)
-	notBlob := errors.Is(err, repogit.ErrBlameOnBinary)
+	tooLarge := errors.Is(err, git.ErrBlameTooLarge)
+	notBlob := errors.Is(err, git.ErrBlameOnBinary)
 	if err != nil && !tooLarge && !notBlob {
 		h.d.Logger.WarnContext(r.Context(), "blame: Blame", "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
@@ -252,7 +251,7 @@ func (h *Handlers) commitsAtom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ref := chi.URLParam(r, "ref")
-	commits, err := repogit.Log(r.Context(), gitDir, repogit.LogOptions{
+	commits, err := git.Log(r.Context(), gitDir, git.LogOptions{
 		Ref: ref, MaxCount: 50,
 	})
 	if err != nil {
@@ -302,10 +301,10 @@ func parseDateParam(s string) time.Time {
 
 // linkifyCommitBody produces escaped + linkified HTML from a commit
 // message body. Two transformations:
-//   1. URL detection (http/https) → `<a href="...">URL</a>`
-//   2. Issue refs (`#NNN` and `owner/repo#NNN`) → `<span data-ref="...">…</span>`
-//      so the S21 issue layer can post-render-link them without
-//      re-rendering the page.
+//  1. URL detection (http/https) → `<a href="...">URL</a>`
+//  2. Issue refs (`#NNN` and `owner/repo#NNN`) → `<span data-ref="...">…</span>`
+//     so the S21 issue layer can post-render-link them without
+//     re-rendering the page.
 //
 // The output is HTML-escaped at every entry point — the only raw HTML
 // is the wrapper tags this function emits.
