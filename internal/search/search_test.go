@@ -108,7 +108,7 @@ func setup(t *testing.T) fxs {
 	pubRepo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
 		OwnerUserID:   pgtype.Int8{Int64: alice.ID, Valid: true},
 		Name:          "publicrepo",
-		Description:   "a public sample",
+		Description:   "a public repo sample",
 		DefaultBranch: "trunk",
 		Visibility:    reposdb.RepoVisibilityPublic,
 	})
@@ -118,7 +118,7 @@ func setup(t *testing.T) fxs {
 	prvRepo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
 		OwnerUserID:   pgtype.Int8{Int64: alice.ID, Valid: true},
 		Name:          "privaterepo",
-		Description:   "secrets here",
+		Description:   "private repo secrets here",
 		DefaultBranch: "trunk",
 		Visibility:    reposdb.RepoVisibilityPrivate,
 	})
@@ -135,7 +135,7 @@ func setup(t *testing.T) fxs {
 	idep := issues.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := issues.Create(ctx, idep, issues.CreateParams{
 		RepoID: pubRepo.ID, AuthorUserID: alice.ID,
-		Title: "public bug report", Body: "nothing secret",
+		Title: "public bug report", Body: "nothing sensitive",
 	}); err != nil {
 		t.Fatalf("Create issue pub: %v", err)
 	}

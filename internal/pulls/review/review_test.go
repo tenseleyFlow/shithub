@@ -442,7 +442,7 @@ func TestPositionMap_ContentAware(t *testing.T) {
 
 	// Sanity counter-test: a comment on an unchanged line should stay
 	// anchored. Open a fresh PR for cleanliness.
-	commitOnBranch(t, f.gitDir, "trunk2", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "trunk2", "init", "README2.md", "hi\n")
 	commitOnBranch(t, f.gitDir, "feature2", "add", "y.txt", "alpha\nbravo\ncharlie\n")
 	pr2 := f.openPR(t, "trunk2", "feature2")
 	c2, err := review.AddComment(ctx, f.reviewDeps, review.CommentParams{
