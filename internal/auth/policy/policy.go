@@ -31,9 +31,9 @@ const (
 	DenyRepoDeleted
 	DenyActorSuspended
 	DenyArchived
-	DenyVisibility    // anonymous-or-non-collab on a private repo
-	DenyRoleTooLow    // logged-in but role insufficient
-	DenyAnonymous     // login required (e.g. star/fork)
+	DenyVisibility // anonymous-or-non-collab on a private repo
+	DenyRoleTooLow // logged-in but role insufficient
+	DenyAnonymous  // login required (e.g. star/fork)
 	DenyDBError
 	// DenyOrgSuspended is returned for write actions on a repo whose
 	// owning org is currently suspended. Reads stay allowed (the spec
@@ -56,6 +56,7 @@ type Decision struct {
 // allow / deny are convenience constructors used by the rule engine
 // below to keep each branch one short line.
 func allow(reason string) Decision { return Decision{Allow: true, Reason: reason} }
+
 func deny(code DenyCode, reason string) Decision {
 	return Decision{Allow: false, Reason: reason, Code: code}
 }
@@ -139,7 +140,8 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	if repo.OwnerOrgID != 0 && isWriteAction(action) {
 		if d.Pool != nil {
 			var suspended bool
-			err := d.Pool.QueryRow(ctx,
+			err := d.Pool.QueryRow(
+				ctx,
 				`SELECT suspended_at IS NOT NULL FROM orgs WHERE id = $1`,
 				repo.OwnerOrgID,
 			).Scan(&suspended)
@@ -242,7 +244,8 @@ func effectiveRole(ctx context.Context, d Deps, actor Actor, repo RepoRef) (Role
 	// indexed on (org_id, user_id) — same cost as the collab lookup.
 	if repo.OwnerOrgID != 0 {
 		var dbOrgRole string
-		err := d.Pool.QueryRow(ctx,
+		err := d.Pool.QueryRow(
+			ctx,
 			`SELECT role::text FROM org_members WHERE org_id = $1 AND user_id = $2`,
 			repo.OwnerOrgID, actor.UserID,
 		).Scan(&dbOrgRole)
@@ -370,7 +373,6 @@ func teamRepoRoleToPolicyRole(s string) Role {
 	return RoleNone
 }
 
-
 // minRoleFor returns the minimum collaborator role required for the
 // action against an existing repo. Owner is implicit admin, so this
 // table is the single source of truth for "what role grants what."
@@ -419,10 +421,6 @@ func minRoleFor(action Action) Role {
 		return RoleAdmin
 	}
 }
-
-// errBadAction is returned by Can when a caller passes a value that
-// doesn't match any registered Action. Reserved for tests.
-var errBadAction = errors.New("policy: unregistered action")
 
 // EffectiveRole returns the actor's resolved role on repo, taking
 // owner-equals-admin into account and consulting the per-request cache.
