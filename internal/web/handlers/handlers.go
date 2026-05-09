@@ -90,6 +90,16 @@ type Deps struct {
 	// Both are public — visibility scoping is done inside the
 	// search package via policy.VisibilityPredicate.
 	SearchMounter func(chi.Router)
+	// NotifInboxMounter registers the per-viewer notification inbox
+	// + thread-subscribe + mark-read routes (S29). RequireUser is
+	// applied inside the wiring layer because every route in the
+	// set is per-recipient.
+	NotifInboxMounter func(chi.Router)
+	// NotifPublicMounter registers the unauthenticated one-click
+	// unsubscribe endpoint (S29). HMAC-signed URL = no session
+	// needed, so the route lives in the public group alongside
+	// /healthz / /static.
+	NotifPublicMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -162,6 +172,12 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		if deps.AvatarMounter != nil {
 			deps.AvatarMounter(r)
 		}
+		// One-click unsubscribe lands in the public group (no CSRF,
+		// no session) — RFC 8058 mailers click it from arbitrary
+		// agents.
+		if deps.NotifPublicMounter != nil {
+			deps.NotifPublicMounter(r)
+		}
 	})
 
 	// Smart-HTTP git routes get their own group: NO CSRF (HTTP Basic
@@ -222,6 +238,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.SearchMounter != nil {
 			deps.SearchMounter(r)
+		}
+		if deps.NotifInboxMounter != nil {
+			deps.NotifInboxMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

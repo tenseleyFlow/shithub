@@ -1,0 +1,61 @@
+{{ define "page" -}}
+<section class="shithub-notifications">
+  <header class="shithub-notifications-head">
+    <h1>Notifications</h1>
+    <nav class="shithub-tabs">
+      <a href="/notifications" class="shithub-button {{ if ne .Filter "unread" }}shithub-button-primary{{ end }}">All</a>
+      <a href="/notifications?filter=unread" class="shithub-button {{ if eq .Filter "unread" }}shithub-button-primary{{ end }}">Unread ({{ .UnreadCount }})</a>
+    </nav>
+    {{ if .Notifications }}
+    <form method="post" action="/notifications/mark-all-read" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <button type="submit" class="shithub-button">Mark all read</button>
+    </form>
+    {{ end }}
+  </header>
+
+  {{ if .Notifications }}
+    <ul class="shithub-notifications-list">
+      {{ range .Notifications }}
+      <li class="shithub-notification-row {{ if .Unread }}is-unread{{ end }}">
+        <div class="shithub-notification-meta">
+          <span class="shithub-pill shithub-pill-reason">{{ .Reason }}</span>
+          {{ if .RepoOwnerUsername }}
+            <a href="/{{ .RepoOwnerUsername }}/{{ .RepoName }}">{{ .RepoOwnerUsername }}/{{ .RepoName }}</a>
+          {{ end }}
+        </div>
+        <div class="shithub-notification-body">
+          {{ if .ThreadNumber }}
+            <a href="/{{ .RepoOwnerUsername }}/{{ .RepoName }}/{{ if eq (printf "%s" .ThreadKind.NotificationThreadKind) "pr" }}pulls{{ else }}issues{{ end }}/{{ .ThreadNumber }}">
+              <strong>#{{ .ThreadNumber }} {{ .ThreadTitle }}</strong>
+            </a>
+          {{ else }}
+            <strong>{{ .Kind }}</strong>
+          {{ end }}
+          <small>by @{{ .ActorUsername }} · {{ relativeTime .LastEventAt.Time }}</small>
+        </div>
+        <div class="shithub-notification-actions">
+          {{ if .Unread }}
+          <form method="post" action="/notifications/{{ .ID }}/read" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button">Mark read</button>
+          </form>
+          {{ else }}
+          <form method="post" action="/notifications/{{ .ID }}/unread" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button">Mark unread</button>
+          </form>
+          {{ end }}
+        </div>
+      </li>
+      {{ end }}
+    </ul>
+    <nav class="shithub-pagination">
+      {{ if .HasPrev }}<a href="?filter={{ .Filter }}&page={{ sub .Page 1 }}">&larr; Newer</a>{{ end }}
+      {{ if .HasNext }}<a href="?filter={{ .Filter }}&page={{ add .Page 1 }}">Older &rarr;</a>{{ end }}
+    </nav>
+  {{ else }}
+    <p class="shithub-empty">{{ if eq .Filter "unread" }}Nothing unread.{{ else }}No notifications.{{ end }}</p>
+  {{ end }}
+</section>
+{{- end }}

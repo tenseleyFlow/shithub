@@ -213,6 +213,18 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.SearchMounter = searchH.Mount
 
+		notifH, err := buildNotifHandlers(cfg, pool, deps.TemplatesFS, logger)
+		if err != nil {
+			return fmt.Errorf("notif handlers: %w", err)
+		}
+		deps.NotifInboxMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				notifH.MountAuthed(r)
+			})
+		}
+		deps.NotifPublicMounter = notifH.MountPublic
+
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
