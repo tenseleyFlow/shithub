@@ -33,6 +33,10 @@ type Resolvers struct {
 	// "/owner/repo/commit/<full_sha>". Only invoked when
 	// Opts.Repo != nil.
 	Commit func(ctx context.Context, repoOwner, repoName, shaPrefix string) (href, fullSHA string, ok bool)
+	// Team: @org/team → "/org/teams/team". Visibility-aware: a
+	// secret team the viewer can't see should return ok=false so
+	// the renderer falls back to plain text. (S31)
+	Team func(ctx context.Context, orgSlug, teamSlug string, viewerUserID int64) (href string, ok bool)
 }
 
 // Options tunes a single Render call. Zero-value Options is valid

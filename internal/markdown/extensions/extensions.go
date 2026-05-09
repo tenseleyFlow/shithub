@@ -50,6 +50,11 @@ type Resolvers struct {
 	// (a same-repo render) and the matched token is a 7-40 char
 	// lowercase hex string at a word boundary.
 	Commit func(ctx context.Context, repoOwner, repoName, shaPrefix string) (href, fullSHA string, ok bool)
+	// Team resolves an `@org/team` mention to the team page link.
+	// Visibility-aware: a secret team the viewer can't see should
+	// return `ok=false` so the renderer falls back to plain text
+	// (no existence leak).
+	Team func(ctx context.Context, orgSlug, teamSlug string, viewerUserID int64) (href string, ok bool)
 }
 
 // Options is the per-render config consumed by the transformer.
@@ -82,26 +87,33 @@ type Mention struct {
 }
 
 // reCombined matches every pattern in one pass. Order in the
-// alternation is by how they appear in source after parsing — left
-// to right. Capture groups:
+// alternation matters because the `@org/team` branch is more
+// specific than `@user` and must come first — otherwise `@org` is
+// captured by the user branch and the trailing `/team` is left
+// behind as unstructured text.
 //
-//	(?:^|[^\w/])     leading boundary (consumed but reattached as text)
-//	#1               cross-repo: owner / repo / number
-//	#4               same-repo: number
-//	#5               mention: username
-//	#6               commit prefix
-//	#7               emoji name
+// Capture-index map (each MatchAllSubmatchIndex hit is a flat slice;
+// indices below are the START of the named group):
+//
+//	#2 / #4 / #6      cross-repo:   owner / repo / number
+//	#8                same-repo:    number
+//	#10 / #12         team mention: org / team   (S31)
+//	#14               user mention: username
+//	#16               commit prefix
+//	#18               emoji name
 var reCombined = regexp.MustCompile(`` +
 	// cross-repo: alice/proj#3 — left boundary required so we don't
-	// chew into a preceding word (e.g. `xfoo/bar#3` should not be a
-	// match of `foo/bar#3`). Mirrors the same-repo / mention shape;
-	// the audit caught the asymmetry (S00-S25, M).
+	// chew into a preceding word.
 	`(?:^|[^\w/])([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)#([0-9]{1,9})\b` +
-	// or same-repo: #3 — must have non-word non-/ boundary on the left
+	// or same-repo: #3
 	`|(?:^|[^\w/])#([0-9]{1,9})\b` +
-	// or mention: @alice — must have non-word boundary on the left
+	// or team mention: @org/team — comes BEFORE @user so the
+	// trailing `/team` doesn't get split off as text. Slug shape
+	// matches users.username + teams.slug.
+	`|(?:^|[^\w])@([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)/([a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?)\b` +
+	// or user mention: @alice
 	`|(?:^|[^\w])@([A-Za-z0-9][A-Za-z0-9_-]{0,38})\b` +
-	// or commit SHA: 7–40 lowercase hex, word-boundary on both sides
+	// or commit SHA: 7–40 lowercase hex
 	`|(?:^|[^\w/])([0-9a-f]{7,40})\b` +
 	// or emoji shortcode: :smile:
 	`|:([a-z0-9_+\-]+):`,
@@ -169,11 +181,12 @@ func (t *transformer) replaceText(txt *ast.Text, source []byte) {
 		// content starts (excluding the regex-consumed boundary
 		// char, if any).
 		var (
-			isCrossRepo = m[2] >= 0
-			isSameRepo  = m[8] >= 0
-			isMention   = m[10] >= 0
-			isCommit    = m[12] >= 0
-			isEmoji     = m[14] >= 0
+			isCrossRepo  = m[2] >= 0
+			isSameRepo   = m[8] >= 0
+			isTeamMen    = m[10] >= 0
+			isMention    = m[14] >= 0
+			isCommit     = m[16] >= 0
+			isEmoji      = m[18] >= 0
 		)
 		var contentStart int
 		switch {
@@ -184,12 +197,14 @@ func (t *transformer) replaceText(txt *ast.Text, source []byte) {
 			contentStart = m[2]
 		case isSameRepo:
 			contentStart = m[8] - 1 // include `#`
-		case isMention:
+		case isTeamMen:
 			contentStart = m[10] - 1 // include `@`
+		case isMention:
+			contentStart = m[14] - 1 // include `@`
 		case isCommit:
-			contentStart = m[12]
+			contentStart = m[16]
 		case isEmoji:
-			contentStart = m[14] - 1 // include leading `:`
+			contentStart = m[18] - 1 // include leading `:`
 		}
 
 		// Emit (a) any text between the previous cursor and the
@@ -218,18 +233,24 @@ func (t *transformer) replaceText(txt *ast.Text, source []byte) {
 			if !t.appendIssueLink(parent, txt, "", "", numStr, display) {
 				t.insertText(parent, txt, display)
 			}
+		case isTeamMen:
+			orgSlug := string(body[m[10]:m[11]])
+			teamSlug := string(body[m[12]:m[13]])
+			if !t.appendTeamMentionLink(parent, txt, orgSlug, teamSlug, display) {
+				t.insertText(parent, txt, display)
+			}
 		case isMention:
-			name := string(body[m[10]:m[11]])
+			name := string(body[m[14]:m[15]])
 			if !t.appendMentionLink(parent, txt, name, display) {
 				t.insertText(parent, txt, display)
 			}
 		case isCommit:
-			sha := string(body[m[12]:m[13]])
+			sha := string(body[m[16]:m[17]])
 			if !t.appendCommitLink(parent, txt, sha, display) {
 				t.insertText(parent, txt, display)
 			}
 		case isEmoji:
-			name := string(body[m[14]:m[15]])
+			name := string(body[m[18]:m[19]])
 			if uni, ok := lookupEmoji(name); ok {
 				t.insertText(parent, txt, []byte(uni))
 			} else {
@@ -286,6 +307,25 @@ func (t *transformer) appendIssueLink(parent, before ast.Node, owner, repo, numS
 			Href:   href,
 		})
 	}
+	return true
+}
+
+// appendTeamMentionLink resolves an @org/team and inserts a Link
+// node. Returns false on any failure (unknown org, secret team
+// invisible to viewer, no resolver wired) — the caller renders the
+// matched text as-is.
+func (t *transformer) appendTeamMentionLink(parent, before ast.Node, orgSlug, teamSlug string, display []byte) bool {
+	if t.opts.Resolvers.Team == nil {
+		return false
+	}
+	href, ok := t.opts.Resolvers.Team(t.opts.Ctx, orgSlug, teamSlug, t.opts.ViewerUserID)
+	if !ok {
+		return false
+	}
+	link := ast.NewLink()
+	link.Destination = []byte(href)
+	link.AppendChild(link, ast.NewString(append([]byte(nil), display...)))
+	parent.InsertBefore(parent, before, link)
 	return true
 }
 

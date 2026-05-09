@@ -59,6 +59,7 @@ func Render(ctx context.Context, src []byte, opts Options) (rendered []byte, ref
 			User:   opts.Resolvers.User,
 			Issue:  opts.Resolvers.Issue,
 			Commit: opts.Resolvers.Commit,
+			Team:   opts.Resolvers.Team,
 		},
 	}
 	if opts.Repo != nil {

@@ -219,6 +219,32 @@ func TestRender_MentionResolution(t *testing.T) {
 	}
 }
 
+// TestRender_TeamMentionResolution: @org/team renders via the Team
+// resolver and falls back to plain text when the resolver declines
+// (e.g. secret team invisible to viewer). S31.
+func TestRender_TeamMentionResolution(t *testing.T) {
+	t.Parallel()
+	teamResolver := func(_ context.Context, org, team string, _ int64) (string, bool) {
+		if org == "acme" && team == "eng" {
+			return "/acme/teams/eng", true
+		}
+		return "", false
+	}
+	out, _, _, err := Render(context.Background(), []byte("ping @acme/eng and @acme/secret here"), Options{
+		Resolvers: Resolvers{Team: teamResolver},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `href="/acme/teams/eng"`) {
+		t.Errorf("expected @acme/eng link, got %q", s)
+	}
+	if strings.Contains(s, `href="/acme/teams/secret"`) {
+		t.Errorf("@acme/secret should not link, got %q", s)
+	}
+}
+
 // TestRender_IssueRefResolution checks both same-repo and cross-repo
 // refs, and that an unresolvable ref renders as plain text (no link).
 func TestRender_IssueRefResolution(t *testing.T) {
