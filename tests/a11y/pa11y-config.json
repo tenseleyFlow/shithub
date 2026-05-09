@@ -1,0 +1,30 @@
+{
+  "_comment": "pa11y-ci configuration. Run via `npx pa11y-ci --config tests/a11y/pa11y-config.json` against a running shithub instance. The default URL list targets the home + auth surfaces; sign-in-required pages are configured separately because pa11y-ci doesn't manage cookies — for those, use the axe-core runner instead.",
+  "defaults": {
+    "standard": "WCAG2AA",
+    "timeout": 30000,
+    "wait": 500,
+    "ignore": [
+      "WCAG2AA.Principle1.Guideline1_3.1_3_1.H49.AlignAttr",
+      "WCAG2AA.Principle3.Guideline3_2.3_2_2.H32.2"
+    ],
+    "viewport": {
+      "width": 1280,
+      "height": 1024
+    },
+    "chromeLaunchConfig": {
+      "args": [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage"
+      ]
+    }
+  },
+  "urls": [
+    "http://127.0.0.1:8080/",
+    "http://127.0.0.1:8080/signup",
+    "http://127.0.0.1:8080/login",
+    "http://127.0.0.1:8080/explore",
+    "http://127.0.0.1:8080/-/health"
+  ]
+}
