@@ -1,0 +1,79 @@
+/* Minimal mdBook theme overrides — keep the default chrome and just
+   align colors and a couple of spacings with the shithub app's
+   Primer-ish palette so the docs site doesn't feel disconnected. */
+
+:root {
+    --shithub-accent:        #1f6feb;
+    --shithub-accent-subtle: #ddf4ff;
+}
+
+.shithub {
+    --bg:        #ffffff;
+    --fg:        #1f2328;
+    --sidebar-bg:        #f6f8fa;
+    --sidebar-fg:        #1f2328;
+    --sidebar-non-existant: #a0a0a0;
+    --sidebar-active:    var(--shithub-accent);
+    --sidebar-spacer:    #d0d7de;
+    --scrollbar:         #d0d7de;
+    --icons:             #57606a;
+    --icons-hover:       #1f2328;
+    --links:             var(--shithub-accent);
+    --inline-code-color: #cf222e;
+    --theme-popup-bg:    #ffffff;
+    --theme-popup-border:#d0d7de;
+    --theme-hover:       #f3f4f6;
+    --quote-bg:          #f6f8fa;
+    --quote-border:      #d0d7de;
+    --table-border-color:#d0d7de;
+    --table-header-bg:   #f6f8fa;
+    --table-alternate-bg:#f6f8fa;
+    --searchbar-border-color: #d0d7de;
+    --searchbar-bg:      #ffffff;
+    --searchbar-fg:      #1f2328;
+    --searchbar-shadow-color: rgba(0,0,0,0.05);
+    --searchresults-header-fg: #57606a;
+    --searchresults-border-color: #d0d7de;
+    --searchresults-li-bg: #f6f8fa;
+    --search-mark-bg:    var(--shithub-accent-subtle);
+}
+
+.shithub-dark {
+    --bg:        #0d1117;
+    --fg:        #c9d1d9;
+    --sidebar-bg:        #161b22;
+    --sidebar-fg:        #c9d1d9;
+    --sidebar-non-existant: #6e7681;
+    --sidebar-active:    #58a6ff;
+    --sidebar-spacer:    #30363d;
+    --scrollbar:         #30363d;
+    --icons:             #8b949e;
+    --icons-hover:       #c9d1d9;
+    --links:             #58a6ff;
+    --inline-code-color: #ff7b72;
+    --theme-popup-bg:    #161b22;
+    --theme-popup-border:#30363d;
+    --theme-hover:       #1f242c;
+    --quote-bg:          #161b22;
+    --quote-border:      #30363d;
+    --table-border-color:#30363d;
+    --table-header-bg:   #161b22;
+    --table-alternate-bg:#161b22;
+    --searchbar-border-color: #30363d;
+    --searchbar-bg:      #0d1117;
+    --searchbar-fg:      #c9d1d9;
+    --searchbar-shadow-color: rgba(0,0,0,0.3);
+    --searchresults-header-fg: #8b949e;
+    --searchresults-border-color: #30363d;
+    --searchresults-li-bg: #161b22;
+    --search-mark-bg:    #1f6feb33;
+}
+
+.content code {
+    font-size: 0.9em;
+}
+
+.content pre code {
+    font-size: 0.85em;
+    line-height: 1.45;
+}

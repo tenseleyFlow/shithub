@@ -1,0 +1,39 @@
+# mdBook configuration for the public docs site at docs.shithub.tld.
+# Built by `make docs` and synced into Spaces; Caddy serves from there
+# (see deploy/docs-site/Caddyfile.snippet).
+
+[book]
+title       = "shithub docs"
+authors     = ["the shithub project"]
+description = "User, API, and self-host documentation for shithub."
+language    = "en"
+src         = "."
+multilingual = false
+
+[build]
+build-dir = "../../build/docs"
+create-missing = false
+
+[output.html]
+default-theme = "shithub"
+preferred-dark-theme = "shithub-dark"
+git-repository-url = "https://github.com/tenseleyFlow/shithub"
+git-repository-icon = "fa-github"
+edit-url-template = "https://github.com/tenseleyFlow/shithub/edit/main/docs/public/{path}"
+no-section-label = false
+additional-css = ["theme/shithub.css"]
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+copy-js = true
+
+[output.html.fold]
+enable = true
+level = 1
