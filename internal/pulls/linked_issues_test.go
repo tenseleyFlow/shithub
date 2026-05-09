@@ -26,7 +26,7 @@ func TestParseLinkedIssues(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := parseLinkedIssues(c.body)
-			if !reflect.DeepEqual(got, c.want) && !(len(got) == 0 && len(c.want) == 0) {
+			if !reflect.DeepEqual(got, c.want) && (len(got) != 0 || len(c.want) != 0) {
 				t.Errorf("body %q: got %v, want %v", c.body, got, c.want)
 			}
 		})
