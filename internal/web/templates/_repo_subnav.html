@@ -1,23 +1,23 @@
 {{ define "repo-subnav" -}}
 <nav class="shithub-repo-subnav" aria-label="Repository sections">
   <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "code" }} is-active{{ end }}">
-    {{ octicon "directory" }} Code
+    {{ octicon "code" }} Code
   </a>
   <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "issues" }} is-active{{ end }}">
-    {{ octicon "alert" }} Issues
+    {{ octicon "issue-opened" }} Issues
     {{ with .RepoCounts.Issues }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
   <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "pulls" }} is-active{{ end }}">
-    {{ octicon "submodule" }} Pull requests
+    {{ octicon "git-pull-request" }} Pull requests
     {{ with .RepoCounts.Pulls }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
   <a href="/{{ .Owner }}/{{ .Repo.Name }}/forks" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "forks" }} is-active{{ end }}">
-    {{ octicon "submodule" }} Forks
+    {{ octicon "repo-forked" }} Forks
     {{ with .RepoCounts.Forks }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
   {{ if .CanSettings }}
   <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "settings" }} is-active{{ end }}">
-    {{ octicon "directory" }} Settings
+    {{ octicon "gear" }} Settings
   </a>
   {{ end }}
 </nav>

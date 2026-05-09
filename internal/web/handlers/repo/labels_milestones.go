@@ -35,6 +35,9 @@ func (h *Handlers) labelsList(w http.ResponseWriter, r *http.Request) {
 		"Labels":         labels,
 		"CanManageIssue": canManage,
 		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"RepoCounts":     h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":    h.canViewSettings(viewer),
+		"ActiveSubnav":   "issues",
 	})
 }
 
@@ -134,6 +137,9 @@ func (h *Handlers) milestonesList(w http.ResponseWriter, r *http.Request) {
 		"Milestones":     ms,
 		"CanManageIssue": canManage,
 		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"RepoCounts":     h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":    h.canViewSettings(viewer),
+		"ActiveSubnav":   "issues",
 	})
 }
 

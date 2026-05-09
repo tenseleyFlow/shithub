@@ -1,18 +1,8 @@
 {{ define "page" -}}
-<section class="shithub-repo-empty">
-  <header class="shithub-repo-empty-head">
-    <h1>
-      <a href="/{{ .Owner }}">{{ .Owner }}</a>
-      <span class="shithub-repo-empty-sep">/</span>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
-      {{ if eq (printf "%s" .Repo.Visibility) "private" }}
-        <span class="shithub-pill shithub-pill-private">private</span>
-      {{ else }}
-        <span class="shithub-pill">public</span>
-      {{ end }}
-    </h1>
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-repo-empty">
     {{ if .Repo.Description }}<p class="shithub-repo-empty-desc">{{ .Repo.Description }}</p>{{ end }}
-  </header>
 
   <div class="shithub-repo-empty-quickstart">
     <h2>Quick setup — if you've done this kind of thing before</h2>
@@ -36,5 +26,6 @@
 git branch -M {{ .DefaultBranch }}
 git push -u origin {{ .DefaultBranch }}</code></pre>
   </div>
+  </section>
 </section>
 {{- end }}

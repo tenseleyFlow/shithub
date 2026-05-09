@@ -1,104 +1,117 @@
 {{ define "page" -}}
 <section class="shithub-repo-page">
-  <header class="shithub-repo-page-head">
-    <h1 class="shithub-repo-page-title">
-      <a href="/{{ .Owner }}">{{ .Owner }}</a>
-      <span class="shithub-code-sep">/</span>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Repo.Name }}</a>
-      {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ else }}<span class="shithub-pill">public</span>{{ end }}
-    </h1>
-  </header>
-  {{ template "repo-subnav" . }}
+  {{ template "repo-header" . }}
 
-<div class="shithub-repo-with-sidebar">
-<div class="shithub-repo-main">
-<section class="shithub-code">
-  <header class="shithub-code-head">
-    <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
-      {{ range $i, $c := .Crumbs }}
-        {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
-        <a href="{{ $c.URL }}">{{ $c.Name }}</a>
-      {{ end }}
-    </nav>
-    <div class="shithub-code-actions">
-      <details class="shithub-ref-switcher">
-        <summary>{{ .Ref }}</summary>
-        <div class="shithub-ref-panel">
-          {{ if .Branches }}
-          <strong>Branches</strong>
-          {{ range .Branches }}
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
+  <div class="shithub-repo-content-grid">
+    <main class="shithub-repo-main">
+      <section class="shithub-code">
+        <header class="shithub-code-head">
+          <div class="shithub-code-primary-actions">
+            <details class="shithub-ref-switcher">
+              <summary>{{ octicon "git-branch" }} {{ .Ref }}</summary>
+              <div class="shithub-ref-panel">
+                {{ if .Branches }}
+                <strong>Branches</strong>
+                {{ range .Branches }}
+                <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
+                {{ end }}
+                {{ end }}
+                {{ if .Tags }}
+                <strong>Tags</strong>
+                {{ range .Tags }}
+                <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
+                {{ end }}
+                {{ end }}
+              </div>
+            </details>
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/branches" class="shithub-code-count">{{ octicon "git-branch" }} {{ len .Branches }} Branches</a>
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/tags" class="shithub-code-count">{{ octicon "tag" }} {{ len .Tags }} Tags</a>
+          </div>
+          <div class="shithub-code-actions">
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-button">Go to file</a>
+            <details class="shithub-clone-dropdown">
+              <summary class="shithub-button shithub-button-primary">{{ octicon "code" }} Code</summary>
+              <div class="shithub-clone-panel" role="dialog" aria-label="Clone this repository">
+                <div class="shithub-clone-row">
+                  <label for="clone-https">Clone with HTTPS</label>
+                  <div class="shithub-clone-input">
+                    <input id="clone-https" type="text" readonly value="{{ .HTTPSCloneURL }}" onclick="this.select()">
+                    <button type="button" class="shithub-button" data-clone-copy="#clone-https" title="Copy">{{ octicon "copy" }}</button>
+                  </div>
+                </div>
+                {{ if .SSHEnabled }}
+                <div class="shithub-clone-row">
+                  <label for="clone-ssh">Clone with SSH</label>
+                  <div class="shithub-clone-input">
+                    <input id="clone-ssh" type="text" readonly value="{{ .SSHCloneURL }}" onclick="this.select()">
+                    <button type="button" class="shithub-button" data-clone-copy="#clone-ssh" title="Copy">{{ octicon "copy" }}</button>
+                  </div>
+                </div>
+                {{ end }}
+                <p class="shithub-clone-hint">Use Git or checkout with SVN using the web URL.</p>
+              </div>
+            </details>
+          </div>
+        </header>
+
+        {{ if .Path }}
+        <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
+          {{ range $i, $c := .Crumbs }}
+            {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
+            <a href="{{ $c.URL }}">{{ $c.Name }}</a>
           {{ end }}
-          {{ end }}
-          {{ if .Tags }}
-          <strong>Tags</strong>
-          {{ range .Tags }}
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Name }}">{{ .Name }}</a>
-          {{ end }}
-          {{ end }}
-        </div>
-      </details>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-button">Go to file</a>
-      <details class="shithub-clone-dropdown">
-        <summary class="shithub-button shithub-button-primary">{{ octicon "download" }} Code</summary>
-        <div class="shithub-clone-panel" role="dialog" aria-label="Clone this repository">
-          <div class="shithub-clone-row">
-            <label for="clone-https">Clone with HTTPS</label>
-            <div class="shithub-clone-input">
-              <input id="clone-https" type="text" readonly value="{{ .HTTPSCloneURL }}" onclick="this.select()">
-              <button type="button" class="shithub-button" data-clone-copy="#clone-https" title="Copy">{{ octicon "copy" }}</button>
+        </nav>
+        {{ end }}
+
+        <div class="shithub-tree-panel">
+          {{ if .HeadFound }}
+          <div class="shithub-tree-commit">
+            <div class="shithub-tree-commit-message">
+              <strong>{{ .Head.AuthorName }}</strong>
+              <span>{{ .Head.Subject }}</span>
+            </div>
+            <div class="shithub-tree-commit-meta">
+              <code title="{{ .Head.OID }}">{{ slice .Head.OID 0 7 }}</code>
+              <time datetime="{{ .Head.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Head.AuthorWhen }}</time>
             </div>
           </div>
-          {{ if .SSHEnabled }}
-          <div class="shithub-clone-row">
-            <label for="clone-ssh">Clone with SSH</label>
-            <div class="shithub-clone-input">
-              <input id="clone-ssh" type="text" readonly value="{{ .SSHCloneURL }}" onclick="this.select()">
-              <button type="button" class="shithub-button" data-clone-copy="#clone-ssh" title="Copy">{{ octicon "copy" }}</button>
-            </div>
-          </div>
           {{ end }}
-          <p class="shithub-clone-hint">Use Git or checkout with SVN using the web URL.</p>
+          <table class="shithub-tree">
+            <tbody>
+              {{ range .Entries }}
+              <tr>
+                <td class="shithub-tree-icon" aria-hidden="true">
+                  {{ if eq (printf "%s" .Kind) "tree" }}{{ octicon "directory" }}
+                  {{ else if eq (printf "%s" .Kind) "commit" }}{{ octicon "submodule" }}
+                  {{ else if eq (printf "%s" .Kind) "symlink" }}{{ octicon "symlink" }}
+                  {{ else }}{{ octicon "file" }}{{ end }}
+                </td>
+                <td class="shithub-tree-name">
+                  {{ if eq (printf "%s" .Kind) "tree" }}
+                  <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
+                  {{ else if eq (printf "%s" .Kind) "blob" }}
+                  <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
+                  {{ else if eq (printf "%s" .Kind) "symlink" }}
+                  {{ .Name }} <em class="shithub-tree-symlink">(symlink)</em>
+                  {{ else }}
+                  {{ .Name }} <em class="shithub-tree-submodule">@ {{ slice .OID 0 7 }}</em>
+                  {{ end }}
+                </td>
+                <td class="shithub-tree-size">{{ if gt .Size 0 }}{{ .Size }}{{ end }}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
         </div>
-      </details>
-    </div>
-  </header>
-
-  <table class="shithub-tree">
-    <tbody>
-      {{ range .Entries }}
-      <tr>
-        <td class="shithub-tree-icon" aria-hidden="true">
-          {{ if eq (printf "%s" .Kind) "tree" }}{{ octicon "directory" }}
-          {{ else if eq (printf "%s" .Kind) "commit" }}{{ octicon "submodule" }}
-          {{ else if eq (printf "%s" .Kind) "symlink" }}{{ octicon "symlink" }}
-          {{ else }}{{ octicon "file" }}{{ end }}
-        </td>
-        <td class="shithub-tree-name">
-          {{ if eq (printf "%s" .Kind) "tree" }}
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
-          {{ else if eq (printf "%s" .Kind) "blob" }}
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
-          {{ else if eq (printf "%s" .Kind) "symlink" }}
-          {{ .Name }} <em class="shithub-tree-symlink">(symlink)</em>
-          {{ else }}
-          {{ .Name }} <em class="shithub-tree-submodule">@ {{ slice .OID 0 7 }}</em>
-          {{ end }}
-        </td>
-        <td class="shithub-tree-size">{{ if gt .Size 0 }}{{ .Size }}{{ end }}</td>
-      </tr>
+      </section>
+      {{ if .README }}
+      <section class="shithub-readme markdown-body" id="readme" aria-label="README">
+        <div class="shithub-readme-head">{{ octicon "book" }} README</div>
+        <div class="shithub-readme-body">{{ .README }}</div>
+      </section>
       {{ end }}
-    </tbody>
-  </table>
-
-  </section>
-  {{ if .README }}
-  <section class="shithub-readme" aria-label="README">
-    {{ .README }}
-  </section>
-  {{ end }}
-</div>
-  {{ template "about-sidebar" . }}
-</div>
+    </main>
+    {{ template "repo-about-sidebar" . }}
+  </div>
 </section>
 {{- end }}

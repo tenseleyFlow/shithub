@@ -69,13 +69,7 @@ func (h *Handlers) loadCodeContext(w http.ResponseWriter, r *http.Request) (*cod
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: ListRefs", "error", err)
 	}
-	allNames := make([]string, 0, len(refs.Branches)+len(refs.Tags))
-	for _, b := range refs.Branches {
-		allNames = append(allNames, b.Name)
-	}
-	for _, t := range refs.Tags {
-		allNames = append(allNames, t.Name)
-	}
+	allNames := refNames(refs)
 
 	rest := chi.URLParam(r, "*")
 	rest = strings.Trim(rest, "/")
@@ -120,6 +114,10 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.renderRepoTree(w, r, cc)
+}
+
+func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *codeContext) {
 	kind, _, _, err := repogit.StatPath(r.Context(), cc.gitDir, cc.ref, cc.subpath)
 	if err != nil {
 		if errors.Is(err, repogit.ErrPathNotFound) {
@@ -146,10 +144,10 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 	}
 	// README detection on the requested directory only.
 	readmeHTML := h.findAndRenderREADME(r, cc, entries)
-
-	// Topics drive the About sidebar's pills. ListRepoTopics is one
-	// indexed query keyed on repo_id; failure is non-fatal — render the
-	// page without topics rather than 500 the whole tree.
+	head, headFound, headErr := repogit.HeadOf(r.Context(), cc.gitDir, cc.ref)
+	if headErr != nil {
+		h.d.Logger.WarnContext(r.Context(), "code: HeadOf", "error", headErr)
+	}
 	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, cc.row.ID)
 
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
@@ -163,15 +161,28 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 		"Entries":       entries,
 		"Branches":      cc.refs.Branches,
 		"Tags":          cc.refs.Tags,
+		"Head":          head,
+		"HeadFound":     headFound,
 		"README":        template.HTML(readmeHTML), //nolint:gosec // sanitized by mdrender
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
-		"Topics":        topics,
+		"RepoTopics":    topics,
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",
 	})
+}
+
+func refNames(refs repogit.RefListing) []string {
+	allNames := make([]string, 0, len(refs.Branches)+len(refs.Tags))
+	for _, b := range refs.Branches {
+		allNames = append(allNames, b.Name)
+	}
+	for _, t := range refs.Tags {
+		allNames = append(allNames, t.Name)
+	}
+	return allNames
 }
 
 // findAndRenderREADME looks for README* in the supplied entries (case-

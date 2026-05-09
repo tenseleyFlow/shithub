@@ -1,9 +1,9 @@
 {{ define "page" -}}
-<section class="shithub-labels">
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-labels">
   <header class="shithub-issues-head">
     <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
       Labels
     </h1>
   </header>
@@ -45,5 +45,6 @@
     </li>
     {{ end }}
   </ul>
+  </section>
 </section>
 {{- end }}

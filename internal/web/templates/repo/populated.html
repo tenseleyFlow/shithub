@@ -1,7 +1,7 @@
 {{ define "page" -}}
 <section class="shithub-repo-populated">
-  <div class="shithub-repo-with-sidebar">
-  <div class="shithub-repo-main">
+  <div class="shithub-repo-content-grid">
+  <main class="shithub-repo-main">
   <header class="shithub-repo-populated-head">
     <h1>
       <a href="/{{ .Owner }}">{{ .Owner }}</a>
@@ -49,8 +49,8 @@
   <p class="shithub-repo-populated-note">
     Tree view, file blobs, branch list, and commit history land in S17. For now this view confirms a push has reached the server.
   </p>
-  </div>
-  {{ template "about-sidebar" . }}
+  </main>
+  {{ template "repo-about-sidebar" . }}
   </div>
 </section>
 {{- end }}

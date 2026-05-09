@@ -1,26 +1,28 @@
 {{ define "page" -}}
-<section class="shithub-issue-view">
-  <header class="shithub-issue-view-head">
-    <div class="shithub-issue-title-row">
-      <h1 class="shithub-issue-title">
-        <span>{{ .Issue.Title }}</span>
-        <span class="shithub-issue-num">#{{ .Issue.Number }}</span>
-      </h1>
-      <div class="shithub-issue-head-actions">
-        <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues/new" class="shithub-button shithub-button-primary">New issue</a>
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-issue-view">
+    <header class="shithub-issue-view-head">
+      <div class="shithub-issue-title-row">
+        <h1 class="shithub-issue-title">
+          <span>{{ .Issue.Title }}</span>
+          <span class="shithub-issue-num">#{{ .Issue.Number }}</span>
+        </h1>
+        <div class="shithub-issue-head-actions">
+          <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues/new" class="shithub-button shithub-button-primary">New issue</a>
+        </div>
       </div>
-    </div>
-    <div class="shithub-issue-meta">
-      <span class="shithub-pill shithub-issues-state-{{ printf "%s" .Issue.State }}">
-        {{ if eq (printf "%s" .Issue.State) "open" }}{{ octicon "issue-opened" }} Open{{ else }}{{ octicon "issue-closed" }} Closed{{ end }}
-      </span>
-      {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-      opened this issue
-      <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
-      · {{ .CommentCount }} comment{{ if ne .CommentCount 1 }}s{{ end }}
-      {{ if .Issue.Locked }}<span class="shithub-pill">{{ octicon "lock" }} locked</span>{{ end }}
-    </div>
-  </header>
+      <div class="shithub-issue-meta">
+        <span class="shithub-pill shithub-issues-state-{{ printf "%s" .Issue.State }}">
+          {{ if eq (printf "%s" .Issue.State) "open" }}{{ octicon "issue-opened" }} Open{{ else }}{{ octicon "issue-closed" }} Closed{{ end }}
+        </span>
+        {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+        opened this issue
+        <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
+        · {{ .CommentCount }} comment{{ if ne .CommentCount 1 }}s{{ end }}
+        {{ if .Issue.Locked }}<span class="shithub-pill">{{ octicon "lock" }} locked</span>{{ end }}
+      </div>
+    </header>
 
   <div class="shithub-issue-grid">
     <article class="shithub-issue-thread">
@@ -243,5 +245,6 @@
       {{ end }}
     </aside>
   </div>
+  </section>
 </section>
 {{- end }}
