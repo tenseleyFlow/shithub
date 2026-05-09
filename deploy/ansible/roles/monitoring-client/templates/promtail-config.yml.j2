@@ -1,0 +1,34 @@
+# Managed by Ansible. Ships caddy + journald (shithubd) logs to Loki
+# on the bare-metal monitoring host over WireGuard.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://10.7.0.1:3100/loki/api/v1/push   # WG IP of metal box
+
+scrape_configs:
+  - job_name: caddy
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: caddy
+          host: {{ ansible_hostname }}
+          __path__: /var/log/caddy/*.log
+
+  - job_name: shithubd
+    journal:
+      max_age: 12h
+      labels:
+        job: shithubd
+        host: {{ ansible_hostname }}
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        regex: 'shithubd-.+\.service'
+        action: keep
+      - source_labels: ['__journal__systemd_unit']
+        target_label: 'unit'
