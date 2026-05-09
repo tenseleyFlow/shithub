@@ -404,6 +404,91 @@ func (ns NullNotificationThreadKind) Value() (driver.Value, error) {
 	return string(ns.NotificationThreadKind), nil
 }
 
+type OrgPlan string
+
+const (
+	OrgPlanFree       OrgPlan = "free"
+	OrgPlanTeam       OrgPlan = "team"
+	OrgPlanEnterprise OrgPlan = "enterprise"
+)
+
+func (e *OrgPlan) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrgPlan(s)
+	case string:
+		*e = OrgPlan(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrgPlan: %T", src)
+	}
+	return nil
+}
+
+type NullOrgPlan struct {
+	OrgPlan OrgPlan
+	Valid   bool // Valid is true if OrgPlan is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrgPlan) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrgPlan, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrgPlan.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrgPlan) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrgPlan), nil
+}
+
+type OrgRole string
+
+const (
+	OrgRoleOwner  OrgRole = "owner"
+	OrgRoleMember OrgRole = "member"
+)
+
+func (e *OrgRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrgRole(s)
+	case string:
+		*e = OrgRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrgRole: %T", src)
+	}
+	return nil
+}
+
+type NullOrgRole struct {
+	OrgRole OrgRole
+	Valid   bool // Valid is true if OrgRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrgRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrgRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrgRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrgRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrgRole), nil
+}
+
 type PrFileStatus string
 
 const (
@@ -620,6 +705,48 @@ func (ns NullPrReviewState) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.PrReviewState), nil
+}
+
+type PrincipalKind string
+
+const (
+	PrincipalKindUser PrincipalKind = "user"
+	PrincipalKindOrg  PrincipalKind = "org"
+)
+
+func (e *PrincipalKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrincipalKind(s)
+	case string:
+		*e = PrincipalKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrincipalKind: %T", src)
+	}
+	return nil
+}
+
+type NullPrincipalKind struct {
+	PrincipalKind PrincipalKind
+	Valid         bool // Valid is true if PrincipalKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrincipalKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.PrincipalKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrincipalKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrincipalKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrincipalKind), nil
 }
 
 type RepoInitStatus string
@@ -1097,6 +1224,48 @@ type NotificationThread struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type Org struct {
+	ID                    int64
+	Slug                  string
+	DisplayName           string
+	Description           string
+	AvatarObjectKey       pgtype.Text
+	Location              string
+	Website               string
+	BillingEmail          string
+	Plan                  OrgPlan
+	AllowMemberRepoCreate bool
+	CreatedByUserID       pgtype.Int8
+	SuspendedAt           pgtype.Timestamptz
+	SuspendedReason       pgtype.Text
+	DeletedAt             pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type OrgInvitation struct {
+	ID              int64
+	OrgID           int64
+	InvitedByUserID pgtype.Int8
+	TargetUserID    pgtype.Int8
+	TargetEmail     pgtype.Text
+	Role            OrgRole
+	TokenHash       []byte
+	ExpiresAt       pgtype.Timestamptz
+	AcceptedAt      pgtype.Timestamptz
+	DeclinedAt      pgtype.Timestamptz
+	CanceledAt      pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
+type OrgMember struct {
+	OrgID           int64
+	UserID          int64
+	Role            OrgRole
+	InvitedByUserID pgtype.Int8
+	JoinedAt        pgtype.Timestamptz
+}
+
 type PasswordReset struct {
 	ID        int64
 	UserID    int64
@@ -1150,6 +1319,12 @@ type PrReviewRequest struct {
 	RequestedAt         pgtype.Timestamptz
 	DismissedAt         pgtype.Timestamptz
 	SatisfiedByReviewID pgtype.Int8
+}
+
+type Principal struct {
+	Slug string
+	Kind PrincipalKind
+	ID   int64
 }
 
 type PullRequest struct {
