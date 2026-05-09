@@ -1,0 +1,58 @@
+# Caddy snippet for the docs subdomain. Either include this file
+# from the main Caddyfile (`import deploy/docs-site/Caddyfile.snippet`)
+# or run a separate Caddy instance dedicated to docs serving.
+#
+# The site itself is static — built by `make docs` and synced to
+# Spaces by `deploy/docs-site/sync-to-spaces.sh`. Caddy fetches
+# pages from Spaces with a short TTL so a new release is visible
+# within a minute of the sync.
+
+docs.shithub.example {
+    encode gzip zstd
+
+    # Docs come from a Spaces bucket fronted by Caddy. We use the
+    # reverse_proxy so we can layer cache headers and a sane 404.
+    reverse_proxy https://shithub-docs.nyc3.digitaloceanspaces.com {
+        header_up Host {http.reverse_proxy.upstream.host}
+        header_up -X-Forwarded-Host
+        transport http {
+            tls
+        }
+    }
+
+    header {
+        # Static content; let browsers + CDN cache for 5 min and
+        # revalidate.
+        Cache-Control          "public, max-age=300, stale-while-revalidate=86400"
+        # Standard HSTS posture; assumes the apex serves HTTPS too.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Drop the default Caddy server header.
+        -Server                ""
+        # Tighten the embed/clickjack surface.
+        X-Frame-Options        "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy        "strict-origin-when-cross-origin"
+        # Docs include code samples; no scripts beyond mdBook's own
+        # bundled ones. CSP is conservative.
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+    }
+
+    # Surface a friendly page for missing docs.
+    handle_errors {
+        @404 expression {http.error.status_code} == 404
+        handle @404 {
+            rewrite * /404.html
+            file_server {
+                root /var/lib/shithub/docs-fallback
+            }
+        }
+    }
+
+    log {
+        output file /var/log/caddy/docs-access.log {
+            roll_size  100MiB
+            roll_keep  10
+        }
+        format json
+    }
+}
