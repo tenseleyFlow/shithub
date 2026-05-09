@@ -174,6 +174,59 @@ func (r *RepoFS) InitBare(ctx context.Context, path string) error {
 	return nil
 }
 
+// CloneBareShared clones src → dst as a bare repo with object
+// alternates pointing back at src. Disk usage of the result is
+// essentially refs + a small overhead; objects live in src's
+// `objects/` until the fork is detached (S16 hard-delete cascade
+// repacks each fork before removing the source).
+//
+// Both paths must be contained in r.root and on the same volume —
+// the same-volume requirement is what makes alternates safe (S04).
+//
+// On success the dst directory exists with `git init --bare` shape
+// plus an `objects/info/alternates` file pointing at src/objects.
+// On failure the dst directory is removed so a retry sees a clean
+// slate.
+func (r *RepoFS) CloneBareShared(ctx context.Context, src, dst string) error {
+	if err := r.containedInRoot(src); err != nil {
+		return err
+	}
+	if err := r.containedInRoot(dst); err != nil {
+		return err
+	}
+	if entries, err := os.ReadDir(dst); err == nil && len(entries) > 0 {
+		return fmt.Errorf("%w: %s", ErrAlreadyExists, dst)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return fmt.Errorf("storage: repofs: mkdir parent: %w", err)
+	}
+	// G204: src/dst are RepoPath-derived, both verified under r.root.
+	cmd := exec.CommandContext(ctx, "git", "clone", "--bare", "--shared", src, dst) //nolint:gosec
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// Best-effort cleanup; if removal fails too, surface the
+		// original clone error since that's the actionable signal.
+		_ = os.RemoveAll(dst)
+		return fmt.Errorf("storage: repofs: git clone --bare --shared: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// SetPreciousObjects marks a bare repo's objects as not-prunable. The
+// canonical foot-gun for forks is source-repo `git gc` removing
+// objects that forks reach via alternates; setting this on the source
+// after a fork is created prevents that. Idempotent.
+func (r *RepoFS) SetPreciousObjects(ctx context.Context, path string) error {
+	if err := r.containedInRoot(path); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "config", "extensions.preciousObjects", "true") //nolint:gosec
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("storage: repofs: set preciousObjects: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // Move atomically renames oldPath to newPath. Both must be under root.
 // If newPath already exists, returns ErrAlreadyExists rather than
 // overwriting (avoids silent corruption on concurrent moves).
