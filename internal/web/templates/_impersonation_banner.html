@@ -1,0 +1,14 @@
+{{ define "impersonation-banner" -}}
+{{ with .Viewer }}
+{{ if .ImpersonatedUserID }}
+<div class="shithub-imp-banner" role="alert">
+  <strong>Impersonating</strong> {{ .Username }} (#{{ .ID }})
+  · {{ if .ImpersonateWriteOK }}<span class="shithub-imp-write">writes ENABLED</span>{{ else }}<span class="shithub-imp-read">read-only</span>{{ end }}
+  <form method="POST" action="/admin/impersonate/stop" style="display:inline; margin-left: 0.75rem">
+    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+    <button type="submit" class="shithub-button">Stop impersonation</button>
+  </form>
+</div>
+{{ end }}
+{{ end }}
+{{- end }}
