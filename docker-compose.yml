@@ -63,10 +63,19 @@ services:
   # Local SMTP catcher (S05). The shithub auth flow writes signup /
   # password-reset emails here when SHITHUB_AUTH__EMAIL_BACKEND=smtp.
   # Web UI: http://127.0.0.1:8025
+  #
+  # We use Mailpit instead of the original MailHog: it's the actively
+  # maintained successor, ships native arm64 + amd64 images (so Apple
+  # Silicon hosts don't run it under x86 emulation), keeps the same
+  # SMTP/UI port shape, and offers the same "swallow all mail and
+  # show it in a web UI" semantics.
   mailhog:
-    image: mailhog/mailhog:latest
+    image: axllent/mailpit:latest
     container_name: shithub-mailhog
     restart: unless-stopped
+    environment:
+      MP_SMTP_BIND_ADDR: "0.0.0.0:1025"
+      MP_UI_BIND_ADDR: "0.0.0.0:8025"
     ports:
       - "127.0.0.1:1025:1025" # SMTP
       - "127.0.0.1:8025:8025" # web UI
