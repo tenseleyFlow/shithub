@@ -10,6 +10,8 @@
   </header>
   {{ template "repo-subnav" . }}
 
+<div class="shithub-repo-with-sidebar">
+<div class="shithub-repo-main">
 <section class="shithub-code">
   <header class="shithub-code-head">
     <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
@@ -95,5 +97,8 @@
     {{ .README }}
   </section>
   {{ end }}
+</div>
+  {{ template "about-sidebar" . }}
+</div>
 </section>
 {{- end }}

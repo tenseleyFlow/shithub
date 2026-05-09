@@ -1089,6 +1089,100 @@ code {
 .shithub-tree-size { width: 100px; text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .shithub-tree-symlink, .shithub-tree-submodule { color: var(--fg-muted); font-style: italic; font-size: 0.8rem; }
 
+/* Code-view layout: 2/3 main column + 1/3 About sidebar, mirroring
+   the GitHub repo home layout. Single-column on narrow viewports so
+   the sidebar drops below the tree on mobile. The S39 hardening pass
+   replaces the previous single-centered-column layout that wasted
+   the right rail. */
+.shithub-repo-with-sidebar {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.shithub-repo-main {
+  min-width: 0; /* let the grid item shrink so children with overflow-x scroll instead of forcing the column wider */
+}
+@media (max-width: 1024px) {
+  .shithub-repo-with-sidebar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shithub-repo-about {
+  border-top: 1px solid var(--border-default);
+  padding-top: 1rem;
+  font-size: 0.875rem;
+}
+@media (min-width: 1025px) {
+  .shithub-repo-about {
+    border-top: none;
+    padding-top: 0;
+  }
+}
+.shithub-repo-about-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.shithub-repo-about-desc {
+  margin: 0 0 0.75rem;
+  color: var(--fg-default);
+  line-height: 1.4;
+}
+.shithub-repo-about-empty {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.shithub-repo-about-topics {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.shithub-pill-topic {
+  background: var(--accent-subtle, #ddf4ff);
+  color: var(--accent-fg, #0969da);
+  text-decoration: none;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+}
+.shithub-pill-topic:hover { text-decoration: underline; }
+
+.shithub-repo-about-meta {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+}
+.shithub-repo-about-meta li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  color: var(--fg-muted);
+}
+.shithub-repo-about-meta li svg { color: var(--fg-muted); flex-shrink: 0; }
+.shithub-repo-about-meta li span { color: var(--fg-default); }
+
+.shithub-repo-about-section {
+  border-top: 1px solid var(--border-default);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+}
+.shithub-repo-about-section h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  text-transform: none;
+}
+.shithub-repo-about-section p { margin: 0; }
+
 .shithub-readme {
   margin-top: 2rem;
   padding: 1.25rem;

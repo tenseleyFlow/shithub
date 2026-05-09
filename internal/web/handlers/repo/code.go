@@ -147,6 +147,11 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 	// README detection on the requested directory only.
 	readmeHTML := h.findAndRenderREADME(r, cc, entries)
 
+	// Topics drive the About sidebar's pills. ListRepoTopics is one
+	// indexed query keyed on repo_id; failure is non-fatal — render the
+	// page without topics rather than 500 the whole tree.
+	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, cc.row.ID)
+
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
 		"Title":         cc.row.Name + " · " + cc.owner,
 		"CSRFToken":     middleware.CSRFTokenForRequest(r),
@@ -162,6 +167,7 @@ func (h *Handlers) codeTree(w http.ResponseWriter, r *http.Request) {
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
+		"Topics":        topics,
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",
