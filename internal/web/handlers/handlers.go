@@ -86,6 +86,10 @@ type Deps struct {
 	// (S27). The forks list GET is public; fork + sync POSTs are
 	// auth-required.
 	RepoForkMounter func(chi.Router)
+	// SearchMounter registers /search and /search/quick (S28).
+	// Both are public — visibility scoping is done inside the
+	// search package via policy.VisibilityPredicate.
+	SearchMounter func(chi.Router)
 	// GitHTTPMounter, when non-nil, registers the smart-HTTP git routes
 	// (`*.git/info/refs`, `git-upload-pack`, `git-receive-pack`). MUST
 	// land in a route group that bypasses CSRF, response compression,
@@ -215,6 +219,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoForkMounter != nil {
 			deps.RepoForkMounter(r)
+		}
+		if deps.SearchMounter != nil {
+			deps.SearchMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

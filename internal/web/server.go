@@ -206,6 +206,13 @@ func Run(ctx context.Context, opts Options) error {
 		deps.RepoPullsMounter = repoH.MountPulls
 		deps.RepoSocialMounter = repoH.MountSocial
 		deps.RepoForkMounter = repoH.MountFork
+
+		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger)
+		if err != nil {
+			return fmt.Errorf("search handlers: %w", err)
+		}
+		deps.SearchMounter = searchH.Mount
+
 		// Lifecycle danger-zone routes — also auth-required.
 		deps.RepoLifecycleMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {

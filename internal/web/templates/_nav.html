@@ -4,6 +4,10 @@
     {{ octicon "shithub" }}
     <span>shithub</span>
   </a>
+  <form action="/search" method="get" class="shithub-nav-search" role="search">
+    <input type="text" name="q" placeholder="Search…" aria-label="Search" autocomplete="off">
+    <input type="hidden" name="type" value="repos">
+  </form>
   <nav class="shithub-nav-links" aria-label="Primary">
     <a href="/explore">Explore</a>
     <a href="/about">About</a>
