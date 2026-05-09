@@ -834,6 +834,135 @@ func (ns NullRepoVisibility) Value() (driver.Value, error) {
 	return string(ns.RepoVisibility), nil
 }
 
+type TeamPrivacy string
+
+const (
+	TeamPrivacyVisible TeamPrivacy = "visible"
+	TeamPrivacySecret  TeamPrivacy = "secret"
+)
+
+func (e *TeamPrivacy) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TeamPrivacy(s)
+	case string:
+		*e = TeamPrivacy(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TeamPrivacy: %T", src)
+	}
+	return nil
+}
+
+type NullTeamPrivacy struct {
+	TeamPrivacy TeamPrivacy
+	Valid       bool // Valid is true if TeamPrivacy is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTeamPrivacy) Scan(value interface{}) error {
+	if value == nil {
+		ns.TeamPrivacy, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TeamPrivacy.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTeamPrivacy) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TeamPrivacy), nil
+}
+
+type TeamRepoRole string
+
+const (
+	TeamRepoRoleRead     TeamRepoRole = "read"
+	TeamRepoRoleTriage   TeamRepoRole = "triage"
+	TeamRepoRoleWrite    TeamRepoRole = "write"
+	TeamRepoRoleMaintain TeamRepoRole = "maintain"
+	TeamRepoRoleAdmin    TeamRepoRole = "admin"
+)
+
+func (e *TeamRepoRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TeamRepoRole(s)
+	case string:
+		*e = TeamRepoRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TeamRepoRole: %T", src)
+	}
+	return nil
+}
+
+type NullTeamRepoRole struct {
+	TeamRepoRole TeamRepoRole
+	Valid        bool // Valid is true if TeamRepoRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTeamRepoRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.TeamRepoRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TeamRepoRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTeamRepoRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TeamRepoRole), nil
+}
+
+type TeamRole string
+
+const (
+	TeamRoleMember     TeamRole = "member"
+	TeamRoleMaintainer TeamRole = "maintainer"
+)
+
+func (e *TeamRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TeamRole(s)
+	case string:
+		*e = TeamRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TeamRole: %T", src)
+	}
+	return nil
+}
+
+type NullTeamRole struct {
+	TeamRole TeamRole
+	Valid    bool // Valid is true if TeamRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTeamRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.TeamRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TeamRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTeamRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TeamRole), nil
+}
+
 type TransferPrincipalKind string
 
 const (
@@ -1459,6 +1588,35 @@ type Star struct {
 	UserID    int64
 	RepoID    int64
 	StarredAt pgtype.Timestamptz
+}
+
+type Team struct {
+	ID              int64
+	OrgID           int64
+	Slug            string
+	DisplayName     string
+	Description     string
+	ParentTeamID    pgtype.Int8
+	Privacy         TeamPrivacy
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type TeamMember struct {
+	TeamID        int64
+	UserID        int64
+	Role          TeamRole
+	AddedByUserID pgtype.Int8
+	AddedAt       pgtype.Timestamptz
+}
+
+type TeamRepoAccess struct {
+	TeamID        int64
+	RepoID        int64
+	Role          TeamRepoRole
+	AddedByUserID pgtype.Int8
+	AddedAt       pgtype.Timestamptz
 }
 
 type User struct {

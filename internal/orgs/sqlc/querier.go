@@ -19,6 +19,8 @@ type Querier interface {
 	// the member is new; existing rows keep their current role (use
 	// ChangeOrgMemberRole to update).
 	AddOrgMember(ctx context.Context, db DBTX, arg AddOrgMemberParams) error
+	// ─── team_members ─────────────────────────────────────────────────
+	AddTeamMember(ctx context.Context, db DBTX, arg AddTeamMemberParams) error
 	CancelOrgInvitation(ctx context.Context, db DBTX, id int64) error
 	ChangeOrgMemberRole(ctx context.Context, db DBTX, arg ChangeOrgMemberRoleParams) error
 	// Used by the last-owner protection: refuses to remove or demote the
@@ -33,7 +35,14 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── org_invitations ───────────────────────────────────────────────
 	CreateOrgInvitation(ctx context.Context, db DBTX, arg CreateOrgInvitationParams) (OrgInvitation, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// ─── teams ─────────────────────────────────────────────────────────
+	CreateTeam(ctx context.Context, db DBTX, arg CreateTeamParams) (Team, error)
 	DeclineOrgInvitation(ctx context.Context, db DBTX, id int64) error
+	// Children's parent_team_id flips to NULL via the FK ON DELETE SET NULL,
+	// promoting them to top-level — matches the "deleting parent doesn't
+	// delete children" intent in the spec's pitfalls.
+	DeleteTeam(ctx context.Context, db DBTX, id int64) error
 	// Idempotency check before creating a new invite — so a re-issued
 	// invite to the same target doesn't accumulate stale rows.
 	GetExistingPendingInvitation(ctx context.Context, db DBTX, arg GetExistingPendingInvitationParams) (OrgInvitation, error)
@@ -47,9 +56,15 @@ type Querier interface {
 	GetOrgInvitationByID(ctx context.Context, db DBTX, id int64) (OrgInvitation, error)
 	GetOrgInvitationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (OrgInvitation, error)
 	GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberParams) (OrgMember, error)
+	GetTeamByID(ctx context.Context, db DBTX, id int64) (Team, error)
+	GetTeamByOrgAndSlug(ctx context.Context, db DBTX, arg GetTeamByOrgAndSlugParams) (Team, error)
+	GetTeamRepoAccess(ctx context.Context, db DBTX, arg GetTeamRepoAccessParams) (TeamRepoAccess, error)
+	// ─── team_repo_access ─────────────────────────────────────────────
+	GrantTeamRepoAccess(ctx context.Context, db DBTX, arg GrantTeamRepoAccessParams) error
 	// Final row removal after the cascade finished. The principals
 	// trigger drops the matching principals row in the same tx.
 	HardDeleteOrgRow(ctx context.Context, db DBTX, id int64) error
+	ListChildTeams(ctx context.Context, db DBTX, parentTeamID pgtype.Int8) ([]Team, error)
 	// Sweep input for the lifecycle worker: every soft-deleted org whose
 	// 14-day grace window has elapsed. The interval is intentionally a
 	// DB literal (not a parameter) so the policy lives next to the data.
@@ -67,7 +82,22 @@ type Querier interface {
 	// (claim-on-signup). Caller unions the two lookups when surfacing
 	// to the user.
 	ListPendingInvitationsForUser(ctx context.Context, db DBTX, targetUserID pgtype.Int8) ([]ListPendingInvitationsForUserRow, error)
+	// All teams with grants on a single repo; for repo settings/access page.
+	ListRepoTeamGrants(ctx context.Context, db DBTX, repoID int64) ([]ListRepoTeamGrantsRow, error)
+	// Policy hot-path: given a repo and a set of team_ids the actor
+	// belongs to (incl. inherited), return the access rows. Caller picks
+	// the highest role.
+	ListTeamAccessForRepoAndTeams(ctx context.Context, db DBTX, arg ListTeamAccessForRepoAndTeamsParams) ([]ListTeamAccessForRepoAndTeamsRow, error)
+	ListTeamMembers(ctx context.Context, db DBTX, teamID int64) ([]ListTeamMembersRow, error)
+	// All repos the team has any grant on; for the team-view page.
+	ListTeamRepoAccess(ctx context.Context, db DBTX, teamID int64) ([]ListTeamRepoAccessRow, error)
+	ListTeamsForOrg(ctx context.Context, db DBTX, orgID int64) ([]Team, error)
+	// Returns the teams a user directly belongs to within an org. The
+	// policy aggregator unions this with each row's parent_team_id to
+	// get the inherited set.
+	ListTeamsForUserInOrg(ctx context.Context, db DBTX, arg ListTeamsForUserInOrgParams) ([]ListTeamsForUserInOrgRow, error)
 	RemoveOrgMember(ctx context.Context, db DBTX, arg RemoveOrgMemberParams) error
+	RemoveTeamMember(ctx context.Context, db DBTX, arg RemoveTeamMemberParams) error
 	// ─── principals (read-only from this domain) ───────────────────────
 	// Single-query /{slug} resolver. Returns the (kind, id) tuple that
 	// /{slug}/* routes use to dispatch to the user-profile or org-profile
@@ -75,11 +105,17 @@ type Querier interface {
 	// impossible at the DB layer.
 	ResolvePrincipal(ctx context.Context, db DBTX, slug string) (Principal, error)
 	RestoreOrg(ctx context.Context, db DBTX, id int64) error
+	RevokeTeamRepoAccess(ctx context.Context, db DBTX, arg RevokeTeamRepoAccessParams) error
 	SetOrgAllowMemberRepoCreate(ctx context.Context, db DBTX, arg SetOrgAllowMemberRepoCreateParams) error
 	SetOrgAvatarKey(ctx context.Context, db DBTX, arg SetOrgAvatarKeyParams) error
 	SetOrgSuspended(ctx context.Context, db DBTX, arg SetOrgSuspendedParams) error
+	SetTeamMemberRole(ctx context.Context, db DBTX, arg SetTeamMemberRoleParams) error
+	// The one-level-nesting BEFORE trigger blocks invalid moves; the
+	// caller surfaces the SQLSTATE 23514 as a friendly error.
+	SetTeamParent(ctx context.Context, db DBTX, arg SetTeamParentParams) error
 	SoftDeleteOrg(ctx context.Context, db DBTX, id int64) error
 	UpdateOrgProfile(ctx context.Context, db DBTX, arg UpdateOrgProfileParams) error
+	UpdateTeamProfile(ctx context.Context, db DBTX, arg UpdateTeamProfileParams) error
 }
 
 var _ Querier = (*Queries)(nil)

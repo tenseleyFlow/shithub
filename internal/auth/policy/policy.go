@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	policydb "github.com/tenseleyFlow/shithub/internal/auth/policy/sqlc"
@@ -253,22 +254,122 @@ func effectiveRole(ctx context.Context, d Deps, actor Actor, repo RepoRef) (Role
 		// lookup below.
 	}
 
+	// Effective role = MAX(direct collab, team grants). Team path
+	// runs only for org-owned repos (user-owned repos have no
+	// teams). One hop on parent_team_id captures the inherited
+	// grants per S31's one-level-deep rule.
+	best := RoleNone
 	q := policydb.New()
 	dbRole, err := q.GetCollabRole(ctx, d.Pool, policydb.GetCollabRoleParams{
 		RepoID: repo.ID,
 		UserID: actor.UserID,
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		cachePut(cache, key, RoleNone)
-		return RoleNone, nil
+	switch {
+	case err == nil:
+		best = roleFromDB(dbRole)
+	case errors.Is(err, pgx.ErrNoRows):
+		// no direct collab row — best stays RoleNone
+	default:
+		return RoleNone, err
 	}
+	if repo.OwnerOrgID != 0 {
+		teamRole, terr := teamGrantedRole(ctx, d, actor.UserID, repo.OwnerOrgID, repo.ID)
+		if terr != nil {
+			return RoleNone, terr
+		}
+		// roleStronger picks the higher-rank role. Don't use
+		// RoleAtLeast here — its `want > 0` guard treats RoleNone
+		// as un-comparable and blocks the legitimate "any role
+		// beats no role" branch.
+		if roleStronger(teamRole, best) {
+			best = teamRole
+		}
+	}
+	cachePut(cache, key, best)
+	return best, nil
+}
+
+// roleStronger reports whether `a` ranks strictly higher than `b`,
+// where RoleNone is the bottom (rank 0). Used to compose role
+// sources (direct collab, team grant, parent-team grant) into a
+// single max — the spec's "effective role = max of all sources"
+// rule.
+func roleStronger(a, b Role) bool {
+	return roleRank(a) > roleRank(b)
+}
+
+// teamGrantedRole computes the highest role the actor inherits from
+// any team in the org that has a grant on the repo. Walks parent
+// teams one hop (per the one-level-nesting cap from migration 0035).
+func teamGrantedRole(ctx context.Context, d Deps, userID, orgID, repoID int64) (Role, error) {
+	rows, err := d.Pool.Query(ctx,
+		`SELECT t.id, t.parent_team_id
+		   FROM team_members m
+		   JOIN teams t ON t.id = m.team_id
+		  WHERE t.org_id = $1 AND m.user_id = $2`,
+		orgID, userID)
 	if err != nil {
 		return RoleNone, err
 	}
-	r := roleFromDB(dbRole)
-	cachePut(cache, key, r)
-	return r, nil
+	defer rows.Close()
+	teamIDs := []int64{}
+	for rows.Next() {
+		var id int64
+		var parent pgtype.Int8
+		if err := rows.Scan(&id, &parent); err != nil {
+			return RoleNone, err
+		}
+		teamIDs = append(teamIDs, id)
+		if parent.Valid {
+			teamIDs = append(teamIDs, parent.Int64)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RoleNone, err
+	}
+	if len(teamIDs) == 0 {
+		return RoleNone, nil
+	}
+	grantRows, err := d.Pool.Query(ctx,
+		`SELECT role::text FROM team_repo_access
+		  WHERE repo_id = $1 AND team_id = ANY($2::bigint[])`,
+		repoID, teamIDs)
+	if err != nil {
+		return RoleNone, err
+	}
+	defer grantRows.Close()
+	best := RoleNone
+	for grantRows.Next() {
+		var role string
+		if err := grantRows.Scan(&role); err != nil {
+			return RoleNone, err
+		}
+		if r := teamRepoRoleToPolicyRole(role); roleStronger(r, best) {
+			best = r
+		}
+	}
+	return best, grantRows.Err()
 }
+
+// teamRepoRoleToPolicyRole maps the team_repo_role enum string to
+// the policy.Role string. Names align but the typed enums are in
+// different packages so the conversion is explicit.
+func teamRepoRoleToPolicyRole(s string) Role {
+	switch s {
+	case "read":
+		return RoleRead
+	case "triage":
+		return RoleTriage
+	case "write":
+		return RoleWrite
+	case "maintain":
+		return RoleMaintain
+	case "admin":
+		return RoleAdmin
+	}
+	return RoleNone
+}
+
 
 // minRoleFor returns the minimum collaborator role required for the
 // action against an existing repo. Owner is implicit admin, so this
