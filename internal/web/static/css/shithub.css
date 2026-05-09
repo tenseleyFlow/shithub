@@ -786,18 +786,9 @@ code {
 
 .shithub-repo-empty {
   max-width: 56rem;
-  margin: 2rem auto;
-  padding: 0 1rem;
+  margin: 0;
+  padding: 0;
 }
-.shithub-repo-empty-head h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.4rem;
-  font-weight: 400;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.shithub-repo-empty-sep { color: var(--fg-muted); }
 .shithub-repo-empty-desc {
   margin: 0 0 1rem;
   color: var(--fg-muted);
