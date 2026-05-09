@@ -179,59 +179,91 @@ surface the current location. (Path varies; "Settings → Security
 verification happens at droplet-create time when you tick the
 box.
 
-### B2. Create Spaces buckets (do these BEFORE droplets — they need to exist for the docs CNAME to resolve)
+### B2. Create Spaces buckets (do these BEFORE droplets — the docs CNAME depends on the docs bucket existing)
 
-1. Left sidebar → **Spaces Object Storage** → **Create Spaces
-   Bucket**.
-2. **Bucket #1 — primary backups + docs:**
-   - Region: **NYC3**
-   - Name: **shithub-prod** (this matches the inventory's
-     `s3_bucket: shithub-prod`)
-   - File listing: **Restrict** (private; presigned URLs only)
-   - CDN: **Enable** (for the docs subdomain)
-   - Project: **shithub-prod**
-3. **Bucket #2 — DR mirror:**
-   - Region: **SFO3**
-   - Name: **shithub-prod-dr**
-   - Same other settings.
-4. **Bucket #3 — docs site:**
-   - Region: **NYC3**
-   - Name: **shithub-docs**
-   - File listing: **Public** (it's the docs site; everyone
-     reads)
-   - CDN: **Enable**
-   - Project: **shithub-prod**
-5. **Generate Spaces access keys:** Account → API → **Spaces
-   Keys** → **Generate New Key**. Name it `shithub-prod-app`.
-   Copy the access key + secret — Postmark-style, the secret
-   is shown once.
+> **About this section.** DO's web UI for Spaces changes
+> regularly (region availability, form layout, post-create
+> settings paths). This section describes **what each bucket
+> needs to be**, not where to click. Find the create form via
+> the dashboard's left sidebar (**Spaces Object Storage** at the
+> time of writing) or the top search bar — type "Spaces". For
+> a UI-free path, see Phase B0 (`provision-do.sh`) at the
+> bottom of this guide.
 
-**Verify:** three buckets listed in Spaces, all in their
-respective regions. Endpoint URLs follow the pattern
-`<bucket>.<region>.digitaloceanspaces.com`.
+You need three buckets. **Storage type for all three: Standard.**
+(Cold Storage has a 30-day minimum retention that surprise-bills
+when our daily backups churn.) **First bucket triggers the $5/mo
+Spaces subscription** which covers all three up to 250 GiB total
++ 1000 GiB bandwidth.
+
+| # | Bucket name           | Region                                      | CDN     | Notes                                                  |
+|---|-----------------------|---------------------------------------------|---------|--------------------------------------------------------|
+| 1 | `shithub-backups`     | **Region A** — pick whichever DO offers (e.g. SFO3) | off     | Primary backups (WAL + daily pg_dump).                 |
+| 2 | `shithub-backups-dr`  | **Region B** — DIFFERENT region from A       | off     | Cross-region DR mirror; pick anything other than A.    |
+| 3 | `shithub-docs`        | **Same as A**                               | **on**  | Docs site frontend; CDN serves `docs.shithub.sh`.       |
+
+After all three exist:
+
+1. **Assign the docs custom domain.** Go to the `shithub-docs`
+   bucket → its CDN settings (path varies; the create form notes
+   "you can assign a custom domain in CDN settings after the
+   Space is created"). Set custom domain to `docs.shithub.sh`.
+   DO will tell you the CNAME target it expects on your DNS;
+   match the value in Phase A5 to that.
+2. **Generate Spaces access keys.** Find the Spaces Keys
+   management page (left sidebar **API** section, or top search
+   bar → "Spaces Keys"). Generate a new key named
+   `shithub-prod-app`. **Copy the secret immediately** — only
+   shown once.
+
+**Verify:** three buckets listed under Spaces. Endpoint URL
+follows `<bucket>.<region>.digitaloceanspaces.com`. The
+inventory `s3_endpoint` field gets `<region>.digitaloceanspaces.com`
+(no bucket name in front).
+
+**Project assignment:** if you haven't created a `shithub-prod`
+project yet, put the buckets in any existing project for now —
+they're trivially moved later via the dashboard. Project
+membership is workspace-grouping, not access control.
 
 ### B3. Create the four droplets
 
-Use the DO web UI for the first one to confirm the shape; then
-duplicate.
+> **UI-stable description.** The DO droplet-create form changes
+> field layouts every few quarters. This section describes the
+> **shape each droplet needs to take**; locate the create form
+> via the dashboard's **Droplets** sidebar entry or top search
+> bar.
 
-1. Left sidebar → **Droplets** → **Create Droplet**.
-2. **Region:** NYC3 → Datacenter NYC3.
-3. **Image:** Marketplace? **No** — Distributions tab → Ubuntu
-   24.04 (LTS) x64.
-4. **Size:** Basic → Regular SSD → **2 vCPU / 4 GB RAM /
-   80 GB SSD** ($24/mo).
-5. **VPC Network:** default VPC for NYC3 (DO selects this
-   automatically). All four droplets must be in the same VPC so
-   they see each other on private IPs.
-6. **Authentication:** SSH Key → check the key you added in B1.
-7. **Hostname:** `shithub-app` (this is droplet #1).
-8. **Tags:** `shithub`, `shithub-app`.
-9. **Project:** shithub-prod.
-10. **Backups:** off (we have our own backup pipeline).
-11. **Monitoring:** **on** (DO's free agent — useful baseline
-    metrics in their UI).
-12. Create.
+Required for each droplet:
+
+- **Image:** Ubuntu 24.04 LTS x64 (Distributions tab; not Marketplace).
+- **Region:** **same region as the primary Spaces bucket** (Region
+  A from B2). All four droplets in the same region keeps
+  intra-VPC traffic free.
+- **VPC Network:** the default VPC in that region. **All four
+  droplets MUST be in the same VPC** — that's how they reach
+  each other over private IPs.
+- **Authentication:** SSH Key. On the first droplet, click
+  "+ New SSH Key" and paste your laptop's `~/.ssh/id_ed25519.pub`
+  (this saves it to your account). On droplets #2–4, just tick
+  the same key.
+- **DO Backups:** **off** (our own backup pipeline runs).
+- **DO Monitoring:** **on** (free agent, useful baseline metrics).
+- **Tags:** `shithub` plus a per-role tag (e.g., `shithub-app`).
+- **Project:** the project you're putting everything in.
+
+Per-droplet variations:
+
+| # | Hostname              | Size (DO slug)      | Cost/mo | Per-role tag           |
+|---|-----------------------|---------------------|---------|------------------------|
+| 1 | `shithub-app`         | s-2vcpu-4gb         | $24     | `shithub-app`          |
+| 2 | `shithub-db`          | s-2vcpu-4gb         | $24     | `shithub-db`           |
+| 3 | `shithub-backup`      | s-1vcpu-2gb         | $12     | `shithub-backup`       |
+| 4 | `shithub-monitoring`  | s-2vcpu-4gb         | $24     | `shithub-monitoring`   |
+
+Size selection: in the create form, look for **Basic** plan →
+**Regular SSD** → the size matrix. The slug names above are
+DO's API identifiers and appear under each tile in the form.
 
 Repeat for droplets #2–#4 with these differences:
 
