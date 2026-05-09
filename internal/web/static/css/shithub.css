@@ -1099,19 +1099,44 @@ code {
 .shithub-readme-plain { white-space: pre-wrap; }
 
 .shithub-blob-meta { color: var(--fg-muted); font-size: 0.85rem; margin-right: 0.5rem; }
-/* Blob source: tighten line-numbers gutter + give the code area a
-   little internal padding so the panel looks like a viewer, not a
-   raw <pre>. Chroma's table layout puts line numbers on the left
-   <td>; we style the gutter cell. */
+/* Blob source: Chroma's `LineNumbersInTable` mode lays the gutter
+   and code as <td>s of a single <table>. We force that table to fill
+   the panel and collapse borders so the two cells read as one
+   continuous viewer rather than two floating cards.
+   Defensive selectors: target both the `lntable` class (Chroma) AND
+   any bare <table> inside `.chroma` (the no-lexer plainPre fallback,
+   which doesn't class the table). */
 .shithub-blob-source .chroma { padding: 0; }
-.shithub-blob-source .chroma .lntable { width: 100%; border-collapse: collapse; }
-.shithub-blob-source .chroma .lntd:first-child {
-  border-right: 1px solid var(--border-default);
-  background: var(--canvas-subtle);
-  user-select: none;
+.shithub-blob-source .chroma > table,
+.shithub-blob-source .chroma table.lntable {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: 0;
 }
-.shithub-blob-source .chroma .lntd { vertical-align: top; padding: 0.5rem 0.75rem; }
-.shithub-blob-source .chroma pre { font-size: 0.85rem; line-height: 1.55; }
+.shithub-blob-source .chroma td {
+  vertical-align: top;
+  padding: 0.5rem 0.75rem;
+}
+/* Gutter cell: Chroma uses `lntd` on both cells with the gutter as
+   first child; the plainPre fallback uses `lntable` on the first
+   <td>. Both shapes get the muted background + non-selectable. */
+.shithub-blob-source .chroma td:first-child,
+.shithub-blob-source .chroma td.lntable {
+  width: 1%;
+  background: var(--canvas-subtle);
+  border-right: 1px solid var(--border-default);
+  color: var(--fg-muted);
+  text-align: right;
+  user-select: none;
+  white-space: nowrap;
+}
+.shithub-blob-source .chroma pre {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  margin: 0;
+}
+.shithub-blob-source .chroma a { color: inherit; text-decoration: none; }
 .shithub-blob-too-large, .shithub-blob-binary {
   padding: 1rem;
   border: 1px dashed var(--border-default);
