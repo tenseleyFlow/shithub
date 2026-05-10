@@ -36,6 +36,11 @@ type helloData struct {
 	OGTitle       string
 	OGDescription string
 	OGImage       string
+	// GlobalSearchQuery is referenced by _nav.html's search input to
+	// preserve the query when re-rendering after a search. Hello has
+	// no query of its own, but the field must exist or template
+	// execution errors out.
+	GlobalSearchQuery string
 }
 
 func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
