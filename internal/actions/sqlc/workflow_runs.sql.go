@@ -11,6 +11,58 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completeWorkflowRun = `-- name: CompleteWorkflowRun :one
+UPDATE workflow_runs
+SET status = 'completed',
+    conclusion = $2::check_conclusion,
+    started_at = COALESCE(started_at, now()),
+    completed_at = COALESCE(completed_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, repo_id, run_index, workflow_file, workflow_name,
+          head_sha, head_ref, event, event_payload,
+          actor_user_id, parent_run_id, concurrency_group,
+          status, conclusion, pinned, need_approval, approved_by_user_id,
+          started_at, completed_at, version, created_at, updated_at, trigger_event_id
+`
+
+type CompleteWorkflowRunParams struct {
+	ID         int64
+	Conclusion CheckConclusion
+}
+
+func (q *Queries) CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error) {
+	row := db.QueryRow(ctx, completeWorkflowRun, arg.ID, arg.Conclusion)
+	var i WorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+		&i.EventPayload,
+		&i.ActorUserID,
+		&i.ParentRunID,
+		&i.ConcurrencyGroup,
+		&i.Status,
+		&i.Conclusion,
+		&i.Pinned,
+		&i.NeedApproval,
+		&i.ApprovedByUserID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TriggerEventID,
+	)
+	return i, err
+}
+
 const enqueueWorkflowRun = `-- name: EnqueueWorkflowRun :one
 INSERT INTO workflow_runs (
     repo_id, run_index, workflow_file, workflow_name,

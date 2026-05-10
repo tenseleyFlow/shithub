@@ -5,7 +5,9 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,6 +25,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -89,24 +92,62 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 		t.Fatalf("claims runner_id: got %d, want %d", claimRunnerID, runnerID)
 	}
 
+	var logResp struct {
+		Accepted  bool   `json:"accepted"`
+		NextToken string `json:"next_token"`
+	}
+	logBody := fmt.Sprintf(`{"seq":0,"chunk":%q}`, base64.StdEncoding.EncodeToString([]byte("hello\n")))
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/logs", resp.Job.ID), strings.NewReader(logBody))
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("logs status: got %d, want 202; body=%s", rr.Code, rr.Body.String())
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &logResp); err != nil {
+		t.Fatalf("decode log response: %v", err)
+	}
+	if !logResp.Accepted || logResp.NextToken == "" {
+		t.Fatalf("unexpected log response: %+v", logResp)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/logs", resp.Job.ID), strings.NewReader(logBody))
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("replay status: got %d, want 401; body=%s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/status", resp.Job.ID),
+		strings.NewReader(`{"status":"completed","conclusion":"success"}`))
+	req.Header.Set("Authorization", "Bearer "+logResp.NextToken)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("complete status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
 	q := actionsdb.New()
 	job, err := q.GetWorkflowJobByID(ctx, pool, resp.Job.ID)
 	if err != nil {
 		t.Fatalf("GetWorkflowJobByID: %v", err)
 	}
-	if job.Status != actionsdb.WorkflowJobStatusRunning || !job.RunnerID.Valid || job.RunnerID.Int64 != runnerID {
-		t.Fatalf("job not claimed by runner: %+v", job)
+	if job.Status != actionsdb.WorkflowJobStatusCompleted || !job.RunnerID.Valid || job.RunnerID.Int64 != runnerID ||
+		!job.Conclusion.Valid || job.Conclusion.CheckConclusion != actionsdb.CheckConclusionSuccess {
+		t.Fatalf("job not completed by runner: %+v", job)
 	}
 	run, err := q.GetWorkflowRunByID(ctx, pool, runID)
 	if err != nil {
 		t.Fatalf("GetWorkflowRunByID: %v", err)
 	}
-	if run.Status != actionsdb.WorkflowRunStatusRunning {
-		t.Fatalf("run status: got %s, want running", run.Status)
+	if run.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!run.Conclusion.Valid || run.Conclusion.CheckConclusion != actionsdb.CheckConclusionSuccess {
+		t.Fatalf("run not completed successfully: %+v", run)
 	}
 
-	// Capacity is enforced server-side: a second heartbeat from the same
-	// runner sees one running job and receives no additional claim.
+	// The completed job is no longer counted against capacity, and no other
+	// queued job exists, so the heartbeat is an empty 204.
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
 		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -129,12 +170,80 @@ func TestRunnerHeartbeatRejectsBadToken(t *testing.T) {
 	}
 }
 
-func newRunnerAPIRouter(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, signer *runnerjwt.Signer) http.Handler {
+func TestRunnerArtifactUploadReturnsSignedURL(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()), storage.NewMemoryStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID    int64 `json:"id"`
+			RunID int64 `json:"run_id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/artifacts/upload", claim.Job.ID),
+		strings.NewReader(`{"name":"test-results.tgz","size_bytes":123}`))
+	req.Header.Set("Authorization", "Bearer "+claim.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("artifact status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var upload struct {
+		ArtifactID int64  `json:"artifact_id"`
+		UploadURL  string `json:"upload_url"`
+		NextToken  string `json:"next_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &upload); err != nil {
+		t.Fatalf("decode upload: %v", err)
+	}
+	if upload.ArtifactID == 0 || upload.NextToken == "" ||
+		!strings.HasPrefix(upload.UploadURL, "mem://actions/runs/") {
+		t.Fatalf("unexpected upload response: %+v", upload)
+	}
+	artifacts, err := actionsdb.New().ListArtifactsForRun(ctx, pool, claim.Job.RunID)
+	if err != nil {
+		t.Fatalf("ListArtifactsForRun: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name != "test-results.tgz" || artifacts[0].ByteCount != 123 {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func newRunnerAPIRouter(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	signer *runnerjwt.Signer,
+	stores ...storage.ObjectStore,
+) http.Handler {
 	t.Helper()
+	var store storage.ObjectStore
+	if len(stores) > 0 {
+		store = stores[0]
+	}
 	h, err := apih.New(apih.Deps{
-		Pool:      pool,
-		Logger:    logger,
-		RunnerJWT: signer,
+		Pool:        pool,
+		Logger:      logger,
+		RunnerJWT:   signer,
+		ObjectStore: store,
 	})
 	if err != nil {
 		t.Fatalf("api.New: %v", err)

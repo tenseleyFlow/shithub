@@ -296,3 +296,60 @@ func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]L
 	}
 	return items, nil
 }
+
+const updateWorkflowJobStatus = `-- name: UpdateWorkflowJobStatus :one
+UPDATE workflow_jobs
+SET status = $2,
+    conclusion = $3::check_conclusion,
+    started_at = $4::timestamptz,
+    completed_at = $5::timestamptz,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at
+`
+
+type UpdateWorkflowJobStatusParams struct {
+	ID          int64
+	Status      WorkflowJobStatus
+	Conclusion  NullCheckConclusion
+	StartedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error) {
+	row := db.QueryRow(ctx, updateWorkflowJobStatus,
+		arg.ID,
+		arg.Status,
+		arg.Conclusion,
+		arg.StartedAt,
+		arg.CompletedAt,
+	)
+	var i WorkflowJob
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.JobIndex,
+		&i.JobKey,
+		&i.JobName,
+		&i.RunsOn,
+		&i.RunnerID,
+		&i.NeedsJobs,
+		&i.IfExpr,
+		&i.TimeoutMinutes,
+		&i.Permissions,
+		&i.JobEnv,
+		&i.Status,
+		&i.Conclusion,
+		&i.CancelRequested,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

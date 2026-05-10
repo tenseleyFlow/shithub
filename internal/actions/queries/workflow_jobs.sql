@@ -21,6 +21,20 @@ SELECT id, run_id, job_index, job_key, job_name, runs_on,
 FROM workflow_jobs
 WHERE id = $1;
 
+-- name: UpdateWorkflowJobStatus :one
+UPDATE workflow_jobs
+SET status = $2,
+    conclusion = sqlc.narg(conclusion)::check_conclusion,
+    started_at = sqlc.narg(started_at)::timestamptz,
+    completed_at = sqlc.narg(completed_at)::timestamptz,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at;
+
 -- name: CountRunningJobsForRunner :one
 SELECT COUNT(*)::integer
 FROM workflow_jobs

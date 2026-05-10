@@ -11,6 +11,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getFirstStepForJob = `-- name: GetFirstStepForJob :one
+SELECT id, job_id, step_index, step_id, step_name, if_expr,
+       run_command, uses_alias, working_directory, step_env,
+       continue_on_error, status, conclusion, log_object_key,
+       log_byte_count, started_at, completed_at, version,
+       created_at, updated_at, step_with
+FROM workflow_steps
+WHERE job_id = $1
+ORDER BY step_index ASC
+LIMIT 1
+`
+
+func (q *Queries) GetFirstStepForJob(ctx context.Context, db DBTX, jobID int64) (WorkflowStep, error) {
+	row := db.QueryRow(ctx, getFirstStepForJob, jobID)
+	var i WorkflowStep
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.StepIndex,
+		&i.StepID,
+		&i.StepName,
+		&i.IfExpr,
+		&i.RunCommand,
+		&i.UsesAlias,
+		&i.WorkingDirectory,
+		&i.StepEnv,
+		&i.ContinueOnError,
+		&i.Status,
+		&i.Conclusion,
+		&i.LogObjectKey,
+		&i.LogByteCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.StepWith,
+	)
+	return i, err
+}
+
 const getWorkflowStepByID = `-- name: GetWorkflowStepByID :one
 SELECT id, job_id, step_index, step_id, step_name, if_expr,
        run_command, uses_alias, working_directory, step_env,

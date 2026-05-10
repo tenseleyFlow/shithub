@@ -14,6 +14,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
+	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
 	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
 	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
@@ -33,6 +34,7 @@ type Querier interface {
 	// target.
 	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
+	GetFirstStepForJob(ctx context.Context, db DBTX, jobID int64) (WorkflowStep, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)
@@ -83,6 +85,7 @@ type Querier interface {
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
+	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
 	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
