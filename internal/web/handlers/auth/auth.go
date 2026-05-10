@@ -146,6 +146,7 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/password", h.settingsPasswordSubmit)
 			r.Get("/settings/appearance", h.settingsAppearanceForm)
 			r.Post("/settings/appearance", h.settingsAppearanceSubmit)
+			r.Get("/settings/organizations", h.settingsOrganizations)
 			r.Get("/settings/emails", h.settingsEmailsList)
 			r.Post("/settings/emails", h.settingsEmailsAdd)
 			r.Post("/settings/emails/{id}/resend", h.settingsEmailsResend)

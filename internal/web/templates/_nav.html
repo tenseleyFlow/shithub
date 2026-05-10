@@ -21,19 +21,51 @@
     <details class="shithub-user-menu">
       <summary aria-label="User menu" aria-haspopup="menu">
         <img src="/avatars/{{ .Viewer.Username }}" alt="" class="shithub-user-menu-avatar" width="24" height="24">
-        <span class="shithub-user-menu-name">{{ .Viewer.Username }}</span>
       </summary>
       <div class="shithub-user-menu-panel" role="menu">
-        <div class="shithub-user-menu-header">
-          Signed in as <strong>@{{ .Viewer.Username }}</strong>
+        <div class="shithub-user-menu-account">
+          <img src="/avatars/{{ .Viewer.Username }}" alt="" class="shithub-user-menu-account-avatar" width="40" height="40">
+          <div class="shithub-user-menu-account-copy">
+            <strong>{{ .Viewer.Username }}</strong>
+            <span>@{{ .Viewer.Username }}</span>
+          </div>
         </div>
-        <a role="menuitem" href="/{{ .Viewer.Username }}">Your profile</a>
-        <a role="menuitem" href="/{{ .Viewer.Username }}?tab=repositories">Your repositories</a>
-        <a role="menuitem" href="/organizations/new">New organization</a>
-        <a role="menuitem" href="/settings/profile">Settings</a>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "smiley" }} <span>Set status</span>
+        </button>
+        <div class="shithub-user-menu-divider" role="separator"></div>
+        <a role="menuitem" class="shithub-user-menu-item" href="/{{ .Viewer.Username }}">{{ octicon "person" }} <span>Profile</span></a>
+        <a role="menuitem" class="shithub-user-menu-item" href="/{{ .Viewer.Username }}?tab=repositories">{{ octicon "repo" }} <span>Repositories</span></a>
+        <a role="menuitem" class="shithub-user-menu-item" href="/{{ .Viewer.Username }}?tab=stars">{{ octicon "star" }} <span>Stars</span></a>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "code-square" }} <span>Gists</span>
+        </button>
+        <a role="menuitem" class="shithub-user-menu-item" href="/settings/organizations">{{ octicon "organization" }} <span>Organizations</span></a>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "globe" }} <span>Enterprises</span>
+        </button>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "heart" }} <span>Sponsors</span>
+        </button>
+        <div class="shithub-user-menu-divider" role="separator"></div>
+        <a role="menuitem" class="shithub-user-menu-item" href="/settings/profile">{{ octicon "gear" }} <span>Settings</span></a>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "copilot" }} <span>Copilot settings</span>
+        </button>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "beaker" }} <span>Feature preview</span>
+        </button>
+        <a role="menuitem" class="shithub-user-menu-item" href="/settings/appearance">{{ octicon "paintbrush" }} <span>Appearance</span></a>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "accessibility" }} <span>Accessibility</span>
+        </button>
+        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
+          {{ octicon "briefcase" }} <span>Try Enterprise</span><span class="shithub-user-menu-badge">Free</span>
+        </button>
+        <div class="shithub-user-menu-divider" role="separator"></div>
         <form method="POST" action="/logout" class="shithub-user-menu-signout">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-          <button type="submit" role="menuitem">Sign out</button>
+          <button type="submit" role="menuitem" class="shithub-user-menu-item">{{ octicon "sign-out" }} <span>Sign out</span></button>
         </form>
       </div>
     </details>

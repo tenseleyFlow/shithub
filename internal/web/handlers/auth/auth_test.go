@@ -199,6 +199,7 @@ func authTemplatesFS() fs.FS {
 	apprTpl := `{{ define "page" }}<h1>Appearance</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/appearance" method=POST><input name=csrf_token value="{{.CSRFToken}}">THEME={{.CurrentTheme}};</form>{{ end }}`
 	emailsTpl := `{{ define "page" }}<h1>Emails</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/emails" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>EMAILS={{ range .Emails }}{{.ID}}:{{.Email}}:p={{.IsPrimary}}:v={{.Verified}};{{ end }}{{ end }}`
 	notifTpl := `{{ define "page" }}<h1>Notifications</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/notifications" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHANNELS={{ range .Channels }}{{.Key}}:e={{.Enabled}}:r={{.Required}};{{ end }}</form>{{ end }}`
+	organizationsTpl := `{{ define "page" }}<h1>Organizations</h1>USER={{.Username}};ORGS={{ range .Organizations }}{{.Slug}}:{{.RoleLabel}}:manage={{.CanManage}};{{ end }}{{ end }}`
 	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
 	dangerTpl := `{{ define "page" }}<h1>Delete</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<form action="/settings/danger" method=POST><input name=csrf_token value="{{.CSRFToken}}">USER={{.Username}};GRACE={{.GraceWindowDays}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
@@ -222,6 +223,7 @@ func authTemplatesFS() fs.FS {
 		"settings/appearance.html":    {Data: []byte(apprTpl)},
 		"settings/emails.html":        {Data: []byte(emailsTpl)},
 		"settings/notifications.html": {Data: []byte(notifTpl)},
+		"settings/organizations.html": {Data: []byte(organizationsTpl)},
 		"settings/sessions.html":      {Data: []byte(sessTpl)},
 		"settings/danger.html":        {Data: []byte(dangerTpl)},
 		"errors/404.html":             {Data: []byte(errorPage)},
