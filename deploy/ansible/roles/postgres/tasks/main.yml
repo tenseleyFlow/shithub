@@ -61,6 +61,12 @@
     owner: root
     group: root
 
+- name: systemd unit override — ensure drop-in dir exists
+  file:
+    path: /etc/systemd/system/postgresql@16-main.service.d
+    state: directory
+    mode: "0755"
+
 - name: systemd unit override — pin DATA_DIR to block volume
   copy:
     dest: /etc/systemd/system/postgresql@16-main.service.d/datadir.conf

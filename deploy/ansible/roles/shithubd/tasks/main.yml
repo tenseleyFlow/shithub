@@ -29,6 +29,14 @@
   args:
     creates: /var/lib/shithub/binaries/shithubd-{{ ansible_date_time.iso8601_basic_short }}
 
+- name: Config dir — ensure /etc/shithub exists
+  file:
+    path: /etc/shithub
+    state: directory
+    owner: "{{ shithub_user }}"
+    group: "{{ shithub_group }}"
+    mode: "0750"
+
 - name: Web env file (0600 — secrets)
   template:
     src: web.env.j2

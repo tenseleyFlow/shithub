@@ -18,6 +18,7 @@
       - rclone        # cross-region Spaces sync (S37)
       - tzdata
       - unattended-upgrades
+      - python3-psycopg2  # community.postgresql modules need this
     state: present
     update_cache: yes
 
@@ -70,7 +71,7 @@
     state: directory
     owner: "{{ shithub_user }}"
     group: "{{ shithub_group }}"
-    mode: "0750"
+    mode: "0755"
 
 - name: fail2ban — copy lite jail (sshd only at MVP)
   copy:
