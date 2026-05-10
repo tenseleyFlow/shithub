@@ -1,48 +1,115 @@
 ---
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Promtail (logs → Loki) + node_exporter (metrics → Prometheus).
-# Both scrape over the WireGuard mesh from the bare-metal box; the
-# droplet's metrics endpoints aren't exposed to the public internet.
+#
+# node_exporter (host metrics) + Grafana Alloy (scrape locally,
+# remote_write to Grafana Cloud Mimir). Replaces the previous
+# Promtail+node_exporter setup that scraped from a metal box.
+#
+# Operator side (one-time, see runbooks/observability.md):
+#   1. Sign up for Grafana Cloud free tier at https://grafana.com/
+#   2. Create an Access Policy with `metrics:write` scope; mint a
+#      token under that policy.
+#   3. From the Cloud portal, find the Prometheus instance details:
+#        - URL (e.g. https://prometheus-prod-NN-prod-us-central-0.grafana.net/api/prom/push)
+#        - Username (numeric tenant id, e.g. "1234567")
+#   4. Set in inventory/production:
+#        grafana_cloud_prom_url: <URL above>
+#        grafana_cloud_prom_user: <numeric tenant id>
+#        grafana_cloud_prom_token: <token from step 2>
+#   5. ansible-playbook ... -t monitoring  (or just re-run site.yml)
 
 - name: node_exporter — install
-  apt: { name: prometheus-node-exporter, state: present }
+  apt:
+    name: prometheus-node-exporter
+    state: present
 
 - name: node_exporter — service started
-  systemd: { name: prometheus-node-exporter, state: started, enabled: yes }
+  systemd:
+    name: prometheus-node-exporter
+    state: started
+    enabled: yes
 
-- name: Promtail — install
-  shell: |
-    if ! command -v promtail >/dev/null; then
-      VER=2.9.4
-      curl -sSL "https://github.com/grafana/loki/releases/download/v${VER}/promtail-linux-amd64.zip" -o /tmp/promtail.zip
-      unzip -o /tmp/promtail.zip -d /usr/local/bin/
-      mv /usr/local/bin/promtail-linux-amd64 /usr/local/bin/promtail
-      chmod +x /usr/local/bin/promtail
-    fi
-  args:
-    creates: /usr/local/bin/promtail
+# Grafana Alloy (the rebrand of Grafana Agent) ships from Grafana's
+# apt repo. Add the repo + key idempotently.
+- name: Grafana repo — keyring dir
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
 
-- name: promtail config
-  template:
-    src: promtail-config.yml.j2
-    dest: /etc/promtail/config.yml
+- name: Grafana repo — apt key
+  get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.gpg.key
     mode: "0644"
-  notify: restart promtail
 
-- name: promtail systemd unit
+- name: Grafana repo — sources list
   copy:
-    dest: /etc/systemd/system/promtail.service
+    dest: /etc/apt/sources.list.d/grafana.list
     content: |
-      [Unit]
-      Description=Promtail log shipper
-      After=network.target
-      [Service]
-      ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/config.yml
-      Restart=on-failure
-      [Install]
-      WantedBy=multi-user.target
+      deb [signed-by=/etc/apt/keyrings/grafana.gpg.key] https://apt.grafana.com stable main
     mode: "0644"
-  notify: [daemon-reload, restart promtail]
+  register: grafana_repo
 
-- name: promtail enabled
-  systemd: { name: promtail, state: started, enabled: yes }
+- name: apt update if grafana repo just added
+  apt:
+    update_cache: yes
+  when: grafana_repo.changed
+
+- name: Grafana Alloy — install
+  apt:
+    name: alloy
+    state: present
+
+# Credentials live in a dedicated env file so the alloy systemd unit
+# can pull them via EnvironmentFile=. Not in /etc/shithub because
+# alloy is its own user; we don't want to widen group access there.
+- name: Alloy creds dir
+  file:
+    path: /etc/alloy
+    state: directory
+    owner: root
+    group: alloy
+    mode: "0750"
+
+- name: Alloy credentials env file
+  template:
+    src: alloy.env.j2
+    dest: /etc/alloy/credentials.env
+    owner: root
+    group: alloy
+    mode: "0640"
+  notify: restart alloy
+
+- name: Alloy config (River)
+  template:
+    src: alloy-config.river.j2
+    dest: /etc/alloy/config.alloy
+    owner: root
+    group: alloy
+    mode: "0644"
+  notify: restart alloy
+
+- name: Alloy systemd drop-in dir
+  file:
+    path: /etc/systemd/system/alloy.service.d
+    state: directory
+    mode: "0755"
+
+# Override the upstream unit's EnvironmentFile so it picks up the
+# credentials file above. Drop-in keeps the package-shipped unit
+# intact across upgrades.
+- name: Alloy systemd drop-in for credentials env
+  copy:
+    dest: /etc/systemd/system/alloy.service.d/shithub.conf
+    content: |
+      [Service]
+      EnvironmentFile=/etc/alloy/credentials.env
+    mode: "0644"
+  notify: [daemon-reload, restart alloy]
+
+- name: Alloy enabled + started
+  systemd:
+    name: alloy
+    state: started
+    enabled: yes
