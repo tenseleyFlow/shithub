@@ -180,13 +180,14 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := repos.Params{
-		ActorUserID:  user.ID,
-		Name:         form.Name,
-		Description:  form.Description,
-		Visibility:   form.Visibility,
-		InitReadme:   form.InitReadme,
-		LicenseKey:   form.License,
-		GitignoreKey: form.Gitignore,
+		ActorUserID:      user.ID,
+		ActorIsSiteAdmin: user.IsSiteAdmin,
+		Name:             form.Name,
+		Description:      form.Description,
+		Visibility:       form.Visibility,
+		InitReadme:       form.InitReadme,
+		LicenseKey:       form.License,
+		GitignoreKey:     form.Gitignore,
 	}
 	// Owner picker: "org:N" routes through the org-owner branch with
 	// the per-org allow_member_repo_create gate; anything else
