@@ -240,7 +240,7 @@ func Run(ctx context.Context, opts Options) error {
 		deps.NotifPublicMounter = notifH.MountPublic
 
 		// S30 — orgs.
-		orgH, err := buildOrgHandlers(cfg, pool, deps.TemplatesFS, logger)
+		orgH, err := buildOrgHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
 			return fmt.Errorf("org handlers: %w", err)
 		}

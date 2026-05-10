@@ -45,6 +45,7 @@ set -a
 . /etc/shithub/web.env
 set +a
 "$BIN" migrate up
+"$BIN" storage check
 
 systemctl restart shithubd-web
 systemctl restart shithubd-worker

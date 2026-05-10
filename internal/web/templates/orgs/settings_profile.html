@@ -1,0 +1,36 @@
+{{ define "page" -}}
+<section class="shithub-org-settings">
+  <header class="shithub-org-profile-head">
+    <h1>{{ .Org.DisplayName }} · Profile settings</h1>
+    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+  </header>
+
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  {{ with .Success }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+  <section class="shithub-settings-section" aria-labelledby="org-avatar-heading">
+    <h2 id="org-avatar-heading">Profile picture</h2>
+    <div class="shithub-profile-picture-settings">
+      <img src="{{ .AvatarURL }}" alt="" class="shithub-profile-edit-avatar">
+      {{ if .AvatarUploadEnabled }}
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar" enctype="multipart/form-data" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Upload new picture</span>
+            <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif" required>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Upload</button>
+        </form>
+        {{ if .HasAvatar }}
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar/remove" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">Remove picture</button>
+        </form>
+        {{ end }}
+      {{ else }}
+        <p class="shithub-meta">Avatar uploads are disabled until object storage is configured.</p>
+      {{ end }}
+    </div>
+  </section>
+</section>
+{{- end }}

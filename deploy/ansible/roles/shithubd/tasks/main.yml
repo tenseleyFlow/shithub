@@ -40,6 +40,24 @@
     group: "{{ shithub_group }}"
     mode: "0750"
 
+- name: Runtime object storage config is complete when enabled
+  assert:
+    that:
+      - (s3_endpoint | default("") | string | length) > 0
+      - (s3_bucket | default("") | string | length) > 0
+      - (s3_access_key_id | default("") | string | length) > 0
+      - (s3_secret_access_key | default("") | string | length) > 0
+    fail_msg: >-
+      Runtime object storage is partially configured. Set s3_endpoint,
+      s3_bucket, s3_access_key_id, and s3_secret_access_key for the
+      DigitalOcean Spaces bucket, or leave all s3_* variables unset to
+      disable avatar uploads.
+  when: >
+    (s3_endpoint | default("") | string | length) > 0 or
+    (s3_bucket | default("") | string | length) > 0 or
+    (s3_access_key_id | default("") | string | length) > 0 or
+    (s3_secret_access_key | default("") | string | length) > 0
+
 - name: Web env file (0640 — group-readable for ssh-shell wrapper)
   # The git user (running ssh-shell via the AKC's forced command)
   # is in the shithub group and needs to source this file via the
@@ -61,6 +79,18 @@
     group: "{{ shithub_group }}"
     mode: "0600"
   notify: restart shithubd-worker
+
+- name: Storage check — repos root and runtime object bucket
+  shell: |
+    set -a
+    . /etc/shithub/web.env
+    set +a
+    /usr/local/bin/shithubd storage check
+  args:
+    executable: /bin/bash
+  become_user: "{{ shithub_user }}"
+  changed_when: false
+  when: not ansible_check_mode
 
 - name: systemd unit — web
   copy:

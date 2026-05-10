@@ -2,7 +2,7 @@
 
 shithub has two storage layers:
 
-1. **Object storage** — S3-compatible (MinIO in dev/test, DigitalOcean Spaces in prod). Used for avatars, attachments, and (post-MVP) LFS objects.
+1. **Object storage** — S3-compatible (MinIO in dev/test, DigitalOcean Spaces in prod). Used for avatars, attachments, and (post-MVP) LFS objects. The production bucket is DigitalOcean Spaces; the `s3` naming reflects the compatible API, not AWS.
 2. **Repo filesystem storage** — bare git repositories on a local block-storage volume, in a sharded layout owned by the `RepoFS` helper.
 
 Both layers live behind the package `internal/infra/storage`. Path validation is the **security boundary** — every entry that takes user-supplied owner/repo names goes through `RepoPath`, which rejects unsafe inputs against a strict whitelist. If repo paths can be tricked, every later sprint inherits the bug; the test suite *over*-tests this.
@@ -29,16 +29,19 @@ Two implementations:
 
 ### Bucket / key scheme
 
-Single bucket per environment: `shithub-dev`, `shithub-staging`, `shithub-prod`. Per-scope key prefixes ease policy and tenant isolation:
+Single bucket per environment: `shithub-dev`, `shithub-staging`, `shithub-prod`. In production this is a DigitalOcean Spaces bucket configured through the S3-compatible client. Per-scope key prefixes ease policy and tenant isolation:
 
 ```
 lfs/<owner>/<repo>/<sha256>           # LFS objects (post-MVP, key shape reserved)
 attachments/<scope>/<id>/<filename>   # issue/PR/comment attachments
-avatars/<owner>/<size>.<ext>          # rendered avatar variants
+avatars/<user_id>/<hash>.png          # largest rendered avatar variant
+avatars/<user_id>/<hash>-<size>.png   # smaller rendered avatar variants
+avatars/orgs/<org_id>/<hash>.png      # largest rendered org avatar variant
+avatars/orgs/<org_id>/<hash>-<size>.png
 backups/...                           # S37
 ```
 
-Keys are always lowercase.
+Avatar uploads are decoded from PNG, JPEG, or GIF and re-encoded to PNG before storage. Keys are always lowercase.
 
 ### Semantics worth knowing
 
@@ -107,7 +110,7 @@ All storage settings flow through `internal/infra/config` (see `docs/internal/co
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `storage.repos_root` | string | `/data/repos` | Filesystem root for bare repos. Required. |
-| `storage.s3.endpoint` | string | `""` | Host[:port], no scheme. Empty disables S3. |
+| `storage.s3.endpoint` | string | `""` | Host[:port], no scheme. Empty disables object storage. Production uses the DigitalOcean Spaces endpoint. |
 | `storage.s3.region` | string | `us-east-1` | Region for SigV4 signing. |
 | `storage.s3.access_key_id` | string | `""` | |
 | `storage.s3.secret_access_key` | string | `""` | Redacted by `config print`. |

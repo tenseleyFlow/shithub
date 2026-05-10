@@ -26,13 +26,14 @@ var storageCmd = &cobra.Command{
 
 var storageCheckCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Verify S3 round-trip and repos-root writability",
+	Short: "Verify object-store round-trip and repos-root writability",
 	Long: `Exits 0 when both:
-  (a) PUT and GET succeed against the configured S3 bucket, and
+  (a) PUT and GET succeed against the configured S3-compatible object bucket, and
   (b) the configured repos_root is writable.
 
-When the S3 block is unconfigured, only (b) is checked. Used in deploy
-smoke tests and as a sanity check from the operator's terminal.`,
+Production uses DigitalOcean Spaces through that S3-compatible API. When the
+S3 block is unconfigured, only (b) is checked. Used in deploy smoke tests and
+as a sanity check from the operator's terminal.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, err := config.Load(nil)
 		if err != nil {
