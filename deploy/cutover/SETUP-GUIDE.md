@@ -492,7 +492,8 @@ Fill in:
 - `caddy_email: ops@shithub.sh` (Let's Encrypt notifications)
 - `db_password`, `hook_password` — paste from `/tmp/`.
 - `session_key`, `totp_key` — paste from `/tmp/`.
-- `s3_endpoint: nyc3.digitaloceanspaces.com`
+- `s3_endpoint: nyc3.digitaloceanspaces.com` (DigitalOcean Spaces via
+  the S3-compatible API)
 - `s3_region: us-east-1` (Spaces uses this for SigV4)
 - `s3_bucket: shithub-prod`
 - `s3_access_key_id`, `s3_secret_access_key` — from B2 step 5.

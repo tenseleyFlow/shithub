@@ -26,7 +26,9 @@ Critical variables:
 - `session_key` — base64 32-byte AEAD key. Generate with
   `openssl rand -base64 32`.
 - `totp_key` — base64 32-byte AEAD key for at-rest TOTP secrets.
-- `s3_*` — bucket name, region, credentials.
+- `s3_*` — runtime object storage bucket name, region, and
+  credentials. In the reference deployment these point at the
+  DigitalOcean Spaces bucket through its S3-compatible API.
 - `email_*` — Postmark token or SMTP creds.
 - `wireguard_*` — peer keys for the monitoring mesh.
 
