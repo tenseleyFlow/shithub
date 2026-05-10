@@ -12,9 +12,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
+	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -56,6 +60,16 @@ func PRSynchronize(deps PRJobsDeps) worker.Handler {
 			map[string]any{"pr_id": p.PRID}, worker.EnqueueOptions{}); err != nil {
 			deps.Logger.WarnContext(ctx, "pr:synchronize: enqueue mergeability", "pr_id", p.PRID, "error", err)
 		}
+
+		// Actions trigger (S41b). On PR head movement, fan out a
+		// workflow:trigger with action="synchronize". Best-effort —
+		// failures here log and let the rest of the synchronize chain
+		// complete.
+		if err := enqueuePRActionsTrigger(ctx, deps, p.PRID, "synchronize"); err != nil {
+			deps.Logger.WarnContext(ctx, "pr:synchronize: enqueue workflow:trigger",
+				"pr_id", p.PRID, "error", err)
+		}
+
 		_ = worker.Notify(ctx, deps.Pool)
 		return nil
 	}
@@ -109,4 +123,83 @@ func resolveGitDirForPR(ctx context.Context, pool *pgxpool.Pool, rfs *storage.Re
 		return "", err
 	}
 	return rfs.RepoPath(owner.Username, repo.Name)
+}
+
+// enqueuePRActionsTrigger fans out a workflow:trigger job for a PR
+// state transition (action ∈ {"opened", "synchronize"} for v1).
+//
+// Collaborator gate (S41b spec §"Pitfalls"): "default for v1: trigger
+// on PR only when the PR is from a collaborator." We take a
+// conservative approach — actor must be the repo's owning user.
+// Org-member triggers and explicit-collaborator triggers are parked
+// behind a TODO; expanding requires a richer policy lookup that the
+// worker context doesn't easily reach today.
+func enqueuePRActionsTrigger(ctx context.Context, deps PRJobsDeps, prID int64, action string) error {
+	pr, err := pullsdb.New().GetPullRequestByIssueID(ctx, deps.Pool, prID)
+	if err != nil {
+		return fmt.Errorf("load pr: %w", err)
+	}
+	issue, err := issuesdb.New().GetIssueByID(ctx, deps.Pool, pr.IssueID)
+	if err != nil {
+		return fmt.Errorf("load issue: %w", err)
+	}
+	repo, err := reposdb.New().GetRepoByID(ctx, deps.Pool, pr.HeadRepoID)
+	if err != nil {
+		return fmt.Errorf("load repo: %w", err)
+	}
+
+	// Collaborator gate. v1: actor must be the repo's owner-user.
+	// External-PR + org-member triggers parked.
+	if !repo.OwnerUserID.Valid || !issue.AuthorUserID.Valid ||
+		repo.OwnerUserID.Int64 != issue.AuthorUserID.Int64 {
+		deps.Logger.InfoContext(ctx, "pr: skipping workflow:trigger (non-collaborator PR)",
+			"pr_id", prID, "action", action)
+		return nil
+	}
+
+	owner, err := usersdb.New().GetUserByID(ctx, deps.Pool, repo.OwnerUserID.Int64)
+	if err != nil {
+		return fmt.Errorf("load owner: %w", err)
+	}
+	gitDir, err := deps.RepoFS.RepoPath(owner.Username, repo.Name)
+	if err != nil {
+		return fmt.Errorf("repo path: %w", err)
+	}
+
+	// Changed paths: head_oid against base_oid for paths: filter
+	// evaluation. Best-effort — if the diff fails (e.g., tip pruned)
+	// we proceed without paths, and paths-filtered workflows won't
+	// trigger.
+	changed, err := gitops.ChangedPaths(ctx, gitDir, pr.BaseOid, pr.HeadOid)
+	if err != nil {
+		deps.Logger.WarnContext(ctx, "pr: changed-paths failed",
+			"pr_id", prID, "error", err)
+		changed = nil
+	}
+
+	authorLogin := owner.Username
+	payload := actionsevent.PullRequest(
+		action, issue.Number, issue.Title,
+		actionsevent.PRRef{Ref: pr.HeadRef, SHA: pr.HeadOid},
+		actionsevent.PRRef{Ref: pr.BaseRef, SHA: pr.BaseOid},
+		authorLogin,
+	)
+
+	job := trigger.JobPayload{
+		RepoID:         repo.ID,
+		HeadSHA:        pr.HeadOid,
+		HeadRef:        "refs/heads/" + pr.HeadRef,
+		EventKind:      trigger.EventPullRequest,
+		EventPayload:   payload,
+		ActorUserID:    issue.AuthorUserID.Int64,
+		TriggerEventID: fmt.Sprintf("pr_%s:%d:%s", action, prID, pr.HeadOid),
+		Action:         action,
+		BaseRef:        pr.BaseRef,
+		HeadRefShort:   pr.HeadRef,
+		ChangedPaths:   changed,
+	}
+	if _, err := worker.Enqueue(ctx, deps.Pool, trigger.KindWorkflowTrigger, job, worker.EnqueueOptions{}); err != nil {
+		return fmt.Errorf("enqueue: %w", err)
+	}
+	return nil
 }
