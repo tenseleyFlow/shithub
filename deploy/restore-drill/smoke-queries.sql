@@ -5,17 +5,20 @@
 -- assertion exits non-zero and the drill reports failure.
 --
 -- Keep these checks coarse: count tables, sanity-check primary
--- foreign-key relationships, ensure migrations table exists. Don't
--- compare counts to fixed numbers — counts grow over time. Compare
--- to internal invariants instead.
+-- foreign-key relationships, ensure the migration tracking table
+-- exists. Don't compare counts to fixed numbers — counts grow over
+-- time. Compare to internal invariants instead. Don't assert that
+-- non-system tables are non-empty (that breaks day-one drills).
 
-\echo === schema_migrations exists and has rows ===
+\echo === goose_db_version exists and has rows ===
 SELECT 1 / (CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END) AS ok
-  FROM schema_migrations;
+  FROM goose_db_version;
 
-\echo === core tables non-empty ===
+\echo === users table exists (the only table guaranteed non-empty) ===
 SELECT 1 / (CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END) FROM users;
-SELECT 1 / (CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END) FROM repos;
+
+\echo === repos table exists (may legitimately be empty on a fresh instance) ===
+SELECT COUNT(*) FROM repos;
 
 \echo === every repo has a real owner ===
 SELECT 1 / (CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END) AS orphan_repos
@@ -40,4 +43,4 @@ SELECT 1 / (CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END) AS orphan_issues
 SELECT actor_user_id, action, occurred_at FROM auth_audit_log LIMIT 1;
 
 \echo === migrations applied through latest known ===
-SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;
+SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1;
