@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -217,7 +218,7 @@ func (h *Handlers) publicUserPinCandidates(ctx context.Context, userID int64, ow
 	}
 	out := make([]profilePinCandidate, 0, len(rows))
 	for _, row := range rows {
-		if row.Visibility != reposdb.RepoVisibilityPublic {
+		if !policy.NewRepoRefFromRepo(row).IsPublic() {
 			continue
 		}
 		out = append(out, profilePinCandidateFromRepo(ownerSlug, row))
@@ -234,7 +235,7 @@ func (h *Handlers) publicOrgPinCandidates(ctx context.Context, orgID int64, orgS
 	}
 	out := make([]profilePinCandidate, 0, len(rows))
 	for _, row := range rows {
-		if row.Visibility != reposdb.RepoVisibilityPublic {
+		if !policy.NewRepoRefFromRepo(row).IsPublic() {
 			continue
 		}
 		out = append(out, profilePinCandidateFromRepo(orgSlug, row))
@@ -360,11 +361,19 @@ func profilePinCandidateFromRepo(ownerSlug string, repo reposdb.Repo) profilePin
 func publicOrgProfileRepos(repos []orgProfileRepo) []orgProfileRepo {
 	out := make([]orgProfileRepo, 0, len(repos))
 	for _, repo := range repos {
-		if repo.Visibility == string(reposdb.RepoVisibilityPublic) {
+		if orgProfileRepoRef(repo).IsPublic() {
 			out = append(out, repo)
 		}
 	}
 	return out
+}
+
+func orgProfileRepoRef(repo orgProfileRepo) policy.RepoRef {
+	return policy.RepoRef{
+		ID:         repo.ID,
+		Visibility: repo.Visibility,
+		IsArchived: repo.IsArchived,
+	}
 }
 
 func orgProfileRepoIDs(repos []orgProfileRepo) []int64 {
