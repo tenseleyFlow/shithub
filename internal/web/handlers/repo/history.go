@@ -6,7 +6,9 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,8 +86,10 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	}
 	pathFilter := strings.TrimSpace(q.Get("path"))
 	authorFilter := strings.TrimSpace(q.Get("author"))
-	since := parseDateParam(q.Get("since"))
-	until := parseDateParam(q.Get("until"))
+	sinceRaw := strings.TrimSpace(q.Get("since"))
+	untilRaw := strings.TrimSpace(q.Get("until"))
+	since := parseDateParam(sinceRaw)
+	until := parseUntilDateParam(untilRaw)
 
 	commits, err := git.Log(r.Context(), gitDir, git.LogOptions{
 		Ref:      ref,
@@ -106,26 +110,61 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	resolver := identity.New(h.d.Pool)
 	rows := make([]commitRow, 0, len(commits))
 	for _, c := range commits {
-		rows = append(rows, commitRow{Commit: c, Author: resolver.Resolve(r.Context(), c.AuthorEmail)})
+		rows = append(rows, newCommitRow(c, resolver.Resolve(r.Context(), c.AuthorEmail)))
+	}
+
+	filterValues := commitFilterValues(pathFilter, authorFilter, sinceRaw, untilRaw)
+	olderHref := ""
+	if len(commits) == perPage {
+		v := cloneURLValues(filterValues)
+		v.Set("page", strconv.Itoa(page+1))
+		olderHref = commitsHref(owner.Username, row.Name, ref, v)
+	}
+	newerHref := ""
+	if page > 1 {
+		v := cloneURLValues(filterValues)
+		v.Set("page", strconv.Itoa(page-1))
+		newerHref = commitsHref(owner.Username, row.Name, ref, v)
+	}
+	pathClearHref := ""
+	if pathFilter != "" {
+		v := cloneURLValues(filterValues)
+		v.Del("path")
+		pathClearHref = commitsHref(owner.Username, row.Name, ref, v)
+	}
+	allAuthorsValues := cloneURLValues(filterValues)
+	allAuthorsValues.Del("author")
+	selectedDate := until
+	if selectedDate.IsZero() {
+		selectedDate = since
 	}
 
 	h.d.Render.RenderPage(w, r, "repo/commits", map[string]any{
-		"Title":      "Commits · " + row.Name,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"Ref":        ref,
-		"PathFilter": pathFilter,
-		"Author":     authorFilter,
-		"Since":      q.Get("since"),
-		"Until":      q.Get("until"),
-		"Rows":       rows,
-		"Page":       page,
-		"NextPage":   page + 1,
-		"PrevPage":   page - 1,
-		"HasMore":    len(commits) == perPage,
-		"Branches":   refs.Branches,
-		"Tags":       refs.Tags,
+		"Title":            "Commits · " + row.Name,
+		"CSRFToken":        middleware.CSRFTokenForRequest(r),
+		"Owner":            owner.Username,
+		"Repo":             row,
+		"RepoActions":      h.repoActions(r, row.ID),
+		"RepoCounts":       h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":      h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":     "code",
+		"Ref":              ref,
+		"PathFilter":       pathFilter,
+		"PathClearHref":    pathClearHref,
+		"Author":           authorFilter,
+		"AuthorLabel":      commitAuthorSummary(rows, authorFilter),
+		"AllAuthorsHref":   commitsHref(owner.Username, row.Name, ref, allAuthorsValues),
+		"AuthorFilters":    commitAuthorFilters(owner.Username, row.Name, ref, filterValues, rows, authorFilter),
+		"Since":            sinceRaw,
+		"Until":            untilRaw,
+		"DateLabel":        commitDateSummary(sinceRaw, untilRaw),
+		"Calendar":         commitCalendar(owner.Username, row.Name, ref, filterValues, selectedDate, q.Get("calendar_month"), rows, time.Now()),
+		"CommitGroups":     groupCommitRows(rows),
+		"RefMenu":          commitRefMenu(owner.Username, row.Name, ref, row.DefaultBranch, refs),
+		"Page":             page,
+		"NewerHref":        newerHref,
+		"OlderHref":        olderHref,
+		"HasActiveFilters": pathFilter != "" || authorFilter != "" || sinceRaw != "" || untilRaw != "",
 	})
 }
 
@@ -267,13 +306,356 @@ func (h *Handlers) commitsAtom(w http.ResponseWriter, r *http.Request) {
 // git data so templates can render avatars and profile links without
 // re-running the resolver.
 type commitRow struct {
-	Commit git.Commit
-	Author identity.Resolved
+	Commit      git.Commit
+	Author      identity.Resolved
+	AuthorLabel string
+	AuthorHref  string
+}
+
+func newCommitRow(c git.Commit, author identity.Resolved) commitRow {
+	return commitRow{
+		Commit:      c,
+		Author:      author,
+		AuthorLabel: commitAuthorLabel(c, author),
+		AuthorHref:  commitAuthorHref(author),
+	}
+}
+
+type commitGroup struct {
+	Title string
+	Rows  []commitRow
+}
+
+type commitAuthorFilter struct {
+	Label         string
+	Query         string
+	Href          string
+	Active        bool
+	User          bool
+	AvatarURL     string
+	IdenticonSeed string
+}
+
+type commitRefOption struct {
+	Name      string
+	Href      string
+	Active    bool
+	IsDefault bool
+}
+
+type commitRefMenuView struct {
+	Branches []commitRefOption
+	Tags     []commitRefOption
+}
+
+type commitCalendarView struct {
+	MonthLabel    string
+	YearLabel     string
+	PrevMonthHref string
+	NextMonthHref string
+	ClearHref     string
+	TodayHref     string
+	Weeks         [][]commitCalendarDay
+}
+
+type commitCalendarDay struct {
+	Label      string
+	Href       string
+	InMonth    bool
+	IsSelected bool
+	IsToday    bool
 }
 
 type blameChunkRow struct {
 	Chunk  git.BlameChunk
 	Author identity.Resolved
+}
+
+func commitAuthorLabel(c git.Commit, author identity.Resolved) string {
+	if author.User {
+		if author.Username != "" {
+			return author.Username
+		}
+		return author.DisplayName
+	}
+	if strings.TrimSpace(c.AuthorName) != "" {
+		return strings.TrimSpace(c.AuthorName)
+	}
+	return strings.TrimSpace(c.AuthorEmail)
+}
+
+func commitAuthorHref(author identity.Resolved) string {
+	if !author.User || author.Username == "" {
+		return ""
+	}
+	return "/" + pathEscapeSegments(author.Username)
+}
+
+func commitAuthorQuery(row commitRow) string {
+	if row.Author.User && row.Author.Username != "" {
+		return row.Author.Username
+	}
+	if email := strings.TrimSpace(row.Commit.AuthorEmail); email != "" {
+		return email
+	}
+	return strings.TrimSpace(row.Commit.AuthorName)
+}
+
+func groupCommitRows(rows []commitRow) []commitGroup {
+	groups := make([]commitGroup, 0)
+	last := ""
+	for _, row := range rows {
+		title := row.Commit.AuthorWhen.Local().Format("January 2, 2006")
+		if title != last {
+			groups = append(groups, commitGroup{Title: title})
+			last = title
+		}
+		groups[len(groups)-1].Rows = append(groups[len(groups)-1].Rows, row)
+	}
+	return groups
+}
+
+func commitAuthorSummary(rows []commitRow, active string) string {
+	active = strings.TrimSpace(active)
+	if active == "" {
+		return "All users"
+	}
+	for _, row := range rows {
+		if strings.EqualFold(commitAuthorQuery(row), active) || strings.EqualFold(row.AuthorLabel, active) {
+			return row.AuthorLabel
+		}
+	}
+	return active
+}
+
+func commitAuthorFilters(owner, repoName, ref string, base url.Values, rows []commitRow, active string) []commitAuthorFilter {
+	type candidate struct {
+		filter commitAuthorFilter
+		key    string
+	}
+	seen := make(map[string]struct{})
+	candidates := make([]candidate, 0, len(rows))
+	for _, row := range rows {
+		query := commitAuthorQuery(row)
+		if query == "" {
+			continue
+		}
+		key := strings.ToLower(query)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		values := cloneURLValues(base)
+		values.Set("author", query)
+		values.Del("page")
+		values.Del("calendar_month")
+		candidates = append(candidates, candidate{
+			key: key,
+			filter: commitAuthorFilter{
+				Label:         row.AuthorLabel,
+				Query:         query,
+				Href:          commitsHref(owner, repoName, ref, values),
+				Active:        strings.EqualFold(active, query) || strings.EqualFold(active, row.AuthorLabel),
+				User:          row.Author.User,
+				AvatarURL:     row.Author.AvatarURL,
+				IdenticonSeed: row.Author.IdenticonSeed,
+			},
+		})
+	}
+	if active != "" {
+		key := strings.ToLower(active)
+		if _, ok := seen[key]; !ok {
+			values := cloneURLValues(base)
+			values.Set("author", active)
+			values.Del("page")
+			values.Del("calendar_month")
+			candidates = append(candidates, candidate{
+				key: key,
+				filter: commitAuthorFilter{
+					Label:  active,
+					Query:  active,
+					Href:   commitsHref(owner, repoName, ref, values),
+					Active: true,
+				},
+			})
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].filter.Active != candidates[j].filter.Active {
+			return candidates[i].filter.Active
+		}
+		return strings.ToLower(candidates[i].filter.Label) < strings.ToLower(candidates[j].filter.Label)
+	})
+	out := make([]commitAuthorFilter, 0, len(candidates))
+	for _, c := range candidates {
+		out = append(out, c.filter)
+	}
+	return out
+}
+
+func commitDateSummary(sinceRaw, untilRaw string) string {
+	sinceRaw = strings.TrimSpace(sinceRaw)
+	untilRaw = strings.TrimSpace(untilRaw)
+	switch {
+	case sinceRaw == "" && untilRaw == "":
+		return "All time"
+	case sinceRaw != "" && untilRaw != "":
+		return formatCommitFilterDate(sinceRaw) + " - " + formatCommitFilterDate(untilRaw)
+	case sinceRaw != "":
+		return "Since " + formatCommitFilterDate(sinceRaw)
+	default:
+		return "Until " + formatCommitFilterDate(untilRaw)
+	}
+}
+
+func formatCommitFilterDate(raw string) string {
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return raw
+	}
+	return t.Format("Jan 2, 2006")
+}
+
+func commitRefMenu(owner, repoName, current, defaultBranch string, refs git.RefListing) commitRefMenuView {
+	out := commitRefMenuView{
+		Branches: make([]commitRefOption, 0, len(refs.Branches)),
+		Tags:     make([]commitRefOption, 0, len(refs.Tags)),
+	}
+	for _, ref := range refs.Branches {
+		out.Branches = append(out.Branches, commitRefOption{
+			Name:      ref.Name,
+			Href:      commitsHref(owner, repoName, ref.Name, nil),
+			Active:    ref.Name == current,
+			IsDefault: ref.Name == defaultBranch,
+		})
+	}
+	for _, ref := range refs.Tags {
+		out.Tags = append(out.Tags, commitRefOption{
+			Name:   ref.Name,
+			Href:   commitsHref(owner, repoName, ref.Name, nil),
+			Active: ref.Name == current,
+		})
+	}
+	return out
+}
+
+func commitCalendar(owner, repoName, ref string, base url.Values, selected time.Time, monthParam string, rows []commitRow, now time.Time) commitCalendarView {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	anchor := selected
+	if anchor.IsZero() && len(rows) > 0 {
+		anchor = rows[0].Commit.AuthorWhen
+	}
+	if anchor.IsZero() {
+		anchor = now
+	}
+	if t, err := time.Parse("2006-01", strings.TrimSpace(monthParam)); err == nil {
+		anchor = t
+	}
+	loc := anchor.Location()
+	if loc == nil {
+		loc = time.Local
+	}
+	monthStart := time.Date(anchor.Year(), anchor.Month(), 1, 0, 0, 0, 0, loc)
+	gridStart := monthStart.AddDate(0, 0, -int(monthStart.Weekday()))
+	weeks := make([][]commitCalendarDay, 6)
+	for week := 0; week < 6; week++ {
+		weeks[week] = make([]commitCalendarDay, 7)
+		for day := 0; day < 7; day++ {
+			d := gridStart.AddDate(0, 0, week*7+day)
+			values := cloneURLValues(base)
+			values.Set("until", d.Format("2006-01-02"))
+			values.Del("page")
+			values.Del("calendar_month")
+			weeks[week][day] = commitCalendarDay{
+				Label:      strconv.Itoa(d.Day()),
+				Href:       commitsHref(owner, repoName, ref, values),
+				InMonth:    d.Month() == monthStart.Month(),
+				IsSelected: sameCalendarDate(d, selected),
+				IsToday:    sameCalendarDate(d, now),
+			}
+		}
+	}
+
+	prevValues := cloneURLValues(base)
+	prevValues.Set("calendar_month", monthStart.AddDate(0, -1, 0).Format("2006-01"))
+	prevValues.Del("page")
+	nextValues := cloneURLValues(base)
+	nextValues.Set("calendar_month", monthStart.AddDate(0, 1, 0).Format("2006-01"))
+	nextValues.Del("page")
+	clearValues := cloneURLValues(base)
+	clearValues.Del("since")
+	clearValues.Del("until")
+	clearValues.Del("calendar_month")
+	clearValues.Del("page")
+	todayValues := cloneURLValues(base)
+	todayValues.Set("until", now.Format("2006-01-02"))
+	todayValues.Del("calendar_month")
+	todayValues.Del("page")
+
+	return commitCalendarView{
+		MonthLabel:    monthStart.Format("January"),
+		YearLabel:     monthStart.Format("2006"),
+		PrevMonthHref: commitsHref(owner, repoName, ref, prevValues),
+		NextMonthHref: commitsHref(owner, repoName, ref, nextValues),
+		ClearHref:     commitsHref(owner, repoName, ref, clearValues),
+		TodayHref:     commitsHref(owner, repoName, ref, todayValues),
+		Weeks:         weeks,
+	}
+}
+
+func sameCalendarDate(a, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return false
+	}
+	bb := b.In(a.Location())
+	return a.Year() == bb.Year() && a.Month() == bb.Month() && a.Day() == bb.Day()
+}
+
+func commitFilterValues(pathFilter, authorFilter, sinceRaw, untilRaw string) url.Values {
+	values := url.Values{}
+	if pathFilter != "" {
+		values.Set("path", pathFilter)
+	}
+	if authorFilter != "" {
+		values.Set("author", authorFilter)
+	}
+	if sinceRaw != "" {
+		values.Set("since", sinceRaw)
+	}
+	if untilRaw != "" {
+		values.Set("until", untilRaw)
+	}
+	return values
+}
+
+func commitsHref(owner, repoName, ref string, values url.Values) string {
+	path := "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + "/commits/" + pathEscapeSegments(ref)
+	if len(values) == 0 {
+		return path
+	}
+	encoded := values.Encode()
+	if encoded == "" {
+		return path
+	}
+	return path + "?" + encoded
+}
+
+func cloneURLValues(values url.Values) url.Values {
+	out := make(url.Values, len(values))
+	for k, vv := range values {
+		out[k] = append([]string(nil), vv...)
+	}
+	return out
+}
+
+func pathEscapeSegments(s string) string {
+	parts := strings.Split(s, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 // validateSHA accepts 7..40 hex chars. Git resolves short SHAs when
@@ -297,6 +679,14 @@ func parseDateParam(s string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+func parseUntilDateParam(s string) time.Time {
+	t := parseDateParam(s)
+	if t.IsZero() {
+		return t
+	}
+	return t.Add(24*time.Hour - time.Second)
 }
 
 // linkifyCommitBody produces escaped + linkified HTML from a commit

@@ -3914,33 +3914,542 @@ button.shithub-repo-action {
 .shithub-identicon {
   background: linear-gradient(135deg, #cce, #ecc);
 }
-.shithub-commits-filter {
-  display: flex;
-  gap: 0.5rem;
-  align-items: end;
-  flex-wrap: wrap;
-  margin: 1rem 0;
+.shithub-commits-page {
+  max-width: 1280px;
 }
-.shithub-commits-filter input {
-  padding: 0.3rem 0.5rem;
+.shithub-commits-shell {
+  max-width: 1012px;
+  margin: 0 auto;
+  padding: 0.5rem 0 2rem;
+}
+.shithub-commits-titlebar {
+  padding: 0.75rem 0 0.8rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-commits-titlebar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.shithub-commits-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0 0.85rem;
+}
+.shithub-commit-filter-stack {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.shithub-commit-menu {
+  position: relative;
+}
+.shithub-commit-menu > summary {
+  list-style: none;
+}
+.shithub-commit-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-commit-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 32px;
+  padding: 0 0.75rem;
   border: 1px solid var(--border-default);
   border-radius: 6px;
-  font: inherit;
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.shithub-commits-list { list-style: none; padding: 0; margin: 0; }
+.shithub-commit-menu-button:hover {
+  background: var(--canvas-inset);
+}
+.shithub-commit-menu-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 290px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-overlay, var(--canvas-default));
+  box-shadow: 0 12px 32px rgba(1, 4, 9, 0.35);
+}
+.shithub-commit-ref-panel {
+  left: 0;
+  right: auto;
+  width: 300px;
+}
+.shithub-commit-calendar-panel {
+  width: 306px;
+  padding: 0.85rem;
+}
+.shithub-commit-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0.65rem;
+  border-bottom: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-icon-button,
+.shithub-commit-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.shithub-icon-button:hover,
+.shithub-commit-icon-action:hover {
+  color: var(--accent-fg);
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-commit-icon-action.is-copied {
+  color: var(--success-fg, #3fb950);
+}
+.shithub-commit-menu-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.45rem 0.5rem 0.5rem;
+  padding: 0 0.55rem;
+  min-height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-default);
+}
+.shithub-commit-menu-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--fg-default);
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+}
+.shithub-commit-ref-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border-muted, var(--border-default));
+  border-bottom: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-commit-ref-tabs button {
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  color: var(--fg-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.shithub-commit-ref-tabs button + button {
+  border-left: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-commit-ref-tabs .is-active {
+  color: var(--fg-default);
+  background: var(--canvas-subtle);
+}
+.shithub-commit-ref-list,
+.shithub-commit-author-list {
+  max-height: 300px;
+  overflow: auto;
+}
+.shithub-commit-ref-item,
+.shithub-commit-author-item {
+  display: grid;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border-muted, var(--border-default));
+  color: var(--fg-default);
+  font-size: 0.875rem;
+}
+.shithub-commit-ref-item {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 0.45rem;
+}
+.shithub-commit-author-item {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0.45rem;
+  font-weight: 600;
+}
+.shithub-commit-ref-item:hover,
+.shithub-commit-author-item:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-commit-ref-item.is-active,
+.shithub-commit-author-item.is-active {
+  color: var(--accent-fg);
+}
+.shithub-ref-default {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.shithub-commit-ref-section-label {
+  padding: 0.55rem 0.75rem 0.35rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.shithub-commit-menu-empty {
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-commit-menu-footer {
+  display: block;
+  padding: 0.75rem;
+  border-top: 1px solid var(--border-default);
+  color: var(--accent-fg);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+}
+.shithub-commit-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.shithub-commit-calendar-month {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+}
+.shithub-commit-calendar-month span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+}
+.shithub-commit-calendar-nav {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+.shithub-commit-calendar-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.shithub-commit-calendar-nav a:hover {
+  color: var(--fg-default);
+  background: var(--canvas-inset);
+  text-decoration: none;
+}
+.shithub-commit-calendar {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.shithub-commit-calendar th {
+  height: 28px;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+.shithub-commit-calendar td {
+  height: 34px;
+  padding: 0;
+  text-align: center;
+}
+.shithub-commit-calendar-day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.shithub-commit-calendar-day.is-in-month {
+  color: var(--fg-default);
+}
+.shithub-commit-calendar-day:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-commit-calendar-day.is-selected {
+  color: var(--accent-fg);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.shithub-commit-calendar-day.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent-fg);
+}
+.shithub-commit-calendar-footer {
+  display: flex;
+  gap: 1rem;
+  padding-top: 0.8rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shithub-commit-active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font-size: 0.875rem;
+}
+.shithub-commit-timeline {
+  display: grid;
+  gap: 0.85rem;
+}
+.shithub-commit-day-group {
+  position: relative;
+  margin-left: 1.05rem;
+  padding-left: 1.45rem;
+}
+.shithub-commit-day-group::before {
+  position: absolute;
+  top: 1.7rem;
+  bottom: -0.85rem;
+  left: 0;
+  width: 2px;
+  background: var(--border-default);
+  content: "";
+}
+.shithub-commit-day-group:last-child::before {
+  bottom: 0;
+}
+.shithub-commit-day-group h2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.7rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.shithub-commit-day-group h2 svg {
+  position: absolute;
+  left: -1.82rem;
+  width: 16px;
+  height: 16px;
+  padding: 0.2rem;
+  border-radius: 50%;
+  color: var(--fg-muted);
+  background: var(--canvas-default);
+}
+.shithub-commits-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  overflow: hidden;
+}
 .shithub-commits-row {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 0.75rem;
-  padding: 0.6rem 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  min-height: 64px;
+  padding: 0.72rem 0.85rem;
   border-bottom: 1px solid var(--border-default);
-  align-items: start;
+  align-items: center;
 }
-.shithub-commits-author { color: var(--fg-muted); font-size: 0.875rem; }
-.shithub-commits-meta { display: flex; flex-direction: column; gap: 0.2rem; }
-.shithub-commits-subject { color: var(--fg-default); font-weight: 500; }
-.shithub-commits-sha { color: var(--fg-muted); font-size: 0.8rem; }
-.shithub-pager { display: flex; gap: 1rem; padding: 1rem 0; }
+.shithub-commits-row:last-child {
+  border-bottom: 0;
+}
+.shithub-commit-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.shithub-commit-message-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.shithub-commits-subject {
+  min-width: 0;
+  color: var(--fg-default);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-commits-subject:hover {
+  color: var(--accent-fg);
+}
+.shithub-commit-attribution {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+.shithub-commit-attribution .shithub-avatar-sm {
+  width: 16px;
+  height: 16px;
+  margin-right: 0.1rem;
+}
+.shithub-commit-attribution a {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.shithub-commit-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.shithub-commits-sha {
+  margin-right: 0.35rem;
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.shithub-commit-body-popover {
+  position: relative;
+}
+.shithub-commit-body-popover summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  list-style: none;
+  cursor: pointer;
+}
+.shithub-commit-body-popover summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-commit-body-popover summary:hover {
+  color: var(--accent-fg);
+  background: var(--canvas-subtle);
+}
+.shithub-commit-body-popover pre {
+  position: absolute;
+  z-index: 20;
+  top: 28px;
+  left: 0;
+  width: min(34rem, 80vw);
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-default);
+  background: var(--canvas-overlay, var(--canvas-default));
+  box-shadow: 0 12px 32px rgba(1, 4, 9, 0.35);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+.shithub-commit-empty {
+  padding: 2rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  text-align: center;
+}
+.shithub-pager {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+.shithub-commit-pager {
+  justify-content: flex-end;
+}
+.shithub-commit-pager a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--accent-fg);
+  background: var(--canvas-subtle);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .shithub-commits-toolbar,
+  .shithub-commit-filter-stack {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shithub-commit-filter-stack {
+    width: 100%;
+    margin-left: 0;
+  }
+  .shithub-commit-menu-button {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .shithub-commit-menu-panel,
+  .shithub-commit-ref-panel,
+  .shithub-commit-calendar-panel {
+    left: 0;
+    right: auto;
+    width: min(100%, 320px);
+  }
+  .shithub-commit-day-group {
+    margin-left: 0.65rem;
+    padding-left: 1.05rem;
+  }
+  .shithub-commits-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .shithub-commit-row-actions {
+    justify-content: flex-start;
+  }
+}
 
 .shithub-commit-view { max-width: 64rem; margin: 1.5rem auto; padding: 0 1rem; }
 .shithub-commit-meta {
