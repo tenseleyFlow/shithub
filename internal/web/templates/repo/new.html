@@ -99,6 +99,13 @@
               {{ end }}
             </select>
           </label>
+          <label class="shithub-repo-new-config-row">
+            <span>
+              <strong>Import from source remote</strong>
+              <small>Fetch an existing public Git repository after creation.</small>
+            </span>
+            <input type="url" name="source_remote_url" placeholder="https://github.com/OWNER/REPO.git" value="{{ .Form.SourceRemote }}">
+          </label>
         </div>
       </section>
     </div>

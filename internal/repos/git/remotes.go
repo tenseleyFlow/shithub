@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -22,13 +23,20 @@ func FetchRemoteHeadsAndTags(ctx context.Context, gitDir, remoteURL string) erro
 		return errors.New("git fetch: remoteURL is required")
 	}
 	//nolint:gosec // G204: gitDir is RepoFS-derived at call sites; remoteURL is caller-allowlisted and passed as argv, not shell.
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := exec.CommandContext(ctx, "git",
+		"-c", "protocol.ext.allow=never",
+		"-C", gitDir,
 		"fetch",
 		"--quiet",
 		"--no-recurse-submodules",
 		remoteURL,
 		"refs/heads/*:refs/heads/*",
 		"refs/tags/*:refs/tags/*",
+	)
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_XDG=/dev/null",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

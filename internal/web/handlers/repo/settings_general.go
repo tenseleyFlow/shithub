@@ -3,12 +3,14 @@
 package repo
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
@@ -26,6 +28,7 @@ import (
 func (h *Handlers) MountSettingsGeneral(r chi.Router) {
 	r.Get("/{owner}/{repo}/settings/general", h.settingsGeneral)
 	r.Post("/{owner}/{repo}/settings/general", h.settingsGeneralUpdate)
+	r.Post("/{owner}/{repo}/settings/source-remote", h.settingsSourceRemoteUpdate)
 	r.Post("/{owner}/{repo}/settings/merges", h.settingsMergeUpdate)
 	r.Get("/{owner}/{repo}/settings/access", h.settingsAccess)
 	r.Post("/{owner}/{repo}/settings/access/collaborators", h.settingsCollabUpsert)
@@ -44,6 +47,7 @@ func (h *Handlers) settingsGeneral(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, row.ID)
+	sourceRemote, _ := h.repoSourceRemote(r.Context(), row.ID)
 	notice := r.URL.Query().Get("notice")
 	h.d.Render.RenderPage(w, r, "repo/settings_general", map[string]any{
 		"Title":          "General · " + row.Name,
@@ -52,6 +56,7 @@ func (h *Handlers) settingsGeneral(w http.ResponseWriter, r *http.Request) {
 		"Repo":           row,
 		"Topics":         topics,
 		"TopicsCSV":      strings.Join(topics, ", "),
+		"SourceRemote":   sourceRemote,
 		"SettingsActive": "general",
 		"Notice":         settingsNoticeMessage(notice),
 	})
@@ -104,6 +109,49 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=saved", http.StatusSeeOther)
+}
+
+// settingsSourceRemoteUpdate persists the repo's public source remote and
+// immediately fetches heads/tags so imported histories and submodule gitlinks
+// can resolve without guessing where the objects live.
+func (h *Handlers) settingsSourceRemoteUpdate(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "form parse", http.StatusBadRequest)
+		return
+	}
+	rawURL := strings.TrimSpace(r.PostFormValue("source_remote_url"))
+	if r.PostFormValue("clear_source_remote") == "1" {
+		rawURL = ""
+	}
+	if rawURL == "" {
+		if err := h.rq.DeleteRepoSourceRemote(r.Context(), h.d.Pool, row.ID); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "settings: delete source remote", "error", err, "repo_id", row.ID)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=source-remote-cleared", http.StatusSeeOther)
+		return
+	}
+	remoteURL, err := h.saveRepoSourceRemote(r.Context(), row.ID, rawURL)
+	if err != nil {
+		if isInvalidSourceRemote(err) {
+			http.Error(w, "source remote URL must be a public http(s) git remote without credentials", http.StatusBadRequest)
+			return
+		}
+		h.d.Logger.WarnContext(r.Context(), "settings: save source remote", "error", err, "repo_id", row.ID)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	if err := h.fetchRepoSourceRemote(r.Context(), row, owner.Username, remoteURL); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "settings: fetch source remote", "error", err, "repo_id", row.ID, "remote", remoteURL)
+		http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=source-remote-fetch-failed", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=source-remote-imported", http.StatusSeeOther)
 }
 
 // settingsMergeUpdate persists allow_*_merge + default_merge_method.
@@ -416,9 +464,28 @@ func settingsNoticeMessage(code string) string {
 		return "Settings saved."
 	case "deleted":
 		return "Deleted."
+	case "source-remote-cleared":
+		return "Source remote cleared."
+	case "source-remote-fetch-failed":
+		return "Source remote saved, but fetch failed. Check the stored error and try again."
+	case "source-remote-imported":
+		return "Source remote fetched."
+	case "source-remote-save-failed":
+		return "Repository was created, but the source remote could not be saved."
 	case "":
 		return ""
 	default:
 		return ""
 	}
+}
+
+func (h *Handlers) repoSourceRemote(ctx context.Context, repoID int64) (reposdb.RepoSourceRemote, bool) {
+	sourceRemote, err := h.rq.GetRepoSourceRemote(ctx, h.d.Pool, repoID)
+	if err == nil {
+		return sourceRemote, true
+	}
+	if !errors.Is(err, pgx.ErrNoRows) && h.d.Logger != nil {
+		h.d.Logger.WarnContext(ctx, "settings: source remote lookup", "error", err, "repo_id", repoID)
+	}
+	return reposdb.RepoSourceRemote{}, false
 }

@@ -72,18 +72,27 @@ directories first, then files alphabetically.
 on the rendered ref, the Code tab parses it once, matches entries by
 submodule path, and links GitHub or configured shithub clone remotes to
 the local `/{owner}/{repo}/tree/{gitlink-oid}` route when the target
-repo has that commit. If the target repo exists locally but does not
-have the pinned commit object, and `.gitmodules` points at GitHub or a
-relative sibling repo, the handler performs a bounded, non-forced fetch
-of heads/tags from the corresponding GitHub remote, re-checks the
-object, and then links to the exact detached-commit tree when it
-arrived. Successful backfills update the target repo's default-branch
-OID when that ref moved, then enqueue the same code-index and
-size-recalc maintenance used after pushes. Diverged local refs are
-never force-updated; on fetch failure or still-missing objects, the row
-links to the target repo's default Code tab so independently-created
-mirrors don't produce dead links. Unknown, external, absent, or
-malformed remotes stay as plain `name @ shortsha` rows.
+repo has that commit.
+
+If the target repo exists locally but does not have the pinned commit
+object, the handler first checks `repo_source_remotes` for that target
+repo. A stored source remote is the durable source of truth for imports:
+the handler validates it with the shared SSRF defense, performs a
+bounded, non-forced fetch of heads/tags, re-checks the object, and then
+links to the exact detached-commit tree when it arrived. Successful
+backfills update the target repo's default-branch OID when that ref
+moved, mark the source remote fetched, and enqueue the same code-index
+and size-recalc maintenance used after pushes.
+
+GitHub URL/name inference remains as a compatibility fallback for
+legacy repos that were created before source remotes existed: when the
+`.gitmodules` URL is GitHub-hosted or a relative sibling that maps
+cleanly to a GitHub owner/repo, shithub may fetch from the inferred
+GitHub URL. Diverged local refs are never force-updated; on fetch
+failure or still-missing objects, the row links to the target repo's
+default Code tab so independently-created mirrors don't produce dead
+links. Unknown, external, absent, or malformed remotes stay as plain
+`name @ shortsha` rows.
 
 The S17 ship excludes the htmx-driven "last commit per entry" column
 that the spec describes — an extra round-trip we can add later without

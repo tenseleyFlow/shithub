@@ -150,13 +150,14 @@ func (h *Handlers) newRepoForm(w http.ResponseWriter, r *http.Request) {
 // formState mirrors the new-repo form so a re-render after a validation
 // error can repopulate the user's input.
 type formState struct {
-	Owner       string // "user:<id>" or "org:<id>"
-	Name        string
-	Description string
-	Visibility  string
-	InitReadme  bool
-	License     string
-	Gitignore   string
+	Owner        string // "user:<id>" or "org:<id>"
+	Name         string
+	Description  string
+	Visibility   string
+	SourceRemote string
+	InitReadme   bool
+	License      string
+	Gitignore    string
 }
 
 // ownerOption is one entry the new-repo owner picker shows.
@@ -177,16 +178,31 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	user := middleware.CurrentUserFromContext(r.Context())
 	form := formState{
-		Owner:       strings.TrimSpace(r.PostFormValue("owner")),
-		Name:        repos.NormalizeName(r.PostFormValue("name")),
-		Description: strings.TrimSpace(r.PostFormValue("description")),
-		Visibility:  strings.TrimSpace(r.PostFormValue("visibility")),
-		InitReadme:  r.PostFormValue("init_readme") == "on",
-		License:     strings.TrimSpace(r.PostFormValue("license")),
-		Gitignore:   strings.TrimSpace(r.PostFormValue("gitignore")),
+		Owner:        strings.TrimSpace(r.PostFormValue("owner")),
+		Name:         repos.NormalizeName(r.PostFormValue("name")),
+		Description:  strings.TrimSpace(r.PostFormValue("description")),
+		Visibility:   strings.TrimSpace(r.PostFormValue("visibility")),
+		SourceRemote: strings.TrimSpace(r.PostFormValue("source_remote_url")),
+		InitReadme:   r.PostFormValue("init_readme") == "on",
+		License:      strings.TrimSpace(r.PostFormValue("license")),
+		Gitignore:    strings.TrimSpace(r.PostFormValue("gitignore")),
 	}
 	if form.Visibility == "" {
 		form.Visibility = "public"
+	}
+	var sourceRemoteURL string
+	if form.SourceRemote != "" {
+		if form.InitReadme || form.License != "" || form.Gitignore != "" {
+			h.renderNewForm(w, r, form, "Source imports can't be combined with initial README, license, or .gitignore files.")
+			return
+		}
+		var sourceErr error
+		sourceRemoteURL, sourceErr = repos.ValidateSourceRemoteURL(r.Context(), form.SourceRemote)
+		if sourceErr != nil {
+			h.renderNewForm(w, r, form, "Source remote URL must be a public http(s) git remote without credentials.")
+			return
+		}
+		form.SourceRemote = sourceRemoteURL
 	}
 
 	params := repos.Params{
@@ -255,6 +271,21 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 	ownerSlug := params.OwnerUsername
 	if ownerSlug == "" {
 		ownerSlug = params.OwnerSlug
+	}
+	if sourceRemoteURL != "" {
+		if _, err := h.rq.UpsertRepoSourceRemote(r.Context(), h.d.Pool, reposdb.UpsertRepoSourceRemoteParams{
+			RepoID:    res.Repo.ID,
+			RemoteUrl: sourceRemoteURL,
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "repos: source remote save after create", "error", err, "repo_id", res.Repo.ID)
+			http.Redirect(w, r, "/"+ownerSlug+"/"+res.Repo.Name+"/settings/general?notice=source-remote-save-failed", http.StatusSeeOther)
+			return
+		}
+		if err := h.fetchRepoSourceRemote(r.Context(), res.Repo, ownerSlug, sourceRemoteURL); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "repos: source remote fetch after create", "error", err, "repo_id", res.Repo.ID, "remote", sourceRemoteURL)
+			http.Redirect(w, r, "/"+ownerSlug+"/"+res.Repo.Name+"/settings/general?notice=source-remote-fetch-failed", http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/"+ownerSlug+"/"+res.Repo.Name, http.StatusSeeOther)
 }

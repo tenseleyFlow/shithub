@@ -5,6 +5,7 @@ S11 ships the create-a-repo flow end-to-end: a logged-in user clicks **New**, fi
 ## What's wired
 
 - **Migration:** `0017_repos.sql` adds the `repos` table (with `repo_visibility` enum, owner XOR check, per-owner unique-by-name partial indexes, soft-delete column).
+- **Source remotes:** `0052_repo_source_remotes.sql` adds one optional public fetch URL per repo. Creation and settings can save this URL, fetch heads/tags, and use it later for submodule gitlink backfill.
 - **sqlc package:** `internal/repos/sqlc` (`reposdb`) — Create, Get-by-owner-and-name, Exists, List-by-owner, Count, SoftDelete, UpdateDiskUsed.
 - `internal/repos/validate.go` — name shape (≤100 chars, `[a-z0-9._-]`, non-separator edges, no dot-dot, no leading dot) + reserved-name list.
 - `internal/repos/templates/` — embeds 10 SPDX licenses + 10 .gitignore templates + a minimal README generator. Sourced from gitea's `options/license` and `options/gitignore` (originally github.com/github/gitignore, MIT/CC0).
@@ -43,6 +44,9 @@ POST /new
   ├─ ValidateName / ValidateDescription (friendly error if bad shape)
   ├─ Visibility ∈ {"public", "private"}
   ├─ License/Gitignore keys ∈ curated list (when set)
+  ├─ Optional source_remote_url:
+  │     normalize + SSRF-validate a public http(s) Git remote
+  │     refuse credentials/query/fragment and any init-template combo
   ├─ Limiter.Hit(scope=repo_create, ident=user:<id>, max=10/hour)
   ├─ Resolve author = display name + verified primary email
   │     (refuse with ErrNoVerifiedEmail when init is requested AND missing)
@@ -55,6 +59,11 @@ POST /new
   │       (hash-object → update-index → write-tree → commit-tree → update-ref)
   ├─ tx.Commit()
   ├─ audit.Record(action=repo_created, target=repo, target_id=<repo.id>)
+  ├─ if source_remote_url set:
+  │     repo_source_remotes UPSERT
+  │     git fetch --no-recurse-submodules heads/tags from that remote
+  │     update default_branch/default_branch_oid from fetched refs
+  │     enqueue index + size recalculation
   └─ return Result{Repo, InitialCommitOID, DiskPath}
 ```
 
@@ -65,6 +74,34 @@ Failure handling at each step:
 - Initial-commit error: same as above — Rollback + RemoveAll.
 - tx.Commit error: post-FS-success but DB couldn't commit. We RemoveAll the bare repo dir to keep DB and disk consistent.
 - Audit error: logged at WARN, not propagated — we don't fail the create just because audit logging blipped.
+- Source remote fetch error: the repo remains created, the URL is retained with `last_error`, and the user lands on General settings where they can fix or retry the remote.
+
+## Source remotes and imports
+
+Source remotes are for public Git import/mirror metadata, not private
+credentials. The accepted shape is `http://` or `https://`, a host, and
+a non-empty repository path; userinfo, query strings, and fragments are
+rejected so secrets do not enter the database or logs. Before storing or
+fetching, the URL runs through `internal/security/ssrf` with DNS
+resolution so loopback/private/CGNAT/link-local hosts are rejected.
+
+Fetches use `internal/repos/git.FetchRemoteHeadsAndTags`, which shells
+out to canonical git with `--no-recurse-submodules` and non-forcing
+head/tag refspecs. If the local branch diverged, git rejects the update;
+shithub records the fetch error instead of overwriting local history.
+After a successful fetch, shithub keeps the current default branch if it
+exists, otherwise prefers `trunk`, then `main`, then `master`, then the
+first fetched branch. The chosen branch OID becomes
+`repos.default_branch_oid`, making the Code tab and history views work
+without a later push.
+
+The same stored remote is used by submodule rendering. If a parent repo
+pins a submodule commit that the local target repo lacks, shithub tries
+the target repo's source remote before any GitHub-name fallback. This is
+the durable path for self-hosted or non-GitHub upstreams: create/import
+each submodule repo with its source remote, then create/import the parent
+repo, and the pinned submodule links can hydrate exact detached tree
+views on demand.
 
 ## Plumbing-only initial commit
 
