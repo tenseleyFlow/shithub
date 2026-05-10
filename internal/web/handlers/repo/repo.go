@@ -118,6 +118,7 @@ func (h *Handlers) MountNew(r chi.Router) {
 // two-segment route doesn't collide with the /{username} catch-all from S09;
 // caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions/runs/{suiteID}", h.repoActionRun)
 	r.Get("/{owner}/{repo}/actions", h.repoTabActions)
 	r.Get("/{owner}/{repo}/projects", h.repoTabProjects)
 	r.Get("/{owner}/{repo}/wiki", h.repoTabWiki)

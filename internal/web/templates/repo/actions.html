@@ -1,0 +1,83 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-actions-page">
+  <aside class="shithub-actions-sidebar" aria-label="Actions navigation">
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-actions-nav-item is-active" aria-current="page">
+      {{ octicon "play" }} <span>All workflows</span>
+      <span class="shithub-actions-nav-count">{{ .RunCount }}</span>
+    </a>
+    <div class="shithub-actions-sidebar-section">
+      <h2>Workflows</h2>
+      {{ if .Workflows }}
+        {{ range .Workflows }}
+          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/actions?workflow={{ .Name }}" class="shithub-actions-nav-item">
+            {{ octicon "workflow" }} <span>{{ .Name }}</span>
+            <span class="shithub-actions-nav-count">{{ .Count }}</span>
+          </a>
+        {{ end }}
+      {{ else }}
+        <p>No workflows have run yet.</p>
+      {{ end }}
+    </div>
+  </aside>
+
+  <div class="shithub-actions-main">
+    <header class="shithub-actions-head">
+      <div>
+        <h1>All workflows</h1>
+        <p>Showing runs from check suites reported for this repository.</p>
+      </div>
+      <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">{{ octicon "gear" }} Status checks</a>
+    </header>
+
+    <div class="shithub-actions-filters" aria-label="Workflow run filters">
+      <div class="shithub-actions-search">
+        {{ octicon "search" }}
+        <input type="search" placeholder="Filter workflow runs" aria-label="Filter workflow runs" disabled>
+      </div>
+      <span class="shithub-actions-filter-button">Event {{ octicon "triangle-down" }}</span>
+      <span class="shithub-actions-filter-button">Status {{ octicon "triangle-down" }}</span>
+      <span class="shithub-actions-filter-button">Branch {{ octicon "triangle-down" }}</span>
+    </div>
+
+    {{ if .Suites }}
+      <div class="shithub-actions-runs" aria-label="Workflow runs">
+        {{ range .Suites }}
+          <article class="shithub-actions-run-row">
+            <div class="shithub-actions-run-primary">
+              <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/actions/runs/{{ .ID }}" class="shithub-actions-run-title" aria-label="{{ .StateText }}: {{ .Title }}">
+                <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+                <span>{{ .Title }}</span>
+              </a>
+              <p>
+                <strong>{{ .AppSlug }}</strong>
+                #{{ .ID }}:
+                {{ if .PullNumber }}
+                  Pull request <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .PullNumber }}">#{{ .PullNumber }}</a>
+                  {{ if .PullAuthorUsername }}opened by <a href="/{{ .PullAuthorUsername }}">{{ .PullAuthorUsername }}</a>{{ end }}
+                {{ else }}
+                  check suite for <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .HeadSha }}"><code>{{ .HeadShaShort }}</code></a>
+                {{ end }}
+              </p>
+            </div>
+            <div class="shithub-actions-run-branch">
+              {{ if .HeadRef }}<a class="shithub-branch-name" href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .HeadRef }}">{{ .HeadRef }}</a>{{ else }}<code>{{ .HeadShaShort }}</code>{{ end }}
+            </div>
+            <div class="shithub-actions-run-meta">
+              <span>{{ octicon "calendar" }} <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .UpdatedAt }}</time></span>
+              <span>{{ octicon "stopwatch" }} {{ .Duration }}</span>
+              <button type="button" class="shithub-icon-button" aria-label="Show run options">{{ octicon "kebab-horizontal" }}</button>
+            </div>
+          </article>
+        {{ end }}
+      </div>
+    {{ else }}
+      <section class="shithub-actions-empty">
+        <div class="shithub-actions-empty-icon">{{ octicon "play" }}</div>
+        <h2>There are no workflow runs yet</h2>
+        <p>Check runs posted via the shithub checks API will appear here and on pull requests.</p>
+      </section>
+    {{ end }}
+  </div>
+</section>
+{{- end }}

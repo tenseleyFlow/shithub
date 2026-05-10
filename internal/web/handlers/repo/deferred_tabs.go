@@ -24,19 +24,6 @@ type repoDeferredSection struct {
 	Body   string
 }
 
-func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
-	h.renderDeferredRepoTab(w, r, repoDeferredTab{
-		Active:      "actions",
-		Heading:     "Actions",
-		Description: "Automate your development workflow with repository workflows and check runs.",
-		Icon:        "play",
-		Sections: []repoDeferredSection{
-			{Anchor: "all-workflows", Title: "All workflows", Body: "Workflow execution is parked for the Actions sprint. Check runs posted by external systems still appear on pull requests."},
-			{Anchor: "workflows", Title: "Workflows", Body: "Add workflow files later under .shithub/workflows to run jobs on push and pull request events."},
-		},
-	})
-}
-
 func (h *Handlers) repoTabProjects(w http.ResponseWriter, r *http.Request) {
 	h.renderDeferredRepoTab(w, r, repoDeferredTab{
 		Active:      "projects",
