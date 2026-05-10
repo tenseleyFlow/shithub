@@ -142,6 +142,7 @@ func Run(ctx context.Context, opts Options) error {
 		StaticFS:     StaticFS(),
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
+		CookieSecure: cfg.Session.Secure,
 	}
 	if pool != nil {
 		deps.ReadyCheck = func(ctx context.Context) error { return pool.Ping(ctx) }
