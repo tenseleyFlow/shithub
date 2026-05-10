@@ -73,7 +73,23 @@
     group: "{{ shithub_group }}"
     mode: "0755"
 
-- name: fail2ban — copy lite jail (sshd only at MVP)
+# Caddy access log carries the real client IP (Caddy terminates TLS
+# and shithubd only ever sees 127.0.0.1 over the loopback proxy).
+# This filter scans Caddy's JSON-formatted access log for failed
+# auth attempts. Field order in Caddy's JSON output is stable in
+# practice; the regex is deliberately substring-anchored so the
+# `<HOST>` group always lands on the request.remote_ip value.
+- name: fail2ban — shithubd auth filter (Caddy access log)
+  copy:
+    dest: /etc/fail2ban/filter.d/shithubd-auth.conf
+    content: |
+      [Definition]
+      failregex = ^.*"remote_ip":"<HOST>".*?"method":"POST".*?"uri":"/(login|signup|password/reset|password/forgot|2fa(/[^"]*)?|settings/security/2fa/[^"]*)".*?"status":(401|403|429)\b
+      ignoreregex =
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: fail2ban — jail config (sshd + shithubd-auth)
   copy:
     dest: /etc/fail2ban/jail.d/shithub.local
     content: |
@@ -82,5 +98,20 @@
       maxretry = 5
       findtime = 600
       bantime = 3600
+
+      # Bans clients that hammer the auth surface past the app-level
+      # throttle. The per-user throttle in internal/auth/throttle stops
+      # password guessing; this jail stops the network noise BEFORE
+      # the request reaches the proxy, freeing connection slots.
+      # Slightly more lenient than sshd because legitimate users may
+      # legitimately fail the 2FA challenge once or twice.
+      [shithubd-auth]
+      enabled  = true
+      filter   = shithubd-auth
+      logpath  = /var/log/caddy/access.log
+      maxretry = 8
+      findtime = 600
+      bantime  = 3600
+      backend  = auto
     mode: "0644"
   notify: restart fail2ban
