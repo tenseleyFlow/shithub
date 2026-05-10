@@ -41,18 +41,28 @@ push-only. No Prometheus or Grafana running locally.
 Free-tier Grafana Cloud gives you ~10k active series — way more
 than one shithubd droplet emits. Sign-up flow:
 
-1. Go to https://grafana.com/auth/sign-up/create-user, pick the
-   **free** plan ("Forever Free" — no card required).
-2. Pick a **Stack name** (e.g. `shithub`). The portal creates
-   it and lands you in the stack overview page.
-3. Click **Send Metrics → Hosted Prometheus metrics**. The page
-   shows the **URL**, **Username** (numeric instance ID), and a
-   **Generate now** button for the password (an Access Policy token
-   with `metrics:write`). Copy all three immediately — the token is
-   shown once.
-4. Add to `inventory/production`:
+1. Go to https://grafana.com/auth/sign-up/create-user. As of 2026
+   the default flow drops you into a 14-day "Unlimited usage trial"
+   — that's fine; without a card on file it auto-reverts to the
+   Forever Free tier (~10k active series) when the trial ends.
+2. Pick a **Stack name** (e.g. `shithub`). The portal creates the
+   stack at `<name>.grafana.net` and lands you in the in-app
+   "Get started" guide.
+3. Get the Prometheus details. The in-app guide has drifted; the
+   reliable path is via the org-level Cloud portal:
+   - In the right column of the Get started page, **Organization
+     details** → click **Cloud portal**, OR navigate directly to
+     `https://grafana.com/orgs/<your-org>`.
+   - Click **Details** on the **Prometheus** tile.
+   - The page shows the **Remote Write Endpoint** (full URL),
+     **Username / Instance ID** (numeric), and a **Generate now**
+     link for the **Password / API Token** (a `glc_…` Access Policy
+     token with `metrics:write`). Copy the token immediately — it's
+     shown once.
+4. Add to `inventory/production`. Use the exact Remote Write Endpoint
+   shown on the page — the host (prod-NN, region) differs per tenant:
    ```ini
-   grafana_cloud_prom_url=https://prometheus-prod-NN-prod-us-central-0.grafana.net/api/prom/push
+   grafana_cloud_prom_url=https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom/push
    grafana_cloud_prom_user=1234567
    grafana_cloud_prom_token=glc_eyJrIjoi...   # the token from step 3
    ```
