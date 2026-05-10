@@ -28,10 +28,10 @@ import (
 )
 
 // CreateRateLimit caps how many repos one user can create per hour.
-// The spec calls for 10/hour; the value is exported so the operator can
-// override via the throttle plumbing if needed.
+// 20/hour leaves headroom for bulk-migrating an existing org without
+// being a license to spam; site admins bypass the cap entirely.
 const (
-	CreateRateLimitMax    = 10
+	CreateRateLimitMax    = 20
 	CreateRateLimitWindow = time.Hour
 )
 
@@ -69,6 +69,12 @@ type Params struct {
 	// audit-log + rate-limiting + initial-commit author. Defaults to
 	// OwnerUserID for personal repos when zero.
 	ActorUserID int64
+
+	// ActorIsSiteAdmin, when true, bypasses the per-actor create
+	// rate-limit. Site admins are trusted operators (bulk migration,
+	// fixture seeding) and the cap exists to deter abuse from regular
+	// accounts, not to throttle staff.
+	ActorIsSiteAdmin bool
 
 	Name        string // already lowercased + trimmed
 	Description string
@@ -137,13 +143,16 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 
 	// Rate-limit per actor (NOT per owner) so a user can't bypass the
 	// per-account cap by spreading creates across orgs they manage.
-	if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
-		Scope:      "repo_create",
-		Identifier: fmt.Sprintf("user:%d", p.ActorUserID),
-		Max:        CreateRateLimitMax,
-		Window:     CreateRateLimitWindow,
-	}); err != nil {
-		return Result{}, err
+	// Site admins skip the cap entirely.
+	if !p.ActorIsSiteAdmin {
+		if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
+			Scope:      "repo_create",
+			Identifier: fmt.Sprintf("user:%d", p.ActorUserID),
+			Max:        CreateRateLimitMax,
+			Window:     CreateRateLimitWindow,
+		}); err != nil {
+			return Result{}, err
+		}
 	}
 
 	// Resolve author identity for the initial commit. The actor (the
