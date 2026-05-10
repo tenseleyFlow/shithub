@@ -3,6 +3,8 @@
 package githttp
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/git/protocol"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -138,15 +141,10 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	// trim again — the route is /{owner}/{repo}.git/info/refs, where
 	// chi captures `{repo}` WITHOUT the `.git` suffix.
 
-	owner, err := h.uq.GetUserByUsername(r.Context(), h.d.Pool, ownerName)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return reposdb.Repo{}, false
-	}
-	row, err := h.rq.GetRepoByOwnerUserAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
-		OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
-		Name:        repoName,
-	})
+	// Owner can be a user OR an org; orgs.Resolve hits the principals
+	// table to dispatch on kind. Mirrors the same lookup the HTML repo
+	// handler uses (web/handlers/repo/repo.go::lookupRepoForViewer).
+	row, err := h.lookupRepo(r.Context(), ownerName, repoName)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return reposdb.Repo{}, false
@@ -195,11 +193,7 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 // receive-pack into S14's hooks.
 func (h *Handlers) hookEnv(r *http.Request, row reposdb.Repo) []string {
 	auth, _ := h.resolveBasicAuth(r.Context(), r.Header.Get("Authorization"))
-	owner, err := h.uq.GetUserByID(r.Context(), h.d.Pool, ownerIDFromRow(row))
-	ownerName := ""
-	if err == nil {
-		ownerName = owner.Username
-	}
+	ownerName := h.ownerName(r.Context(), row)
 	return []string{
 		"SHITHUB_USER_ID=" + strconv.FormatInt(auth.UserID, 10),
 		"SHITHUB_USERNAME=" + auth.Username,
@@ -213,14 +207,55 @@ func (h *Handlers) hookEnv(r *http.Request, row reposdb.Repo) []string {
 	}
 }
 
-// ownerIDFromRow extracts the user-owner ID; orgs come in S31. Until
-// then we trust the XOR check in the migration.
-func ownerIDFromRow(row reposdb.Repo) int64 {
-	if row.OwnerUserID.Valid {
-		return row.OwnerUserID.Int64
+// lookupRepo resolves a repo by owner-slug + name, dispatching on
+// whether the owner-slug names a user or an org. Returns the same
+// row shape regardless of owner kind; pgx.ErrNoRows-equivalent on
+// any failure (so the caller writes a 404 without leaking which
+// half failed — slug missing vs. repo missing).
+func (h *Handlers) lookupRepo(ctx context.Context, ownerName, repoName string) (reposdb.Repo, error) {
+	principal, err := orgs.Resolve(ctx, h.d.Pool, ownerName)
+	if err != nil {
+		return reposdb.Repo{}, err
 	}
-	return 0
+	switch principal.Kind {
+	case orgs.PrincipalUser:
+		return h.rq.GetRepoByOwnerUserAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:        repoName,
+		})
+	case orgs.PrincipalOrg:
+		return h.rq.GetRepoByOwnerOrgAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+			OwnerOrgID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:       repoName,
+		})
+	default:
+		return reposdb.Repo{}, errOwnerKindUnknown
+	}
 }
+
+// ownerName returns the owner's display slug (username for users,
+// slug for orgs). Used to compose SHITHUB_REPO_FULL_NAME for hooks.
+// Returns "" on any lookup failure — callers tolerate the empty
+// string rather than failing the push because of a metadata gap.
+func (h *Handlers) ownerName(ctx context.Context, row reposdb.Repo) string {
+	switch {
+	case row.OwnerUserID.Valid:
+		u, err := h.uq.GetUserByID(ctx, h.d.Pool, row.OwnerUserID.Int64)
+		if err != nil {
+			return ""
+		}
+		return u.Username
+	case row.OwnerOrgID.Valid:
+		o, err := h.oq.GetOrgByID(ctx, h.d.Pool, row.OwnerOrgID.Int64)
+		if err != nil {
+			return ""
+		}
+		return o.Slug
+	}
+	return ""
+}
+
+var errOwnerKindUnknown = errors.New("githttp: owner principal kind not user/org")
 
 // serviceFromQuery maps the ?service=... value to our typed enum.
 func serviceFromQuery(s string) (protocol.Service, bool) {

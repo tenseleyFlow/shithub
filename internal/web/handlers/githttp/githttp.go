@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -34,6 +35,7 @@ type Handlers struct {
 	d  Deps
 	uq *usersdb.Queries
 	rq *reposdb.Queries
+	oq *orgsdb.Queries
 }
 
 // DefaultMaxPushBytes is the spec-recommended cap.
@@ -50,5 +52,5 @@ func New(d Deps) (*Handlers, error) {
 	if d.MaxPushBytes == 0 {
 		d.MaxPushBytes = DefaultMaxPushBytes
 	}
-	return &Handlers{d: d, uq: usersdb.New(), rq: reposdb.New()}, nil
+	return &Handlers{d: d, uq: usersdb.New(), rq: reposdb.New(), oq: orgsdb.New()}, nil
 }
