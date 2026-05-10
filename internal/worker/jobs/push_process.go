@@ -17,10 +17,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
+	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
 )
@@ -184,6 +189,20 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 			}
 		}
 
+		// 4d: actions trigger (S41b). Skip on branch deletes (after = zero
+		// SHA — there's no commit to discover workflows at). For all
+		// other pushes, enqueue a workflow:trigger job; the handler
+		// discovers `.shithub/workflows/*.yml` at after-sha, matches
+		// against the push event, and persists matching runs as queued.
+		// Best-effort: a failure to enqueue the trigger shouldn't roll
+		// back the whole push pipeline.
+		if !isZeroSHA(event.AfterSha) && strings.HasPrefix(event.Ref, refPrefix) {
+			if err := enqueueActionsTrigger(ctx, deps, repo, event); err != nil {
+				deps.Logger.WarnContext(ctx, "push:process: enqueue workflow:trigger",
+					"push_event_id", event.ID, "error", err)
+			}
+		}
+
 		// 5: mark processed last so a partial failure earlier triggers a
 		// retry that retries the whole pipeline. Idempotency is via the
 		// processed_at guard at the top.
@@ -231,4 +250,96 @@ func int64ValueOrZero(p pgtype.Int8) int64 {
 		return p.Int64
 	}
 	return 0
+}
+
+// enqueueActionsTrigger builds a workflow:trigger job from a processed
+// push_event and writes it to the worker queue. The handler will
+// discover workflows at the after-sha and persist matching runs.
+//
+// trigger_event_id = "push:<push_event_id>" — stable across retries
+// of this push_process pipeline so the trigger handler's ON CONFLICT
+// dedup catches duplicates cleanly. Re-runs of the same push (a rare
+// admin action) would explicitly use a different trigger_event_id.
+func enqueueActionsTrigger(ctx context.Context, deps PushProcessDeps, repo reposdb.Repo, event workerdb.PushEvent) error {
+	const refPrefix = "refs/heads/"
+	const tagPrefix = "refs/tags/"
+	branch, tag := "", ""
+	switch {
+	case strings.HasPrefix(event.Ref, refPrefix):
+		branch = event.Ref[len(refPrefix):]
+	case strings.HasPrefix(event.Ref, tagPrefix):
+		tag = event.Ref[len(tagPrefix):]
+	}
+
+	ownerLogin, err := resolvePushOwnerLogin(ctx, deps.Pool, repo)
+	if err != nil {
+		return fmt.Errorf("resolve owner: %w", err)
+	}
+	gitDir, err := deps.RepoFS.RepoPath(ownerLogin, repo.Name)
+	if err != nil {
+		return fmt.Errorf("repo path: %w", err)
+	}
+	changed, err := gitops.ChangedPaths(ctx, gitDir, event.BeforeSha, event.AfterSha)
+	if err != nil {
+		// Non-fatal: with no changed paths, paths-filtered workflows
+		// won't trigger but everything else still will. Log and
+		// continue so a transient git error doesn't block CI.
+		deps.Logger.WarnContext(ctx, "push:process: changed-paths failed",
+			"push_event_id", event.ID, "error", err)
+		changed = nil
+	}
+
+	authorLogin := ""
+	if event.PusherUserID.Valid {
+		if u, err := usersdb.New().GetUserByID(ctx, deps.Pool, event.PusherUserID.Int64); err == nil {
+			authorLogin = u.Username
+		}
+	}
+	payload := actionsevent.Push(event.Ref, event.BeforeSha, event.AfterSha, actionsevent.HeadCommit{
+		ID:     event.AfterSha,
+		Author: authorLogin,
+	})
+
+	job := trigger.JobPayload{
+		RepoID:         repo.ID,
+		HeadSHA:        event.AfterSha,
+		HeadRef:        event.Ref,
+		EventKind:      trigger.EventPush,
+		EventPayload:   payload,
+		ActorUserID:    int64ValueOrZero(event.PusherUserID),
+		TriggerEventID: fmt.Sprintf("push:%d", event.ID),
+		Branch:         branch,
+		Tag:            tag,
+		ChangedPaths:   changed,
+	}
+	if _, err := worker.Enqueue(ctx, deps.Pool, trigger.KindWorkflowTrigger, job, worker.EnqueueOptions{}); err != nil {
+		return fmt.Errorf("enqueue: %w", err)
+	}
+	return nil
+}
+
+// resolvePushOwnerLogin maps a repo's owner FK to the short login.
+// Mirrors trigger.resolveOwnerLogin (we keep them per-package rather
+// than centralizing a lookup helper since the call sites are sparse).
+func resolvePushOwnerLogin(ctx context.Context, pool dbConn, repo reposdb.Repo) (string, error) {
+	if repo.OwnerUserID.Valid {
+		u, err := usersdb.New().GetUserByID(ctx, pool, repo.OwnerUserID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return u.Username, nil
+	}
+	if repo.OwnerOrgID.Valid {
+		o, err := orgsdb.New().GetOrgByID(ctx, pool, repo.OwnerOrgID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return o.Slug, nil
+	}
+	return "", errors.New("repo has neither owner_user_id nor owner_org_id")
+}
+
+// dbConn is the minimal sqlc-DBTX surface our owner lookup needs.
+type dbConn interface {
+	usersdb.DBTX
 }
