@@ -284,8 +284,59 @@ func (q *Queries) ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg List
 	return items, nil
 }
 
+const lookupWorkflowRunByTriggerEvent = `-- name: LookupWorkflowRunByTriggerEvent :one
+SELECT id, repo_id, run_index, workflow_file, workflow_name,
+       head_sha, head_ref, event, event_payload,
+       actor_user_id, parent_run_id, concurrency_group,
+       status, conclusion, pinned, need_approval, approved_by_user_id,
+       started_at, completed_at, version, created_at, updated_at, trigger_event_id
+FROM workflow_runs
+WHERE repo_id = $1 AND workflow_file = $2 AND trigger_event_id = $3
+`
+
+type LookupWorkflowRunByTriggerEventParams struct {
+	RepoID         int64
+	WorkflowFile   string
+	TriggerEventID string
+}
+
+// Companion to EnqueueWorkflowRun for the conflict path: when an
+// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
+// handler uses this to find the existing row so it can surface a
+// stable RunID. Matches the partial-unique index from migration 0051.
+func (q *Queries) LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error) {
+	row := db.QueryRow(ctx, lookupWorkflowRunByTriggerEvent, arg.RepoID, arg.WorkflowFile, arg.TriggerEventID)
+	var i WorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+		&i.EventPayload,
+		&i.ActorUserID,
+		&i.ParentRunID,
+		&i.ConcurrencyGroup,
+		&i.Status,
+		&i.Conclusion,
+		&i.Pinned,
+		&i.NeedApproval,
+		&i.ApprovedByUserID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TriggerEventID,
+	)
+	return i, err
+}
+
 const nextRunIndexForRepo = `-- name: NextRunIndexForRepo :one
-SELECT COALESCE(MAX(run_index), 0) + 1 AS next_index
+SELECT (COALESCE(MAX(run_index), 0) + 1)::bigint AS next_index
 FROM workflow_runs
 WHERE repo_id = $1
 `
@@ -293,9 +344,11 @@ WHERE repo_id = $1
 // Atomic next-index emitter: take the max + 1 for this repo. Pairs
 // with the (repo_id, run_index) UNIQUE so concurrent inserts that
 // race here will catch a unique-violation and the caller retries.
-func (q *Queries) NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error) {
+// Cast to bigint so sqlc generates int64 (the column type) rather
+// than int32 (the type the +1 literal would default to).
+func (q *Queries) NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error) {
 	row := db.QueryRow(ctx, nextRunIndexForRepo, repoID)
-	var next_index int32
+	var next_index int64
 	err := row.Scan(&next_index)
 	return next_index, err
 }

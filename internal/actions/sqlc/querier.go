@@ -59,10 +59,17 @@ type Querier interface {
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
+	// Companion to EnqueueWorkflowRun for the conflict path: when an
+	// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
+	// handler uses this to find the existing row so it can surface a
+	// stable RunID. Matches the partial-unique index from migration 0051.
+	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
 	// race here will catch a unique-violation and the caller retries.
-	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
+	// Cast to bigint so sqlc generates int64 (the column type) rather
+	// than int32 (the type the +1 literal would default to).
+	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
