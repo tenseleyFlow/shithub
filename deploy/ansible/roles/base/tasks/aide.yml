@@ -53,10 +53,13 @@
 
 - name: AIDE — initialize baseline DB if missing
   # Use creates: so this is a one-shot. Re-baselining is an explicit
-  # operator action (runbook), not an Ansible side-effect.
+  # operator action (runbook), not an Ansible side-effect. The DB
+  # path is .db (uncompressed) on Ubuntu 24's aide 0.18 — older
+  # references say .db.gz, but the shipped /etc/aide/aide.conf
+  # writes uncompressed.
   command:
     cmd: /usr/sbin/aideinit -y -f
-    creates: /var/lib/aide/aide.db.gz
+    creates: /var/lib/aide/aide.db
 
 - name: cron — nightly aide check at 03:30 UTC
   # Slightly after the 03:17 backup so the backup's transient files
