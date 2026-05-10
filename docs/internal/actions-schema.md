@@ -12,7 +12,9 @@ without churning under them.
 
 ## SQL schema
 
-Migrations 0042–0052, in dependency order:
+Actions migrations currently span 0042–0051 and 0053. Migration 0052 belongs to
+the repo source-remotes feature and was already deployed before the runner JWT
+replay table landed.
 
 | #     | Table                       | Purpose                                                       |
 | ----- | --------------------------- | ------------------------------------------------------------- |
@@ -26,7 +28,7 @@ Migrations 0042–0052, in dependency order:
 | 0049  | `actions_variables`         | Non-secret per-repo/org config (Forgejo parity)               |
 | 0050  | `workflow_steps.step_with`  | Parsed `with:` inputs for magic `uses:` aliases               |
 | 0051  | `workflow_runs.trigger_event_id` | Trigger idempotency for retries/admin replays            |
-| 0052  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
+| 0053  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
