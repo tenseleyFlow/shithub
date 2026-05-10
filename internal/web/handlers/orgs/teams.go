@@ -46,13 +46,15 @@ func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
 		"Title":     org.Slug + " · teams",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Org":       org,
 		"Teams":     visible,
 		"IsOwner":   isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/teams_list", "error", err)
+	}
 }
 
 // teamCreate handles POST /{org}/teams. Owner-only.
@@ -109,7 +111,7 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
 		"Title":     string(org.Slug) + "/" + string(team.Slug),
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Org":       org,
@@ -117,7 +119,9 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 		"Members":   members,
 		"Repos":     repos,
 		"IsOwner":   isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/team_view", "error", err)
+	}
 }
 
 // teamMemberAddRemove handles POST .../members. Form action=add|remove.

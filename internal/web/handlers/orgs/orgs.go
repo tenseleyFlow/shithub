@@ -162,12 +162,14 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, slug, errMsg string) {
-	_ = h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
 		"Title":     "New organization",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Slug":      slug,
 		"Error":     errMsg,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
+	}
 }
 
 // ─── people ────────────────────────────────────────────────────────
@@ -193,14 +195,16 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
 		}
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
 		"Title":     org.Slug + " · people",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Org":       org,
 		"Members":   members,
 		"Pending":   pending,
 		"IsOwner":   isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
+	}
 }
 
 func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
@@ -318,13 +322,15 @@ func (h *Handlers) invitationView(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
 		"Title":      "Organization invitation",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
 		"Org":        org,
 		"Invitation": inv,
 		"Token":      tok,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/invitation", "error", err)
+	}
 }
 
 func (h *Handlers) invitationAccept(w http.ResponseWriter, r *http.Request) {
