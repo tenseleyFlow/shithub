@@ -29,11 +29,24 @@ import (
 //	GET /{owner}/{repo}/blob/*
 //	GET /{owner}/{repo}/raw/*
 //	GET /{owner}/{repo}/find/*
+//	GET/POST /{owner}/{repo}/edit/*
+//	GET/POST /{owner}/{repo}/new/*
+//	GET/POST /{owner}/{repo}/delete/*
+//	GET/POST /{owner}/{repo}/upload/*
 //
 // The leading {ref} segment is variable-length (refs may contain `/`).
 // chi's `*` wildcard captures the rest; we resolve ref + path inside
 // the handler against the repo's known ref list.
 func (h *Handlers) MountCode(r chi.Router) {
+	r.Post("/{owner}/{repo}/markdown-preview", h.codeMarkdownPreview)
+	r.Get("/{owner}/{repo}/edit/*", h.codeEditForm)
+	r.Post("/{owner}/{repo}/edit/*", h.codeEditSubmit)
+	r.Get("/{owner}/{repo}/new/*", h.codeNewForm)
+	r.Post("/{owner}/{repo}/new/*", h.codeNewSubmit)
+	r.Get("/{owner}/{repo}/delete/*", h.codeDeleteForm)
+	r.Post("/{owner}/{repo}/delete/*", h.codeDeleteSubmit)
+	r.Get("/{owner}/{repo}/upload/*", h.codeUploadForm)
+	r.Post("/{owner}/{repo}/upload/*", h.codeUploadSubmit)
 	r.Get("/{owner}/{repo}/tree/*", h.codeTree)
 	r.Get("/{owner}/{repo}/blob/*", h.codeBlob)
 	r.Get("/{owner}/{repo}/raw/*", h.codeRaw)
@@ -56,7 +69,11 @@ type codeContext struct {
 // loadCodeContext does the resolve dance for tree/blob/raw/find. On
 // any failure it writes the response and returns ok=false.
 func (h *Handlers) loadCodeContext(w http.ResponseWriter, r *http.Request) (*codeContext, bool) {
-	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
+	return h.loadCodeContextFor(w, r, policy.ActionRepoRead)
+}
+
+func (h *Handlers) loadCodeContextFor(w http.ResponseWriter, r *http.Request, action policy.Action) (*codeContext, bool) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, action)
 	if !ok {
 		return nil, false
 	}
@@ -106,6 +123,24 @@ func (h *Handlers) loadCodeContext(w http.ResponseWriter, r *http.Request) (*cod
 	}, true
 }
 
+func (cc *codeContext) isBranchRef() bool {
+	for _, b := range cc.refs.Branches {
+		if b.Name == cc.ref {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handlers) canWriteRepo(r *http.Request, row reposdb.Repo) bool {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		return false
+	}
+	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row))
+	return dec.Allow
+}
+
 // codeTree renders the directory listing at <ref>:<subpath>. If the
 // path turns out to be a blob, redirects to /blob/. README rendering
 // for tree-roots is appended below the listing.
@@ -143,7 +178,8 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		return
 	}
 	// README detection on the requested directory only.
-	readmeHTML := h.findAndRenderREADME(r, cc, entries)
+	readme := h.findAndRenderREADME(r, cc, entries)
+	canWrite := h.canWriteRepo(r, cc.row) && cc.isBranchRef()
 	head, headFound, headErr := repogit.CommitAt(r.Context(), cc.gitDir, cc.ref)
 	if headErr != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: HeadOf", "error", headErr)
@@ -184,7 +220,8 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"HeadFound":     headFound,
 		"HeadAuthor":    headAuthor,
 		"CommitCount":   commitCount,
-		"README":        template.HTML(readmeHTML), //nolint:gosec // sanitized by mdrender
+		"README":        template.HTML(readme.HTML), //nolint:gosec // sanitized by mdrender
+		"READMEPath":    readme.Path,
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
@@ -193,6 +230,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"ReadmeTabs":    repoReadmeTabs(about.Resources),
 		"RepoActions":   h.repoActions(r, cc.row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
+		"CanWrite":      canWrite,
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",
 	})
@@ -216,11 +254,16 @@ func codeRefDisplay(ref string) string {
 	return ref
 }
 
+type readmeRender struct {
+	HTML string
+	Path string
+}
+
 // findAndRenderREADME looks for README* in the supplied entries (case-
 // insensitive). Returns rendered HTML for markdown sources; returns a
 // `<pre>`-wrapped escaped string for non-markdown text. Empty when
 // no README is present.
-func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries []repogit.TreeEntry) string {
+func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries []repogit.TreeEntry) readmeRender {
 	const maxREADMEBytes = 1 * 1024 * 1024 // 1 MiB cap
 	for _, e := range entries {
 		if e.Kind != repogit.EntryBlob {
@@ -233,25 +276,25 @@ func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries
 		full := joinPath(cc.subpath, e.Name)
 		body, err := repogit.ReadBlobBytes(r.Context(), cc.gitDir, cc.ref, full, maxREADMEBytes)
 		if err != nil && !errors.Is(err, repogit.ErrBlobTooLarge) {
-			return ""
+			return readmeRender{}
 		}
 		// Markdown: render via Goldmark + sanitizer.
 		if hasExt(lower, []string{".md", ".markdown"}) {
 			out, mderr := mdrender.RenderDocumentHTML(body)
 			if mderr == nil {
-				return rewriteMarkdownRelativeURLs(
+				return readmeRender{Path: full, HTML: rewriteMarkdownRelativeURLs(
 					out,
 					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, cc.subpath),
 					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, ""),
 					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, cc.subpath),
 					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, ""),
-				)
+				)}
 			}
 		}
 		// Non-markdown plain text: escape + <pre>.
-		return "<pre class=\"shithub-readme-plain\">" + template.HTMLEscapeString(string(body)) + "</pre>"
+		return readmeRender{Path: full, HTML: "<pre class=\"shithub-readme-plain\">" + template.HTMLEscapeString(string(body)) + "</pre>"}
 	}
-	return ""
+	return readmeRender{}
 }
 
 func hasExt(filename string, exts []string) bool {
@@ -294,6 +337,7 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 		"IsMarkdown":   false,
 		"Language":     highlight.LanguageGuess(cc.subpath),
 		"RepoCounts":   h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
+		"CanWrite":     h.canWriteRepo(r, cc.row) && cc.isBranchRef(),
 		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav": "code",
 	}

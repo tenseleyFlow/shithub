@@ -11,9 +11,15 @@
     </nav>
     <div class="shithub-code-actions">
       <span class="shithub-blob-meta">{{ .Language }} · {{ .Size }} bytes</span>
+      {{ if and .CanWrite (not .IsLarge) (not .IsBinary) }}
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/edit/{{ .Ref }}/{{ .Path }}" class="shithub-button shithub-button-icon" title="Edit this file" aria-label="Edit this file">{{ octicon "pencil" }}</a>
+      {{ end }}
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/raw/{{ .Ref }}/{{ .Path }}" class="shithub-button">Raw</a>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Ref }}/{{ .Path }}#blame" class="shithub-button shithub-button-disabled" title="Coming in S18">Blame</a>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}/{{ .Path }}" class="shithub-button shithub-button-disabled" title="Coming in S18">History</a>
+      {{ if .CanWrite }}
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/delete/{{ .Ref }}/{{ .Path }}" class="shithub-button shithub-button-icon" title="Delete this file" aria-label="Delete this file">{{ octicon "trash" }}</a>
+      {{ end }}
     </div>
   </header>
 

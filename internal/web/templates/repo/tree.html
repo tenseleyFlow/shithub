@@ -33,6 +33,15 @@
               <span>Go to file</span>
               <kbd>T</kbd>
             </a>
+            {{ if .CanWrite }}
+            <details class="shithub-add-file-dropdown">
+              <summary class="shithub-button">{{ octicon "plus" }} Add file {{ octicon "triangle-down" }}</summary>
+              <div class="shithub-add-file-panel" role="dialog" aria-label="Add file">
+                <a href="/{{ .Owner }}/{{ .Repo.Name }}/new/{{ .Ref }}/{{ .Path }}">{{ octicon "file" }} Create new file</a>
+                <a href="/{{ .Owner }}/{{ .Repo.Name }}/upload/{{ .Ref }}/{{ .Path }}">{{ octicon "upload" }} Upload files</a>
+              </div>
+            </details>
+            {{ end }}
             <details class="shithub-clone-dropdown">
               <summary class="shithub-button shithub-button-primary">{{ octicon "code" }} Code {{ octicon "triangle-down" }}</summary>
               <div class="shithub-clone-panel" role="dialog" aria-label="Clone this repository">
@@ -141,19 +150,24 @@
           {{ else }}
           <span class="shithub-readme-tab is-active">{{ octicon "book" }} <span>README</span></span>
           {{ end }}
-          <details class="shithub-readme-outline" data-readme-outline hidden>
-            <summary aria-label="Outline" title="Outline">
-              {{ octicon "list-unordered" }}
-            </summary>
-            <div class="shithub-readme-outline-panel" role="dialog" aria-label="README outline">
-              <label class="shithub-readme-outline-filter">
-                <span class="sr-only">Filter headings</span>
-                <input type="search" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off" data-readme-outline-filter>
-              </label>
-              <nav class="shithub-readme-outline-list" aria-label="README headings" data-readme-outline-list></nav>
-              <p class="shithub-readme-outline-empty" data-readme-outline-empty hidden>No matching headings.</p>
-            </div>
-          </details>
+          <div class="shithub-readme-head-actions">
+            {{ if and .CanWrite .READMEPath }}
+            <a class="shithub-button shithub-button-icon" href="/{{ .Owner }}/{{ .Repo.Name }}/edit/{{ .Ref }}/{{ .READMEPath }}" title="Edit README" aria-label="Edit README">{{ octicon "pencil" }}</a>
+            {{ end }}
+            <details class="shithub-readme-outline" data-readme-outline hidden>
+              <summary aria-label="Outline" title="Outline">
+                {{ octicon "list-unordered" }}
+              </summary>
+              <div class="shithub-readme-outline-panel" role="dialog" aria-label="README outline">
+                <label class="shithub-readme-outline-filter">
+                  <span class="sr-only">Filter headings</span>
+                  <input type="search" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off" data-readme-outline-filter>
+                </label>
+                <nav class="shithub-readme-outline-list" aria-label="README headings" data-readme-outline-list></nav>
+                <p class="shithub-readme-outline-empty" data-readme-outline-empty hidden>No matching headings.</p>
+              </div>
+            </details>
+          </div>
         </div>
         <div class="shithub-readme-body">{{ .README }}</div>
       </section>
