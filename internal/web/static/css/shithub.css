@@ -23,6 +23,8 @@
   --accent-emphasis: #0969da;
   --accent-subtle: #fff8c5; /* GitHub's "you-are-here" line highlight */
   --success-fg: #1a7f37;
+  --success-emphasis: #1f883d;
+  --success-emphasis-hover: #1a7f37;
   --danger-fg: #cf222e;
   --shithub-mark: var(--danger-fg);
 }
@@ -39,6 +41,8 @@
   --accent-emphasis: #1f6feb;
   --accent-subtle: rgba(187, 128, 9, 0.15); /* dark-mode :target wash */
   --success-fg: #3fb950;
+  --success-emphasis: #238636;
+  --success-emphasis-hover: #2ea043;
   --danger-fg: #f85149;
 }
 
@@ -54,6 +58,8 @@
   --accent-emphasis: #409eff;
   --accent-subtle: rgba(255, 215, 0, 0.25);
   --success-fg: #4ed162;
+  --success-emphasis: #2ea043;
+  --success-emphasis-hover: #3fb950;
   --danger-fg: #ff6a69;
 }
 
@@ -286,10 +292,34 @@ code {
 }
 .shithub-button-primary {
   color: #fff;
-  background: var(--accent-emphasis);
-  border-color: var(--accent-emphasis);
+  background: var(--success-emphasis);
+  border-color: var(--success-emphasis);
 }
-.shithub-button-primary:hover { text-decoration: none; opacity: 0.92; }
+.shithub-button-primary:hover {
+  text-decoration: none;
+  background: var(--success-emphasis-hover);
+  border-color: var(--success-emphasis-hover);
+}
+
+:where(input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="search"], input[type="number"], textarea, select) {
+  color: var(--fg-default);
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+}
+:where(input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="search"], input[type="number"], textarea, select)::placeholder {
+  color: var(--fg-muted);
+  opacity: 1;
+}
+:where(input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="search"], input[type="number"], textarea, select):focus {
+  border-color: var(--accent-emphasis);
+  box-shadow: inset 0 0 0 1px var(--accent-emphasis);
+  outline: none;
+}
+:where(input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="search"], input[type="number"], textarea, select):disabled {
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  cursor: not-allowed;
+}
 .shithub-icon-button {
   display: inline-flex;
   align-items: center;
