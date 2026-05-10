@@ -1,26 +1,96 @@
 {{ define "repo-about-sidebar" -}}
 <aside class="shithub-repo-about" aria-label="Repository information">
-  <div class="shithub-repo-about-heading">
-    <h2>About</h2>
-    {{ if .CanSettings }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/general" aria-label="Edit repository about">{{ octicon "gear" }}</a>{{ end }}
+  <div class="shithub-border-grid">
+    <section class="shithub-border-grid-row">
+      <div class="shithub-repo-about-heading">
+        <h2>About</h2>
+        {{ if .CanSettings }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/general" aria-label="Edit repository about">{{ octicon "gear" }}</a>{{ end }}
+      </div>
+      {{ if .Repo.Description }}
+        <p class="shithub-repo-about-desc">{{ .Repo.Description }}</p>
+      {{ else }}
+        <p class="shithub-muted">No description, website, or topics provided.</p>
+      {{ end }}
+      {{ if .RepoTopics }}
+      <div class="shithub-repo-topics">
+        {{ range .RepoTopics }}<a href="/search?q=topic%3A{{ . }}" class="shithub-topic">{{ . }}</a>{{ end }}
+      </div>
+      {{ end }}
+      {{ if .RepoAbout.Resources }}
+      <ul class="shithub-repo-about-list">
+        {{ range .RepoAbout.Resources }}
+        <li>
+          {{ octicon .Icon }}
+          {{ if .Href }}<a href="{{ .Href }}">{{ .Label }}</a>{{ else }}<span>{{ .Label }}</span>{{ end }}
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+      <ul class="shithub-repo-about-stats">
+        <li><a href="/{{ .Owner }}/{{ .Repo.Name }}/stargazers">{{ octicon "star" }} <strong>{{ .Repo.StarCount }}</strong> star{{ if ne .Repo.StarCount 1 }}s{{ end }}</a></li>
+        <li><a href="/{{ .Owner }}/{{ .Repo.Name }}/watchers">{{ octicon "eye" }} <strong>{{ .Repo.WatcherCount }}</strong> watching</a></li>
+        <li><a href="/{{ .Owner }}/{{ .Repo.Name }}/forks">{{ octicon "repo-forked" }} <strong>{{ .Repo.ForkCount }}</strong> fork{{ if ne .Repo.ForkCount 1 }}s{{ end }}</a></li>
+      </ul>
+      <a class="shithub-repo-report" href="/{{ .Owner }}/{{ .Repo.Name }}/report">Report repository</a>
+    </section>
+
+    <section class="shithub-border-grid-row">
+      <h2 class="shithub-repo-about-section-heading">Releases</h2>
+      <p class="shithub-muted">No releases published</p>
+      {{ if .CanSettings }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/releases/new">Create a new release</a>{{ end }}
+    </section>
+
+    <section class="shithub-border-grid-row">
+      <h2 class="shithub-repo-about-section-heading">Packages</h2>
+      <p class="shithub-muted">No packages published</p>
+      {{ if .CanSettings }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/packages/new">Publish your first package</a>{{ end }}
+    </section>
+
+    <section class="shithub-border-grid-row">
+      <h2 class="shithub-repo-about-section-heading">
+        <span>Contributors</span>
+        {{ if .RepoAbout.Contributors }}<span class="shithub-repo-section-count">{{ len .RepoAbout.Contributors }}</span>{{ end }}
+      </h2>
+      {{ if .RepoAbout.Contributors }}
+      <div class="shithub-repo-contributors">
+        {{ range .RepoAbout.Contributors }}
+          {{ if .User }}
+          <a href="/{{ .Username }}" class="shithub-repo-contributor">
+            <img src="{{ .AvatarURL }}" alt="" width="32" height="32">
+            <span>{{ .Label }}</span>
+          </a>
+          {{ else }}
+          <span class="shithub-repo-contributor">
+            <span class="shithub-repo-contributor-identicon shithub-identicon" data-seed="{{ .IdenticonSeed }}" aria-hidden="true"></span>
+            <span>{{ .Label }}</span>
+          </span>
+          {{ end }}
+        {{ end }}
+      </div>
+      {{ else }}
+      <p class="shithub-muted">No contributors yet.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-border-grid-row">
+      <h2 class="shithub-repo-about-section-heading">Languages</h2>
+      {{ if .RepoAbout.Languages }}
+      <div class="shithub-language-bar" aria-hidden="true">
+        {{ range .RepoAbout.Languages }}<span style="background-color: {{ .Color }}; width: {{ .Width }};"></span>{{ end }}
+      </div>
+      <ul class="shithub-language-list">
+        {{ range .RepoAbout.Languages }}
+        <li>
+          <span class="shithub-language-dot" style="background-color: {{ .Color }};"></span>
+          <span>{{ .Name }}</span>
+          <span>{{ .Percent }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-muted">No languages detected.</p>
+      {{ end }}
+    </section>
   </div>
-  {{ if .Repo.Description }}
-    <p class="shithub-repo-about-desc">{{ .Repo.Description }}</p>
-  {{ else }}
-    <p class="shithub-muted">No description, website, or topics provided.</p>
-  {{ end }}
-  {{ if .RepoTopics }}
-  <div class="shithub-repo-topics">
-    {{ range .RepoTopics }}<a href="/search?q=topic%3A{{ . }}" class="shithub-topic">{{ . }}</a>{{ end }}
-  </div>
-  {{ end }}
-  <ul class="shithub-repo-about-list">
-    <li>{{ octicon "book" }} <a href="#readme">Readme</a></li>
-    {{ if .Repo.LicenseKey.Valid }}<li>{{ octicon "law" }} {{ .Repo.LicenseKey.String }} license</li>{{ end }}
-    {{ if .Repo.PrimaryLanguage.Valid }}<li>{{ octicon "code" }} {{ .Repo.PrimaryLanguage.String }}</li>{{ end }}
-    <li>{{ octicon "star" }} {{ .Repo.StarCount }} star{{ if ne .Repo.StarCount 1 }}s{{ end }}</li>
-    <li>{{ octicon "eye" }} {{ .Repo.WatcherCount }} watching</li>
-    <li>{{ octicon "repo-forked" }} {{ .Repo.ForkCount }} fork{{ if ne .Repo.ForkCount 1 }}s{{ end }}</li>
-  </ul>
 </aside>
 {{- end }}

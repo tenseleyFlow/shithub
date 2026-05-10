@@ -123,6 +123,12 @@ type TreeEntry struct {
 	Name string // basename relative to the listed path
 }
 
+// TreeBlob is one blob returned by a recursive tree walk.
+type TreeBlob struct {
+	Path string
+	Size int64
+}
+
 // LsTree lists entries at <ref>:<path>. Empty path lists the repo root.
 // Returns an empty slice when the path doesn't exist or is itself a
 // blob — callers should fall back to BlobInfo.
@@ -182,6 +188,43 @@ func LsTree(ctx context.Context, gitDir, ref, path string) ([]TreeEntry, error) 
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, nil
+}
+
+// ListBlobs returns every blob under ref with its git-reported byte
+// size. It is the recursive counterpart to LsTree and intentionally
+// keeps only blobs because callers use it for file-level summaries such
+// as language bars.
+func ListBlobs(ctx context.Context, gitDir, ref string) ([]TreeBlob, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+		"ls-tree", "-r", "--long", "--full-tree", "-z", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, wrapExecErr(err)
+	}
+
+	records := bytes.Split(bytes.TrimRight(out, "\x00"), []byte{0})
+	blobs := make([]TreeBlob, 0, len(records))
+	for _, rec := range records {
+		if len(rec) == 0 {
+			continue
+		}
+		tabIdx := bytes.IndexByte(rec, '\t')
+		if tabIdx < 0 {
+			continue
+		}
+		left, name := string(rec[:tabIdx]), string(rec[tabIdx+1:])
+		fields := strings.Fields(left)
+		if len(fields) != 4 || classifyEntry(fields[0], fields[1]) != EntryBlob {
+			continue
+		}
+		size, err := strconv.ParseInt(fields[3], 10, 64)
+		if err != nil {
+			continue
+		}
+		blobs = append(blobs, TreeBlob{Path: name, Size: size})
+	}
+	sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
+	return blobs, nil
 }
 
 // classifyEntry maps git's mode+type fields to our four kinds.
