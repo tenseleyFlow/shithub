@@ -4,11 +4,12 @@
     {{ octicon "shithub" }}
     <span>shithub</span>
   </a>
-  <form action="/search" method="get" class="shithub-nav-search" role="search">
+  <form action="/search" method="get" class="shithub-nav-search" role="search" data-search-root>
     <span class="shithub-nav-search-icon">{{ octicon "search" }}</span>
-    <input type="text" name="q"{{ with .GlobalSearchQuery }} value="{{ . }}"{{ end }} placeholder="Type / to search" aria-label="Search" autocomplete="off">
+    <input type="text" name="q"{{ with .GlobalSearchQuery }} value="{{ . }}"{{ end }} placeholder="Type / to search" aria-label="Search" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-controls="global-search-suggestions" data-search-input>
     <span class="shithub-nav-search-key" aria-hidden="true">/</span>
-    <input type="hidden" name="type" value="repos">
+    <input type="hidden" name="type" value="repositories">
+    <div id="global-search-suggestions" class="shithub-nav-search-popover" data-search-results hidden></div>
   </form>
   <nav class="shithub-nav-links" aria-label="Primary">
     <a href="/explore">Explore</a>

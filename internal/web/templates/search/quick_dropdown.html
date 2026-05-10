@@ -1,0 +1,59 @@
+{{ define "page" -}}
+<div class="shithub-quick-dropdown" role="listbox" aria-label="Search suggestions">
+  {{ if or .Repos .Issues .Users }}
+    {{ if .Repos }}
+      <section class="shithub-quick-section" aria-labelledby="quick-repositories-heading">
+        <h3 id="quick-repositories-heading">Repositories</h3>
+        <ul>
+          {{ range .Repos }}
+          <li>
+            <a href="/{{ .OwnerUsername }}/{{ .Name }}" role="option">
+              <span class="shithub-quick-leading">{{ octicon "repo" }}</span>
+              <span class="shithub-quick-title">{{ .OwnerUsername }}/{{ .Name }}</span>
+              {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ end }}
+            </a>
+          </li>
+          {{ end }}
+        </ul>
+      </section>
+    {{ end }}
+    {{ if .Issues }}
+      <section class="shithub-quick-section" aria-labelledby="quick-issues-heading">
+        <h3 id="quick-issues-heading">Issues and pull requests</h3>
+        <ul>
+          {{ range .Issues }}
+          <li>
+            <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/{{ if eq .Kind "pr" }}pulls{{ else }}issues{{ end }}/{{ .Number }}" role="option">
+              <span class="shithub-quick-leading">{{ if eq .Kind "pr" }}{{ octicon "git-pull-request" }}{{ else }}{{ octicon "issue-opened" }}{{ end }}</span>
+              <span class="shithub-quick-title">{{ .Title }}</span>
+              <span class="shithub-quick-context">{{ .OwnerUsername }}/{{ .RepoName }}#{{ .Number }}</span>
+            </a>
+          </li>
+          {{ end }}
+        </ul>
+      </section>
+    {{ end }}
+    {{ if .Users }}
+      <section class="shithub-quick-section" aria-labelledby="quick-users-heading">
+        <h3 id="quick-users-heading">Users</h3>
+        <ul>
+          {{ range .Users }}
+          <li>
+            <a href="/{{ .Username }}" role="option">
+              <img src="/avatars/{{ .Username }}" alt="" width="20" height="20" class="shithub-quick-avatar">
+              <span class="shithub-quick-title">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</span>
+              <span class="shithub-quick-context">@{{ .Username }}</span>
+            </a>
+          </li>
+          {{ end }}
+        </ul>
+      </section>
+    {{ end }}
+  {{ else }}
+    <p class="shithub-quick-empty">No results found.</p>
+  {{ end }}
+  <div class="shithub-quick-footer">
+    <a href="{{ .SearchHref }}">See all results for <strong>{{ .Query }}</strong></a>
+  </div>
+</div>
+{{- end }}

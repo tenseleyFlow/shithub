@@ -66,6 +66,92 @@
   })();
 
   (function () {
+    var root = document.querySelector("[data-search-root]");
+    if (!root) return;
+    var input = root.querySelector("[data-search-input]");
+    var panel = root.querySelector("[data-search-results]");
+    if (!input || !panel || !window.fetch) return;
+
+    var timer = 0;
+    var controller = null;
+
+    function closePanel() {
+      panel.hidden = true;
+      panel.innerHTML = "";
+      input.setAttribute("aria-expanded", "false");
+      if (controller) {
+        controller.abort();
+        controller = null;
+      }
+    }
+
+    function showPanel(html) {
+      panel.innerHTML = html;
+      panel.hidden = false;
+      input.setAttribute("aria-expanded", "true");
+    }
+
+    function loadSuggestions() {
+      var query = input.value.trim();
+      if (query.length < 2) {
+        closePanel();
+        return;
+      }
+      if (controller) controller.abort();
+      controller = new AbortController();
+      fetch("/search/quick?q=" + encodeURIComponent(query), {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        signal: controller.signal
+      }).then(function (response) {
+        if (response.status === 204) return "";
+        if (!response.ok) throw new Error("search quick failed");
+        return response.text();
+      }).then(function (html) {
+        if (!html) {
+          closePanel();
+          return;
+        }
+        showPanel(html);
+      }).catch(function (error) {
+        if (error.name !== "AbortError") closePanel();
+      });
+    }
+
+    function queueSuggestions() {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(loadSuggestions, 160);
+    }
+
+    input.addEventListener("input", queueSuggestions);
+    input.addEventListener("focus", function () {
+      if (input.value.trim().length >= 2) queueSuggestions();
+    });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        closePanel();
+        input.blur();
+      }
+    });
+    root.addEventListener("submit", closePanel);
+    document.addEventListener("click", function (event) {
+      if (!root.contains(event.target)) closePanel();
+    });
+    document.addEventListener("keydown", function (event) {
+      var active = document.activeElement;
+      var editable = active && (
+        active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.isContentEditable
+      );
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !editable) {
+        event.preventDefault();
+        input.focus();
+        input.select();
+      }
+    });
+  })();
+
+  (function () {
     var modal = document.querySelector("[data-pins-modal]");
     if (!modal) return;
 

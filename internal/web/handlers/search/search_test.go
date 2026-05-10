@@ -28,3 +28,22 @@ func TestSearchHrefEscapesQuery(t *testing.T) {
 		t.Fatalf("searchHref = %q, want %q", got, want)
 	}
 }
+
+func TestNormalizeSearchTabAcceptsGitHubTypesAndLegacyAliases(t *testing.T) {
+	cases := map[string]string{
+		"":              "repositories",
+		"repos":         "repositories",
+		"repositories":  "repositories",
+		"pulls":         "pullrequests",
+		"pullrequests":  "pullrequests",
+		"code":          "code",
+		"issues":        "issues",
+		"users":         "users",
+		"unknown-value": "repositories",
+	}
+	for input, want := range cases {
+		if got := normalizeSearchTab(input); got != want {
+			t.Fatalf("normalizeSearchTab(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
