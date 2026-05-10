@@ -203,14 +203,17 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
 		}
 	}
+	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
 		"Title":           org.Slug + " · people",
 		"CSRFToken":       middleware.CSRFTokenForRequest(r),
 		"Org":             org,
 		"AvatarURL":       "/avatars/" + url.PathEscape(org.Slug),
 		"ActiveOrgNav":    "people",
+		"RepoCount":       navCounts.RepoCount,
 		"Members":         filteredMembers,
-		"MemberCount":     len(members),
+		"MemberCount":     navCounts.MemberCount,
+		"TeamCount":       navCounts.TeamCount,
 		"Pending":         pending,
 		"PendingCount":    len(pending),
 		"Query":           query,

@@ -1,102 +1,187 @@
 {{ define "page" -}}
-<section class="shithub-org-team">
-  <header class="shithub-org-profile-head">
-    <h1>{{ .Org.DisplayName }} / {{ .Team.Slug }}</h1>
-    <p class="shithub-meta">
-      <a href="/{{ .Org.Slug }}/teams">← teams</a>
-      {{ if eq (printf "%s" .Team.Privacy) "secret" }}<span class="shithub-pill shithub-pill-private">secret</span>{{ end }}
-    </p>
-    {{ if .Team.Description }}<p>{{ .Team.Description }}</p>{{ end }}
+<section class="shithub-org-profile shithub-org-team">
+  <header class="shithub-org-profile-head shithub-org-team-view-head">
+    <div class="shithub-org-team-breadcrumb">
+      <a href="/{{ .Org.Slug }}">{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</a>
+      <span>/</span>
+      <a href="/{{ .Org.Slug }}/teams">Teams</a>
+    </div>
+    <div class="shithub-org-team-title-row">
+      <div class="shithub-org-team-avatar" aria-hidden="true">{{ octicon "people" }}</div>
+      <div>
+        <h1>{{ .TeamDisplayName }}</h1>
+        <p class="shithub-meta">@{{ .Org.Slug }}/{{ .Team.Slug }}</p>
+      </div>
+      <span class="shithub-pill{{ if .TeamIsSecret }} shithub-pill-private{{ end }}">{{ if .TeamIsSecret }}{{ octicon "lock" }} Secret{{ else }}{{ octicon "eye" }} Visible{{ end }}</span>
+    </div>
+    {{ if .Team.Description }}<p class="shithub-org-team-description">{{ .Team.Description }}</p>{{ else }}<p class="shithub-org-team-description shithub-muted">No description provided.</p>{{ end }}
   </header>
 
-  {{ if .IsOwner }}
-  <section class="shithub-org-invite">
-    <h2>Add member</h2>
-    <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/members">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <label><span>Username</span><input type="text" name="username" required></label>
-      <label><span>Role</span>
-        <select name="role">
-          <option value="member" selected>Member</option>
-          <option value="maintainer">Maintainer</option>
-        </select>
-      </label>
-      <button type="submit" class="shithub-button shithub-button-primary">Add</button>
-    </form>
+  <div class="shithub-org-team-view-layout">
+    <main class="shithub-org-team-view-main">
+      <nav class="shithub-org-team-tabs" aria-label="Team">
+        <a href="#members" class="is-selected">{{ octicon "person" }} Members <span>{{ len .Members }}</span></a>
+        <a href="#repositories">{{ octicon "repo" }} Repositories <span>{{ len .Repos }}</span></a>
+        <a href="#child-teams">{{ octicon "people" }} Child teams <span>{{ len .ChildTeams }}</span></a>
+      </nav>
 
-    <h2>Grant repo access</h2>
-    <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/repos">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <label><span>Repo ID</span><input type="number" name="repo_id" required min="1"></label>
-      <label><span>Role</span>
-        <select name="role">
-          <option value="read">Read</option>
-          <option value="triage">Triage</option>
-          <option value="write" selected>Write</option>
-          <option value="maintain">Maintain</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
-      <button type="submit" class="shithub-button shithub-button-primary">Grant</button>
-    </form>
-  </section>
-  {{ end }}
-
-  <section class="shithub-org-members">
-    <h2>Members ({{ len .Members }})</h2>
-    <table class="shithub-table">
-      <thead><tr><th>User</th><th>Team role</th><th>Joined</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
-      <tbody>
-        {{ range .Members }}
-        <tr>
-          <td><a href="/{{ .Username }}">@{{ .Username }}</a></td>
-          <td>{{ .Role }}</td>
-          <td>{{ relativeTime .AddedAt.Time }}</td>
-          {{ if $.IsOwner }}
-          <td>
-            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/members" style="display:inline">
+      <section id="members" class="shithub-org-team-panel">
+        <div class="shithub-org-team-panel-head">
+          <div>
+            <h2>Members</h2>
+            <p>{{ len .Members }} member{{ if ne (len .Members) 1 }}s{{ end }} belong directly to this team.</p>
+          </div>
+        </div>
+        {{ if .Members }}
+        <ol class="shithub-org-team-member-list">
+          {{ range .Members }}
+          <li class="shithub-org-team-member-row">
+            <img src="/avatars/{{ .Username }}" alt="" width="40" height="40">
+            <div>
+              <a href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+              <p>@{{ .Username }} · {{ .Role }} · joined {{ relativeTime .AddedAt.Time }}</p>
+            </div>
+            {{ if $.IsOwner }}
+            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/members">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-              <input type="hidden" name="username" value="{{ .Username }}">
+              <input type="hidden" name="user_id" value="{{ .UserID }}">
               <input type="hidden" name="action" value="remove">
-              <button type="submit" class="shithub-button">Remove</button>
+              <button type="submit" class="shithub-button shithub-button-danger">Remove</button>
             </form>
-          </td>
+            {{ end }}
+          </li>
           {{ end }}
-        </tr>
+        </ol>
+        {{ else }}
+        <div class="shithub-org-empty"><h3>No team members yet.</h3></div>
         {{ end }}
-      </tbody>
-    </table>
-  </section>
+      </section>
 
-  <section class="shithub-org-members">
-    <h2>Repo access ({{ len .Repos }})</h2>
-    {{ if .Repos }}
-    <table class="shithub-table">
-      <thead><tr><th>Repo</th><th>Role</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
-      <tbody>
-        {{ range .Repos }}
-        <tr>
-          <td><a href="/{{ $.Org.Slug }}/{{ .RepoName }}">{{ $.Org.Slug }}/{{ .RepoName }}</a>
-            {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
-          </td>
-          <td>{{ .Role }}</td>
-          {{ if $.IsOwner }}
-          <td>
-            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/repos" style="display:inline">
+      <section id="repositories" class="shithub-org-team-panel">
+        <div class="shithub-org-team-panel-head">
+          <div>
+            <h2>Repositories</h2>
+            <p>Repository access granted directly to this team.</p>
+          </div>
+        </div>
+        {{ if .Repos }}
+        <ol class="shithub-org-team-repo-list">
+          {{ range .Repos }}
+          <li class="shithub-org-team-repo-row">
+            <div class="shithub-org-team-repo-main">
+              <span class="shithub-org-team-repo-icon">{{ octicon "repo" }}</span>
+              <div>
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+                {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+                <p>{{ .Role }} access · granted {{ relativeTime .AddedAt.Time }}</p>
+              </div>
+            </div>
+            {{ if $.IsOwner }}
+            <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/repos">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
               <input type="hidden" name="repo_id" value="{{ .RepoID }}">
               <input type="hidden" name="action" value="remove">
-              <button type="submit" class="shithub-button">Revoke</button>
+              <button type="submit" class="shithub-button shithub-button-danger">Remove</button>
             </form>
-          </td>
+            {{ end }}
+          </li>
           {{ end }}
-        </tr>
+        </ol>
+        {{ else }}
+        <div class="shithub-org-empty"><h3>No repositories yet.</h3></div>
         {{ end }}
-      </tbody>
-    </table>
-    {{ else }}
-    <p class="shithub-empty">No repos granted to this team.</p>
-    {{ end }}
-  </section>
+      </section>
+
+      <section id="child-teams" class="shithub-org-team-panel">
+        <div class="shithub-org-team-panel-head">
+          <div>
+            <h2>Child teams</h2>
+            <p>Child teams inherit repository permissions from this team.</p>
+          </div>
+        </div>
+        {{ if .ChildTeams }}
+        <ol class="shithub-org-team-list shithub-org-team-list-compact">
+          {{ range .ChildTeams }}
+          <li class="shithub-org-team-row">
+            <div class="shithub-org-team-row-icon" aria-hidden="true">{{ octicon "people" }}</div>
+            <div class="shithub-org-team-row-main">
+              <div class="shithub-org-team-row-title">
+                <a href="{{ .Path }}">{{ .DisplayName }}</a>
+                <span class="shithub-meta">@{{ $.Org.Slug }}/{{ .Slug }}</span>
+              </div>
+              <div class="shithub-org-team-row-meta">
+                <span>{{ octicon "person" }} {{ .MemberCount }} member{{ if ne .MemberCount 1 }}s{{ end }}</span>
+                <span>{{ octicon "repo" }} {{ .RepoCount }} repositor{{ if eq .RepoCount 1 }}y{{ else }}ies{{ end }}</span>
+              </div>
+            </div>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <div class="shithub-org-empty"><h3>No child teams.</h3></div>
+        {{ end }}
+      </section>
+    </main>
+
+    <aside class="shithub-org-team-manage" aria-label="Team management">
+      {{ if .IsOwner }}
+      <section class="shithub-org-team-manage-box">
+        <h2>Add member</h2>
+        {{ if .MemberCandidates }}
+        <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/members">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label><span>Organization member</span>
+            <select name="user_id" required>
+              <option value="">Select member</option>
+              {{ range .MemberCandidates }}<option value="{{ .ID }}">{{ if .DisplayName }}{{ .DisplayName }} · {{ end }}@{{ .Username }}</option>{{ end }}
+            </select>
+          </label>
+          <label><span>Role</span>
+            <select name="role">
+              <option value="member" selected>Member</option>
+              <option value="maintainer">Maintainer</option>
+            </select>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Add member</button>
+        </form>
+        {{ else }}
+        <p class="shithub-muted">All organization members are already on this team.</p>
+        {{ end }}
+      </section>
+
+      <section class="shithub-org-team-manage-box">
+        <h2>Add repository</h2>
+        {{ if .RepoCandidates }}
+        <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/repos">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label><span>Repository</span>
+            <select name="repo_id" required>
+              <option value="">Select repository</option>
+              {{ range .RepoCandidates }}<option value="{{ .ID }}">{{ $.Org.Slug }}/{{ .Name }} ({{ .Visibility }})</option>{{ end }}
+            </select>
+          </label>
+          <label><span>Role</span>
+            <select name="role">
+              <option value="read">Read</option>
+              <option value="triage">Triage</option>
+              <option value="write" selected>Write</option>
+              <option value="maintain">Maintain</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Add repository</button>
+        </form>
+        {{ else }}
+        <p class="shithub-muted">Every organization repository is already linked to this team.</p>
+        {{ end }}
+      </section>
+      {{ end }}
+
+      <section class="shithub-org-team-manage-box">
+        <h2>Team visibility</h2>
+        <p>{{ if .TeamIsSecret }}Secret teams are visible to team members and organization owners.{{ else }}Visible teams can be found and mentioned by organization members.{{ end }}</p>
+      </section>
+    </aside>
+  </div>
 </section>
 {{- end }}

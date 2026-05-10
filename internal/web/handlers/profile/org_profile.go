@@ -99,6 +99,10 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 	pinnedRepos, pinCandidates := h.orgPinData(ctx, org.ID, string(org.Slug), repos)
 	people := h.orgProfilePeople(ctx, q, org.ID)
 	memberCount := int64(len(people))
+	teamCount := int64(0)
+	if isMember || viewer.IsSiteAdmin {
+		_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM teams WHERE org_id = $1`, org.ID).Scan(&teamCount)
+	}
 	viewAs := "Public"
 	switch {
 	case !viewer.IsAnonymous() && viewer.IsSiteAdmin:
@@ -124,6 +128,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"PinCandidates":    pinCandidates,
 		"PinsRemaining":    profilePinsRemaining(pinCandidates),
 		"RepoCount":        int64(len(repos)),
+		"TeamCount":        teamCount,
 		"MemberCount":      memberCount,
 		"People":           limitOrgPeople(people, orgHomepagePeopleLimit),
 		"TopLanguages":     orgTopLanguages(repos),
