@@ -25,7 +25,7 @@ func (h *Handlers) labelsList(w http.ResponseWriter, r *http.Request) {
 	}
 	labels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueLabel, policy.NewRepoRefFromRepo(row)).Allow
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/labels", map[string]any{
@@ -128,7 +128,7 @@ func (h *Handlers) milestonesList(w http.ResponseWriter, r *http.Request) {
 	}
 	ms, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueLabel, policy.NewRepoRefFromRepo(row)).Allow
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/milestones", map[string]any{

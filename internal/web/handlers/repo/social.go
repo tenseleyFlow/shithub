@@ -194,7 +194,7 @@ func (h *Handlers) authorizeSocialAction(w http.ResponseWriter, r *http.Request,
 		return repoRow{}, "", false
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(row)
 	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, repoRef); !dec.Allow {
 		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")

@@ -450,7 +450,7 @@ func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName 
 	if viewer.IsAnonymous() {
 		actor = policy.AnonymousActor()
 	} else {
-		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+		actor = viewer.PolicyActor()
 	}
 	// ActionRepoRead deny on a private repo with a non-collab viewer is
 	// indistinguishable from "doesn't exist" — Maybe404 returns 404 in
