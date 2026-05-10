@@ -230,7 +230,13 @@ func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries
 		if hasExt(lower, []string{".md", ".markdown"}) {
 			out, mderr := mdrender.RenderDocumentHTML(body)
 			if mderr == nil {
-				return out
+				return rewriteMarkdownRelativeURLs(
+					out,
+					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, cc.subpath),
+					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, ""),
+					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, cc.subpath),
+					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, ""),
+				)
 			}
 		}
 		// Non-markdown plain text: escape + <pre>.
@@ -304,6 +310,17 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 		data["IsMarkdown"] = true
 		rendered, mderr := mdrender.RenderDocumentHTML(body)
 		if mderr == nil {
+			dir := path.Dir(cc.subpath)
+			if dir == "." {
+				dir = ""
+			}
+			rendered = rewriteMarkdownRelativeURLs(
+				rendered,
+				codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, dir),
+				codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, ""),
+				codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, dir),
+				codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, ""),
+			)
 			data["MarkdownHTML"] = template.HTML(rendered) //nolint:gosec // sanitized
 		}
 		data["RawSource"] = string(body)
