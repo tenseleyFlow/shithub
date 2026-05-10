@@ -121,6 +121,18 @@ type AuthConfig struct {
 	Postmark                 PostmarkConfig `toml:"postmark"`
 	Argon2                   Argon2Config   `toml:"argon2"`
 	TOTPKeyB64               string         `toml:"totp_key_b64"` // base64 32-byte AEAD key for at-rest TOTP secrets
+	SSH                      SSHAuthConfig  `toml:"ssh"`
+}
+
+// SSHAuthConfig flips whether the repo pages render an SSH clone URL
+// alongside the HTTPS one. The actual SSH service (sshd Match-User-git
+// + AuthorizedKeysCommand → shithubd ssh-authkeys) is operator-side
+// and orthogonal to this flag — the flag just controls the UI surface.
+// Operators who haven't wired SSH should leave Enabled=false so users
+// don't get a clone URL that doesn't work.
+type SSHAuthConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Host    string `toml:"host"` // e.g. "git@shithub.sh" — the userinfo + hostname shown in the SSH clone URL
 }
 
 // SMTPConfig holds plain-SMTP backend settings (e.g. MailHog in dev).
