@@ -1,61 +1,103 @@
 {{ define "page" -}}
-<section class="shithub-notifications">
-  <header class="shithub-notifications-head">
-    <h1>Notifications</h1>
-    <nav class="shithub-tabs">
-      <a href="/notifications" class="shithub-button {{ if ne .Filter "unread" }}shithub-button-primary{{ end }}">All</a>
-      <a href="/notifications?filter=unread" class="shithub-button {{ if eq .Filter "unread" }}shithub-button-primary{{ end }}">Unread ({{ .UnreadCount }})</a>
-    </nav>
-    {{ if .Notifications }}
-    <form method="post" action="/notifications/mark-all-read" style="display:inline">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <button type="submit" class="shithub-button">Mark all read</button>
-    </form>
-    {{ end }}
-  </header>
+<section class="shithub-notifications-page">
+  <div class="shithub-notifications-shell">
+    <aside class="shithub-notifications-sidebar" aria-label="Notification filters">
+      <nav class="shithub-notifications-filter-list">
+        <a href="{{ .AllHref }}" class="shithub-notifications-filter{{ if ne .Filter "unread" }} is-selected{{ end }}"{{ if ne .Filter "unread" }} aria-current="page"{{ end }}>
+          <span class="shithub-notifications-filter-label">{{ octicon "bell" }} Inbox</span>
+          <span class="shithub-notifications-filter-count">{{ .AllCount }}</span>
+        </a>
+        <a href="{{ .UnreadHref }}" class="shithub-notifications-filter{{ if eq .Filter "unread" }} is-selected{{ end }}"{{ if eq .Filter "unread" }} aria-current="page"{{ end }}>
+          <span class="shithub-notifications-filter-label">{{ octicon "dot-fill" }} Unread</span>
+          <span class="shithub-notifications-filter-count">{{ .UnreadCount }}</span>
+        </a>
+      </nav>
+    </aside>
 
-  {{ if .Notifications }}
-    <ul class="shithub-notifications-list">
-      {{ range .Notifications }}
-      <li class="shithub-notification-row {{ if .Unread }}is-unread{{ end }}">
-        <div class="shithub-notification-meta">
-          <span class="shithub-pill shithub-pill-reason">{{ .Reason }}</span>
-          {{ if .RepoOwnerUsername }}
-            <a href="/{{ .RepoOwnerUsername }}/{{ .RepoName }}">{{ .RepoOwnerUsername }}/{{ .RepoName }}</a>
-          {{ end }}
+    <div class="shithub-notifications-main">
+      <header class="shithub-notifications-head">
+        <div>
+          <h1>Notifications</h1>
+          <p>{{ if eq .Filter "unread" }}Unread notifications{{ else }}Inbox{{ end }}</p>
         </div>
-        <div class="shithub-notification-body">
-          {{ if .ThreadNumber }}
-            <a href="/{{ .RepoOwnerUsername }}/{{ .RepoName }}/{{ if eq (printf "%s" .ThreadKind.NotificationThreadKind) "pr" }}pulls{{ else }}issues{{ end }}/{{ .ThreadNumber }}">
-              <strong>#{{ .ThreadNumber }} {{ .ThreadTitle }}</strong>
-            </a>
-          {{ else }}
-            <strong>{{ .Kind }}</strong>
-          {{ end }}
-          <small>by @{{ .ActorUsername }} · {{ relativeTime .LastEventAt.Time }}</small>
-        </div>
-        <div class="shithub-notification-actions">
-          {{ if .Unread }}
-          <form method="post" action="/notifications/{{ .ID }}/read" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-            <button type="submit" class="shithub-button">Mark read</button>
-          </form>
-          {{ else }}
-          <form method="post" action="/notifications/{{ .ID }}/unread" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-            <button type="submit" class="shithub-button">Mark unread</button>
+        <div class="shithub-notifications-head-actions">
+          <a href="/settings/notifications" class="shithub-button">{{ octicon "gear" }} Settings</a>
+          {{ if gt .UnreadCount 0 }}
+          <form method="post" action="/notifications/mark-all-read">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <input type="hidden" name="return_to" value="{{ .CurrentURL }}">
+            <button type="submit" class="shithub-button">{{ octicon "check-circle" }} Mark all as read</button>
           </form>
           {{ end }}
         </div>
-      </li>
+      </header>
+
+      <div class="shithub-notifications-toolbar">
+        <nav class="shithub-notifications-tabs" aria-label="Notification view">
+          <a href="{{ .AllHref }}" class="{{ if ne .Filter "unread" }}is-selected{{ end }}"{{ if ne .Filter "unread" }} aria-current="page"{{ end }}>All</a>
+          <a href="{{ .UnreadHref }}" class="{{ if eq .Filter "unread" }}is-selected{{ end }}"{{ if eq .Filter "unread" }} aria-current="page"{{ end }}>Unread</a>
+        </nav>
+        {{ if gt .Page 1 }}<span class="shithub-notifications-page-num">Page {{ .Page }}</span>{{ end }}
+      </div>
+
+      {{ if .Notifications }}
+        <ol class="shithub-notifications-list">
+          {{ range .Notifications }}
+          <li class="shithub-notification-row {{ if .Unread }}is-unread{{ end }}">
+            <span class="shithub-notification-unread-dot" aria-hidden="true"></span>
+            <span class="shithub-notification-state shithub-notification-state-{{ .StateClass }}" aria-hidden="true">{{ octicon .Icon }}</span>
+            <div class="shithub-notification-content">
+              <div class="shithub-notification-context">
+                {{ if .RepoURL }}<a href="{{ .RepoURL }}">{{ .RepoFullName }}</a>{{ end }}
+                <span>{{ .ReasonLabel }}</span>
+              </div>
+              <div class="shithub-notification-title">
+                {{ if .ThreadURL }}
+                  <a href="{{ .ThreadURL }}">{{ if .ThreadNumber }}#{{ .ThreadNumber }} {{ end }}{{ .ThreadTitle }}</a>
+                {{ else }}
+                  <strong>{{ .ThreadTitle }}</strong>
+                {{ end }}
+              </div>
+              <div class="shithub-notification-meta">
+                <span>{{ .KindLabel }}</span>
+                {{ if .ActorUsername }}
+                  <span>by <a href="{{ .ActorURL }}">@{{ .ActorUsername }}</a></span>
+                {{ end }}
+                <time datetime="{{ .LastEventAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .LastEventAt }}</time>
+              </div>
+            </div>
+            <div class="shithub-notification-actions">
+              {{ if .Unread }}
+              <form method="post" action="/notifications/{{ .ID }}/read">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="return_to" value="{{ $.CurrentURL }}">
+                <button type="submit" class="shithub-icon-button" title="Mark as read" aria-label="Mark as read">{{ octicon "check-circle" }}</button>
+              </form>
+              {{ else }}
+              <form method="post" action="/notifications/{{ .ID }}/unread">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="return_to" value="{{ $.CurrentURL }}">
+                <button type="submit" class="shithub-icon-button" title="Mark as unread" aria-label="Mark as unread">{{ octicon "bell" }}</button>
+              </form>
+              {{ end }}
+            </div>
+          </li>
+          {{ end }}
+        </ol>
+        {{ if or .HasPrev .HasNext }}
+        <nav class="shithub-notifications-pagination" aria-label="Notifications pagination">
+          {{ if .HasPrev }}<a href="{{ .PrevHref }}" class="shithub-button">Newer</a>{{ else }}<span class="shithub-button shithub-button-disabled" aria-disabled="true">Newer</span>{{ end }}
+          {{ if .HasNext }}<a href="{{ .NextHref }}" class="shithub-button">Older</a>{{ else }}<span class="shithub-button shithub-button-disabled" aria-disabled="true">Older</span>{{ end }}
+        </nav>
+        {{ end }}
+      {{ else }}
+        <div class="shithub-notifications-empty">
+          <div class="shithub-notifications-empty-icon">{{ octicon "bell" }}</div>
+          <h2>{{ if eq .Filter "unread" }}No unread notifications{{ else }}No notifications{{ end }}</h2>
+          <p>You're all caught up.</p>
+        </div>
       {{ end }}
-    </ul>
-    <nav class="shithub-pagination">
-      {{ if .HasPrev }}<a href="?filter={{ .Filter }}&page={{ sub .Page 1 }}">&larr; Newer</a>{{ end }}
-      {{ if .HasNext }}<a href="?filter={{ .Filter }}&page={{ add .Page 1 }}">Older &rarr;</a>{{ end }}
-    </nav>
-  {{ else }}
-    <p class="shithub-empty">{{ if eq .Filter "unread" }}Nothing unread.{{ else }}No notifications.{{ end }}</p>
-  {{ end }}
+    </div>
+  </div>
 </section>
 {{- end }}

@@ -15,7 +15,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,7 +84,8 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := pageFromRequest(r)
-	onlyUnread := r.URL.Query().Get("filter") == "unread"
+	filter := filterFromRequest(r)
+	onlyUnread := filter == "unread"
 
 	q := notifdb.New()
 	rows, err := q.ListNotificationsForRecipient(r.Context(), h.d.Pool, notifdb.ListNotificationsForRecipientParams{
@@ -96,15 +100,25 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	unreadCount, _ := q.CountUnreadForRecipient(r.Context(), h.d.Pool, viewer.ID)
+	allCount, _ := q.CountNotificationsForRecipient(r.Context(), h.d.Pool, notifdb.CountNotificationsForRecipientParams{
+		RecipientUserID: viewer.ID,
+		Column2:         false,
+	})
 
 	data := map[string]any{
 		"Title":         "Notifications",
-		"Notifications": rows,
+		"Notifications": notificationInboxItems(rows),
+		"AllCount":      allCount,
 		"UnreadCount":   unreadCount,
-		"Filter":        r.URL.Query().Get("filter"),
+		"Filter":        filter,
+		"AllHref":       notificationsPageHref("", 1),
+		"UnreadHref":    notificationsPageHref("unread", 1),
+		"CurrentURL":    r.URL.RequestURI(),
 		"Page":          page,
 		"HasPrev":       page > 1,
 		"HasNext":       len(rows) == pageSize,
+		"PrevHref":      notificationsPageHref(filter, page-1),
+		"NextHref":      notificationsPageHref(filter, page+1),
 	}
 	if err := h.d.Render.RenderPage(w, r, "notifications/inbox", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "notifications: render", "error", err)
@@ -149,7 +163,7 @@ func (h *Handlers) setRead(w http.ResponseWriter, r *http.Request, read bool) {
 		h.d.Logger.WarnContext(r.Context(), "notifications: set read",
 			"id", id, "read", read, "error", err)
 	}
-	http.Redirect(w, r, "/notifications", http.StatusSeeOther)
+	http.Redirect(w, r, notificationReturnPath(r), http.StatusSeeOther)
 }
 
 func (h *Handlers) markAllRead(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +175,7 @@ func (h *Handlers) markAllRead(w http.ResponseWriter, r *http.Request) {
 	if err := notifdb.New().MarkAllReadForRecipient(r.Context(), h.d.Pool, viewer.ID); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "notifications: mark-all-read", "error", err)
 	}
-	http.Redirect(w, r, "/notifications", http.StatusSeeOther)
+	http.Redirect(w, r, notificationReturnPath(r), http.StatusSeeOther)
 }
 
 func (h *Handlers) subscribe(w http.ResponseWriter, r *http.Request) {
@@ -268,4 +282,186 @@ func pageFromRequest(r *http.Request) int {
 		return 1
 	}
 	return n
+}
+
+func filterFromRequest(r *http.Request) string {
+	if r.URL.Query().Get("filter") == "unread" {
+		return "unread"
+	}
+	return ""
+}
+
+func notificationsPageHref(filter string, page int) string {
+	q := url.Values{}
+	if filter == "unread" {
+		q.Set("filter", "unread")
+	}
+	if page > 1 {
+		q.Set("page", strconv.Itoa(page))
+	}
+	if encoded := q.Encode(); encoded != "" {
+		return "/notifications?" + encoded
+	}
+	return "/notifications"
+}
+
+func notificationReturnPath(r *http.Request) string {
+	if err := r.ParseForm(); err != nil {
+		return "/notifications"
+	}
+	returnTo := strings.TrimSpace(r.PostFormValue("return_to"))
+	if safeNotificationReturnPath(returnTo) {
+		return returnTo
+	}
+	return "/notifications"
+}
+
+func safeNotificationReturnPath(path string) bool {
+	if path == "" || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "\r\n") {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil || u.IsAbs() || u.Host != "" {
+		return false
+	}
+	return u.Path == "/notifications"
+}
+
+type notificationInboxItem struct {
+	ID            int64
+	Unread        bool
+	Icon          string
+	StateClass    string
+	ReasonLabel   string
+	KindLabel     string
+	RepoFullName  string
+	RepoURL       string
+	ThreadURL     string
+	ThreadTitle   string
+	ThreadNumber  int64
+	ActorUsername string
+	ActorURL      string
+	LastEventAt   time.Time
+}
+
+func notificationInboxItems(rows []notifdb.ListNotificationsForRecipientRow) []notificationInboxItem {
+	items := make([]notificationInboxItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, notificationInboxItemFromRow(row))
+	}
+	return items
+}
+
+func notificationInboxItemFromRow(row notifdb.ListNotificationsForRecipientRow) notificationInboxItem {
+	item := notificationInboxItem{
+		ID:            row.ID,
+		Unread:        row.Unread,
+		Icon:          "bell",
+		StateClass:    "notice",
+		ReasonLabel:   notificationReasonLabel(row.Reason),
+		KindLabel:     notificationKindLabel(row.Kind),
+		ThreadTitle:   row.ThreadTitle,
+		ThreadNumber:  row.ThreadNumber,
+		ActorUsername: row.ActorUsername,
+		LastEventAt:   row.LastEventAt.Time,
+	}
+	if row.ActorUsername != "" {
+		item.ActorURL = "/" + url.PathEscape(row.ActorUsername)
+	}
+	if row.RepoOwnerUsername != "" && row.RepoName != "" {
+		item.RepoFullName = row.RepoOwnerUsername + "/" + row.RepoName
+		item.RepoURL = "/" + url.PathEscape(row.RepoOwnerUsername) + "/" + url.PathEscape(row.RepoName)
+	}
+	if row.ThreadKind.Valid {
+		switch row.ThreadKind.NotificationThreadKind {
+		case notifdb.NotificationThreadKindPr:
+			item.Icon = "git-pull-request"
+			item.StateClass = "pr"
+			if item.RepoURL != "" && row.ThreadNumber > 0 {
+				item.ThreadURL = item.RepoURL + "/pulls/" + strconv.FormatInt(row.ThreadNumber, 10)
+			}
+		case notifdb.NotificationThreadKindIssue:
+			item.Icon = "issue-opened"
+			item.StateClass = "issue"
+			if item.RepoURL != "" && row.ThreadNumber > 0 {
+				item.ThreadURL = item.RepoURL + "/issues/" + strconv.FormatInt(row.ThreadNumber, 10)
+			}
+		}
+	}
+	if item.ThreadTitle == "" {
+		item.ThreadTitle = item.KindLabel
+	}
+	return item
+}
+
+func notificationReasonLabel(reason string) string {
+	switch reason {
+	case "mention":
+		return "Mention"
+	case "assignment":
+		return "Assigned"
+	case "review_requested":
+		return "Review requested"
+	case "author":
+		return "Author"
+	case "commenter":
+		return "Commenter"
+	case "subscribed":
+		return "Subscribed"
+	case "watching":
+		return "Watching"
+	case "repo_admin_action":
+		return "Repository"
+	default:
+		return humanizeNotificationToken(reason)
+	}
+}
+
+func notificationKindLabel(kind string) string {
+	switch kind {
+	case "issue_created":
+		return "Issue opened"
+	case "issue_comment_created":
+		return "Issue comment"
+	case "issue_assigned":
+		return "Issue assigned"
+	case "issue_closed":
+		return "Issue closed"
+	case "issue_reopened":
+		return "Issue reopened"
+	case "pr_opened":
+		return "Pull request opened"
+	case "pr_comment_created":
+		return "Pull request comment"
+	case "pr_assigned":
+		return "Pull request assigned"
+	case "pr_closed":
+		return "Pull request closed"
+	case "pr_reopened":
+		return "Pull request reopened"
+	case "pr_merged":
+		return "Pull request merged"
+	case "review_requested":
+		return "Review requested"
+	case "review_submitted":
+		return "Review submitted"
+	case "mentioned":
+		return "Mentioned"
+	case "check_failed":
+		return "Check failed"
+	case "check_fixed":
+		return "Check fixed"
+	case "repo_archived":
+		return "Repository archived"
+	default:
+		return humanizeNotificationToken(kind)
+	}
+}
+
+func humanizeNotificationToken(token string) string {
+	token = strings.TrimSpace(strings.ReplaceAll(token, "_", " "))
+	if token == "" {
+		return "Notification"
+	}
+	return strings.ToUpper(token[:1]) + token[1:]
 }
