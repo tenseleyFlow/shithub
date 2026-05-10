@@ -1,0 +1,57 @@
+{{ define "page" -}}
+<div class="shithub-settings-page shithub-settings-orgs-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content shithub-settings-orgs-content">
+    <header class="shithub-settings-account-header">
+      <img src="/avatars/{{ .Username }}" alt="" class="shithub-settings-account-avatar" width="48" height="48">
+      <div>
+        <h1>{{ .Username }}</h1>
+        <p>Your personal account</p>
+      </div>
+      <div class="shithub-settings-account-actions">
+        <a href="/settings/profile" class="shithub-button shithub-button-ghost">{{ octicon "gear" }} Go to settings page</a>
+        <a href="/{{ .Username }}" class="shithub-button shithub-button-ghost">{{ octicon "person" }} Go to your personal profile</a>
+      </div>
+    </header>
+
+    <section class="shithub-settings-orgs-section" aria-labelledby="settings-organizations-heading">
+      <div class="shithub-settings-orgs-head">
+        <h2 id="settings-organizations-heading">Organizations</h2>
+        <a href="/organizations/new" class="shithub-button shithub-button-primary">New organization</a>
+      </div>
+
+      {{ if .Organizations }}
+      <ul class="shithub-settings-org-list">
+      {{ range .Organizations }}
+        <li class="shithub-settings-org-row">
+          <a href="/{{ .Slug }}" class="shithub-settings-org-identity">
+            <img src="{{ .AvatarURL }}" alt="" width="24" height="24">
+            <span>{{ .Slug }}</span>
+          </a>
+          <span class="shithub-settings-org-role">{{ .RoleLabel }}</span>
+          <div class="shithub-settings-org-actions">
+            {{ if .CanManage }}
+            <button type="button" class="shithub-button shithub-button-small" disabled>Compare plans</button>
+            <a href="/{{ .Slug }}/people" class="shithub-button shithub-button-small">Settings</a>
+            {{ end }}
+            <button type="button" class="shithub-button shithub-button-small shithub-button-danger" disabled>Leave</button>
+          </div>
+        </li>
+      {{ end }}
+      </ul>
+      {{ else }}
+      <div class="shithub-settings-org-empty">
+        <p>You are not a member of any organizations yet.</p>
+        <a href="/organizations/new" class="shithub-button shithub-button-primary">Create organization</a>
+      </div>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-orgs-move" aria-labelledby="settings-move-org-heading">
+      <h2 id="settings-move-org-heading">Move to an organization</h2>
+      <p>Your personal account cannot be converted to an organization. You must create a new organization and transfer your repositories and projects to it instead. You can then rename your personal account and the organization if you want your organization to have the same name that you are currently using for your personal account.</p>
+      <a href="/organizations/new" class="shithub-button shithub-button-ghost">Move work to an organization</a>
+    </section>
+  </div>
+</div>
+{{- end }}

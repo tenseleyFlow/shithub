@@ -30,6 +30,9 @@
       <li{{ if eq .SettingsActive "keys" }} class="active"{{ end }}>
         <a href="/settings/keys">SSH keys</a>
       </li>
+      <li{{ if eq .SettingsActive "organizations" }} class="active"{{ end }}>
+        <a href="/settings/organizations">Organizations</a>
+      </li>
       <li{{ if eq .SettingsActive "tokens" }} class="active"{{ end }}>
         <a href="/settings/tokens">Personal access tokens</a>
       </li>

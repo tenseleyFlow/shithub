@@ -709,6 +709,120 @@ code {
   font-size: 0.8rem;
 }
 
+.shithub-settings-orgs-page {
+  max-width: 78rem;
+  grid-template-columns: 220px minmax(0, 720px);
+}
+.shithub-settings-account-header {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+.shithub-settings-account-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--canvas-subtle);
+}
+.shithub-settings-account-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+.shithub-settings-account-header p {
+  margin: 0.15rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-settings-account-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.shithub-settings-orgs-head {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.shithub-settings-orgs-head h2,
+.shithub-settings-orgs-move h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.shithub-settings-org-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.shithub-settings-org-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 54px;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-default);
+}
+.shithub-settings-org-row:first-child { border-top: 0; }
+.shithub-settings-org-identity {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  font-weight: 600;
+}
+.shithub-settings-org-identity img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: var(--canvas-subtle);
+}
+.shithub-settings-org-identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-settings-org-role {
+  color: var(--fg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.shithub-settings-org-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.shithub-settings-org-empty {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 1rem;
+  color: var(--fg-muted);
+}
+.shithub-settings-org-empty p { margin: 0 0 0.75rem; }
+.shithub-settings-orgs-move {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-default);
+}
+.shithub-settings-orgs-move p {
+  max-width: 44rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
 .shithub-profile-edit {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
@@ -748,6 +862,14 @@ code {
 @media (max-width: 720px) {
   .shithub-settings-page {
     grid-template-columns: 1fr;
+  }
+  .shithub-settings-account-header,
+  .shithub-settings-org-row {
+    grid-template-columns: 1fr;
+  }
+  .shithub-settings-account-actions,
+  .shithub-settings-org-actions {
+    justify-content: flex-start;
   }
   .shithub-profile-edit {
     grid-template-columns: 1fr;
