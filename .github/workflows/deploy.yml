@@ -75,6 +75,11 @@ jobs:
       # a broken commit never appears canonical on the dogfood mirror.
       # The credential helper feeds the PAT via stdin to avoid leaking
       # it via the process listing or git's url-with-credentials log.
+      #
+      # Plain `push` (no --force-with-lease): if shithub.sh ever
+      # diverges from origin/trunk, the push fails non-fast-forward
+      # and a human reconciles. We never want a runner to silently
+      # overwrite a human edit on the mirror.
       - name: Mirror to shithub.sh
         if: success()
         env:
@@ -82,6 +87,6 @@ jobs:
           SHITHUB_PUSH_PAT:  ${{ secrets.SHITHUB_PUSH_PAT }}
         run: |
           git -c "credential.helper=!f() { echo username=$SHITHUB_PUSH_USER; echo password=$SHITHUB_PUSH_PAT; }; f" \
-              push --force-with-lease \
+              push \
               https://shithub.sh/tenseleyflow/shithub.git \
               HEAD:trunk
