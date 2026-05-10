@@ -2,7 +2,7 @@
 <header class="shithub-nav{{ if .Repo }} has-context{{ else if .Org }} has-context{{ end }}" role="banner">
   <div class="shithub-nav-global">
     <div class="shithub-nav-context">
-      <button type="button" class="shithub-nav-menu" aria-label="Open navigation menu">{{ octicon "three-bars" }}</button>
+      <button type="button" class="shithub-nav-menu" aria-label="Open navigation menu" aria-controls="shithub-global-navigation" aria-expanded="false" data-offcanvas-open>{{ octicon "three-bars" }}</button>
       <a href="/" class="shithub-nav-brand" aria-label="shithub home">
         {{ octicon "shithub" }}
         <span class="shithub-nav-brand-word">shithub</span>
@@ -100,4 +100,5 @@
   </div>
   {{ end }}
 </header>
+{{ template "nav-offcanvas" . }}
 {{- end }}
