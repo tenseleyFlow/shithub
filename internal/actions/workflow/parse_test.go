@@ -229,3 +229,79 @@ func hasError(diags []workflow.Diagnostic) bool {
 	}
 	return false
 }
+
+// TestParse_BooleanCanonicalForms pins L1: workflow boolean fields
+// accept the canonical YAML 1.2 forms (true/True/TRUE, false/False/
+// FALSE) instead of strict-string matching only "true". Pre-L1 the
+// parser silently treated everything except "true" as false.
+func TestParse_BooleanCanonicalForms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"true", true},
+		{"True", true},
+		{"TRUE", true},
+		{"false", false},
+		{"False", false},
+		{"FALSE", false},
+	}
+	for _, tc := range cases {
+		t.Run("cancel-in-progress="+tc.val, func(t *testing.T) {
+			t.Parallel()
+			src := []byte(`name: x
+on: push
+concurrency:
+  group: g
+  cancel-in-progress: ` + tc.val + `
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+			w, diags, err := workflow.Parse(src)
+			if err != nil || w == nil {
+				t.Fatalf("parse: err=%v w=%v", err, w)
+			}
+			if hasError(diags) {
+				t.Fatalf("unexpected diagnostics: %v", diags)
+			}
+			if w.Concurrency.CancelInProgress != tc.want {
+				t.Errorf("got %v, want %v for input %q", w.Concurrency.CancelInProgress, tc.want, tc.val)
+			}
+		})
+	}
+}
+
+// TestParse_BooleanInvalidProducesDiagnostic asserts that a non-
+// boolean value (e.g. "yes" — valid YAML 1.1, NOT 1.2) surfaces a
+// parse-time diagnostic instead of silently coercing.
+func TestParse_BooleanInvalidProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+concurrency:
+  group: g
+  cancel-in-progress: yes
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "boolean") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected boolean-error diagnostic for 'yes', got: %v", diags)
+	}
+}
