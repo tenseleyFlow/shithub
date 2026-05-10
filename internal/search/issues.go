@@ -46,11 +46,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		ownerPos := len(args) + 1
 		namePos := len(args) + 2
 		args = append(args, q.RepoFilter.Owner, q.RepoFilter.Name)
-		whereExtras += fmt.Sprintf(
-			" AND r.id = (SELECT r2.id FROM repos r2 JOIN users u2 ON u2.id = r2.owner_user_id "+
-				"WHERE u2.username = $%d AND r2.name = $%d AND r2.deleted_at IS NULL)",
-			ownerPos, namePos,
-		)
+		whereExtras += repoFilterByOwnerName("r", ownerPos, namePos)
 	}
 	if q.StateFilter != "" {
 		statePos := len(args) + 1
@@ -83,7 +79,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	args = append(args, limit, offset)
 
 	queryStr := fmt.Sprintf(`
-		SELECT i.id, r.id, u.username, r.name, i.number, i.title,
+		SELECT i.id, r.id, %[7]s, r.name, i.number, i.title,
 		       i.state::text, i.kind::text,
 		       coalesce(au.username, '') AS author_name,
 		       i.updated_at,
@@ -91,14 +87,14 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		FROM issues_search s
 		JOIN issues i  ON i.id = s.issue_id
 		JOIN repos r   ON r.id = s.repo_id
-		JOIN users u   ON u.id = r.owner_user_id
+		%[8]s
 		LEFT JOIN users au ON au.id = s.author_user_id
 		WHERE %[2]s
 		  AND %[3]s
 		  %[4]s
 		ORDER BY rank DESC, i.updated_at DESC
 		LIMIT $%[5]d OFFSET $%[6]d
-	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos)
+	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
@@ -124,7 +120,6 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		FROM issues_search s
 		JOIN issues i  ON i.id = s.issue_id
 		JOIN repos r   ON r.id = s.repo_id
-		JOIN users u   ON u.id = r.owner_user_id
 		WHERE %[1]s AND %[2]s %[3]s
 	`, whereFTS, visClause, whereExtras)
 	var total int64

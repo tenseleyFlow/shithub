@@ -16,6 +16,7 @@ import (
 	policydb "github.com/tenseleyFlow/shithub/internal/auth/policy/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -83,6 +84,7 @@ type fxs struct {
 	bob     usersdb.User
 	pubRepo reposdb.Repo
 	prvRepo reposdb.Repo
+	orgRepo reposdb.Repo
 }
 
 func setup(t *testing.T) fxs {
@@ -102,6 +104,20 @@ func setup(t *testing.T) fxs {
 	})
 	if err != nil {
 		t.Fatalf("CreateUser bob: %v", err)
+	}
+
+	org, err := orgs.Create(ctx,
+		orgs.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		orgs.CreateParams{
+			Slug:            "tenseleyflow",
+			DisplayName:     "tenseleyFlow",
+			Description:     "workflow things",
+			BillingEmail:    "org@example.test",
+			CreatedByUserID: alice.ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("CreateOrg tenseleyflow: %v", err)
 	}
 
 	rq := reposdb.New()
@@ -125,9 +141,19 @@ func setup(t *testing.T) fxs {
 	if err != nil {
 		t.Fatalf("CreateRepo private: %v", err)
 	}
+	orgRepo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "shithub",
+		Description:   "A 1:1 reverse-engineering of GitHub. AGPLv3. Without Copilot.",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo org public: %v", err)
+	}
 
 	iq := issuesdb.New()
-	for _, r := range []reposdb.Repo{pubRepo, prvRepo} {
+	for _, r := range []reposdb.Repo{pubRepo, prvRepo, orgRepo} {
 		if err := iq.EnsureRepoIssueCounter(ctx, pool, r.ID); err != nil {
 			t.Fatalf("EnsureRepoIssueCounter: %v", err)
 		}
@@ -145,13 +171,25 @@ func setup(t *testing.T) fxs {
 	}); err != nil {
 		t.Fatalf("Create issue prv: %v", err)
 	}
+	if _, err := issues.Create(ctx, idep, issues.CreateParams{
+		RepoID: orgRepo.ID, AuthorUserID: alice.ID,
+		Title: "org public bug report", Body: "shithub project issue",
+	}); err != nil {
+		t.Fatalf("Create issue org: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO code_search_paths (repo_id, ref_name, path, tsv)
+		VALUES ($1, 'trunk', 'README.md', to_tsvector('shithub_search', 'README shithub'))
+	`, orgRepo.ID); err != nil {
+		t.Fatalf("seed org code path: %v", err)
+	}
 
 	return fxs{
 		deps: search.Deps{
 			Pool:   pool,
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
-		alice: alice, bob: bob, pubRepo: pubRepo, prvRepo: prvRepo,
+		alice: alice, bob: bob, pubRepo: pubRepo, prvRepo: prvRepo, orgRepo: orgRepo,
 	}
 }
 
@@ -235,6 +273,46 @@ func TestSearchRepos_CollabSeesPrivate(t *testing.T) {
 	}
 }
 
+func TestSearchRepos_AnonymousFindsPublicOrgRepoByName(t *testing.T) {
+	f := setup(t)
+	got, total, err := search.SearchRepos(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("shithub"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("SearchRepos total = 0, want org-owned shithub")
+	}
+	found := false
+	for _, r := range got {
+		if r.ID == f.orgRepo.ID && r.OwnerUsername == "tenseleyflow" && r.Name == "shithub" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("org-owned tenseleyflow/shithub missing from %d repo results", len(got))
+	}
+}
+
+func TestSearchRepos_AnonymousFindsPublicOrgRepoByOwner(t *testing.T) {
+	f := setup(t)
+	got, _, err := search.SearchRepos(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("tenseleyFlow"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos: %v", err)
+	}
+	for _, r := range got {
+		if r.ID == f.orgRepo.ID && r.OwnerUsername == "tenseleyflow" && r.Name == "shithub" {
+			return
+		}
+	}
+	t.Fatalf("owner query did not return org-owned tenseleyflow/shithub; got %d rows", len(got))
+}
+
 // TestSearchIssues_AnonymousSeesOnlyPublic mirrors the repo test
 // for the issue surface — issues inherit visibility from their repo.
 func TestSearchIssues_AnonymousSeesOnlyPublic(t *testing.T) {
@@ -295,6 +373,43 @@ func TestSearchIssues_RepoFilter(t *testing.T) {
 			t.Errorf("repo: filter let through %s/%s", h.OwnerUsername, h.RepoName)
 		}
 	}
+}
+
+func TestSearchIssues_RepoFilterMatchesOrgOwner(t *testing.T) {
+	f := setup(t)
+	got, _, err := search.SearchIssues(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("repo:tenseleyFlow/shithub bug"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("expected org repo issue results")
+	}
+	for _, h := range got {
+		if h.OwnerUsername != "tenseleyflow" || h.RepoName != "shithub" {
+			t.Errorf("repo: filter let through %s/%s", h.OwnerUsername, h.RepoName)
+		}
+	}
+}
+
+func TestSearchCode_RepoFilterMatchesOrgOwner(t *testing.T) {
+	f := setup(t)
+	got, total, err := search.SearchCode(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("repo:tenseleyFlow/shithub README"), 20, 0)
+	if err != nil {
+		t.Fatalf("SearchCode: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("SearchCode total = 0, want org-owned path hit")
+	}
+	for _, h := range got {
+		if h.RepoID == f.orgRepo.ID && h.OwnerUsername == "tenseleyflow" && h.RepoName == "shithub" {
+			return
+		}
+	}
+	t.Fatalf("org-owned code hit missing from %d results", len(got))
 }
 
 func TestSearchUsers_ExcludesSuspended(t *testing.T) {

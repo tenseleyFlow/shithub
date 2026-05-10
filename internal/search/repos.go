@@ -44,11 +44,7 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 		ownerPos := len(args) + 1
 		namePos := len(args) + 2
 		args = append(args, q.RepoFilter.Owner, q.RepoFilter.Name)
-		repoFilter = fmt.Sprintf(
-			" AND r.id = (SELECT r2.id FROM repos r2 JOIN users u2 ON u2.id = r2.owner_user_id "+
-				"WHERE u2.username = $%d AND r2.name = $%d AND r2.deleted_at IS NULL)",
-			ownerPos, namePos,
-		)
+		repoFilter = repoFilterByOwnerName("r", ownerPos, namePos)
 	}
 
 	whereFTS := "TRUE"
@@ -63,7 +59,7 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 	args = append(args, limit, offset)
 
 	queryStr := fmt.Sprintf(`
-		SELECT r.id, u.username, r.name, r.description, r.visibility::text,
+		SELECT r.id, %[7]s, r.name, r.description, r.visibility::text,
 		       r.star_count, r.updated_at,
 		       %[1]s
 		           * (1.0 + ln(1.0 + r.star_count))
@@ -71,13 +67,13 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 		       AS rank
 		FROM repos_search rs
 		JOIN repos r  ON r.id = rs.repo_id
-		JOIN users u  ON u.id = r.owner_user_id
+		%[8]s
 		WHERE %[2]s
 		  AND %[3]s
 		  %[4]s
 		ORDER BY rank DESC, r.updated_at DESC
 		LIMIT $%[5]d OFFSET $%[6]d
-	`, rankExpr, whereFTS, visClause, repoFilter, limPos, offPos)
+	`, rankExpr, whereFTS, visClause, repoFilter, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
@@ -103,7 +99,6 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 		SELECT count(*)
 		FROM repos_search rs
 		JOIN repos r  ON r.id = rs.repo_id
-		JOIN users u  ON u.id = r.owner_user_id
 		WHERE %[1]s AND %[2]s %[3]s
 	`, whereFTS, visClause, repoFilter)
 	var total int64

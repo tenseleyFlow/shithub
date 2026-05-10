@@ -48,6 +48,11 @@ internal/worker/jobs/
   trigram index on the raw content for camelCase / snake_case
   substring matches the FTS tokenizer mangles. `repos.last_indexed_oid`
   added so the reconciler can detect drift.
+* **0041 — repo owner terms**: repo search documents include the
+  owning user/org handle plus display name, and result queries
+  resolve owners through either `users` or `orgs`. This keeps public
+  org repositories searchable by both `owner/repo` and owner-only
+  text queries.
 
 ## Visibility predicate
 

@@ -176,9 +176,9 @@ func insertOrgAvatarOrg(t *testing.T, db orgsdb.DBTX, userID int64, slug string)
 	var orgID int64
 	if err := db.QueryRow(context.Background(),
 		`INSERT INTO orgs (slug, display_name, created_by_user_id)
-		 VALUES ($1, $1, $2)
+		 VALUES ($1, $2, $3)
 		 RETURNING id`,
-		slug, userID,
+		slug, slug, userID,
 	).Scan(&orgID); err != nil {
 		t.Fatalf("insert org: %v", err)
 	}

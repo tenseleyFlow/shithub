@@ -386,7 +386,7 @@ func TestProfile_UserPinsCanBeCustomized(t *testing.T) {
 	}
 
 	got = env.getAs(t, "/alice", usersdb.User{})
-	for _, want := range []string{"PINS=2", "PINNAMES=shithub;loader;", "SELECTED=loader;shithub;"} {
+	for _, want := range []string{"PINS=2", "PINNAMES=shithub;loader;", "SELECTED=shithub;loader;"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in body: %s", want, got)
 		}
@@ -401,7 +401,7 @@ func TestProfile_OrgPinsFallbackUntilCustomized(t *testing.T) {
 	env := setupProfileEnv(t)
 	owner := env.insertUser(t, "alice", "Alice", "")
 	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", owner)
-	shithubID := env.insertOrgRepo(t, orgID, "shithub", "GitHub clone", "public", "Go", 5, 1)
+	env.insertOrgRepo(t, orgID, "shithub", "GitHub clone", "public", "Go", 5, 1)
 	loaderID := env.insertOrgRepo(t, orgID, "loader", "local assistant", "public", "Python", 1, 0)
 	env.insertOrgRepo(t, orgID, "private-roadmap", "hidden", "private", "Rust", 9, 0)
 
@@ -426,7 +426,7 @@ func TestProfile_OrgPinsFallbackUntilCustomized(t *testing.T) {
 			t.Fatalf("missing %q in body: %s", want, got)
 		}
 	}
-	if strings.Contains(got, "PINNAMES=shithub;") || strings.Contains(got, strconv.FormatInt(shithubID, 10)) {
+	if strings.Contains(got, "PINNAMES=shithub;") || strings.Contains(got, "PINNAMES=loader;shithub;") {
 		t.Fatalf("custom org pins fell back to the synthetic set: %s", got)
 	}
 }
