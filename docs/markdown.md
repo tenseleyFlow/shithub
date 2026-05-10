@@ -59,6 +59,9 @@ These tags pass through unchanged:
 - `<details>` / `<summary>` (collapsible sections)
 - `<kbd>` (keyboard markers)
 - `<sup>`, `<sub>` (superscript / subscript)
+- README presentation attributes GitHub commonly allows:
+  `align="left|center|right"` on paragraphs / headings / divs,
+  and `width` / `height` on images.
 - Standard text formatting tags Goldmark emits (em, strong, code,
   pre, blockquote, ul, ol, li, table family).
 
