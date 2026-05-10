@@ -203,7 +203,11 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// theme; serve under /static/css/chroma.css so the layout can
 		// link it without a build step.
 		r.Get("/static/css/chroma.css", chromaCSSHandler())
+		// HEAD honored alongside GET so strict probes (HEAD-only health
+		// checks, some Kubernetes-style livenessProbes) get 200 not 405
+		// (SR2 L8).
 		r.Get("/healthz", healthz)
+		r.Head("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 		if deps.APIMounter != nil {
 			deps.APIMounter(r)
