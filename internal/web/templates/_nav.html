@@ -5,7 +5,9 @@
     <span>shithub</span>
   </a>
   <form action="/search" method="get" class="shithub-nav-search" role="search">
-    <input type="text" name="q" placeholder="Search…" aria-label="Search" autocomplete="off">
+    <span class="shithub-nav-search-icon">{{ octicon "search" }}</span>
+    <input type="text" name="q"{{ with .GlobalSearchQuery }} value="{{ . }}"{{ end }} placeholder="Type / to search" aria-label="Search" autocomplete="off">
+    <span class="shithub-nav-search-key" aria-hidden="true">/</span>
     <input type="hidden" name="type" value="repos">
   </form>
   <nav class="shithub-nav-links" aria-label="Primary">

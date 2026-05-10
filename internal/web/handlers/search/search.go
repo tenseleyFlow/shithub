@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,6 +68,9 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 	if tab == "" {
 		tab = "repos"
 	}
+	if !validSearchTab(tab) {
+		tab = "repos"
+	}
 	page := pageFromRequest(r)
 
 	parsed := srch.ParseQuery(rawQ)
@@ -74,16 +78,18 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 	deps := h.deps()
 
 	data := map[string]any{
-		"Title":    "Search",
-		"Query":    rawQ,
-		"Tab":      tab,
-		"Page":     page,
-		"Parsed":   parsed,
-		"PageSize": srch.PageSize,
+		"Title":             "Search",
+		"Query":             rawQ,
+		"GlobalSearchQuery": rawQ,
+		"Tab":               tab,
+		"Page":              page,
+		"Parsed":            parsed,
+		"PageSize":          srch.PageSize,
 	}
 
 	if !parsed.HasContent() {
 		data["EmptyQuery"] = true
+		data["SearchTabs"] = h.searchTabs(r, actor, parsed, rawQ, tab)
 		_ = h.d.Render.RenderPage(w, r, "search/results", data)
 		return
 	}
@@ -102,6 +108,14 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 		rows, total, err := srch.SearchIssues(r.Context(), deps, actor, parsed, "issue", srch.PageSize, offset)
 		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
 			h.d.Logger.ErrorContext(r.Context(), "search issues", "error", err)
+		}
+		data["Issues"] = rows
+		data["Total"] = total
+		data["HasNext"] = int64(page*srch.PageSize) < total
+	case "pulls":
+		rows, total, err := srch.SearchIssues(r.Context(), deps, actor, parsed, "pr", srch.PageSize, offset)
+		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
+			h.d.Logger.ErrorContext(r.Context(), "search pulls", "error", err)
 		}
 		data["Issues"] = rows
 		data["Total"] = total
@@ -129,10 +143,80 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 		data["EmptyQuery"] = true
 	}
 	data["HasPrev"] = page > 1
+	data["SearchTabs"] = h.searchTabs(r, actor, parsed, rawQ, tab)
 
 	if err := h.d.Render.RenderPage(w, r, "search/results", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "search render", "error", err)
 	}
+}
+
+func validSearchTab(tab string) bool {
+	switch tab {
+	case "repos", "issues", "pulls", "users", "code":
+		return true
+	default:
+		return false
+	}
+}
+
+type searchTab struct {
+	Key      string
+	Label    string
+	Icon     string
+	Count    int64
+	Href     string
+	Selected bool
+}
+
+func (h *Handlers) searchTabs(r *http.Request, actor policy.Actor, parsed srch.ParsedQuery, rawQ, active string) []searchTab {
+	tabs := []searchTab{
+		{Key: "repos", Label: "Repositories", Icon: "repo"},
+		{Key: "code", Label: "Code", Icon: "code"},
+		{Key: "issues", Label: "Issues", Icon: "issue-opened"},
+		{Key: "pulls", Label: "Pull requests", Icon: "git-pull-request"},
+		{Key: "users", Label: "Users", Icon: "person"},
+	}
+	for i := range tabs {
+		tabs[i].Selected = tabs[i].Key == active
+		tabs[i].Href = searchHref(rawQ, tabs[i].Key, 1)
+	}
+	if !parsed.HasContent() {
+		return tabs
+	}
+
+	deps := h.deps()
+	for i := range tabs {
+		var total int64
+		var err error
+		switch tabs[i].Key {
+		case "repos":
+			_, total, err = srch.SearchRepos(r.Context(), deps, actor, parsed, 0, 0)
+		case "code":
+			_, total, err = srch.SearchCode(r.Context(), deps, actor, parsed, 0, 0)
+		case "issues":
+			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "issue", 0, 0)
+		case "pulls":
+			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "pr", 0, 0)
+		case "users":
+			_, total, err = srch.SearchUsers(r.Context(), deps, parsed, 0, 0)
+		}
+		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
+			h.d.Logger.ErrorContext(r.Context(), "search tab count", "tab", tabs[i].Key, "error", err)
+			continue
+		}
+		tabs[i].Count = total
+	}
+	return tabs
+}
+
+func searchHref(q, tab string, page int) string {
+	v := url.Values{}
+	v.Set("q", q)
+	v.Set("type", tab)
+	if page > 1 {
+		v.Set("p", intString(page))
+	}
+	return "/search?" + v.Encode()
 }
 
 // quick is the htmx dropdown endpoint. Returns one fragment with
@@ -164,7 +248,10 @@ func (h *Handlers) quick(w http.ResponseWriter, r *http.Request) {
 
 // pageFromRequest pulls ?page=N, defaulting to 1 on missing/invalid.
 func pageFromRequest(r *http.Request) int {
-	p := r.URL.Query().Get("page")
+	p := r.URL.Query().Get("p")
+	if p == "" {
+		p = r.URL.Query().Get("page")
+	}
 	if p == "" {
 		return 1
 	}
@@ -182,4 +269,18 @@ func pageFromRequest(r *http.Request) int {
 		return 1
 	}
 	return n
+}
+
+func intString(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }

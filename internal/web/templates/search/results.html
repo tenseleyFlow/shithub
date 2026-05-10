@@ -1,92 +1,163 @@
 {{ define "page" -}}
-<section class="shithub-search">
-  <header class="shithub-search-head">
-    <h1>Search</h1>
-    <form action="/search" method="get" class="shithub-search-form">
-      <input type="text" name="q" value="{{ .Query }}" placeholder="search repositories, issues, users, code…" autofocus>
-      <input type="hidden" name="type" value="{{ .Tab }}">
-      <button type="submit" class="shithub-button shithub-button-primary">Search</button>
-    </form>
-    <nav class="shithub-search-tabs">
-      <a href="?q={{ .Query }}&type=repos" class="shithub-button {{ if eq .Tab "repos" }}shithub-button-primary{{ end }}">Repositories</a>
-      <a href="?q={{ .Query }}&type=issues" class="shithub-button {{ if eq .Tab "issues" }}shithub-button-primary{{ end }}">Issues</a>
-      <a href="?q={{ .Query }}&type=users" class="shithub-button {{ if eq .Tab "users" }}shithub-button-primary{{ end }}">Users</a>
-      <a href="?q={{ .Query }}&type=code" class="shithub-button {{ if eq .Tab "code" }}shithub-button-primary{{ end }}">Code</a>
-    </nav>
-  </header>
-
-  {{ if .EmptyQuery }}
-  <p class="shithub-empty">Type a query to search.</p>
-  {{ else }}
-    {{ if eq .Tab "repos" }}
-      {{ if .Repos }}
-        <p class="shithub-meta">{{ .Total }} repository result{{ if ne .Total 1 }}s{{ end }}</p>
-        <ul class="shithub-search-list">
-        {{ range .Repos }}
-          <li>
-            <a href="/{{ .OwnerUsername }}/{{ .Name }}"><strong>{{ .OwnerUsername }}/{{ .Name }}</strong></a>
-            {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
-            <small>★ {{ .StarCount }}</small>
-            <small>updated {{ relativeTime .UpdatedAt }}</small>
-            {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
-          </li>
+<section class="shithub-search-page">
+  <div class="shithub-search-shell">
+    <aside class="shithub-search-sidebar" aria-label="Search filters">
+      <h2>Filter by</h2>
+      <nav class="shithub-search-filter-list">
+        {{ range .SearchTabs }}
+          <a href="{{ .Href }}" class="shithub-search-filter{{ if .Selected }} is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>
+            <span class="shithub-search-filter-label">{{ octicon .Icon }} {{ .Label }}</span>
+            {{ if .Count }}<span class="shithub-search-filter-count">{{ .Count }}</span>{{ end }}
+          </a>
         {{ end }}
-        </ul>
-      {{ else }}<p class="shithub-empty">No repositories matched.</p>{{ end }}
+      </nav>
+    </aside>
 
-    {{ else if eq .Tab "issues" }}
-      {{ if .Issues }}
-        <p class="shithub-meta">{{ .Total }} issue result{{ if ne .Total 1 }}s{{ end }}</p>
-        <ul class="shithub-search-list">
-        {{ range .Issues }}
-          <li>
-            <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/issues/{{ .Number }}">
-              <strong>{{ .OwnerUsername }}/{{ .RepoName }}#{{ .Number }}</strong> — {{ .Title }}
-            </a>
-            <span class="shithub-pill">{{ .State }}</span>
-            {{ if .AuthorName }}<small>by @{{ .AuthorName }}</small>{{ end }}
-            <small>{{ relativeTime .UpdatedAt }}</small>
-          </li>
+    <div class="shithub-search-results">
+      <form action="/search" method="get" class="shithub-search-query-form">
+        <input type="text" name="q" value="{{ .Query }}" placeholder="Search shithub" autofocus>
+        <input type="hidden" name="type" value="{{ .Tab }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Search</button>
+      </form>
+
+      {{ if .EmptyQuery }}
+        <div class="shithub-search-blank">
+          <h1>Search shithub</h1>
+          <p>Enter a query above to find repositories, code, issues, pull requests, and users.</p>
+        </div>
+      {{ else }}
+        <div class="shithub-search-results-head">
+          <h1>
+            {{ .Total }}
+            {{ if eq .Tab "repos" }}repository{{ if ne .Total 1 }} results{{ else }} result{{ end }}
+            {{ else if eq .Tab "code" }}code result{{ if ne .Total 1 }}s{{ end }}
+            {{ else if eq .Tab "issues" }}issue result{{ if ne .Total 1 }}s{{ end }}
+            {{ else if eq .Tab "pulls" }}pull request result{{ if ne .Total 1 }}s{{ end }}
+            {{ else if eq .Tab "users" }}user result{{ if ne .Total 1 }}s{{ end }}
+            {{ else }}result{{ if ne .Total 1 }}s{{ end }}
+            {{ end }}
+          </h1>
+          <details class="shithub-search-sort">
+            <summary>Sort: Best match</summary>
+            <div>
+              <span>Best match</span>
+              <span>Most recently updated</span>
+            </div>
+          </details>
+        </div>
+
+        {{ if eq .Tab "repos" }}
+          {{ if .Repos }}
+            <ol class="shithub-search-result-list">
+            {{ range .Repos }}
+              <li class="shithub-search-result shithub-search-repo-result">
+                <div class="shithub-search-result-main">
+                  <h2>
+                    <img src="/avatars/{{ .OwnerUsername }}" alt="" width="20" height="20" class="shithub-search-avatar">
+                    <a href="/{{ .OwnerUsername }}/{{ .Name }}">{{ .OwnerUsername }}/{{ .Name }}</a>
+                    {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ end }}
+                  </h2>
+                  {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+                  <ul class="shithub-search-result-meta">
+                    <li>{{ octicon "star" }} {{ .StarCount }}</li>
+                    <li>Updated {{ relativeTime .UpdatedAt }}</li>
+                  </ul>
+                </div>
+                <a href="/{{ .OwnerUsername }}/{{ .Name }}/stargazers" class="shithub-button shithub-button-small shithub-search-star">{{ octicon "star" }} Star</a>
+              </li>
+            {{ end }}
+            </ol>
+          {{ else }}<p class="shithub-search-empty">No repositories matched your search.</p>{{ end }}
+
+        {{ else if eq .Tab "issues" }}
+          {{ if .Issues }}
+            <ol class="shithub-search-result-list">
+            {{ range .Issues }}
+              <li class="shithub-search-result">
+                <div class="shithub-search-result-main">
+                  <h2>
+                    <span class="shithub-search-state shithub-search-state-{{ .State }}">
+                      {{ if eq .State "closed" }}{{ octicon "issue-closed" }}{{ else }}{{ octicon "issue-opened" }}{{ end }}
+                    </span>
+                    <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/issues/{{ .Number }}">{{ .Title }}</a>
+                  </h2>
+                  <p class="shithub-search-result-path">{{ .OwnerUsername }}/{{ .RepoName }}#{{ .Number }}</p>
+                  <ul class="shithub-search-result-meta">
+                    <li>{{ .State }}</li>
+                    {{ if .AuthorName }}<li>Opened by @{{ .AuthorName }}</li>{{ end }}
+                    <li>Updated {{ relativeTime .UpdatedAt }}</li>
+                  </ul>
+                </div>
+              </li>
+            {{ end }}
+            </ol>
+          {{ else }}<p class="shithub-search-empty">No issues matched your search.</p>{{ end }}
+
+        {{ else if eq .Tab "pulls" }}
+          {{ if .Issues }}
+            <ol class="shithub-search-result-list">
+            {{ range .Issues }}
+              <li class="shithub-search-result">
+                <div class="shithub-search-result-main">
+                  <h2>
+                    <span class="shithub-search-state shithub-search-state-pr">{{ octicon "git-pull-request" }}</span>
+                    <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/pulls/{{ .Number }}">{{ .Title }}</a>
+                  </h2>
+                  <p class="shithub-search-result-path">{{ .OwnerUsername }}/{{ .RepoName }}#{{ .Number }}</p>
+                  <ul class="shithub-search-result-meta">
+                    <li>{{ .State }}</li>
+                    {{ if .AuthorName }}<li>Opened by @{{ .AuthorName }}</li>{{ end }}
+                    <li>Updated {{ relativeTime .UpdatedAt }}</li>
+                  </ul>
+                </div>
+              </li>
+            {{ end }}
+            </ol>
+          {{ else }}<p class="shithub-search-empty">No pull requests matched your search.</p>{{ end }}
+
+        {{ else if eq .Tab "users" }}
+          {{ if .Users }}
+            <ol class="shithub-search-result-list">
+            {{ range .Users }}
+              <li class="shithub-search-result shithub-search-user-result">
+                <img src="/avatars/{{ .Username }}" alt="" width="40" height="40" class="shithub-search-user-avatar">
+                <div class="shithub-search-result-main">
+                  <h2><a href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a></h2>
+                  <p class="shithub-search-result-path">@{{ .Username }}</p>
+                  {{ if .Bio }}<p>{{ .Bio }}</p>{{ end }}
+                </div>
+              </li>
+            {{ end }}
+            </ol>
+          {{ else }}<p class="shithub-search-empty">No users matched your search.</p>{{ end }}
+
+        {{ else if eq .Tab "code" }}
+          {{ if .Code }}
+            <ol class="shithub-search-result-list">
+            {{ range .Code }}
+              <li class="shithub-search-result">
+                <div class="shithub-search-result-main">
+                  <h2>
+                    {{ octicon "file" }}
+                    <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/blob/{{ .RefName }}/{{ .Path }}">{{ .Path }}</a>
+                  </h2>
+                  <p class="shithub-search-result-path">{{ .OwnerUsername }}/{{ .RepoName }} on {{ .RefName }}</p>
+                  {{ if .PreviewLine }}<pre class="shithub-search-code-preview"><code>{{ .PreviewLine }}</code></pre>{{ end }}
+                </div>
+              </li>
+            {{ end }}
+            </ol>
+          {{ else }}<p class="shithub-search-empty">No code matched your search.</p>{{ end }}
         {{ end }}
-        </ul>
-      {{ else }}<p class="shithub-empty">No issues matched.</p>{{ end }}
 
-    {{ else if eq .Tab "users" }}
-      {{ if .Users }}
-        <p class="shithub-meta">{{ .Total }} user result{{ if ne .Total 1 }}s{{ end }}</p>
-        <ul class="shithub-search-list">
-        {{ range .Users }}
-          <li>
-            <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
-            <small>@{{ .Username }}</small>
-            {{ if .Bio }}<p class="shithub-meta">{{ .Bio }}</p>{{ end }}
-          </li>
+        {{ if or .HasPrev .HasNext }}
+        <nav class="shithub-search-pagination" aria-label="Pagination">
+          {{ if .HasPrev }}<a href="?q={{ .Query }}&type={{ .Tab }}&p={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ else }}<span class="shithub-button shithub-button-disabled">Previous</span>{{ end }}
+          {{ if .HasNext }}<a href="?q={{ .Query }}&type={{ .Tab }}&p={{ add .Page 1 }}" class="shithub-button">Next</a>{{ else }}<span class="shithub-button shithub-button-disabled">Next</span>{{ end }}
+        </nav>
         {{ end }}
-        </ul>
-      {{ else }}<p class="shithub-empty">No users matched.</p>{{ end }}
-
-    {{ else if eq .Tab "code" }}
-      {{ if .Code }}
-        <p class="shithub-meta">{{ .Total }} code result{{ if ne .Total 1 }}s{{ end }}</p>
-        <ul class="shithub-search-list">
-        {{ range .Code }}
-          <li>
-            <a href="/{{ .OwnerUsername }}/{{ .RepoName }}/blob/{{ .RefName }}/{{ .Path }}">
-              <strong>{{ .OwnerUsername }}/{{ .RepoName }}</strong>
-              <code>{{ .Path }}</code>
-            </a>
-          </li>
-        {{ end }}
-        </ul>
-      {{ else }}<p class="shithub-empty">No code matched.</p>{{ end }}
-    {{ end }}
-
-    {{ if or .HasPrev .HasNext }}
-    <nav class="shithub-pagination">
-      {{ if .HasPrev }}<a href="?q={{ .Query }}&type={{ .Tab }}&page={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ end }}
-      {{ if .HasNext }}<a href="?q={{ .Query }}&type={{ .Tab }}&page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
-    </nav>
-    {{ end }}
-  {{ end }}
+      {{ end }}
+    </div>
+  </div>
 </section>
 {{- end }}
