@@ -260,9 +260,14 @@ func (r *RepoFS) RepairSharedPerms(ctx context.Context, path string) error {
 		return fmt.Errorf("storage: repofs: git config sharedRepository: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 	// Walk the tree once: directories get +g+s, files get +g+w.
-	// We use filepath.Walk over an exec.Command(find ...) so the
-	// behavior is identical across Linux and macOS test harnesses.
-	if err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+	// path is verified contained-in-root above; no symlinks span out
+	// of the repo (bare repos don't ship with symlinks under .git/).
+	// G122: filepath.Walk + os.Chmod is race-prone in adversarial
+	// trees, but our writer (this process running as root or shithub)
+	// is also the only writer for these paths, and the trees are not
+	// user-influenced beyond the validated owner/name slugs. Operator-
+	// only command, not user-triggered.
+	if err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error { //nolint:gosec
 		if err != nil {
 			return err
 		}
@@ -274,7 +279,7 @@ func (r *RepoFS) RepairSharedPerms(ctx context.Context, path string) error {
 		if newMode == mode {
 			return nil
 		}
-		return os.Chmod(p, newMode)
+		return os.Chmod(p, newMode) //nolint:gosec
 	}); err != nil {
 		return fmt.Errorf("storage: repofs: walk chmod: %w", err)
 	}
