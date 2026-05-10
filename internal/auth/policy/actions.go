@@ -31,6 +31,7 @@ const (
 	ActionRepoSettingsGeneral       Action = "repo:settings:general"
 	ActionRepoSettingsCollaborators Action = "repo:settings:collaborators"
 	ActionRepoSettingsBranches      Action = "repo:settings:branches"
+	ActionRepoSettingsActions       Action = "repo:settings:actions"
 
 	ActionRepoArchive    Action = "repo:archive"
 	ActionRepoDelete     Action = "repo:delete"
@@ -76,7 +77,7 @@ const (
 // the author to think through every actor archetype.
 var AllActions = []Action{
 	ActionRepoRead, ActionRepoWrite, ActionRepoAdmin,
-	ActionRepoSettingsGeneral, ActionRepoSettingsCollaborators, ActionRepoSettingsBranches,
+	ActionRepoSettingsGeneral, ActionRepoSettingsCollaborators, ActionRepoSettingsBranches, ActionRepoSettingsActions,
 	ActionRepoArchive, ActionRepoDelete, ActionRepoTransfer, ActionRepoVisibility,
 	ActionIssueRead, ActionIssueCreate, ActionIssueComment, ActionIssueClose, ActionIssueLabel, ActionIssueAssign,
 	ActionPullRead, ActionPullCreate, ActionPullMerge, ActionPullReview, ActionPullClose,

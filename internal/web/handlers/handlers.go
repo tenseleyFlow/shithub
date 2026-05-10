@@ -86,6 +86,9 @@ type Deps struct {
 	// the deferred-tab placeholders (webhooks, keys, notifications,
 	// tags) under /{owner}/{repo}/settings/* (S32). Auth-required.
 	RepoSettingsGeneralMounter func(chi.Router)
+	// RepoSettingsActionsMounter registers Actions secrets + variables
+	// settings under /{owner}/{repo}/settings/* (S41c). Auth-required.
+	RepoSettingsActionsMounter func(chi.Router)
 	// RepoWebhooksMounter registers the per-repo webhook CRUD +
 	// delivery views under /{owner}/{repo}/settings/webhooks/* (S33).
 	// Auth-required.
@@ -277,6 +280,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}
 		if deps.RepoSettingsGeneralMounter != nil {
 			deps.RepoSettingsGeneralMounter(r)
+		}
+		if deps.RepoSettingsActionsMounter != nil {
+			deps.RepoSettingsActionsMounter(r)
 		}
 		// Webhooks (S33) — register BEFORE the general mounter so the
 		// /settings/webhooks GET resolves to the new CRUD list, not

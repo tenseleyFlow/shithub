@@ -137,12 +137,14 @@ func minimalTemplatesFS() fstest.MapFS {
 	layout := []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)
 	body := []byte(`{{ define "page" }}{{ .StatusText }}: {{ .Message }}{{ end }}`)
 	return fstest.MapFS{
-		"_layout.html":    {Data: layout},
-		"errors/403.html": {Data: body},
-		"errors/404.html": {Data: body},
-		"errors/429.html": {Data: body},
-		"errors/500.html": {Data: body},
-		"repo/new.html":   {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
+		"_layout.html":               {Data: layout},
+		"_repo_settings_nav.html":    {Data: []byte(`{{ define "repo-settings-nav" }}NAV{{ end }}`)},
+		"errors/403.html":            {Data: body},
+		"errors/404.html":            {Data: body},
+		"errors/429.html":            {Data: body},
+		"errors/500.html":            {Data: body},
+		"repo/new.html":              {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
+		"repo/settings_secrets.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
 	}
 }
 

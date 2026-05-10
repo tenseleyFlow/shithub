@@ -12,7 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgshandlers "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
@@ -33,6 +35,16 @@ func buildOrgHandlers(
 		return nil, err
 	}
 	sender, _ := pickOrgsEmailSender(cfg)
+	var box *secretbox.Box
+	if cfg.Auth.TOTPKeyB64 != "" {
+		if b, err := secretbox.FromBase64(cfg.Auth.TOTPKeyB64); err == nil {
+			box = b
+		} else if logger != nil {
+			logger.Warn("orgs: actions secretbox unavailable",
+				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
+				"error", err)
+		}
+	}
 	return orgshandlers.New(orgshandlers.Deps{
 		Logger:      logger,
 		Render:      rr,
@@ -42,6 +54,8 @@ func buildOrgHandlers(
 		SiteName:    cfg.Auth.SiteName,
 		BaseURL:     cfg.Auth.BaseURL,
 		ObjectStore: objectStore,
+		SecretBox:   box,
+		Audit:       audit.NewRecorder(),
 	})
 }
 

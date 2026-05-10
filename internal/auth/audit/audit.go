@@ -83,6 +83,13 @@ const (
 	ActionWebhookPinged      Action = "webhook_pinged"
 	ActionWebhookRedelivered Action = "webhook_redelivered"
 
+	// S41c — Actions secret/variable lifecycle. Metadata must include
+	// names only, never secret values.
+	ActionActionsSecretSet       Action = "actions_secret_set"
+	ActionActionsSecretDeleted   Action = "actions_secret_deleted"
+	ActionActionsVariableSet     Action = "actions_variable_set"
+	ActionActionsVariableDeleted Action = "actions_variable_deleted"
+
 	// S34 — site admin actions. Always recorded with the real admin's
 	// id in actor_id; impersonation flows additionally carry the
 	// impersonated user's id in meta.impersonated_user_id.
@@ -108,6 +115,7 @@ type Target string
 const (
 	TargetUser  Target = "user"
 	TargetRepo  Target = "repo"
+	TargetOrg   Target = "org"
 	TargetIssue Target = "issue"
 	TargetPull  Target = "pull"
 )
