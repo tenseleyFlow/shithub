@@ -11,7 +11,6 @@
 package profile
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -297,7 +296,3 @@ func safeWebsite(s string) template.URL {
 	}
 	return template.URL(u.String()) //nolint:gosec // schemes vetted above.
 }
-
-// ensure context import is used by static analysis even if a future
-// refactor removes its only inline use.
-var _ = context.Background

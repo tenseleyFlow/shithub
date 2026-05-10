@@ -3,13 +3,11 @@
 package orgs
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -307,12 +305,3 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 func (h *Handlers) teamPath(org orgsdb.Org, team orgsdb.Team) string {
 	return "/" + string(org.Slug) + "/teams/" + string(team.Slug)
 }
-
-// ensure pgx is referenced when the rest of the file's imports
-// settle (avoids a "imported and not used" if a future refactor
-// drops the only inline pgx use).
-var _ = pgx.ErrNoRows
-
-// errTeamNotFound is reserved for the future; surfaced via
-// orgs.ErrTeamNotFound when needed.
-var _ = errors.New
