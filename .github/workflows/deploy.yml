@@ -68,3 +68,20 @@ jobs:
         run: |
           ssh -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
             'bash /root/src/shithub/deploy/redeploy.sh'
+
+      # Mirror the just-deployed SHA to the self-hosted shithub.sh
+      # instance so anyone reading the source on shithub.sh sees the
+      # same tip as github. Runs only after the redeploy succeeds, so
+      # a broken commit never appears canonical on the dogfood mirror.
+      # The credential helper feeds the PAT via stdin to avoid leaking
+      # it via the process listing or git's url-with-credentials log.
+      - name: Mirror to shithub.sh
+        if: success()
+        env:
+          SHITHUB_PUSH_USER: ${{ secrets.SHITHUB_PUSH_USER }}
+          SHITHUB_PUSH_PAT:  ${{ secrets.SHITHUB_PUSH_PAT }}
+        run: |
+          git -c "credential.helper=!f() { echo username=$SHITHUB_PUSH_USER; echo password=$SHITHUB_PUSH_PAT; }; f" \
+              push --force-with-lease \
+              https://shithub.sh/tenseleyflow/shithub.git \
+              HEAD:trunk
