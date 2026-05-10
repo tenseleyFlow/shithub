@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -44,6 +45,7 @@ type Deps struct {
 	EmailFrom   string
 	SiteName    string
 	BaseURL     string
+	ObjectStore storage.ObjectStore
 }
 
 // Handlers groups the org surface handlers.
@@ -69,6 +71,9 @@ func New(d Deps) (*Handlers, error) {
 func (h *Handlers) MountCreate(r chi.Router) {
 	r.Get("/organizations/new", h.newForm)
 	r.Post("/organizations", h.createSubmit)
+	r.Get("/organizations/{org}/settings/profile", h.settingsProfile)
+	r.Post("/organizations/{org}/settings/profile/avatar", h.settingsAvatarUpload)
+	r.Post("/organizations/{org}/settings/profile/avatar/remove", h.settingsAvatarRemove)
 }
 
 // MountOrgRoutes registers the per-org surface under /{org}/people

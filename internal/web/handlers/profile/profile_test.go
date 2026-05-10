@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	profileh "github.com/tenseleyFlow/shithub/internal/web/handlers/profile"
@@ -33,6 +34,10 @@ type profileEnv struct {
 }
 
 func setupProfileEnv(t *testing.T) *profileEnv {
+	return setupProfileEnvWithStore(t, nil)
+}
+
+func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *profileEnv {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -53,6 +58,7 @@ func setupProfileEnv(t *testing.T) *profileEnv {
 	h, err := profileh.New(profileh.Deps{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Render: rr, Pool: pool,
+		ObjectStore: objectStore,
 	})
 	if err != nil {
 		t.Fatalf("profileh.New: %v", err)
@@ -498,6 +504,40 @@ func TestProfile_AvatarReturnsIdenticonForNoKey(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "<svg") {
 		t.Fatalf("expected svg in body")
+	}
+}
+
+func TestProfile_AvatarStreamsOrgAvatar(t *testing.T) {
+	t.Parallel()
+	store := storage.NewMemoryStore()
+	env := setupProfileEnvWithStore(t, store)
+	owner := env.insertUser(t, "alice", "Alice", "")
+	orgID := env.insertOrg(t, "acme", "Acme", "", owner)
+	key := "avatars/orgs/acme/test.png"
+	if _, err := store.Put(context.Background(), key, strings.NewReader("org-avatar"), storage.PutOpts{
+		ContentType:   "image/png",
+		ContentLength: int64(len("org-avatar")),
+	}); err != nil {
+		t.Fatalf("store.Put: %v", err)
+	}
+	if _, err := env.pool.Exec(context.Background(),
+		`UPDATE orgs SET avatar_object_key = $1 WHERE id = $2`,
+		key, orgID,
+	); err != nil {
+		t.Fatalf("set org avatar: %v", err)
+	}
+
+	resp, _ := http.Get(env.srv.URL + "/avatars/acme")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("content-type %q", resp.Header.Get("Content-Type"))
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "org-avatar" {
+		t.Fatalf("body=%q", body)
 	}
 }
 

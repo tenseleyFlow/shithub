@@ -13,7 +13,7 @@
         </ul>
       </div>
       <div class="shithub-org-hero-actions">
-        {{ if .IsOwner }}<button type="button" class="shithub-button" disabled>Settings</button>{{ else }}<button type="button" class="shithub-button" disabled>Follow</button>{{ end }}
+        {{ if .IsOwner }}<a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-button">Settings</a>{{ else }}<button type="button" class="shithub-button" disabled>Follow</button>{{ end }}
       </div>
     </div>
   </header>
@@ -27,7 +27,7 @@
     <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item">{{ octicon "person" }} People <span class="shithub-tab-count">{{ .MemberCount }}</span></a>
     <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
     <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
-    {{ if .IsOwner }}<span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "gear" }} Settings</span>{{ end }}
+    {{ if .IsOwner }}<a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item">{{ octicon "gear" }} Settings</a>{{ end }}
   </nav>
 
   {{ if .Org.SuspendedAt.Valid }}

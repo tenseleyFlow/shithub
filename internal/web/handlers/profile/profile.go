@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/avatars"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -211,38 +212,32 @@ func (h *Handlers) renderUnavailable(w http.ResponseWriter, r *http.Request, use
 
 // ------------------------------ avatar ----------------------------------
 
-// serveAvatar resolves the username, then either streams the uploaded
-// avatar from object storage or returns the deterministic SVG identicon.
+// serveAvatar resolves the slug, then either streams the uploaded
+// user/org avatar from object storage or returns the deterministic SVG
+// identicon.
 //
 // Implementation notes:
 //   - Lookup-by-username happens on every request. At our scale this is
 //     fine; if the avatar route becomes hot we can add an LRU.
-//   - Suspended/deleted users get the identicon (NOT a 404) so the
-//     suspended-page UX still has *something* to render in the header.
+//   - Missing, suspended, or deleted principals get the identicon (NOT a
+//     404) so avatar URLs leak less existence state.
 //   - Cache-Control: long max-age + immutable. Avatar contents are
-//     content-addressed at upload time (S10 stores under
-//     avatars/<owner>/<sha256>.<ext>) so the URL changes when the image
-//     does, making "immutable" safe.
+//     content-addressed at upload time so the URL changes when the image
+//     changes, making "immutable" safe.
 func (h *Handlers) serveAvatar(w http.ResponseWriter, r *http.Request) {
-	username := chi.URLParam(r, "username")
-	user, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, username)
-	if err != nil {
-		// Don't 404 on missing user — silently fall through to the
-		// identicon. Avatar URLs leak less existence info that way.
-		writeIdenticon(w, r, username)
-		return
-	}
-	if !user.AvatarObjectKey.Valid || user.AvatarObjectKey.String == "" {
-		writeIdenticon(w, r, user.Username)
+	slug := chi.URLParam(r, "username")
+	key, seed := h.avatarKeyForSlug(r, slug)
+	if key == "" {
+		writeIdenticon(w, r, seed)
 		return
 	}
 	if h.d.ObjectStore == nil {
-		writeIdenticon(w, r, user.Username)
+		writeIdenticon(w, r, seed)
 		return
 	}
-	rc, meta, err := h.d.ObjectStore.Get(r.Context(), user.AvatarObjectKey.String)
+	rc, meta, err := h.d.ObjectStore.Get(r.Context(), key)
 	if err != nil {
-		writeIdenticon(w, r, user.Username)
+		writeIdenticon(w, r, seed)
 		return
 	}
 	defer func() { _ = rc.Close() }()
@@ -255,6 +250,24 @@ func (h *Handlers) serveAvatar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, rc)
+}
+
+func (h *Handlers) avatarKeyForSlug(r *http.Request, slug string) (string, string) {
+	user, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, slug)
+	if err == nil {
+		if user.AvatarObjectKey.Valid {
+			return user.AvatarObjectKey.String, user.Username
+		}
+		return "", user.Username
+	}
+	org, err := orgsdb.New().GetOrgBySlug(r.Context(), h.d.Pool, slug)
+	if err == nil {
+		if org.AvatarObjectKey.Valid {
+			return org.AvatarObjectKey.String, org.Slug
+		}
+		return "", org.Slug
+	}
+	return "", slug
 }
 
 func writeIdenticon(w http.ResponseWriter, _ *http.Request, username string) {

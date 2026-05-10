@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgshandlers "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -23,6 +24,7 @@ import (
 func buildOrgHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
+	objectStore storage.ObjectStore,
 	tmplFS fs.FS,
 	logger *slog.Logger,
 ) (*orgshandlers.Handlers, error) {
@@ -39,6 +41,7 @@ func buildOrgHandlers(
 		EmailFrom:   cfg.Auth.EmailFrom,
 		SiteName:    cfg.Auth.SiteName,
 		BaseURL:     cfg.Auth.BaseURL,
+		ObjectStore: objectStore,
 	})
 }
 

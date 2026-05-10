@@ -36,6 +36,8 @@ lfs/<owner>/<repo>/<sha256>           # LFS objects (post-MVP, key shape reserve
 attachments/<scope>/<id>/<filename>   # issue/PR/comment attachments
 avatars/<user_id>/<hash>.png          # largest rendered avatar variant
 avatars/<user_id>/<hash>-<size>.png   # smaller rendered avatar variants
+avatars/orgs/<org_id>/<hash>.png      # largest rendered org avatar variant
+avatars/orgs/<org_id>/<hash>-<size>.png
 backups/...                           # S37
 ```
 
