@@ -212,6 +212,15 @@ func (h *Handlers) requireOrgOwner(w http.ResponseWriter, r *http.Request, orgID
 		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 		return false
 	}
+	// Suspended actors get the same 403 as non-owners. Mirrors the
+	// suspended gate the policy package enforces on every other
+	// mutation surface — this gate doesn't go through policy.Can yet
+	// (the org/team actions aren't in the policy enum), so we
+	// short-circuit here (SR2 C4). Same shape as SR1 C1 fix.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return false
+	}
 	owner, _ := orgs.IsOwner(r.Context(), h.deps(), orgID, viewer.ID)
 	if !owner {
 		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")

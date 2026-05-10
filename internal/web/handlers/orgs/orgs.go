@@ -213,6 +213,14 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
 		return
 	}
+	// Suspended owners are denied with the same 403 as non-owners
+	// (SR2 C4). Org/team mutations don't currently route through
+	// policy.Can; this short-circuit mirrors the suspended-actor
+	// gate every other write surface enforces.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
 	owner, err := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	if err != nil || !owner {
 		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
@@ -268,6 +276,11 @@ func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action f
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
+		return
+	}
+	// Suspended owners denied like non-owners (SR2 C4).
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	owner, _ := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
@@ -326,6 +339,14 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+		return
+	}
+	// Suspended users can't act on invitations either way (SR2 C4).
+	// Joining an org while suspended would let them participate in
+	// org-scoped actions; declining is harmless but the consistent
+	// gate makes the surface uniform.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	tok := chi.URLParam(r, "token")
