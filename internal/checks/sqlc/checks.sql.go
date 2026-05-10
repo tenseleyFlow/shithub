@@ -182,7 +182,7 @@ LEFT JOIN LATERAL (
     FROM pull_requests pr
     JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
     LEFT JOIN users u ON u.id = i.author_user_id
-    WHERE pr.head_repo_id = cs.repo_id
+    WHERE i.repo_id = cs.repo_id
       AND pr.head_oid = cs.head_sha
     ORDER BY i.updated_at DESC, i.number DESC
     LIMIT 1
@@ -486,7 +486,7 @@ LEFT JOIN LATERAL (
     FROM pull_requests pr
     JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
     LEFT JOIN users u ON u.id = i.author_user_id
-    WHERE pr.head_repo_id = cs.repo_id
+    WHERE i.repo_id = cs.repo_id
       AND pr.head_oid = cs.head_sha
     ORDER BY i.updated_at DESC, i.number DESC
     LIMIT 1
