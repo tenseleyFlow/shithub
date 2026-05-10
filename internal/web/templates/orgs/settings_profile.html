@@ -1,36 +1,185 @@
 {{ define "page" -}}
-<section class="shithub-org-settings">
-  <header class="shithub-org-profile-head">
-    <h1>{{ .Org.DisplayName }} · Profile settings</h1>
-    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+    <nav class="shithub-org-nav" aria-label="Organization">
+      <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item">{{ octicon "home" }} Overview</a>
+      <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories</a>
+      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
+      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
+      <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item">{{ octicon "people" }} Teams</a>
+      <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item">{{ octicon "person" }} People</a>
+      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
+      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
+      <a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item is-active" aria-current="page">{{ octicon "gear" }} Settings</a>
+    </nav>
   </header>
 
-  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
-  {{ with .Success }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+  <div class="shithub-org-settings-layout">
+    <aside class="shithub-org-settings-sidebar" aria-label="Organization settings">
+      <h1>Settings</h1>
+      <nav class="shithub-org-settings-menu">
+        <a class="is-selected" href="/organizations/{{ .Org.Slug }}/settings/profile" aria-current="page">{{ octicon "organization" }} General</a>
+        <span aria-disabled="true">{{ octicon "people" }} People</span>
+        <span aria-disabled="true">{{ octicon "repo" }} Repository defaults</span>
+        <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>
+        <h2>Code, planning, and automation</h2>
+        <span aria-disabled="true">{{ octicon "play" }} Actions</span>
+        <span aria-disabled="true">{{ octicon "table" }} Projects</span>
+        <span aria-disabled="true">{{ octicon "package" }} Packages</span>
+        <h2>Security</h2>
+        <span aria-disabled="true">{{ octicon "shield-check" }} Code security</span>
+        <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
+        <h2>Access</h2>
+        <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
+        <span aria-disabled="true">{{ octicon "history" }} Audit log</span>
+      </nav>
+    </aside>
 
-  <section class="shithub-settings-section" aria-labelledby="org-avatar-heading">
-    <h2 id="org-avatar-heading">Profile picture</h2>
-    <div class="shithub-profile-picture-settings">
-      <img src="{{ .AvatarURL }}" alt="" class="shithub-profile-edit-avatar">
-      {{ if .AvatarUploadEnabled }}
-        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar" enctype="multipart/form-data" novalidate>
-          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-          <label>
-            <span>Upload new picture</span>
-            <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif" required>
-          </label>
-          <button type="submit" class="shithub-button shithub-button-primary">Upload</button>
-        </form>
-        {{ if .HasAvatar }}
-        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar/remove" novalidate>
-          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-          <button type="submit" class="shithub-button shithub-button-danger">Remove picture</button>
-        </form>
-        {{ end }}
-      {{ else }}
-        <p class="shithub-meta">Avatar uploads are disabled until object storage is configured.</p>
-      {{ end }}
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Success }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">General</h2>
+      </div>
+
+      <section class="shithub-org-settings-profile" aria-labelledby="org-profile-heading">
+        <h3 id="org-profile-heading" class="sr-only">Organization profile</h3>
+        <div class="shithub-org-settings-profile-grid">
+          <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-settings-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <label>
+              <span>Organization display name</span>
+              <input type="text" name="display_name" value="{{ .Form.DisplayName }}" maxlength="100" autocomplete="organization">
+            </label>
+            <label>
+              <span>Description</span>
+              <textarea name="description" maxlength="350" rows="3">{{ .Form.Description }}</textarea>
+            </label>
+            <label>
+              <span>URL</span>
+              <input type="url" name="website" value="{{ .Form.Website }}" maxlength="200" placeholder="https://example.com" autocomplete="url">
+            </label>
+            <label>
+              <span>Location</span>
+              <input type="text" name="location" value="{{ .Form.Location }}" maxlength="80" autocomplete="address-level2">
+            </label>
+            <label>
+              <span>Billing email <small>(Private)</small></span>
+              <input type="email" name="billing_email" value="{{ .Form.BillingEmail }}" autocomplete="email">
+            </label>
+            <label class="shithub-org-settings-checkbox">
+              <input type="checkbox" name="allow_member_repo_create" {{ if .Form.AllowMemberRepoCreate }}checked{{ end }}>
+              <span>Allow members to create repositories for this organization</span>
+            </label>
+            <button type="submit" class="shithub-button shithub-button-primary">Update profile</button>
+          </form>
+
+          <aside class="shithub-org-settings-avatar" aria-labelledby="org-avatar-heading">
+            <h3 id="org-avatar-heading">Profile picture</h3>
+            <img class="shithub-profile-edit-avatar" src="{{ .AvatarURL }}" alt="@{{ .Org.Slug }}" width="200" height="200">
+            {{ if .AvatarUploadEnabled }}
+              <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar" enctype="multipart/form-data" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <label class="shithub-profile-edit-upload">
+                  <span>Upload new picture</span>
+                  <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif" required>
+                </label>
+                <button type="submit" class="shithub-button">Upload</button>
+              </form>
+              {{ if .HasAvatar }}
+              <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/profile/avatar/remove" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Remove picture</button>
+              </form>
+              {{ end }}
+            {{ else }}
+              <p class="shithub-empty-note">Avatar uploads are disabled until object storage is configured.</p>
+            {{ end }}
+            <p class="shithub-empty-note">Use an image that clearly represents this organization.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-messaging-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-messaging-heading" class="Subhead-heading Subhead-heading--large">In-product messages</h2>
+        </div>
+        <div class="shithub-org-settings-box">
+          <div class="shithub-org-settings-row">
+            <div>
+              <strong>Promotions</strong>
+              <p>Get product and event messages for this organization.</p>
+            </div>
+            <span class="ToggleSwitch ToggleSwitch--small ToggleSwitch--disabled">
+              <span class="ToggleSwitch-status"><span class="ToggleSwitch-statusOff">Off</span></span>
+              <button type="button" class="ToggleSwitch-track" aria-label="Promotions" aria-pressed="false" disabled>
+                <div aria-hidden="true" class="ToggleSwitch-icons"><div class="ToggleSwitch-lineIcon"></div><div class="ToggleSwitch-circleIcon"></div></div>
+                <div class="ToggleSwitch-knob"></div>
+              </button>
+            </span>
+          </div>
+          <div class="shithub-org-settings-row">
+            <div>
+              <strong>Tips</strong>
+              <p>Get tips for features enabled in repositories owned by this organization.</p>
+            </div>
+            <span class="ToggleSwitch ToggleSwitch--small ToggleSwitch--disabled">
+              <span class="ToggleSwitch-status"><span class="ToggleSwitch-statusOff">Off</span></span>
+              <button type="button" class="ToggleSwitch-track" aria-label="Tips" aria-pressed="false" disabled>
+                <div aria-hidden="true" class="ToggleSwitch-icons"><div class="ToggleSwitch-lineIcon"></div><div class="ToggleSwitch-circleIcon"></div></div>
+                <div class="ToggleSwitch-knob"></div>
+              </button>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-danger-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-danger-heading" class="Subhead-heading Subhead-heading--large Subhead-heading--danger">Danger zone</h2>
+        </div>
+        <div class="Box Box--danger shithub-org-danger-box">
+          <div class="Box-row shithub-org-danger-row">
+            <div>
+              <div class="listgroup-item-title">Rename organization</div>
+              <div class="listgroup-item-body">Renaming your organization can have unintended side effects.</div>
+            </div>
+            <button type="button" class="shithub-button shithub-button-danger" disabled>Rename organization</button>
+          </div>
+          <div class="Box-row shithub-org-danger-row">
+            <div>
+              <div class="listgroup-item-title">Archive this organization</div>
+              <div class="listgroup-item-body">Only organizations that meet archive requirements can be archived.</div>
+            </div>
+            <button type="button" class="shithub-button" disabled>Archive organization</button>
+          </div>
+          <div class="Box-row shithub-org-danger-row">
+            <div>
+              <div class="listgroup-item-title">Delete this organization</div>
+              <div class="listgroup-item-body">Once deleted, it enters the configured recovery window before permanent removal.</div>
+            </div>
+            <details class="shithub-org-danger-details">
+              <summary class="shithub-button shithub-button-danger">Delete this organization</summary>
+              <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/delete" class="shithub-org-delete-form">
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <label>
+                  <span>Enter this organization's name to confirm</span>
+                  <input type="text" name="confirm_slug" required autocomplete="off" placeholder="{{ .Org.Slug }}">
+                </label>
+                <button type="submit" class="shithub-button shithub-button-danger">Delete this organization</button>
+              </form>
+            </details>
+          </div>
+        </div>
+      </section>
     </div>
-  </section>
+  </div>
 </section>
 {{- end }}

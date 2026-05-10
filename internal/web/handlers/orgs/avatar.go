@@ -117,17 +117,7 @@ func (h *Handlers) renderSettingsProfile(
 	errMsg string,
 	success string,
 ) {
-	_ = h.d.Render.RenderPage(w, r, "orgs/settings_profile", map[string]any{
-		"Title":               org.Slug + " · profile settings",
-		"CSRFToken":           middleware.CSRFTokenForRequest(r),
-		"Org":                 org,
-		"AvatarURL":           "/avatars/" + org.Slug,
-		"ActiveOrgNav":        "settings",
-		"AvatarUploadEnabled": h.d.ObjectStore != nil,
-		"HasAvatar":           org.AvatarObjectKey.Valid && org.AvatarObjectKey.String != "",
-		"Error":               errMsg,
-		"Success":             success,
-	})
+	h.renderSettingsProfileWithForm(w, r, org, settingsProfileFormFromOrg(org), errMsg, success)
 }
 
 func orgSettingsProfilePath(org orgsdb.Org) string {

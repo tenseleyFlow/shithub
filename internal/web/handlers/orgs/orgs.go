@@ -73,8 +73,10 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Get("/organizations/new", h.newForm)
 	r.Post("/organizations", h.createSubmit)
 	r.Get("/organizations/{org}/settings/profile", h.settingsProfile)
+	r.Post("/organizations/{org}/settings/profile", h.settingsProfileSubmit)
 	r.Post("/organizations/{org}/settings/profile/avatar", h.settingsAvatarUpload)
 	r.Post("/organizations/{org}/settings/profile/avatar/remove", h.settingsAvatarRemove)
+	r.Post("/organizations/{org}/settings/delete", h.settingsDelete)
 }
 
 // MountOrgRoutes registers the per-org surface under /{org}/people

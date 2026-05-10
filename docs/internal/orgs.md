@@ -28,6 +28,11 @@ GET  /{org}/people                 members + (owner-only) invite form
 POST /{org}/people/invite          invite by username OR email
 POST /{org}/people/{userID}/role   change role (owner-only)
 POST /{org}/people/{userID}/remove remove member (owner-only)
+GET  /organizations/{org}/settings/profile
+POST /organizations/{org}/settings/profile
+POST /organizations/{org}/settings/profile/avatar
+POST /organizations/{org}/settings/profile/avatar/remove
+POST /organizations/{org}/settings/delete
 GET  /invitations/{token}          accept/decline view (auth required)
 POST /invitations/{token}/accept
 POST /invitations/{token}/decline
@@ -73,6 +78,20 @@ picker mirrors GitHub's public-profile rule: it offers only public
 org-owned repos, has a live text filter, caps selections at six, and
 persists the ordered set transactionally. Saving no selected repos is a
 real customized state and suppresses the automatic fallback.
+
+`GET /organizations/{org}/settings/profile` renders the owner-only
+organization settings profile page. The page uses the GitHub settings
+shape: org pagehead + underline nav, left settings sidebar, General
+profile form, profile-picture aside, in-product message rows, and a
+Danger zone. `POST /organizations/{org}/settings/profile` updates the
+persisted org fields (`display_name`, `description`, `website`,
+`location`, `billing_email`, and `allow_member_repo_create`) with
+friendly length, URL, and email validation before writing through the
+org sqlc queries. Avatar upload/removal stores object keys through the
+avatar pipeline and object store.
+`POST /organizations/{org}/settings/delete` soft-deletes the org through
+`orgs.SoftDelete` after an owner confirms the slug; the hard-delete
+worker still owns permanent removal after the grace window.
 
 Repo visibility is filtered through `policy.IsVisibleTo` using an actor
 constructed from `middleware.CurrentUser`, including suspension,
@@ -140,8 +159,8 @@ old slug for 301s during the rename cooldown.
   (each one gets a regenerated model). Org renames aren't in the
   S30 DoD; deferred to a follow-up sprint that owns the rename
   refactor end to end.
-* **Org-level audit log surface**, **suspension UI**, **org settings
-  page**, **avatar upload**, **email notifications for role-change /
+* **Org-level audit log surface**, **suspension UI**, **org rename /
+  archive settings actions**, **email notifications for role-change /
   remove / suspension / deletion**. Schema columns are present; UI and
   notification fan-out land in follow-ups.
 * **Org renaming via `principal_redirects`** — depends on the

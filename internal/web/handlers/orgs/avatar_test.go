@@ -117,6 +117,178 @@ func TestOrgAvatarUploadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOrgSettingsProfileUpdate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	q := orgsdb.New()
+	viewerID := insertOrgAvatarUser(t, pool, "mfwolffe")
+	orgID := insertOrgAvatarOrg(t, pool, viewerID, "tenseleyFlow")
+
+	tmplFS := fstest.MapFS{
+		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
+		"orgs/settings_profile.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Success }}SUCCESS={{ . }}{{ end }}DISPLAY={{ .Form.DisplayName }}{{ end }}`)},
+		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
+		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
+		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
+	}
+	rr, err := render.New(tmplFS, render.Options{})
+	if err != nil {
+		t.Fatalf("render.New: %v", err)
+	}
+	h, err := orgsh.New(orgsh.Deps{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Render: rr,
+		Pool:   pool,
+	})
+	if err != nil {
+		t.Fatalf("orgsh.New: %v", err)
+	}
+	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: viewerID, Username: "mfwolffe"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(r)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.PostForm(srv.URL+"/organizations/tenseleyFlow/settings/profile", url.Values{
+		"display_name":             {"Tenseley Flow"},
+		"description":              {"Workflow repositories"},
+		"website":                  {"example.com"},
+		"location":                 {"United States of America"},
+		"billing_email":            {"billing@example.com"},
+		"allow_member_repo_create": {"on"},
+	})
+	if err != nil {
+		t.Fatalf("POST settings: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST status=%d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "SUCCESS=Organization profile updated.") {
+		t.Fatalf("expected success render, got %s", body)
+	}
+	org, err := q.GetOrgByID(ctx, pool, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgByID: %v", err)
+	}
+	if org.DisplayName != "Tenseley Flow" ||
+		org.Description != "Workflow repositories" ||
+		org.Website != "https://example.com" ||
+		org.Location != "United States of America" ||
+		org.BillingEmail != "billing@example.com" ||
+		!org.AllowMemberRepoCreate {
+		t.Fatalf("unexpected org after update: %#v", org)
+	}
+
+	resp, err = http.PostForm(srv.URL+"/organizations/tenseleyFlow/settings/profile", url.Values{
+		"display_name":  {"Tenseley Flow"},
+		"billing_email": {"billing@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("POST settings clear checkbox: %v", err)
+	}
+	_ = resp.Body.Close()
+	org, err = q.GetOrgByID(ctx, pool, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgByID after checkbox clear: %v", err)
+	}
+	if org.AllowMemberRepoCreate {
+		t.Fatalf("expected unchecked allow_member_repo_create to persist false")
+	}
+}
+
+func TestOrgSettingsDeleteRequiresSlugConfirmation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	q := orgsdb.New()
+	viewerID := insertOrgAvatarUser(t, pool, "mfwolffe")
+	insertOrgAvatarOrg(t, pool, viewerID, "tenseleyFlow")
+
+	tmplFS := fstest.MapFS{
+		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
+		"orgs/settings_profile.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ end }}`)},
+		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
+		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
+		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
+	}
+	rr, err := render.New(tmplFS, render.Options{})
+	if err != nil {
+		t.Fatalf("render.New: %v", err)
+	}
+	h, err := orgsh.New(orgsh.Deps{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Render: rr,
+		Pool:   pool,
+	})
+	if err != nil {
+		t.Fatalf("orgsh.New: %v", err)
+	}
+	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: viewerID, Username: "mfwolffe"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(r)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	cli := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := cli.PostForm(srv.URL+"/organizations/tenseleyFlow/settings/delete", url.Values{
+		"confirm_slug": {"wrong"},
+	})
+	if err != nil {
+		t.Fatalf("POST delete wrong confirmation: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("wrong confirmation status=%d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "ERROR=Enter this organization's name to confirm deletion.") {
+		t.Fatalf("expected confirmation error, got %s", body)
+	}
+	org, err := q.GetOrgBySlugIncludingDeleted(ctx, pool, "tenseleyFlow")
+	if err != nil {
+		t.Fatalf("GetOrgBySlugIncludingDeleted: %v", err)
+	}
+	if org.DeletedAt.Valid {
+		t.Fatalf("org should not be deleted after wrong confirmation")
+	}
+
+	resp, err = cli.PostForm(srv.URL+"/organizations/tenseleyFlow/settings/delete", url.Values{
+		"confirm_slug": {"TENSELEYFLOW"},
+	})
+	if err != nil {
+		t.Fatalf("POST delete: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete status=%d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != "/settings/organizations" {
+		t.Fatalf("delete Location=%q", got)
+	}
+	org, err = q.GetOrgBySlugIncludingDeleted(ctx, pool, "tenseleyFlow")
+	if err != nil {
+		t.Fatalf("GetOrgBySlugIncludingDeleted after delete: %v", err)
+	}
+	if !org.DeletedAt.Valid {
+		t.Fatalf("expected org to be soft-deleted")
+	}
+}
+
 func postOrgAvatar(t *testing.T, cli *http.Client, endpoint string, png []byte) *http.Response {
 	t.Helper()
 	body := &bytes.Buffer{}
