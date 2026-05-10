@@ -208,6 +208,27 @@ came from the event payload, and we'd rather over-flag than under.
 This is the contract every later sub-sprint hangs off. Get it wrong
 and we have an injection-shaped hole in the runner.
 
+### Where the flag lives
+
+The taint flag lives on `expr.Value` (the evaluator-produced value),
+not `workflow.Value` (the parser-produced value). Two different
+structs share the name `Value` because they live in different
+packages, but they have different jobs:
+
+- **`workflow.Value`** carries the raw source string the parser read
+  out of the YAML (an env entry, a `with:` input, a concurrency
+  group expression). At parse time we don't know what the
+  `${{ … }}` body will resolve to, so there's nothing to taint yet.
+- **`expr.Value`** is what the evaluator returns when it resolves a
+  reference at runtime. *This* struct carries `Tainted bool`. The
+  runner's exec layer (S41d) consumes that flag.
+
+Pre-L5 the parser-side struct also had a `Tainted bool` field plus a
+`Tainted()` constructor — both unused, both confusing because they
+suggested two sources of truth. Dropped in S41a-L5 cleanup.
+
+### Propagation
+
 **Every `expr.Value` carries a `Tainted bool`.** Set true iff the
 value transitively depends on `shithub.event.*`. Operators control
 secrets, vars, env, the rest of `shithub.*`. Authors control the
