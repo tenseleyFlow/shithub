@@ -36,12 +36,13 @@
 
   <div class="shithub-org-layout">
     <main class="shithub-org-main">
-      {{ if .PinnedRepos }}
-      <section class="shithub-org-pinned" aria-labelledby="org-pinned-heading">
+      {{ if or .PinnedRepos .CanCustomizePins }}
+      <section class="shithub-org-pinned" id="pinned" aria-labelledby="org-pinned-heading">
         <div class="shithub-org-section-head">
           <h2 id="org-pinned-heading">Pinned</h2>
-          {{ if .IsOwner }}<span class="shithub-muted">Customize pins</span>{{ end }}
+          {{ if .CanCustomizePins }}<button type="button" class="shithub-link-button" data-pins-open>Customize pins</button>{{ end }}
         </div>
+        {{ if .PinnedRepos }}
         <ol class="shithub-org-pinned-grid">
         {{ range .PinnedRepos }}
           <li class="shithub-org-pin-card">
@@ -59,6 +60,9 @@
           </li>
         {{ end }}
         </ol>
+        {{ else }}
+        <p class="shithub-empty">Nothing pinned yet.</p>
+        {{ end }}
       </section>
       {{ end }}
 
@@ -172,4 +176,5 @@
     </aside>
   </div>
 </section>
+{{ template "pins-modal" . }}
 {{- end }}

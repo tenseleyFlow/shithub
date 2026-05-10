@@ -26,9 +26,32 @@
     <dt>Joined</dt><dd>{{ .JoinedFormatted }}</dd>
   </dl>
 
-  <section class="shithub-profile-pinned" aria-labelledby="pinned-h">
-    <h2 id="pinned-h">Pinned repositories</h2>
+  <section class="shithub-profile-pinned" id="pinned" aria-labelledby="pinned-h">
+    <div class="shithub-profile-section-head">
+      <h2 id="pinned-h">Pinned repositories</h2>
+      {{ if .CanCustomizePins }}<button type="button" class="shithub-link-button" data-pins-open>Customize pins</button>{{ end }}
+    </div>
+    {{ if .PinnedRepos }}
+    <ol class="shithub-profile-pinned-grid">
+      {{ range .PinnedRepos }}
+      <li class="shithub-org-pin-card">
+        <div class="shithub-org-pin-title">
+          <span class="shithub-org-pin-icon">{{ octicon "repo" }}</span>
+          <a href="/{{ .OwnerSlug }}/{{ .Name }}">{{ .Name }}</a>
+          {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+        </div>
+        {{ if .Description }}<p>{{ .Description }}</p>{{ else }}<p class="shithub-muted">No description provided.</p>{{ end }}
+        <div class="shithub-org-repo-meta">
+          {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+          <span>{{ octicon "star" }} {{ .StarCount }}</span>
+          <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
+        </div>
+      </li>
+      {{ end }}
+    </ol>
+    {{ else }}
     <p class="shithub-empty">Nothing pinned yet.</p>
+    {{ end }}
   </section>
 
   <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
@@ -41,4 +64,5 @@
     <p class="shithub-empty">No profile README yet.</p>
   </section>
 </section>
+{{ template "pins-modal" . }}
 {{- end }}

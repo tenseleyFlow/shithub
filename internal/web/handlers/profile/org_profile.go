@@ -96,6 +96,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 
 	repos := h.orgProfileRepos(ctx, org.ID, viewer)
 	repoRows := h.withOrgRepoActivity(ctx, string(org.Slug), limitOrgRepos(repos, orgHomepageRepoLimit))
+	pinnedRepos, pinCandidates := h.orgPinData(ctx, org.ID, string(org.Slug), repos)
 	people := h.orgProfilePeople(ctx, q, org.ID)
 	memberCount := int64(len(people))
 	viewAs := "Public"
@@ -110,24 +111,28 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 
 	avatarURL := "/avatars/" + url.PathEscape(org.Slug)
 	data := map[string]any{
-		"Title":         org.DisplayName,
-		"OGTitle":       org.DisplayName,
-		"OGDescription": org.Description,
-		"OGImage":       avatarURL,
-		"Org":           org,
-		"AvatarURL":     avatarURL,
-		"WebsiteSafe":   safeWebsite(org.Website),
-		"Repos":         repoRows,
-		"PinnedRepos":   pinnedOrgRepos(repos),
-		"RepoCount":     int64(len(repos)),
-		"MemberCount":   memberCount,
-		"People":        limitOrgPeople(people, orgHomepagePeopleLimit),
-		"TopLanguages":  orgTopLanguages(repos),
-		"TopTopics":     orgTopTopics(repos),
-		"ViewAs":        viewAs,
-		"IsOwner":       isOwner,
-		"IsMember":      isMember,
-		"CanCreateRepo": isOwner || (isMember && org.AllowMemberRepoCreate),
+		"Title":            org.DisplayName,
+		"OGTitle":          org.DisplayName,
+		"OGDescription":    org.Description,
+		"OGImage":          avatarURL,
+		"Org":              org,
+		"AvatarURL":        avatarURL,
+		"WebsiteSafe":      safeWebsite(org.Website),
+		"Repos":            repoRows,
+		"PinnedRepos":      pinnedRepos,
+		"PinCandidates":    pinCandidates,
+		"PinsRemaining":    profilePinsRemaining(pinCandidates),
+		"RepoCount":        int64(len(repos)),
+		"MemberCount":      memberCount,
+		"People":           limitOrgPeople(people, orgHomepagePeopleLimit),
+		"TopLanguages":     orgTopLanguages(repos),
+		"TopTopics":        orgTopTopics(repos),
+		"ViewAs":           viewAs,
+		"IsOwner":          isOwner,
+		"IsMember":         isMember,
+		"CanCustomizePins": isOwner,
+		"PinsAction":       "/" + url.PathEscape(org.Slug) + "/pins",
+		"CanCreateRepo":    isOwner || (isMember && org.AllowMemberRepoCreate),
 	}
 	if !viewer.IsAnonymous() {
 		w.Header().Set("Cache-Control", "no-cache, private")

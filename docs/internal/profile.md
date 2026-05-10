@@ -7,6 +7,7 @@ S09 ships the public `/{username}` page and the `/avatars/{username}` route. Edi
 | Route | Source | Notes |
 |---|---|---|
 | `GET /{username}` | profile.serveProfile | Public profile. citext lookup; canonical-case 301; reserved short-circuit. |
+| `POST /{username}/pins` | profile.pinsUpdate | Auth required. Profile owner saves up to six public owned repositories. |
 | `GET /avatars/{username}` | profile.serveAvatar | Streams uploaded avatar OR falls back to deterministic SVG identicon. |
 
 `/{username}` is the **catch-all** — chi matches static routes in registration order, so the wildcard is registered last via the `ProfileMounter` hook. The reserved-name list (`internal/auth/reserved.go`) is the second line of defense if a future top-level route is added but not registered before the wildcard.
@@ -87,7 +88,16 @@ When the viewer's session matches the profile's user (`viewer.ID == user.ID`):
 
 - A small "you" badge renders next to the display name.
 - An "Edit profile" button links to `/settings/profile` (S10).
+- A "Customize pins" modal lists the user's public repositories with a
+  live client-side filter and persists up to six selected repos through
+  `profile_pin_sets` / `profile_pins` (migration 0040).
 - Cache-Control flips from `max-age=300` (anonymous) to `no-cache, private` so admin- or settings-driven changes appear immediately.
+
+Pinned repositories are intentionally public-only. Private repos are
+not offered in the picker and saved pin IDs are revalidated against the
+current public owner repo list before write. A `profile_pin_sets` row
+records that the owner customized the set, so "zero pins" is distinct
+from "never customized."
 
 ## OG metadata
 
@@ -121,6 +131,8 @@ Other tests cover:
 - Casing redirect 301.
 - Username-change redirect 301.
 - Suspended user 410 with the unavailable template.
+- User and organization pin customization, including public-only
+  candidate filtering and owner-only writes.
 - Reserved-name path with a registered handler routes there (NOT the wildcard).
 - Reserved-name path without a registered handler short-circuits with 404 (NOT a DB lookup).
 - Avatar identicon falls back when no key is stored.

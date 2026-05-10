@@ -31,6 +31,7 @@ type Querier interface {
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
 	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
+	DeleteProfilePinsForSet(ctx context.Context, db DBTX, setID int64) error
 	// Used by the rename compensator: drop a single redirect row when
 	// the rename has to be rolled back due to a filesystem failure. We
 	// avoided raw SQL here at the audit's request (S00-S25, M).
@@ -45,6 +46,9 @@ type Querier interface {
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
 	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
+	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
+	// ─── profile/org pinned repositories ───────────────────────────────
+	GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
 	// S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
 	// name) partial unique index from 0017 backs this lookup with the same
@@ -57,6 +61,7 @@ type Querier interface {
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
 	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
 	HardDeleteRepo(ctx context.Context, db DBTX, id int64) error
+	InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error
 	// ─── redirects ─────────────────────────────────────────────────────────
 	// Both old-owner FKs are nullable; pass exactly one. The CHECK
 	// constraint on the table enforces the xor shape.
@@ -79,6 +84,7 @@ type Querier interface {
 	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
+	ListProfilePinsForSet(ctx context.Context, db DBTX, setID int64) ([]ListProfilePinsForSetRow, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
 	// The repo:hard_delete enqueuer queries this to find rows ready for
 	// destruction. The 7-day grace is hard-coded here; if we add a config
@@ -158,6 +164,8 @@ type Querier interface {
 	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
 	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
+	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
+	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

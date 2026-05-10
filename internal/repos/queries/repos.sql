@@ -125,6 +125,41 @@ UPDATE repos
 -- name: ListRepoTopics :many
 SELECT topic FROM repo_topics WHERE repo_id = $1 ORDER BY topic ASC;
 
+-- ─── profile/org pinned repositories ───────────────────────────────
+
+-- name: GetProfilePinSetForUser :one
+SELECT id FROM profile_pin_sets WHERE owner_user_id = $1;
+
+-- name: GetProfilePinSetForOrg :one
+SELECT id FROM profile_pin_sets WHERE owner_org_id = $1;
+
+-- name: UpsertProfilePinSetForUser :one
+INSERT INTO profile_pin_sets (owner_user_id)
+VALUES ($1)
+ON CONFLICT (owner_user_id) WHERE owner_user_id IS NOT NULL
+DO UPDATE SET updated_at = now()
+RETURNING id;
+
+-- name: UpsertProfilePinSetForOrg :one
+INSERT INTO profile_pin_sets (owner_org_id)
+VALUES ($1)
+ON CONFLICT (owner_org_id) WHERE owner_org_id IS NOT NULL
+DO UPDATE SET updated_at = now()
+RETURNING id;
+
+-- name: ListProfilePinsForSet :many
+SELECT repo_id, position
+FROM profile_pins
+WHERE set_id = $1
+ORDER BY position ASC;
+
+-- name: DeleteProfilePinsForSet :exec
+DELETE FROM profile_pins WHERE set_id = $1;
+
+-- name: InsertProfilePin :exec
+INSERT INTO profile_pins (set_id, repo_id, position)
+VALUES ($1, $2, $3);
+
 -- name: ReplaceRepoTopics :exec
 -- Atomic full-replace: callers compose the new topic set in Go,
 -- then replace the existing rows in one tx (DELETE + INSERT). The

@@ -74,6 +74,10 @@ func (h *Handlers) MountAvatars(r chi.Router) {
 // r that has already mounted every static top-level route — chi matches
 // in registration order, and {username} is the catch-all.
 func (h *Handlers) MountProfile(r chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireUser)
+		r.Post("/{username}/pins", h.pinsUpdate)
+	})
 	r.Get("/{username}", h.serveProfile)
 }
 
@@ -154,18 +158,24 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 
 	avatarURL := fmt.Sprintf("/avatars/%s", url.PathEscape(user.Username))
 	tabs := h.tabCounts(r.Context(), user.ID, viewer)
+	pinnedRepos, pinCandidates := h.userPinData(r.Context(), user)
 	data := map[string]any{
-		"Title":           user.DisplayName,
-		"User":            user,
-		"IsSelf":          isSelf,
-		"AvatarURL":       avatarURL,
-		"OGTitle":         user.DisplayName + " (@" + user.Username + ")",
-		"OGDescription":   ogDescription(user),
-		"OGImage":         avatarURL,
-		"JoinedFormatted": user.CreatedAt.Time.Format("January 2, 2006"),
-		"WebsiteSafe":     safeWebsite(user.Website),
-		"Tabs":            tabs,
-		"ActiveTab":       "overview",
+		"Title":            user.DisplayName,
+		"User":             user,
+		"IsSelf":           isSelf,
+		"AvatarURL":        avatarURL,
+		"OGTitle":          user.DisplayName + " (@" + user.Username + ")",
+		"OGDescription":    ogDescription(user),
+		"OGImage":          avatarURL,
+		"JoinedFormatted":  user.CreatedAt.Time.Format("January 2, 2006"),
+		"WebsiteSafe":      safeWebsite(user.Website),
+		"Tabs":             tabs,
+		"ActiveTab":        "overview",
+		"PinnedRepos":      pinnedRepos,
+		"PinCandidates":    pinCandidates,
+		"PinsRemaining":    profilePinsRemaining(pinCandidates),
+		"CanCustomizePins": isSelf,
+		"PinsAction":       "/" + url.PathEscape(user.Username) + "/pins",
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderPage(w, r, "profile/view", data); err != nil {
