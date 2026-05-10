@@ -468,17 +468,44 @@
         </aside>
       </div>
     {{ else if eq .Tab "commits" }}
-      <ul class="shithub-pull-commits">
-        {{ range .Commits }}
-        <li>
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Sha }}"><code>{{ slice .Sha 0 7 }}</code></a>
-          {{ .Subject }}
-          <small>by {{ .AuthorName }}</small>
-        </li>
+      <section class="shithub-pull-commits" aria-labelledby="pull-commits-heading">
+        <h2 id="pull-commits-heading" class="shithub-sr-only">Commits</h2>
+        {{ range .CommitGroups }}
+        <div class="shithub-pull-commit-group">
+          <span class="shithub-pull-commit-badge">{{ octicon "git-commit" }}</span>
+          <div class="shithub-pull-commit-group-body">
+            <h3>{{ .Title }}</h3>
+            <ul class="shithub-pull-commit-panel">
+              {{ range .Commits }}
+              <li class="shithub-pull-commit-row">
+                <div class="shithub-pull-commit-main">
+                  <a class="shithub-pull-commit-title" href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/commits/{{ .C.Sha }}">{{ .C.Subject }}</a>
+                  <div class="shithub-pull-commit-meta">
+                    {{ if .Author.User }}
+                      <a href="/{{ .Author.Username }}"><img src="{{ .Author.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
+                      <a href="/{{ .Author.Username }}">{{ .AuthorLabel }}</a>
+                    {{ else }}
+                      <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .Author.IdenticonSeed }}" aria-hidden="true"></span>
+                      <span>{{ .AuthorLabel }}</span>
+                    {{ end }}
+                    <span>committed</span>
+                    {{ if .HasWhen }}<time datetime="{{ .When.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .When }}</time>{{ end }}
+                  </div>
+                </div>
+                <div class="shithub-pull-commit-actions">
+                  <a class="shithub-button shithub-button-compact shithub-pull-commit-sha" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .C.Sha }}">{{ .ShortSHA }}</a>
+                  <button type="button" class="shithub-icon-button" aria-label="Copy full SHA for {{ .ShortSHA }}">{{ octicon "copy" }}</button>
+                  <a class="shithub-icon-button" aria-label="Browse repository at {{ .ShortSHA }}" href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .C.Sha }}">{{ octicon "code" }}</a>
+                </div>
+              </li>
+              {{ end }}
+            </ul>
+          </div>
+        </div>
         {{ else }}
-        <li class="shithub-muted">No commits.</li>
+        <p class="shithub-muted">No commits.</p>
         {{ end }}
-      </ul>
+      </section>
     {{ else if eq .Tab "files" }}
       <section class="shithub-pull-files">
         <div class="shithub-pull-files-toolbar">

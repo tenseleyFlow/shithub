@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -56,6 +58,20 @@ type pullFileView struct {
 	Anchor string
 	Dir    string
 	Name   string
+}
+
+type pullCommitView struct {
+	C           pullsdb.PullRequestCommit
+	Author      identity.Resolved
+	ShortSHA    string
+	When        time.Time
+	HasWhen     bool
+	AuthorLabel string
+}
+
+type pullCommitGroup struct {
+	Title   string
+	Commits []pullCommitView
 }
 
 // MountPulls registers /{owner}/{repo}/pulls* routes. Reads are
@@ -538,9 +554,57 @@ func (h *Handlers) pullCommits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commits, _ := pullsdb.New().ListPullRequestCommits(r.Context(), h.d.Pool, pr.IID)
+	commitGroups := pullCommitGroups(r.Context(), commits, identity.New(h.d.Pool))
 	h.renderPullPage(w, r, "commits", map[string]any{
-		"Commits": commits,
+		"CommitGroups": commitGroups,
 	})
+}
+
+func pullCommitGroups(ctx context.Context, commits []pullsdb.PullRequestCommit, resolver *identity.Resolver) []pullCommitGroup {
+	groups := make([]pullCommitGroup, 0, 2)
+	for _, commit := range commits {
+		when, hasWhen := pullCommitWhen(commit)
+		title := "Commits"
+		if hasWhen {
+			title = "Commits on " + when.Format("January 2, 2006")
+		}
+		if len(groups) == 0 || groups[len(groups)-1].Title != title {
+			groups = append(groups, pullCommitGroup{Title: title})
+		}
+		author := identity.Resolved{}
+		if resolver != nil {
+			author = resolver.Resolve(ctx, commit.AuthorEmail)
+		}
+		authorLabel := commit.AuthorName
+		if author.User && author.DisplayName != "" {
+			authorLabel = author.DisplayName
+		} else if author.User {
+			authorLabel = author.Username
+		}
+		shortSHA := commit.Sha
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		groups[len(groups)-1].Commits = append(groups[len(groups)-1].Commits, pullCommitView{
+			C:           commit,
+			Author:      author,
+			ShortSHA:    shortSHA,
+			When:        when,
+			HasWhen:     hasWhen,
+			AuthorLabel: authorLabel,
+		})
+	}
+	return groups
+}
+
+func pullCommitWhen(commit pullsdb.PullRequestCommit) (time.Time, bool) {
+	if commit.CommittedAt.Valid {
+		return commit.CommittedAt.Time, true
+	}
+	if commit.AuthoredAt.Valid {
+		return commit.AuthoredAt.Time, true
+	}
+	return time.Time{}, false
 }
 
 // pullFiles renders the Files Changed tab. Uses the existing diff
