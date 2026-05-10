@@ -1,0 +1,16 @@
+name: expression-functions
+on: push
+jobs:
+  conditional:
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(shithub.event.head_commit.message, 'WIP')
+        run: echo skipping CI for WIP commit
+      - if: startsWith(shithub.ref, 'refs/heads/release/')
+        run: echo release branch
+      - if: success()
+        run: echo prior steps OK
+      - if: failure()
+        run: echo prior step failed
+      - if: always()
+        run: echo always run
