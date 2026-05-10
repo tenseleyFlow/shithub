@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -288,4 +289,54 @@ func TestGitHTTP_PushToArchivedRejected(t *testing.T) {
 
 func writeFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0o600)
+}
+
+// TestGitHTTP_AnonCloneOrgOwnedPublic is a regression for an outage
+// on 2026-05-09: pushing to https://shithub.sh/tenseleyflow/shithub.git
+// returned 404 because authorizeForService only resolved owner-slugs
+// as users (the comment in handler.go admitted "orgs come in S31").
+// Once that landed in production with an org-owned repo, the smart-
+// HTTP route became silently unusable for any org repo.
+func TestGitHTTP_AnonCloneOrgOwnedPublic(t *testing.T) {
+	t.Parallel()
+	env := setupEnv(t)
+
+	// Create an org owned by alice and a public repo under it.
+	org, err := orgs.Create(context.Background(), orgs.Deps{
+		Pool:   env.pool,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Audit:  audit.NewRecorder(),
+	}, orgs.CreateParams{
+		Slug: "myorg", DisplayName: "MyOrg", CreatedByUserID: env.userID,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	rfs, err := storage.NewRepoFS(env.root)
+	if err != nil {
+		t.Fatalf("NewRepoFS: %v", err)
+	}
+	rdeps := repos.Deps{
+		Pool: env.pool, RepoFS: rfs, Audit: audit.NewRecorder(), Limiter: throttle.NewLimiter(),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := repos.Create(context.Background(), rdeps, repos.Params{
+		OwnerOrgID: org.ID, OwnerSlug: org.Slug, ActorUserID: env.userID,
+		Name: "org-public", Visibility: "public", InitReadme: true,
+	}); err != nil {
+		t.Fatalf("create org repo: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "clone")
+	out, err := gitCmd("clone", env.srv.URL+"/myorg/org-public.git", dst).CombinedOutput()
+	if err != nil {
+		t.Fatalf("clone org-owned repo: %v\n%s", err, out)
+	}
+	out, err = gitCmd("-C", dst, "rev-list", "--count", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-list: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "1" {
+		t.Fatalf("rev-list = %q, want 1", got)
+	}
 }
