@@ -37,6 +37,13 @@ git reset --hard origin/trunk
 chmod 0755 "$NEW"
 mv -f "$NEW" "$BIN"
 
+# Migrations are usually invoked by the web unit's ExecStartPre, which
+# pulls env from /etc/shithub/web.env. Replicate that here so we apply
+# the schema before the restart instead of mid-startup race.
+set -a
+# shellcheck disable=SC1091
+. /etc/shithub/web.env
+set +a
 "$BIN" migrate up
 
 systemctl restart shithubd-web
