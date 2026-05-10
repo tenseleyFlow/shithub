@@ -19,6 +19,16 @@ type Querier interface {
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	// Idempotent insert: if a row with the same (repo_id, workflow_file,
+	// trigger_event_id) already exists, returns no rows (pgx.ErrNoRows in
+	// Go). The handler treats that as a successful no-op so worker
+	// retries and admin replays of the same triggering event don't
+	// duplicate runs.
+	//
+	// The ON CONFLICT predicate matches the partial unique index defined
+	// in migration 0051; both must agree for postgres to infer the
+	// target.
+	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)

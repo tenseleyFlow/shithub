@@ -11,12 +11,100 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const enqueueWorkflowRun = `-- name: EnqueueWorkflowRun :one
+INSERT INTO workflow_runs (
+    repo_id, run_index, workflow_file, workflow_name,
+    head_sha, head_ref, event, event_payload,
+    actor_user_id, parent_run_id, concurrency_group, need_approval,
+    trigger_event_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+)
+ON CONFLICT (repo_id, workflow_file, trigger_event_id) WHERE trigger_event_id <> ''
+DO NOTHING
+RETURNING id, repo_id, run_index, workflow_file, workflow_name,
+          head_sha, head_ref, event, event_payload,
+          actor_user_id, parent_run_id, concurrency_group,
+          status, conclusion, pinned, need_approval, approved_by_user_id,
+          started_at, completed_at, version, created_at, updated_at, trigger_event_id
+`
+
+type EnqueueWorkflowRunParams struct {
+	RepoID           int64
+	RunIndex         int64
+	WorkflowFile     string
+	WorkflowName     string
+	HeadSha          string
+	HeadRef          string
+	Event            WorkflowRunEvent
+	EventPayload     []byte
+	ActorUserID      pgtype.Int8
+	ParentRunID      pgtype.Int8
+	ConcurrencyGroup string
+	NeedApproval     bool
+	TriggerEventID   string
+}
+
+// Idempotent insert: if a row with the same (repo_id, workflow_file,
+// trigger_event_id) already exists, returns no rows (pgx.ErrNoRows in
+// Go). The handler treats that as a successful no-op so worker
+// retries and admin replays of the same triggering event don't
+// duplicate runs.
+//
+// The ON CONFLICT predicate matches the partial unique index defined
+// in migration 0051; both must agree for postgres to infer the
+// target.
+func (q *Queries) EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error) {
+	row := db.QueryRow(ctx, enqueueWorkflowRun,
+		arg.RepoID,
+		arg.RunIndex,
+		arg.WorkflowFile,
+		arg.WorkflowName,
+		arg.HeadSha,
+		arg.HeadRef,
+		arg.Event,
+		arg.EventPayload,
+		arg.ActorUserID,
+		arg.ParentRunID,
+		arg.ConcurrencyGroup,
+		arg.NeedApproval,
+		arg.TriggerEventID,
+	)
+	var i WorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+		&i.EventPayload,
+		&i.ActorUserID,
+		&i.ParentRunID,
+		&i.ConcurrencyGroup,
+		&i.Status,
+		&i.Conclusion,
+		&i.Pinned,
+		&i.NeedApproval,
+		&i.ApprovedByUserID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TriggerEventID,
+	)
+	return i, err
+}
+
 const getWorkflowRunByID = `-- name: GetWorkflowRunByID :one
 SELECT id, repo_id, run_index, workflow_file, workflow_name,
        head_sha, head_ref, event, event_payload,
        actor_user_id, parent_run_id, concurrency_group,
        status, conclusion, pinned, need_approval, approved_by_user_id,
-       started_at, completed_at, version, created_at, updated_at
+       started_at, completed_at, version, created_at, updated_at, trigger_event_id
 FROM workflow_runs
 WHERE id = $1
 `
@@ -47,6 +135,7 @@ func (q *Queries) GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (Wo
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TriggerEventID,
 	)
 	return i, err
 }
@@ -64,7 +153,7 @@ RETURNING id, repo_id, run_index, workflow_file, workflow_name,
           head_sha, head_ref, event, event_payload,
           actor_user_id, parent_run_id, concurrency_group,
           status, conclusion, pinned, need_approval, approved_by_user_id,
-          started_at, completed_at, version, created_at, updated_at
+          started_at, completed_at, version, created_at, updated_at, trigger_event_id
 `
 
 type InsertWorkflowRunParams struct {
@@ -122,6 +211,7 @@ func (q *Queries) InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWork
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TriggerEventID,
 	)
 	return i, err
 }
