@@ -32,7 +32,17 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# RestrictSUIDSGID intentionally OFF: `git init --bare --shared=group`
+# (used by InitBare for every new bare repo) calls chmod g+s on the
+# directories it creates so cross-user writes (shithub user via the
+# HTTPS path, git user via SSH-git) inherit the shared group on new
+# pack files. With RestrictSUIDSGID=yes the kernel returned EPERM and
+# git emitted "Could not make .../branches/ writable by group", so
+# repo creation broke for any new owner namespace whose parent dir
+# wasn't pre-staged. shithubd doesn't write executable files to disk,
+# so the security loss is small; the alternative (stripping
+# --shared=group and chmod'ing perms by hand) re-introduces the
+# original SR2 #287 bug pattern.
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
