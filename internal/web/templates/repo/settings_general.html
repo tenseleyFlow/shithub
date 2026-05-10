@@ -35,6 +35,26 @@
     </section>
 
     <section class="shithub-settings-section">
+      <h2>Source remote</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/source-remote">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Public Git remote URL</span>
+          <input type="url" name="source_remote_url" maxlength="2048" placeholder="https://github.com/OWNER/REPO.git" value="{{ .SourceRemote.RemoteUrl }}">
+          <small>Used to fetch this repository's upstream refs and to resolve pinned submodule commits.</small>
+        </label>
+        {{ if .SourceRemote.LastFetchedAt.Valid }}
+        <p class="shithub-muted">Last fetched <time datetime="{{ .SourceRemote.LastFetchedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .SourceRemote.LastFetchedAt.Time }}</time>.</p>
+        {{ end }}
+        {{ if .SourceRemote.LastError.Valid }}
+        <p class="shithub-flash shithub-flash-error" role="status">{{ .SourceRemote.LastError.String }}</p>
+        {{ end }}
+        <button type="submit" class="shithub-button shithub-button-primary">Save and fetch</button>
+        {{ if .SourceRemote.RemoteUrl }}<button type="submit" class="shithub-button" name="clear_source_remote" value="1">Clear</button>{{ end }}
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
       <h2>Pull request merges</h2>
       <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/merges">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
