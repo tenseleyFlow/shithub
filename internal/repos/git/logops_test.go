@@ -55,6 +55,14 @@ func TestLog_AndGetCommit_HappyPath(t *testing.T) {
 	if detail.TreeOID == "" {
 		t.Errorf("TreeOID empty")
 	}
+
+	count, err := gitops.CountCommits(context.Background(), gitDir, "trunk")
+	if err != nil {
+		t.Fatalf("CountCommits: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountCommits = %d, want 1", count)
+	}
 }
 
 func TestGetCommit_ReturnsErrCommitNotFound(t *testing.T) {

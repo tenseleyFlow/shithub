@@ -71,37 +71,49 @@
           {{ if .HeadFound }}
           <div class="shithub-tree-commit">
             <div class="shithub-tree-commit-message">
+              {{ if .HeadAuthor.User }}
+              <a href="/{{ .HeadAuthor.Username }}"><img src="{{ .HeadAuthor.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
+              <a href="/{{ .HeadAuthor.Username }}"><strong>{{ if .HeadAuthor.DisplayName }}{{ .HeadAuthor.DisplayName }}{{ else }}{{ .HeadAuthor.Username }}{{ end }}</strong></a>
+              {{ else }}
+              <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .HeadAuthor.IdenticonSeed }}" aria-hidden="true"></span>
               <strong>{{ .Head.AuthorName }}</strong>
-              <span>{{ .Head.Subject }}</span>
+              {{ end }}
+              <a href="/{{ .Owner }}/{{ .Repo.Name }}/commit/{{ .Head.OID }}" class="shithub-tree-commit-subject">{{ .Head.Subject }}</a>
             </div>
             <div class="shithub-tree-commit-meta">
-              <code title="{{ .Head.OID }}">{{ slice .Head.OID 0 7 }}</code>
+              <a href="/{{ .Owner }}/{{ .Repo.Name }}/commit/{{ .Head.OID }}"><code title="{{ .Head.OID }}">{{ slice .Head.OID 0 7 }}</code></a>
               <time datetime="{{ .Head.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Head.AuthorWhen }}</time>
+              <a href="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}" class="shithub-tree-commit-count">{{ octicon "history" }} {{ .CommitCount }} Commits</a>
             </div>
           </div>
           {{ end }}
           <table class="shithub-tree">
             <tbody>
-              {{ range .Entries }}
+              {{ range .EntryRows }}
               <tr>
                 <td class="shithub-tree-icon" aria-hidden="true">
-                  {{ if eq (printf "%s" .Kind) "tree" }}{{ octicon "directory" }}
-                  {{ else if eq (printf "%s" .Kind) "commit" }}{{ octicon "submodule" }}
-                  {{ else if eq (printf "%s" .Kind) "symlink" }}{{ octicon "symlink" }}
+                  {{ if eq (printf "%s" .Entry.Kind) "tree" }}{{ octicon "directory" }}
+                  {{ else if eq (printf "%s" .Entry.Kind) "commit" }}{{ octicon "submodule" }}
+                  {{ else if eq (printf "%s" .Entry.Kind) "symlink" }}{{ octicon "symlink" }}
                   {{ else }}{{ octicon "file" }}{{ end }}
                 </td>
                 <td class="shithub-tree-name">
-                  {{ if eq (printf "%s" .Kind) "tree" }}
-                  <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
-                  {{ else if eq (printf "%s" .Kind) "blob" }}
-                  <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ $.Ref }}/{{ if $.Path }}{{ $.Path }}/{{ end }}{{ .Name }}">{{ .Name }}</a>
-                  {{ else if eq (printf "%s" .Kind) "symlink" }}
-                  {{ .Name }} <em class="shithub-tree-symlink">(symlink)</em>
+                  {{ if .URL }}
+                  <a href="{{ .URL }}">{{ .Entry.Name }}</a>
+                  {{ else if eq (printf "%s" .Entry.Kind) "symlink" }}
+                  {{ .Entry.Name }} <em class="shithub-tree-symlink">(symlink)</em>
                   {{ else }}
-                  {{ .Name }} <em class="shithub-tree-submodule">@ {{ slice .OID 0 7 }}</em>
+                  {{ .Entry.Name }} <em class="shithub-tree-submodule">@ {{ slice .Entry.OID 0 7 }}</em>
                   {{ end }}
                 </td>
-                <td class="shithub-tree-size">{{ if gt .Size 0 }}{{ .Size }}{{ end }}</td>
+                <td class="shithub-tree-row-commit">
+                  {{ if .LastFound }}
+                  <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .LastCommit.OID }}">{{ .LastCommit.Subject }}</a>
+                  {{ end }}
+                </td>
+                <td class="shithub-tree-row-time">
+                  {{ if .LastFound }}<time datetime="{{ .LastCommit.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .LastCommit.AuthorWhen }}</time>{{ end }}
+                </td>
               </tr>
               {{ end }}
             </tbody>

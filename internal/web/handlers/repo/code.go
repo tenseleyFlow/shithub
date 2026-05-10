@@ -19,6 +19,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/finder"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/highlight"
+	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -148,6 +149,14 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 	if headErr != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: HeadOf", "error", headErr)
 	}
+	headAuthor := identity.Resolved{}
+	if headFound {
+		headAuthor = identity.New(h.d.Pool).Resolve(r.Context(), head.AuthorEmail)
+	}
+	commitCount, countErr := repogit.CountCommits(r.Context(), cc.gitDir, cc.ref)
+	if countErr != nil {
+		h.d.Logger.WarnContext(r.Context(), "code: CountCommits", "error", countErr)
+	}
 	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, cc.row.ID)
 	aboutEntries := entries
 	if cc.subpath != "" {
@@ -167,10 +176,13 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"Path":          cc.subpath,
 		"Crumbs":        breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
 		"Entries":       entries,
+		"EntryRows":     h.codeTreeEntryRows(r.Context(), cc, entries),
 		"Branches":      cc.refs.Branches,
 		"Tags":          cc.refs.Tags,
 		"Head":          head,
 		"HeadFound":     headFound,
+		"HeadAuthor":    headAuthor,
+		"CommitCount":   commitCount,
 		"README":        template.HTML(readmeHTML), //nolint:gosec // sanitized by mdrender
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
