@@ -57,8 +57,16 @@ fi
 if (( SECS_SINCE > 300 )); then
         fail "pg_stat_archiver last_archived_time is ${SECS_SINCE}s ago (>300s); archiver may be wedged"
 fi
-if (( FAILED_COUNT > 0 )); then
-        fail "pg_stat_archiver.failed_count=$FAILED_COUNT (last_failed_time epoch=$LAST_FAILED_TIME); inspect journalctl -u postgresql@16-main"
+# failed_count is cumulative since the last pg_stat_reset_shared('archiver')
+# — a non-zero count is fine if the failures pre-date the most recent
+# success. We only flag when the most recent FAILURE is newer than the
+# most recent SUCCESS (genuine ongoing breakage) AND that failure is
+# recent enough to still be relevant.
+if (( FAILED_COUNT > 0 && LAST_FAILED_TIME > LAST_TIME )); then
+        SECS_SINCE_FAIL="$((NOW - LAST_FAILED_TIME))"
+        if (( SECS_SINCE_FAIL < 600 )); then
+                fail "pg_stat_archiver: most recent failure (${SECS_SINCE_FAIL}s ago) is newer than most recent success; archive_command is broken — inspect journalctl -u postgresql@16-main"
+        fi
 fi
 
 # 3. The most-recent segment is visible in Spaces. We list today's
@@ -67,14 +75,14 @@ fi
 # means rclone reported success but the bucket lost the object —
 # rare but worth flagging.
 TODAY="$(date -u +%Y/%m/%d)"
-COUNT="$(rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+COUNT="$(rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
         lsf "spaces-prod:shithub-wal/$TODAY/" 2>/dev/null | wc -l)"
 if (( COUNT == 0 )); then
         # Edge case: it's a few minutes after UTC midnight and today's
         # prefix is genuinely empty. Look at yesterday too.
         YDAY="$(date -u -d 'yesterday' +%Y/%m/%d 2>/dev/null || \
                 date -u -v-1d +%Y/%m/%d)"
-        YCOUNT="$(rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+        YCOUNT="$(rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
                 lsf "spaces-prod:shithub-wal/$YDAY/" 2>/dev/null | wc -l)"
         if (( YCOUNT == 0 )); then
                 fail "no WAL segments visible in spaces-prod:shithub-wal/$TODAY or /$YDAY despite recent archive success"
