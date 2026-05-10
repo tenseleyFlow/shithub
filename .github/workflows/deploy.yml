@@ -1,0 +1,45 @@
+name: deploy
+on:
+  # Auto-deploy on every push to trunk, but only after CI succeeds —
+  # workflow_run waits for the named workflow to complete.
+  workflow_run:
+    workflows: [ci]
+    branches: [trunk]
+    types: [completed]
+  # Escape hatch: redeploy current trunk without pushing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize deploys so two pushes in flight don't race on the
+  # remote git reset / binary swap.
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Skip when the upstream CI run failed; workflow_dispatch always runs.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY"     > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Redeploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'bash /root/src/shithub/deploy/redeploy.sh'
