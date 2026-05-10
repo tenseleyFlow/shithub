@@ -34,12 +34,13 @@ type submoduleRoute struct {
 }
 
 func (h *Handlers) submoduleTreeURL(ctx context.Context, cc *codeContext, remoteURL, oid string) string {
-	route, ok := submoduleRouteForRemote(submoduleRouteConfig{
+	cfg := submoduleRouteConfig{
 		owner:    cc.owner,
 		repoName: cc.row.Name,
 		baseURL:  h.d.CloneURLs.BaseURL,
 		sshHost:  h.d.CloneURLs.SSHHost,
-	}, remoteURL, oid)
+	}
+	route, ok := submoduleRouteForRemote(cfg, remoteURL, oid)
 	if !ok {
 		return ""
 	}
@@ -61,7 +62,7 @@ func (h *Handlers) submoduleTreeURL(ctx context.Context, cc *codeContext, remote
 		return route.RepoURL
 	}
 	if !existsAtCommit {
-		if fetchURL, ok := githubSubmoduleFetchURL(remoteURL); ok {
+		if fetchURL, ok := githubSubmoduleFetchURL(cfg, remoteURL); ok {
 			backfilled, backfillErr := h.backfillSubmoduleCommit(ctx, gitDir, fetchURL, oid)
 			if backfillErr != nil {
 				if h.d.Logger != nil {
@@ -225,10 +226,13 @@ func submoduleRepoTarget(cfg submoduleRouteConfig, remoteURL string) (owner, rep
 	return ownerRepoFromRemotePath(strings.TrimPrefix(u.EscapedPath(), "/"))
 }
 
-func githubSubmoduleFetchURL(remoteURL string) (string, bool) {
+func githubSubmoduleFetchURL(cfg submoduleRouteConfig, remoteURL string) (string, bool) {
 	remoteURL = strings.TrimSpace(remoteURL)
 	if remoteURL == "" {
 		return "", false
+	}
+	if owner, repoName, ok := submoduleRepoFromRelativeURL(cfg, remoteURL); ok {
+		return githubRepoFetchURL(owner, repoName), true
 	}
 	var repoPath string
 	if host, path, ok := scpLikeRemote(remoteURL); ok {
@@ -255,7 +259,11 @@ func githubSubmoduleFetchURL(remoteURL string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return "https://github.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + ".git", true
+	return githubRepoFetchURL(owner, repoName), true
+}
+
+func githubRepoFetchURL(owner, repoName string) string {
+	return "https://github.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + ".git"
 }
 
 func submoduleRepoFromRelativeURL(cfg submoduleRouteConfig, remoteURL string) (owner, repoName string, ok bool) {

@@ -127,6 +127,12 @@ func TestSubmoduleRouteURL_UnsupportedRemotesStayPlain(t *testing.T) {
 
 func TestGitHubSubmoduleFetchURL_CanonicalizesSupportedRemotes(t *testing.T) {
 	t.Parallel()
+	cfg := submoduleRouteConfig{
+		owner:    "FortranGoingOnForty",
+		repoName: "lib-modules",
+		baseURL:  "https://shithub.sh",
+		sshHost:  "git@shithub.sh",
+	}
 
 	for _, tt := range []struct {
 		name   string
@@ -148,11 +154,21 @@ func TestGitHubSubmoduleFetchURL_CanonicalizesSupportedRemotes(t *testing.T) {
 			remote: "ssh://git@github.com/FortranGoingOnForty/afs-ld.git",
 			want:   "https://github.com/FortranGoingOnForty/afs-ld.git",
 		},
+		{
+			name:   "relative sibling without suffix",
+			remote: "../fgof-process",
+			want:   "https://github.com/FortranGoingOnForty/fgof-process.git",
+		},
+		{
+			name:   "relative sibling with suffix",
+			remote: "../fgof-fs.git",
+			want:   "https://github.com/FortranGoingOnForty/fgof-fs.git",
+		},
 	} {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, ok := githubSubmoduleFetchURL(tt.remote)
+			got, ok := githubSubmoduleFetchURL(cfg, tt.remote)
 			if !ok {
 				t.Fatalf("githubSubmoduleFetchURL(%q) ok = false", tt.remote)
 			}
@@ -165,10 +181,11 @@ func TestGitHubSubmoduleFetchURL_CanonicalizesSupportedRemotes(t *testing.T) {
 
 func TestGitHubSubmoduleFetchURL_RejectsUnsupportedRemotes(t *testing.T) {
 	t.Parallel()
+	cfg := submoduleRouteConfig{owner: "octo", repoName: "super", baseURL: "https://shithub.sh", sshHost: "git@shithub.sh"}
 
 	for _, remote := range []string{
 		"https://shithub.sh/tenseleyFlow/bencch.git",
-		"../afs-ld.git",
+		"../../../afs-ld.git",
 		"https://example.com/octo/lib.git",
 		"https://github.com/octo/nested/lib.git",
 		"https://github.com/%2F/lib.git",
@@ -178,7 +195,7 @@ func TestGitHubSubmoduleFetchURL_RejectsUnsupportedRemotes(t *testing.T) {
 		remote := remote
 		t.Run(remote, func(t *testing.T) {
 			t.Parallel()
-			if got, ok := githubSubmoduleFetchURL(remote); ok || got != "" {
+			if got, ok := githubSubmoduleFetchURL(cfg, remote); ok || got != "" {
 				t.Fatalf("githubSubmoduleFetchURL(%q) = %q, %v; want empty, false", remote, got, ok)
 			}
 		})
