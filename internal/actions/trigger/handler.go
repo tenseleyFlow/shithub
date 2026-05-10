@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -104,6 +106,11 @@ func Handler(deps JobDeps) worker.Handler {
 		if err != nil {
 			return fmt.Errorf("trigger: repo path: %w", err)
 		}
+
+		matchStart := time.Now()
+		defer func() {
+			metrics.ActionsTriggerMatchDurationSeconds.Observe(time.Since(matchStart).Seconds())
+		}()
 
 		files, skips, err := Discover(ctx, gitDir, p.HeadSHA)
 		if err != nil {

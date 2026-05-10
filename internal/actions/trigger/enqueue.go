@@ -17,6 +17,7 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/checks"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
 // Deps wires the trigger pipeline against runtime infra.
@@ -167,6 +168,7 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 			if lookupErr != nil {
 				return Result{}, fmt.Errorf("trigger: existing-run lookup: %w", lookupErr)
 			}
+			metrics.ActionsRunsEnqueuedTotal.WithLabelValues(string(p.EventKind), "already_exists").Inc()
 			return Result{
 				RunID:         existing.ID,
 				RunIndex:      existing.RunIndex,
@@ -272,6 +274,7 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		_ = jobIDs[i] // job_id linkage to check_run lands in S41c when the runner consumes both
 	}
 
+	metrics.ActionsRunsEnqueuedTotal.WithLabelValues(string(p.EventKind), "fresh").Inc()
 	return Result{
 		RunID:       run.ID,
 		RunIndex:    run.RunIndex,
