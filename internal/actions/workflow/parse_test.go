@@ -275,6 +275,87 @@ jobs:
 	}
 }
 
+// TestParse_BadStepIDProducesDiagnostic pins L2: the parser surfaces
+// an Error-severity diagnostic on a malformed step id immediately,
+// instead of letting the workflow be valid at parse time and failing
+// at INSERT time during S41b dispatch.
+func TestParse_BadStepIDProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - id: 'has spaces and ; semicolons'
+        run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "step id must match") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected step-id format diagnostic, got: %v", diags)
+	}
+}
+
+// TestParse_BadJobKeyProducesDiagnostic mirrors the step-id check
+// for the jobs.<key> regex constraint.
+func TestParse_BadJobKeyProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  "bad job":
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "job key must match") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected job-key format diagnostic, got: %v", diags)
+	}
+}
+
+// TestParse_EmptyStepIDIsOK pins that the optional-id semantic still
+// works: a step with no `id:` (empty string in the parser's struct)
+// doesn't surface a diagnostic. Only set values are validated.
+func TestParse_EmptyStepIDIsOK(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo no-id
+`)
+	w, diags, err := workflow.Parse(src)
+	if err != nil || w == nil {
+		t.Fatalf("parse: err=%v w=%v", err, w)
+	}
+	for _, d := range diags {
+		if strings.Contains(d.Message, "step id must match") {
+			t.Fatalf("unexpected step-id diagnostic on omitted id: %v", d)
+		}
+	}
+}
+
 // TestParse_BooleanInvalidProducesDiagnostic asserts that a non-
 // boolean value (e.g. "yes" — valid YAML 1.1, NOT 1.2) surfaces a
 // parse-time diagnostic instead of silently coercing.
