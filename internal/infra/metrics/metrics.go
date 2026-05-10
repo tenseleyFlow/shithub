@@ -129,6 +129,26 @@ var (
 			Buckets: prometheus.ExponentialBuckets(0.005, 2.0, 12),
 		},
 	)
+	ActionsRunnerRegistrationsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runner_registrations_total",
+			Help: "Total Actions runners registered through operator tooling.",
+		},
+	)
+	ActionsRunnerHeartbeatsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runner_heartbeats_total",
+			Help: "Total runner heartbeats by result (claimed, no_job).",
+		},
+		[]string{"result"},
+	)
+	ActionsRunnerJWTTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runner_jwt_total",
+			Help: "Total runner job JWT outcomes by result (issued, rejected, replay).",
+		},
+		[]string{"result"},
+	)
 )
 
 func init() {
@@ -146,6 +166,9 @@ func init() {
 		WorkerInFlight,
 		ActionsRunsEnqueuedTotal,
 		ActionsTriggerMatchDurationSeconds,
+		ActionsRunnerRegistrationsTotal,
+		ActionsRunnerHeartbeatsTotal,
+		ActionsRunnerJWTTotal,
 	)
 }
 

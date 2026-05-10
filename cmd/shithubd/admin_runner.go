@@ -20,6 +20,7 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
 func newAdminRunnerCmd() *cobra.Command {
@@ -102,6 +103,7 @@ func newAdminRunnerRegisterCmd() *cobra.Command {
 				return fmt.Errorf("admin runner register: commit: %w", err)
 			}
 			committed = true
+			metrics.ActionsRunnerRegistrationsTotal.Inc()
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"runner registered\nid: %d\nname: %s\nlabels: %s\ncapacity: %d\ntoken: %s\n\nStore this token now; shithub never shows it again.\n",

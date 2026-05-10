@@ -25,6 +25,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 )
 
@@ -92,6 +93,7 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !claimed {
+		metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("no_job").Inc()
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -107,6 +109,8 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "runner token mint failed")
 		return
 	}
+	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
+	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Inc()
 	writeJSON(w, http.StatusOK, presentRunnerClaim(job, steps, token, time.Unix(claims.Exp, 0)))
 }
 
@@ -260,6 +264,7 @@ func (h *Handlers) authenticateRunnerJob(w http.ResponseWriter, r *http.Request)
 	}
 	claims, err := h.d.RunnerJWT.Verify(strings.TrimSpace(strings.TrimPrefix(authz, prefix)))
 	if err != nil {
+		metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
 		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
 		return runnerJobAuth{}, false
 	}
@@ -269,6 +274,7 @@ func (h *Handlers) authenticateRunnerJob(w http.ResponseWriter, r *http.Request)
 	}
 	runnerID, err := claims.RunnerID()
 	if err != nil {
+		metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
 		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
 		return runnerJobAuth{}, false
 	}
@@ -287,8 +293,10 @@ func (h *Handlers) authenticateRunnerJob(w http.ResponseWriter, r *http.Request)
 	}
 	if err := runnerjwt.Consume(r.Context(), h.d.Pool, claims); err != nil {
 		if errors.Is(err, runnerjwt.ErrReplay) {
+			metrics.ActionsRunnerJWTTotal.WithLabelValues("replay").Inc()
 			writeAPIError(w, http.StatusUnauthorized, "job token replayed")
 		} else {
+			metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
 			h.d.Logger.ErrorContext(r.Context(), "runner jwt consume failed", "job_id", pathJobID, "error", err)
 			writeAPIError(w, http.StatusUnauthorized, "job token invalid")
 		}
@@ -695,6 +703,7 @@ func (h *Handlers) writeNextTokenResponse(
 		writeAPIError(w, http.StatusInternalServerError, "runner token mint failed")
 		return
 	}
+	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Inc()
 	body["next_token"] = token
 	body["next_token_expires_at"] = time.Unix(claims.Exp, 0).UTC().Format(time.RFC3339)
 	writeJSON(w, status, body)
