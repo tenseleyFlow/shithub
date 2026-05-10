@@ -39,7 +39,6 @@ func freshKey(t *testing.T) string {
 type fx struct {
 	deps   secrets.Deps
 	repoID int64
-	orgID  int64
 	userID int64
 }
 
@@ -138,8 +137,8 @@ func TestSet_InvalidScopeRejected(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	for _, sc := range []secrets.Scope{
-		{},                                  // both zero
-		{RepoID: 1, OrgID: 2},               // both set
+		{},                    // both zero
+		{RepoID: 1, OrgID: 2}, // both set
 	} {
 		if err := f.deps.Set(ctx, sc, "K", []byte("v"), 0); !errors.Is(err, secrets.ErrInvalidScope) {
 			t.Errorf("Set scope=%+v: expected ErrInvalidScope, got %v", sc, err)
