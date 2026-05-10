@@ -158,6 +158,11 @@ func TestRender_AllowsSafeHTML(t *testing.T) {
 			[]string{`id="hello-world"`},
 		},
 		{
+			"readme presentation html",
+			`<p align="center"><img src="logo.svg" alt="" width="120"></p><h1 align="center">shithub</h1>`,
+			[]string{`<p align="center">`, `<img`, `src="logo.svg"`, `width="120"`, `<h1 align="center">`},
+		},
+		{
 			"GFM table",
 			"| a | b |\n|---|---|\n| 1 | 2 |\n",
 			[]string{"<table>", "<th>a</th>", "<td>1</td>"},

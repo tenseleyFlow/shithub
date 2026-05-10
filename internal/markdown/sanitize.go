@@ -27,6 +27,7 @@ var sanitizer = func() *bluemonday.Policy {
 
 	// Headings keep their auto-generated id so anchor links work.
 	p.AllowAttrs("id").OnElements("h1", "h2", "h3", "h4", "h5", "h6")
+	p.AllowAttrs("align").Matching(reAlign).OnElements("p", "div", "h1", "h2", "h3", "h4", "h5", "h6")
 
 	// Code-block class allowlist for Chroma (`language-foo`). The
 	// SpaceSeparatedTokens matcher is bluemonday-built-in; we
@@ -67,6 +68,7 @@ var sanitizer = func() *bluemonday.Policy {
 }()
 
 var reCodeClass = regexp.MustCompile(`^(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl)(?:\s+(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl))*$`)
+var reAlign = regexp.MustCompile(`^(?:left|center|right)$`)
 
 // sanitizeBytes is the hot-path entry the Render pipeline uses. The
 // bluemonday Policy is built at package init via the var initializer

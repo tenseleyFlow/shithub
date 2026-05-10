@@ -228,7 +228,7 @@ func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries
 		}
 		// Markdown: render via Goldmark + sanitizer.
 		if hasExt(lower, []string{".md", ".markdown"}) {
-			out, mderr := mdrender.RenderHTML(body)
+			out, mderr := mdrender.RenderDocumentHTML(body)
 			if mderr == nil {
 				return out
 			}
@@ -302,7 +302,7 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 	// Text path: highlight or markdown-render.
 	if hasExt(strings.ToLower(cc.subpath), []string{".md", ".markdown"}) {
 		data["IsMarkdown"] = true
-		rendered, mderr := mdrender.RenderHTML(body)
+		rendered, mderr := mdrender.RenderDocumentHTML(body)
 		if mderr == nil {
 			data["MarkdownHTML"] = template.HTML(rendered) //nolint:gosec // sanitized
 		}
