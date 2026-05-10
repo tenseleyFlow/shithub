@@ -603,45 +603,109 @@
       </section>
     {{ else if eq .Tab "checks" }}
       {{ if .CheckGroups }}
-      <section class="shithub-pull-checks">
-        {{ range .CheckGroups }}
-        <div class="shithub-pull-check-suite">
-          <h3>
-            <span class="shithub-pull-check-app">{{ .Suite.AppSlug }}</span>
-            <span class="shithub-pull-check-suite-status shithub-pull-check-status-{{ printf "%s" .Suite.Status }}">
-              {{ printf "%s" .Suite.Status }}
-            </span>
-            {{ if .Suite.Conclusion.Valid }}
-              <span class="shithub-pull-check-conclusion shithub-pull-check-conclusion-{{ printf "%s" .Suite.Conclusion.CheckConclusion }}">
-                {{ printf "%s" .Suite.Conclusion.CheckConclusion }}
+      <section class="shithub-checks-page">
+        <aside class="shithub-checks-sidebar" aria-label="Check runs">
+          <a href="#checks-summary" class="shithub-checks-sidebar-item is-active">{{ octicon "home" }} Summary</a>
+          <div class="shithub-checks-sidebar-group">
+            <div class="shithub-checks-sidebar-heading">All jobs</div>
+            {{ range .CheckGroups }}
+              {{ range .Runs }}
+              <a href="#check-run-{{ .R.ID }}" class="shithub-checks-sidebar-item">
+                {{ if .R.Conclusion.Valid }}
+                  {{ if eq (printf "%s" .R.Conclusion.CheckConclusion) "success" }}<span class="shithub-pull-check-status-completed">●</span>{{ else }}<span class="shithub-pull-check-conclusion-failure">●</span>{{ end }}
+                {{ else }}
+                  <span class="shithub-pull-check-status-{{ printf "%s" .R.Status }}">●</span>
+                {{ end }}
+                <span>{{ .R.Name }}</span>
+              </a>
+              {{ end }}
+            {{ end }}
+          </div>
+          <div class="shithub-checks-sidebar-group">
+            <div class="shithub-checks-sidebar-heading">Run details</div>
+            <span class="shithub-checks-sidebar-item">{{ octicon "pulse" }} Usage</span>
+            <span class="shithub-checks-sidebar-item">{{ octicon "file" }} Workflow file</span>
+          </div>
+        </aside>
+
+        <div class="shithub-checks-main">
+          <section id="checks-summary" class="shithub-checks-summary-card">
+            <div>
+              <span class="shithub-muted">Triggered via pull request</span>
+              <strong>
+                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                opened #{{ .PR.INumber }}
+              </strong>
+              <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.HeadRef }}">{{ .PR.HeadRef }}</a>
+            </div>
+            <div>
+              <span class="shithub-muted">Status</span>
+              {{ if eq .PullStats.CheckState "success" }}<strong class="shithub-checks-success">Success</strong>
+              {{ else if eq .PullStats.CheckState "failure" }}<strong class="shithub-checks-failure">Failure</strong>
+              {{ else }}<strong class="shithub-checks-pending">In progress</strong>{{ end }}
+            </div>
+            <div>
+              <span class="shithub-muted">Total checks</span>
+              <strong>{{ .PullStats.Checks }}</strong>
+            </div>
+            <div>
+              <span class="shithub-muted">Artifacts</span>
+              <strong>—</strong>
+            </div>
+          </section>
+
+          {{ range .CheckGroups }}
+          <section class="shithub-checks-workflow">
+            <header>
+              <div>
+                <h2>{{ .Suite.AppSlug }}</h2>
+                <p class="shithub-muted">on: pull_request</p>
+              </div>
+              <span class="shithub-pull-check-suite-status shithub-pull-check-status-{{ printf "%s" .Suite.Status }}">
+                {{ printf "%s" .Suite.Status }}
               </span>
-            {{ end }}
-          </h3>
-          <ul class="shithub-pull-check-runs">
-            {{ range .Runs }}
-            <li class="shithub-pull-check-run">
-              <span class="shithub-pull-check-status shithub-pull-check-status-{{ printf "%s" .R.Status }}">●</span>
-              <strong>{{ .R.Name }}</strong>
-              {{ if .R.Conclusion.Valid }}
-                <span class="shithub-pull-check-conclusion shithub-pull-check-conclusion-{{ printf "%s" .R.Conclusion.CheckConclusion }}">
-                  {{ printf "%s" .R.Conclusion.CheckConclusion }}
+            </header>
+            <div class="shithub-checks-workflow-map">
+              {{ range .Runs }}
+              <article id="check-run-{{ .R.ID }}" class="shithub-checks-run-card">
+                <span class="shithub-checks-run-icon">
+                  {{ if .R.Conclusion.Valid }}
+                    {{ if eq (printf "%s" .R.Conclusion.CheckConclusion) "success" }}{{ octicon "check-circle" }}{{ else }}{{ octicon "x-circle" }}{{ end }}
+                  {{ else }}
+                    {{ octicon "dot-fill" }}
+                  {{ end }}
                 </span>
-              {{ else }}
-                <span class="shithub-muted">{{ printf "%s" .R.Status }}</span>
+                <div>
+                  <strong>{{ .R.Name }}</strong>
+                  <p class="shithub-muted">
+                    {{ if .R.Conclusion.Valid }}{{ printf "%s" .R.Conclusion.CheckConclusion }}{{ else }}{{ printf "%s" .R.Status }}{{ end }}
+                    {{ if .R.CompletedAt.Valid }} · {{ relativeTime .R.CompletedAt.Time }}{{ end }}
+                  </p>
+                </div>
+                {{ if .R.DetailsUrl }}<a href="{{ .R.DetailsUrl }}" rel="noopener noreferrer">details</a>{{ end }}
+              </article>
               {{ end }}
-              {{ if .R.CompletedAt.Valid }}<small><time datetime="{{ .R.CompletedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .R.CompletedAt.Time }}</time></small>{{ end }}
-              {{ if .R.DetailsUrl }}<a href="{{ .R.DetailsUrl }}" rel="noopener noreferrer">details</a>{{ end }}
-              {{ if .SummaryHTML }}
-              <details>
-                <summary class="shithub-muted">summary</summary>
-                <div class="markdown-body">{{ .SummaryHTML }}</div>
-              </details>
+            </div>
+          </section>
+          {{ end }}
+
+          <section class="shithub-checks-annotations">
+            <h2>Annotations</h2>
+            {{ range .CheckGroups }}
+              {{ range .Runs }}
+                {{ if .SummaryHTML }}
+                <details class="shithub-checks-annotation" open>
+                  <summary>
+                    <strong>{{ .R.Name }}</strong>
+                    {{ if .R.Conclusion.Valid }}<span>{{ printf "%s" .R.Conclusion.CheckConclusion }}</span>{{ else }}<span>{{ printf "%s" .R.Status }}</span>{{ end }}
+                  </summary>
+                  <div class="markdown-body">{{ .SummaryHTML }}</div>
+                </details>
+                {{ end }}
               {{ end }}
-            </li>
             {{ end }}
-          </ul>
+          </section>
         </div>
-        {{ end }}
       </section>
       {{ else }}
       <p class="shithub-muted">No checks have reported on <code>{{ slice .PR.HeadOid 0 7 }}</code>. Post via <code>POST /api/v1/repos/{{ .Owner }}/{{ .Repo.Name }}/check-runs</code>.</p>
