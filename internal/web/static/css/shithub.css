@@ -2565,6 +2565,153 @@ code {
   color: var(--fg-default);
   font-size: 1rem;
 }
+.shithub-org-repos-footer {
+  display: flex;
+  justify-content: center;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border-default);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  background: var(--canvas-subtle);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shithub-org-repo-list + .shithub-org-repos-footer {
+  margin-top: -1px;
+}
+.shithub-filter-menu a.is-selected {
+  background: var(--canvas-subtle);
+  font-weight: 600;
+}
+.shithub-filter-count {
+  float: right;
+  margin-left: 1rem;
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+/* Organization repositories tab. GitHub's current route is
+   /orgs/{org}/repositories: compact pagehead, repo search, dropdown
+   filters, bordered rows, sparklines, and numbered pagination. */
+.shithub-org-repositories-page {
+  max-width: none;
+}
+.shithub-org-repositories-shell {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 2rem;
+}
+.shithub-org-repositories-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.shithub-org-repositories-titlebar h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+.shithub-org-repositories-titlebar p {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-org-repositories-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-org-repositories-search {
+  position: relative;
+  min-width: 0;
+}
+.shithub-org-repositories-search > span {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  display: inline-flex;
+  color: var(--fg-muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.shithub-org-repositories-search input[type="search"] {
+  width: 100%;
+  min-height: 34px;
+  padding: 0.35rem 0.75rem 0.35rem 2rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+}
+.shithub-org-repositories-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.shithub-org-repositories-filters .shithub-filter-menu[open] > div {
+  min-width: 190px;
+}
+.shithub-org-repositories-filters .shithub-filter-menu summary span {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+.shithub-org-repositories-list {
+  margin-top: 0;
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+}
+.shithub-org-repositories-empty {
+  margin-top: 1rem;
+}
+.shithub-org-repositories-empty h2 {
+  margin: 0 0 0.55rem;
+  color: var(--fg-default);
+  font-size: 1.1rem;
+}
+.shithub-org-repositories-empty p {
+  margin: 0;
+}
+.shithub-org-repositories-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.25rem 0 0;
+}
+.shithub-org-repositories-pagination a,
+.shithub-org-repositories-pagination span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shithub-org-repositories-pagination a:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-org-repositories-pagination .is-current {
+  border-color: var(--accent-emphasis);
+  background: var(--accent-emphasis);
+  color: #fff;
+}
+.shithub-org-repositories-pagination .is-disabled {
+  color: var(--fg-muted);
+  opacity: 0.65;
+}
 
 /* Organization People page. Mirrors GitHub's compact org header,
    permissions sidebar, toolbar search, and bordered member rows. */
@@ -3610,7 +3757,8 @@ code {
   .shithub-org-settings-layout,
   .shithub-org-settings-profile-grid,
   .shithub-org-people-layout,
-  .shithub-org-repo-head {
+  .shithub-org-repo-head,
+  .shithub-org-repositories-toolbar {
     grid-template-columns: 1fr;
   }
   .shithub-org-avatar {
@@ -3618,7 +3766,8 @@ code {
     height: 80px;
   }
   .shithub-org-hero-actions,
-  .shithub-org-repo-actions {
+  .shithub-org-repo-actions,
+  .shithub-org-repositories-filters {
     justify-content: flex-start;
   }
   .shithub-org-repo-row {

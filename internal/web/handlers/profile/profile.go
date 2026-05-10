@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package profile owns the read-only public profile handlers:
-// /{username} and /avatars/{username}. Edit-profile is S10.
+// /{username}, /orgs/{org}/repositories, and /avatars/{username}.
+// Edit-profile is S10.
 //
 // Route ordering is critical here: the wildcard /{username} catches any
 // path the chi router didn't already match. The reserved-name list is the

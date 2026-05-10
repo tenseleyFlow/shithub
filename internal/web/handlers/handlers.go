@@ -131,6 +131,10 @@ type Deps struct {
 	// owner-gated inside the handler. Must register BEFORE the
 	// /{username} catch-all so the `people` segment matches.
 	OrgRoutesMounter func(chi.Router)
+	// OrgRepositoriesMounter registers /orgs/{org}/repositories. The
+	// GitHub-style /orgs prefix avoids stealing /{user}/repositories
+	// from a real user-owned repo named "repositories".
+	OrgRepositoriesMounter func(chi.Router)
 	// OrgInvitationsMounter registers /invitations/{token} +
 	// accept/decline. RequireUser at the wiring layer.
 	OrgInvitationsMounter func(chi.Router)
@@ -318,6 +322,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// so the explicit `people` segment matches first.
 		if deps.OrgRoutesMounter != nil {
 			deps.OrgRoutesMounter(r)
+		}
+		if deps.OrgRepositoriesMounter != nil {
+			deps.OrgRepositoriesMounter(r)
 		}
 		if deps.RepoHomeMounter != nil {
 			deps.RepoHomeMounter(r)

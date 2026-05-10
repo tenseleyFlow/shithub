@@ -80,7 +80,7 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 				`role="dialog" aria-modal="true" aria-label="Global navigation"`,
 				`aria-label="Organization"`,
 				`href="/tenseleyFlow" class="is-strong">tenseleyFlow</a>`,
-				`href="/tenseleyFlow#org-repositories" class="shithub-offcanvas-repo-item"`,
+				`href="/orgs/tenseleyFlow/repositories" class="shithub-offcanvas-repo-item"`,
 				`href="/tenseleyFlow/teams"`,
 				`href="/tenseleyFlow/people"`,
 			},

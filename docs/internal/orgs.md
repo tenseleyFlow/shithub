@@ -24,6 +24,7 @@ GET  /organizations/new            create form (auth required)
 POST /organizations                create submit
 GET  /{slug}                       /{user-or-org} — dispatched via principals.Resolve
 POST /{slug}/pins                  owner-only org profile pin customization
+GET  /orgs/{org}/repositories      repository list with filters + pagination
 GET  /{org}/people                 members + (owner-only) invite form
 POST /{org}/people/invite          invite by username OR email
 POST /{org}/people/{userID}/role   change role (owner-only)
@@ -99,9 +100,13 @@ site-admin, and impersonation write-mode fields. Anonymous viewers only
 see public repositories; members and owners see whatever the policy
 layer grants them.
 
-There is no dedicated `/orgs/{org}/repositories` page yet. The Overview
-nav's Repositories item anchors to the homepage repository list until a
-full org repositories tab lands.
+`GET /orgs/{org}/repositories` is the dedicated organization
+repositories surface, matching GitHub's current org route shape. It
+uses the same policy-filtered visible repo set as the overview, then
+applies query, type, language, sort, and page parameters in the handler.
+The page renders 30 repositories per page with bordered GitHub-style
+rows, topics, language/license/star/fork metadata, default-branch
+activity sparklines, and numbered pagination.
 
 `/{slug}` resolution flow inside `internal/web/handlers/profile/profile.go`:
 

@@ -57,22 +57,21 @@
       <section class="shithub-org-repos" id="org-repositories" aria-labelledby="org-repositories-heading">
         <div class="shithub-org-repo-head">
           <h2 id="org-repositories-heading">{{ octicon "repo" }} Repositories</h2>
-          <form action="/search" method="get" role="search" class="shithub-org-repo-search">
+          <form action="{{ .OrgRepositoriesURL }}" method="get" role="search" class="shithub-org-repo-search">
             <input type="search" name="q" placeholder="Find a repository..." aria-label="Find a repository">
-            <input type="hidden" name="type" value="repos">
           </form>
           <div class="shithub-org-repo-actions">
             <details class="shithub-filter-menu">
               <summary>Type {{ octicon "triangle-down" }}</summary>
-              <div><a href="#org-repositories">All</a><a href="#org-repositories">Public</a><a href="#org-repositories">Private</a></div>
+              <div><a href="{{ .OrgRepositoriesURL }}">All</a><a href="{{ .OrgRepositoriesURL }}?type=public">Public</a><a href="{{ .OrgRepositoriesURL }}?type=source">Sources</a><a href="{{ .OrgRepositoriesURL }}?type=fork">Forks</a><a href="{{ .OrgRepositoriesURL }}?type=archived">Archived</a></div>
             </details>
             <details class="shithub-filter-menu">
               <summary>Language {{ octicon "triangle-down" }}</summary>
-              <div><a href="#org-repositories">All</a>{{ range .TopLanguages }}<a href="#org-repositories">{{ .Name }}</a>{{ end }}</div>
+              <div><a href="{{ .OrgRepositoriesURL }}">All</a>{{ range .TopLanguages }}<a href="{{ $.OrgRepositoriesURL }}?language={{ urlquery .Name }}">{{ .Name }}</a>{{ end }}</div>
             </details>
             <details class="shithub-filter-menu">
               <summary>Sort {{ octicon "triangle-down" }}</summary>
-              <div><a href="#org-repositories">Last updated</a><a href="#org-repositories">Name</a><a href="#org-repositories">Stars</a></div>
+              <div><a href="{{ .OrgRepositoriesURL }}">Last updated</a><a href="{{ .OrgRepositoriesURL }}?sort=name">Name</a><a href="{{ .OrgRepositoriesURL }}?sort=stars">Stars</a></div>
             </details>
             {{ if .CanCreateRepo }}<a href="/new?owner={{ .Org.Slug }}" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
           </div>
@@ -106,6 +105,11 @@
           </li>
         {{ end }}
         </ul>
+        {{ if .HasMoreRepos }}
+        <div class="shithub-org-repos-footer">
+          <a href="{{ .OrgRepositoriesURL }}">View all repositories</a>
+        </div>
+        {{ end }}
         {{ else }}
         <div class="shithub-org-empty">
           <h3>No repositories yet.</h3>

@@ -187,6 +187,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.AvatarMounter = profile.MountAvatars
 		deps.ProfileMounter = profile.MountProfile
+		deps.OrgRepositoriesMounter = profile.MountOrgRepositories
 
 		repoH, err := buildRepoHandlers(cfg, pool, deps.TemplatesFS, logger)
 		if err != nil {

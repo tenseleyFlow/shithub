@@ -35,7 +35,7 @@
           <span>{{ .Owner }}/{{ .Repo.Name }}</span>
         </a>
         {{ else if .Org }}
-        <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-offcanvas-repo-item">
+        <a href="/orgs/{{ .Org.Slug }}/repositories" class="shithub-offcanvas-repo-item">
           <img src="/avatars/{{ .Org.Slug }}" alt="" width="20" height="20">
           <span>{{ .Org.Slug }} repositories</span>
         </a>
@@ -49,7 +49,7 @@
       {{ if .Repo }}
       <a href="/{{ .Owner }}?tab=repositories" class="shithub-offcanvas-show-more">Show more</a>
       {{ else if .Org }}
-      <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-offcanvas-show-more">Show more</a>
+      <a href="/orgs/{{ .Org.Slug }}/repositories" class="shithub-offcanvas-show-more">Show more</a>
       {{ else if .Viewer.ID }}
       <a href="/{{ .Viewer.Username }}?tab=repositories" class="shithub-offcanvas-show-more">Show more</a>
       {{ end }}
