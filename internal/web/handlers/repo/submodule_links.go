@@ -3,9 +3,12 @@
 package repo
 
 import (
+	"context"
 	"net/url"
 	pathpkg "path"
 	"strings"
+
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 )
 
 type submoduleRouteConfig struct {
@@ -15,21 +18,78 @@ type submoduleRouteConfig struct {
 	sshHost  string
 }
 
-func (h *Handlers) submoduleTreeURL(cc *codeContext, remoteURL, oid string) string {
-	return submoduleRouteURL(submoduleRouteConfig{
+type submoduleRoute struct {
+	Owner    string
+	RepoName string
+	TreeURL  string
+	RepoURL  string
+}
+
+func (h *Handlers) submoduleTreeURL(ctx context.Context, cc *codeContext, remoteURL, oid string) string {
+	route, ok := submoduleRouteForRemote(submoduleRouteConfig{
 		owner:    cc.owner,
 		repoName: cc.row.Name,
 		baseURL:  h.d.CloneURLs.BaseURL,
 		sshHost:  h.d.CloneURLs.SSHHost,
 	}, remoteURL, oid)
+	if !ok {
+		return ""
+	}
+	gitDir, exists, err := h.localSubmoduleRepo(route.Owner, route.RepoName)
+	if err != nil {
+		if h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule repo lookup", "error", err, "owner", route.Owner, "repo", route.RepoName)
+		}
+		return ""
+	}
+	if !exists {
+		return ""
+	}
+	existsAtCommit, err := repogit.CommitExists(ctx, gitDir, oid)
+	if err != nil {
+		if h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule commit lookup", "error", err, "owner", route.Owner, "repo", route.RepoName, "oid", oid)
+		}
+		return route.RepoURL
+	}
+	if !existsAtCommit {
+		return route.RepoURL
+	}
+	return route.TreeURL
 }
 
 func submoduleRouteURL(cfg submoduleRouteConfig, remoteURL, oid string) string {
-	owner, repoName, ok := submoduleRepoTarget(cfg, remoteURL)
-	if !ok || oid == "" {
+	route, ok := submoduleRouteForRemote(cfg, remoteURL, oid)
+	if !ok {
 		return ""
 	}
-	return "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + "/tree/" + url.PathEscape(oid)
+	return route.TreeURL
+}
+
+func submoduleRouteForRemote(cfg submoduleRouteConfig, remoteURL, oid string) (submoduleRoute, bool) {
+	owner, repoName, ok := submoduleRepoTarget(cfg, remoteURL)
+	if !ok || oid == "" {
+		return submoduleRoute{}, false
+	}
+	base := "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName)
+	return submoduleRoute{
+		Owner:    owner,
+		RepoName: repoName,
+		TreeURL:  base + "/tree/" + url.PathEscape(oid),
+		RepoURL:  base,
+	}, true
+}
+
+func (h *Handlers) localSubmoduleRepo(owner, repoName string) (string, bool, error) {
+	gitDir, err := h.d.RepoFS.RepoPath(owner, repoName)
+	if err != nil {
+		return "", false, err
+	}
+	exists, err := h.d.RepoFS.Exists(gitDir)
+	if err != nil {
+		return "", false, err
+	}
+	return gitDir, exists, nil
 }
 
 func submoduleRepoTarget(cfg submoduleRouteConfig, remoteURL string) (owner, repoName string, ok bool) {

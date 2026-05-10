@@ -4,6 +4,7 @@ package git_test
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -69,8 +70,31 @@ func TestGetCommit_ReturnsErrCommitNotFound(t *testing.T) {
 	t.Parallel()
 	gitDir := buildSeedRepo(t)
 	_, err := gitops.GetCommit(context.Background(), gitDir, strings.Repeat("0", 40))
-	if err == nil {
-		t.Fatalf("expected error for unknown sha")
+	if !errors.Is(err, gitops.ErrCommitNotFound) {
+		t.Fatalf("GetCommit error = %v, want commit not found", err)
+	}
+}
+
+func TestCommitExists(t *testing.T) {
+	t.Parallel()
+	gitDir := buildSeedRepo(t)
+	commits, err := gitops.Log(context.Background(), gitDir, gitops.LogOptions{Ref: "trunk"})
+	if err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	exists, err := gitops.CommitExists(context.Background(), gitDir, commits[0].OID)
+	if err != nil {
+		t.Fatalf("CommitExists(existing): %v", err)
+	}
+	if !exists {
+		t.Fatal("CommitExists(existing) = false, want true")
+	}
+	exists, err = gitops.CommitExists(context.Background(), gitDir, strings.Repeat("0", 40))
+	if err != nil {
+		t.Fatalf("CommitExists(missing): %v", err)
+	}
+	if exists {
+		t.Fatal("CommitExists(missing) = true, want false")
 	}
 }
 

@@ -36,7 +36,7 @@ func (h *Handlers) codeTreeEntryRows(ctx context.Context, cc *codeContext, entri
 		if e.Kind == repogit.EntrySubmod {
 			entryURL = ""
 			if sm, ok := submodules[fullPath]; ok {
-				entryURL = h.submoduleTreeURL(cc, sm.URL, e.OID)
+				entryURL = h.submoduleTreeURL(ctx, cc, sm.URL, e.OID)
 			}
 		}
 		row := codeTreeEntryRow{

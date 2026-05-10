@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"strings"
 	"testing"
 
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -78,6 +79,14 @@ func TestSubmoduleRouteURL_GitHubRemotesBecomeLocalTreeLinks(t *testing.T) {
 			got := submoduleRouteURL(cfg, tt.remote, oid)
 			if got != tt.want {
 				t.Fatalf("submoduleRouteURL(%q) = %q, want %q", tt.remote, got, tt.want)
+			}
+			route, ok := submoduleRouteForRemote(cfg, tt.remote, oid)
+			if !ok {
+				t.Fatalf("submoduleRouteForRemote(%q) ok = false", tt.remote)
+			}
+			wantRepoURL := strings.TrimSuffix(tt.want, "/tree/"+oid)
+			if route.RepoURL != wantRepoURL {
+				t.Fatalf("RepoURL = %q, want %q", route.RepoURL, wantRepoURL)
 			}
 		})
 	}
