@@ -141,7 +141,7 @@ func init() {
 // also necessary but not sufficient; promhttp does its own gzip layer.
 func Handler(user, pass string) http.Handler {
 	h := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
-		Registry:          Registry,
+		Registry:           Registry,
 		DisableCompression: true,
 	})
 	if user == "" && pass == "" {
