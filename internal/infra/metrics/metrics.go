@@ -131,9 +131,18 @@ func init() {
 // Handler returns the /metrics HTTP handler. When user/pass is set, the
 // handler enforces HTTP Basic auth; otherwise it serves unauthenticated
 // (S35 will tighten the policy).
+//
+// DisableCompression: promhttp gzips responses when the scraper sends
+// Accept-Encoding: gzip. Alloy 1.16's Prometheus scraper advertises gzip
+// but mishandles the Content-Encoding: gzip response (parses raw 0x1f
+// magic byte as text, scrape fails with up=0). Bypass at the source —
+// /metrics payload is small enough that wire savings are irrelevant.
+// Skipping the chi Compress middleware on this route (handlers.go) is
+// also necessary but not sufficient; promhttp does its own gzip layer.
 func Handler(user, pass string) http.Handler {
 	h := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
-		Registry: Registry,
+		Registry:           Registry,
+		DisableCompression: true,
 	})
 	if user == "" && pass == "" {
 		return h

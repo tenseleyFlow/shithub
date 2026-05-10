@@ -11,15 +11,27 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
 // /metrics MUST be served uncompressed even when the scraper advertises
 // gzip support. Alloy 1.16 (and several other prom-compatible scrapers)
 // mis-handle Content-Encoding: gzip and parse the raw 0x1f magic byte
 // as text, failing the scrape silently with up=0.
-func TestMetricsServedUncompressedWithGzipAccept(t *testing.T) {
+//
+// Two layers can produce gzip on this route:
+//  1. The chi Compress middleware in the public route group.
+//  2. promhttp's own DisableCompression knob (default false).
+//
+// Each test below pins one layer so a regression in either fires loud.
+
+// Layer 1: the route is mounted outside the Compress middleware group.
+func TestMetricsRouteBypassesCompressMiddleware(t *testing.T) {
 	t.Parallel()
 
+	// Stub handler — the test is about the middleware path, not the
+	// real /metrics body shape.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = io.WriteString(w, "# HELP test_metric A test metric\n# TYPE test_metric counter\ntest_metric 1\n")
@@ -47,11 +59,31 @@ func TestMetricsServedUncompressedWithGzipAccept(t *testing.T) {
 	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
 		t.Errorf("Content-Encoding = %q, want empty (Prometheus scrapers expect plain text)", enc)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "test_metric 1") {
-		t.Errorf("body missing metric text; got %q", body)
+	if strings.HasPrefix(rec.Body.String(), "\x1f\x8b") {
+		t.Error("body starts with gzip magic bytes — middleware compressed /metrics")
 	}
-	if strings.HasPrefix(body, "\x1f\x8b") {
-		t.Errorf("body starts with gzip magic bytes — middleware compressed /metrics")
+}
+
+// Layer 2: the real metrics.Handler() must have promhttp's compression
+// disabled. Without DisableCompression: true on HandlerOpts, promhttp
+// gzips when the client advertises Accept-Encoding: gzip — entirely
+// independent of our middleware. The post-hardening audit caught this:
+// the layer-1 test passed but the live droplet still emitted gzip.
+func TestMetricsHandlerPromhttpCompressionDisabled(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	metrics.Handler("", "").ServeHTTP(rec, req)
+
+	if got := rec.Code; got != http.StatusOK {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+		t.Errorf("Content-Encoding = %q, want empty (DisableCompression must be set on promhttp.HandlerOpts)", enc)
+	}
+	if strings.HasPrefix(rec.Body.String(), "\x1f\x8b") {
+		t.Error("body starts with gzip magic bytes — promhttp compressed despite DisableCompression intent")
 	}
 }
