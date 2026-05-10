@@ -439,6 +439,54 @@ func extractFirstExpression(s string) (string, bool) {
 	return strings.TrimSpace(s[start+3 : start+end]), true
 }
 
+// TestLex_UnicodeIdentifier pins rune-aware identifier lexing. The
+// pre-M1 byte-level lexer would fail mid-byte on multi-byte UTF-8
+// characters with a confusing "unexpected character" error pointing
+// at a continuation byte. After M1, identifiers can contain any
+// unicode.IsLetter rune. This is a quality fix, not a security one
+// — the byte-level lexer failed closed; the rune-aware one accepts
+// more identifiers but the namespace allowlist still rejects them
+// at eval time.
+func TestLex_UnicodeIdentifier(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"αlpha",      // Greek letter
+		"über",       // Latin-1 supplement
+		"日本語",     // CJK
+		"snake_α",    // mixed ASCII + non-ASCII
+		"_underline", // leading underscore
+	}
+	for _, src := range cases {
+		t.Run(src, func(t *testing.T) {
+			t.Parallel()
+			toks, err := expr.Lex(src)
+			if err != nil {
+				t.Fatalf("lex %q: %v", src, err)
+			}
+			if len(toks) != 2 || toks[0].Kind != expr.TokIdent {
+				t.Fatalf("expected single Ident token + EOF, got %+v", toks)
+			}
+			if toks[0].Value != src {
+				t.Errorf("ident value: got %q, want %q", toks[0].Value, src)
+			}
+		})
+	}
+}
+
+// TestLex_InvalidUTF8 surfaces a clean error message when src isn't
+// valid UTF-8 — pre-M1 the lexer would feed RuneError bytes through
+// the byte-level loop and produce a misleading offset.
+func TestLex_InvalidUTF8(t *testing.T) {
+	t.Parallel()
+	_, err := expr.Lex(string([]byte{'a', 0x80, 'b'}))
+	if err == nil {
+		t.Fatal("expected error on invalid UTF-8")
+	}
+	if !strings.Contains(err.Error(), "invalid UTF-8") {
+		t.Errorf("expected 'invalid UTF-8' error, got: %v", err)
+	}
+}
+
 func TestEval_JobStatusFunctions(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
