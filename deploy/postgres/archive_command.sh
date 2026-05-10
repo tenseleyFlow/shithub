@@ -10,7 +10,7 @@
 # this wrong fills the disk. We use rclone copyto with --no-update-
 # modtime so the bucket is the source of truth on retention.
 #
-# Wired by deploy/ansible/roles/postgres/templates/postgresql.conf.j2.
+# Wired by deploy/ansible/roles/postgres/templates/99_shithub_archive.conf.
 
 set -euo pipefail
 
@@ -19,6 +19,10 @@ NAME="$2"
 BUCKET="${SHITHUB_WAL_BUCKET:-spaces-prod:shithub-wal}"
 
 # Atomic-ish: rclone copyto streams to a temp object, then renames.
+# --s3-no-check-bucket: scoped Spaces keys lack GetBucketLocation; the
+# actual PUT works fine on a key with bucket-level readwrite. Matches
+# the same flag in backup-daily.sh + sync-cross-region.sh.
 rclone --config /root/.config/rclone/rclone.conf \
+       --s3-no-check-bucket \
        --quiet \
        copyto "$SRC" "$BUCKET/$(date +%Y/%m/%d)/$NAME"
