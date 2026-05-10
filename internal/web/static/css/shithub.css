@@ -25,6 +25,8 @@
   --success-fg: #1a7f37;
   --success-emphasis: #1f883d;
   --success-emphasis-hover: #1a7f37;
+  --button-default-bg: #f6f8fa;
+  --button-default-hover-bg: #f3f4f6;
   --danger-fg: #cf222e;
   --shithub-mark: var(--danger-fg);
 }
@@ -43,6 +45,8 @@
   --success-fg: #3fb950;
   --success-emphasis: #238636;
   --success-emphasis-hover: #2ea043;
+  --button-default-bg: #21262d;
+  --button-default-hover-bg: #30363d;
   --danger-fg: #f85149;
 }
 
@@ -60,6 +64,8 @@
   --success-fg: #4ed162;
   --success-emphasis: #2ea043;
   --success-emphasis-hover: #3fb950;
+  --button-default-bg: #0a0c10;
+  --button-default-hover-bg: #1c222a;
   --danger-fg: #ff6a69;
 }
 
@@ -275,7 +281,15 @@ code {
   font-size: 0.875rem;
   font-weight: 500;
   border: 1px solid transparent;
+  color: var(--fg-default);
+  background: var(--button-default-bg);
+  border-color: var(--border-default);
   cursor: pointer;
+  text-decoration: none;
+}
+.shithub-button:hover {
+  background: var(--button-default-hover-bg);
+  text-decoration: none;
 }
 .shithub-button:disabled {
   cursor: default;
