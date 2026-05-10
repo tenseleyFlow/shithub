@@ -5,6 +5,7 @@ package webhook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -50,6 +51,14 @@ var (
 func Create(ctx context.Context, deps ManageDeps, params CreateParams) (webhookdb.Webhook, error) {
 	if err := validateURL(params.URL); err != nil {
 		return webhookdb.Webhook{}, err
+	}
+	// SSRF defense: reject loopback / private / disallowed-port URLs at
+	// create time so the form returns synchronously instead of every
+	// delivery silently failing later (SR2 H3). ValidateWithResolve
+	// runs scheme/port + DNS-resolve + IP-block-list — the delivery
+	// path's dialContext re-resolves as defense in depth (DNS rebinding).
+	if err := deps.SSRF.ValidateWithResolve(ctx, params.URL); err != nil {
+		return webhookdb.Webhook{}, fmt.Errorf("%w: %v", ErrBadURL, err)
 	}
 	ownerKind, err := parseOwnerKind(params.OwnerKind)
 	if err != nil {
@@ -112,6 +121,12 @@ type UpdateParams struct {
 func Update(ctx context.Context, deps ManageDeps, hookID int64, params UpdateParams) error {
 	if err := validateURL(params.URL); err != nil {
 		return err
+	}
+	// SSRF re-validation at update time mirrors Create (SR2 H3). An
+	// admin who flips a previously-valid hook's URL to an internal
+	// address gets the same synchronous rejection.
+	if err := deps.SSRF.ValidateWithResolve(ctx, params.URL); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadURL, err)
 	}
 	contentType, err := parseContentType(params.ContentType)
 	if err != nil {
