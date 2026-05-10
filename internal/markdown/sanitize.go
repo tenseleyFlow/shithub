@@ -67,8 +67,10 @@ var sanitizer = func() *bluemonday.Policy {
 	return p
 }()
 
-var reCodeClass = regexp.MustCompile(`^(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl)(?:\s+(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl))*$`)
-var reAlign = regexp.MustCompile(`^(?:left|center|right)$`)
+var (
+	reCodeClass = regexp.MustCompile(`^(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl)(?:\s+(?:language-[A-Za-z0-9_+\-]+|chroma|chroma-[a-zA-Z]+|nl|ln|line|hl))*$`)
+	reAlign     = regexp.MustCompile(`^(?:left|center|right)$`)
+)
 
 // sanitizeBytes is the hot-path entry the Render pipeline uses. The
 // bluemonday Policy is built at package init via the var initializer
