@@ -4,3 +4,19 @@
     name: fail2ban
     state: restarted
     enabled: yes
+
+# Re-baselining is operator-driven, not automatic — see runbooks/aide.md.
+# This handler drops a marker the next aide-check surfaces in the journal
+# so the operator knows the config drifted and the DB is stale.
+- name: rebuild aide database
+  copy:
+    dest: /var/lib/aide/.config-changed
+    content: |
+      AIDE config was modified by Ansible at {{ ansible_date_time.iso8601 }}.
+      Operator must re-baseline before the next check produces meaningful
+      diffs:
+          sudo aideinit -y -f && \
+          sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz && \
+          sudo rm /var/lib/aide/.config-changed
+      See docs/internal/runbooks/aide.md.
+    mode: "0644"
