@@ -145,6 +145,16 @@ must set the explicit key in prod.
 | POST  | `/threads/{kind}/{id}/unsubscribe`      | required | Per-thread unsubscribe override    |
 | GET   | `/notifications/unsubscribe`            | none     | One-click HMAC-signed unsub        |
 
+## Inbox UI
+
+The web inbox mirrors GitHub's two-column notification shape for the
+states shithub actually stores: a left filter rail for Inbox and
+Unread, a main toolbar, row-level issue / pull request icons, unread
+indicators, and icon buttons for marking one row read or unread.
+Read-state forms include a `return_to` value restricted to
+`/notifications` so filtered and paged inbox views stay put after the
+POST without introducing an open redirect.
+
 ## What we deferred from the spec
 
 * **API endpoint** `GET /api/v1/notifications` + the per-thread sub
