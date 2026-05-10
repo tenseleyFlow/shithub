@@ -85,6 +85,24 @@
     mode: "0644"
   notify: restart postgres
 
+- name: WAL archive — install verifier
+  copy:
+    src: "{{ playbook_dir }}/../postgres/verify-wal-archive.sh"
+    dest: /usr/local/bin/shithub-verify-wal-archive
+    mode: "0755"
+    owner: root
+    group: root
+
+# Hourly health check. Silent on success; loud on the journal under
+# `journalctl -t shithub-wal-archive` if archiving has stopped, the
+# failed_count climbed, or segments aren't landing in Spaces. Same
+# observability shape as the AIDE check.
+- name: cron — hourly WAL-archive verifier
+  cron:
+    name: shithub-verify-wal-archive
+    job: /usr/local/bin/shithub-verify-wal-archive
+    minute: "47"
+
 - name: systemd unit override — ensure drop-in dir exists
   file:
     path: /etc/systemd/system/postgresql@16-main.service.d
