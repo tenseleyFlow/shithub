@@ -115,3 +115,8 @@
       backend  = auto
     mode: "0644"
   notify: restart fail2ban
+
+# AIDE file-integrity monitoring lives in its own task file so the
+# nightly-check + baseline-init noise doesn't clutter the main flow.
+- name: AIDE file-integrity monitoring
+  import_tasks: aide.yml
