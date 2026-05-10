@@ -1,0 +1,22 @@
+#!/bin/bash
+# /var/lib/git/git-shell-commands/shithubd — invoked when the
+# `git` user's login shell (git-shell) handles the AKC's forced
+# `command="shithubd ssh-shell <user_id>"`. git-shell only allows
+# its three built-in commands plus entries under git-shell-commands/;
+# a bare `shithubd` token here lets us keep the defense layer.
+#
+# This wrapper sources /etc/shithub/web.env (DATABASE_URL +
+# REPOS_ROOT) before exec'ing the real binary so the ssh-shell
+# subcommand's config.Load() has the values it needs. Without this
+# wrapper, ssh-shell exits with "config: read /etc/shithub/config.toml:
+# permission denied" (the loader's misleading error wrap on a missing
+# file with no env fallback).
+#
+# Runs as the SSH login user (`git`), which must be a member of the
+# `shithub` group so it can read web.env.
+
+set -e
+set -a
+. /etc/shithub/web.env
+set +a
+exec /usr/local/bin/shithubd "$@"
