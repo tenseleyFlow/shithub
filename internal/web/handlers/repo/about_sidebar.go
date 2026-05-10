@@ -27,6 +27,13 @@ type repoAboutResource struct {
 	Href  string
 }
 
+type repoReadmeTab struct {
+	Icon   string
+	Label  string
+	Href   string
+	Active bool
+}
+
 type repoAboutContributor struct {
 	User          bool
 	Username      string
@@ -113,6 +120,34 @@ func repoAboutResources(owner, repoName, ref string, row reposdb.Repo, entries [
 		repoAboutResource{Icon: "note", Label: "Custom properties", Href: "/" + owner + "/" + repoName + "/settings/custom-properties"},
 	)
 	return resources
+}
+
+func repoReadmeTabs(resources []repoAboutResource) []repoReadmeTab {
+	tabs := make([]repoReadmeTab, 0, len(resources))
+	for _, resource := range resources {
+		if resource.Href == "" {
+			continue
+		}
+		label := resource.Label
+		active := false
+		switch lower := strings.ToLower(resource.Label); {
+		case lower == "readme":
+			label = "README"
+			active = true
+		case lower == "code of conduct", lower == "contributing", strings.Contains(lower, "license"):
+		case strings.HasPrefix(lower, "security"):
+			label = "Security"
+		default:
+			continue
+		}
+		tabs = append(tabs, repoReadmeTab{
+			Icon:   resource.Icon,
+			Label:  label,
+			Href:   resource.Href,
+			Active: active,
+		})
+	}
+	return tabs
 }
 
 func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string) []repoAboutContributor {

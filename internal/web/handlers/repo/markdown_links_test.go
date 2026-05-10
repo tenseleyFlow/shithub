@@ -75,3 +75,14 @@ func TestRewriteRelativeMarkdownURL(t *testing.T) {
 		t.Fatalf("rewrite = %q, want %q", got, want)
 	}
 }
+
+func TestRawContentType_AllowsSVGImages(t *testing.T) {
+	t.Parallel()
+	contentType, attachment := rawContentType("internal/web/static/logo/shithub-mark.svg")
+	if contentType != "image/svg+xml" || attachment {
+		t.Fatalf("rawContentType(svg) = (%q, %v), want image/svg+xml without attachment", contentType, attachment)
+	}
+	if !isImageExt("logo.svg") {
+		t.Fatalf("svg should be treated as an image extension")
+	}
+}

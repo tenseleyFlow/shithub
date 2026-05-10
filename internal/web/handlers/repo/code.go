@@ -166,6 +166,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 			h.d.Logger.WarnContext(r.Context(), "code: about root LsTree", "error", rerr)
 		}
 	}
+	about := h.repoAbout(r.Context(), cc.gitDir, cc.ref, cc.owner, cc.row, aboutEntries)
 
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
 		"Title":         cc.row.Name + " · " + cc.owner,
@@ -188,7 +189,8 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
 		"RepoTopics":    topics,
-		"RepoAbout":     h.repoAbout(r.Context(), cc.gitDir, cc.ref, cc.owner, cc.row, aboutEntries),
+		"RepoAbout":     about,
+		"ReadmeTabs":    repoReadmeTabs(about.Resources),
 		"RepoActions":   h.repoActions(r, cc.row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
@@ -450,8 +452,10 @@ func isHex(s string) bool {
 func rawContentType(p string) (string, bool) {
 	ext := strings.ToLower(path.Ext(p))
 	switch ext {
-	case ".html", ".htm", ".xhtml", ".svg", ".js", ".mjs", ".wasm":
+	case ".html", ".htm", ".xhtml", ".js", ".mjs", ".wasm":
 		return "text/plain; charset=utf-8", true
+	case ".svg":
+		return "image/svg+xml", false
 	case ".png":
 		return "image/png", false
 	case ".jpg", ".jpeg":
@@ -477,7 +481,7 @@ func rawContentType(p string) (string, bool) {
 
 func isImageExt(p string) bool {
 	switch strings.ToLower(path.Ext(p)) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
 		return true
 	}
 	return false
