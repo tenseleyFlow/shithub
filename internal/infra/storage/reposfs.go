@@ -247,6 +247,12 @@ func (r *RepoFS) CloneBareShared(ctx context.Context, src, dst string) error {
 // that all repos are owned by the `shithub` group already (the
 // shithub user creates them). If a repo's group is wrong, that's a
 // separate provisioning bug; this method's job is only the bits.
+//
+// Runs git with safe.directory=* injected via env so the operator
+// (typically root over SSH) can operate on repos owned by the
+// `shithub` user. The same trick is used by the SSH dispatcher.
+// Without it, git 2.35+ emits "fatal: not in a git directory" as
+// part of the dubious-ownership early exit.
 func (r *RepoFS) RepairSharedPerms(ctx context.Context, path string) error {
 	if err := r.containedInRoot(path); err != nil {
 		return err
@@ -256,6 +262,12 @@ func (r *RepoFS) RepairSharedPerms(ctx context.Context, path string) error {
 	}
 	// Persist the contract in config.
 	cfg := exec.CommandContext(ctx, "git", "-C", path, "config", "core.sharedRepository", "group") //nolint:gosec
+	cfg.Env = append(
+		os.Environ(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
+	)
 	if out, err := cfg.CombinedOutput(); err != nil {
 		return fmt.Errorf("storage: repofs: git config sharedRepository: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
