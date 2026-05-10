@@ -48,6 +48,14 @@ git push  ──▶  receive-pack
        worker picks it up via LISTEN
 ```
 
+In-browser file-editor commits do not execute git hooks: they are built
+with plumbing inside the already-bare repository and advance the branch
+with `git update-ref`. To keep downstream behavior identical to pushed
+commits, `internal/repos/webedit` runs the same branch-protection
+enforcer before the ref update, inserts `push_events.protocol = 'web'`
+after a successful CAS, enqueues `push:process`, and sends
+`NOTIFY shithub_jobs`.
+
 ## pre-receive contract
 
 Implements the **minimum gates** described in S14. The full branch
@@ -66,8 +74,10 @@ to the pusher's terminal. Latency budget: <100ms p99.
 ## post-receive contract
 
 * Reads stdin, ignores empty/malformed lines.
-* For each `<old> <new> <ref>` line: INSERT a `push_events` row, then
-  enqueue a `push:process` job carrying the new event id.
+* For each `<old> <new> <ref>` line: INSERT a `push_events` row with
+  protocol `http` or `ssh`, then enqueue a `push:process` job carrying
+  the new event id. Web-editor commits use the same table with protocol
+  `web`.
 * Issues a single `NOTIFY shithub_jobs` per push (workers wake on the
   next tx commit).
 * Exits 0 even on internal errors. The push has already landed; the

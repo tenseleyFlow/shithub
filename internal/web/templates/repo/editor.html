@@ -1,0 +1,191 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+
+  <main class="shithub-editor" data-code-editor>
+    <header class="shithub-editor-head">
+      <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
+        {{ range $i, $c := .Crumbs }}
+          {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
+          <a href="{{ $c.URL }}">{{ $c.Name }}</a>
+        {{ end }}
+      </nav>
+      <span class="shithub-editor-ref">{{ octicon "git-branch" }} {{ .RefDisplay }}</span>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <form method="post" action="{{ .FormAction }}" class="shithub-editor-form"{{ if eq .Mode "upload" }} enctype="multipart/form-data"{{ end }}>
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <input type="hidden" name="base_oid" value="{{ .BaseOID }}">
+
+      {{ if eq .Mode "upload" }}
+      <section class="shithub-editor-panel">
+        <div class="shithub-editor-panel-head">
+          <h2>Upload files</h2>
+          <span>{{ if .UploadDir }}{{ .UploadDir }}{{ else }}/{{ end }}</span>
+        </div>
+        <label class="shithub-upload-drop">
+          {{ octicon "upload" }}
+          <span>Choose files</span>
+          <input type="file" name="files" multiple required data-upload-input>
+        </label>
+        <ul class="shithub-upload-list" data-upload-list></ul>
+      </section>
+      {{ else if eq .Mode "delete" }}
+      <section class="shithub-editor-panel shithub-editor-danger">
+        <div class="shithub-editor-panel-head">
+          <h2>Delete this file</h2>
+          <span>{{ .Path }}</span>
+        </div>
+        <p>This commit removes <code>{{ .Path }}</code> from <code>{{ .RefDisplay }}</code>.</p>
+      </section>
+      {{ else }}
+      <label class="shithub-editor-path-row">
+        <span>Name your file...</span>
+        <input type="text" name="path" value="{{ .PathValue }}" autocomplete="off" spellcheck="false" data-editor-path>
+      </label>
+
+      <section class="shithub-editor-panel">
+        <div class="shithub-editor-tabs" role="tablist" aria-label="File editor tabs">
+          <button type="button" class="is-active" role="tab" aria-selected="true" data-editor-tab="edit">{{ octicon "code" }} Edit file</button>
+          <button type="button" role="tab" aria-selected="false" data-editor-tab="preview">{{ octicon "eye" }} Preview</button>
+        </div>
+        <div class="shithub-editor-pane" data-editor-pane="edit">
+          <div class="shithub-editor-textbox">
+            <pre class="shithub-editor-gutter" aria-hidden="true" data-editor-gutter>1</pre>
+            <textarea name="content" spellcheck="false" autocomplete="off" autocapitalize="off" data-editor-content>{{ .Content }}</textarea>
+          </div>
+        </div>
+        <div class="shithub-editor-pane shithub-editor-preview" data-editor-pane="preview" hidden>
+          <div class="markdown-body shithub-editor-preview-body" data-editor-preview data-preview-url="{{ .PreviewURL }}" data-preview-ref="{{ .Ref }}">
+            <p class="shithub-editor-preview-empty">Nothing to preview.</p>
+          </div>
+        </div>
+      </section>
+      {{ end }}
+
+      <section class="shithub-commit-box">
+        <h2>Commit changes</h2>
+        <label class="shithub-form-row">
+          <span>Commit message</span>
+          <input type="text" name="commit_message" value="{{ .Message }}" required>
+        </label>
+        <label class="shithub-form-row">
+          <span>Extended description</span>
+          <textarea name="commit_description" rows="4">{{ .Description }}</textarea>
+        </label>
+        <div class="shithub-commit-target">{{ octicon "git-commit" }} Commit directly to the <strong>{{ .RefDisplay }}</strong> branch.</div>
+        <div class="shithub-form-actions">
+          <a href="{{ .CancelURL }}" class="shithub-button" data-editor-cancel>Cancel</a>
+          <button type="submit" class="shithub-button{{ if eq .Mode "delete" }} shithub-button-danger{{ else }} shithub-button-primary{{ end }}">{{ .Primary }}</button>
+        </div>
+      </section>
+    </form>
+  </main>
+</section>
+
+<script>
+(function () {
+  const root = document.querySelector("[data-code-editor]");
+  if (!root) return;
+  const textarea = root.querySelector("[data-editor-content]");
+  const gutter = root.querySelector("[data-editor-gutter]");
+  const pathInput = root.querySelector("[data-editor-path]");
+  const preview = root.querySelector("[data-editor-preview]");
+  const uploadInput = root.querySelector("[data-upload-input]");
+  const uploadList = root.querySelector("[data-upload-list]");
+  let previewDirty = true;
+  let submitting = false;
+
+  function updateGutter() {
+    if (!textarea || !gutter) return;
+    const count = Math.max(1, textarea.value.split("\n").length);
+    let lines = "";
+    for (let i = 1; i <= count; i++) lines += i + "\n";
+    gutter.textContent = lines;
+  }
+
+  function dirty() {
+    if (!textarea) return false;
+    return textarea.value !== (textarea.dataset.original || "");
+  }
+
+  async function renderPreview() {
+    if (!textarea || !preview || !previewDirty) return;
+    const body = new URLSearchParams();
+    body.set("csrf_token", root.querySelector("input[name='csrf_token']").value);
+    body.set("content", textarea.value);
+    body.set("ref", preview.dataset.previewRef || "");
+    body.set("path", pathInput ? pathInput.value : "");
+    preview.innerHTML = "<p class=\"shithub-editor-preview-empty\">Rendering preview...</p>";
+    const res = await fetch(preview.dataset.previewUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest" },
+      body: body.toString()
+    });
+    preview.innerHTML = res.ok ? await res.text() : "<p class=\"shithub-editor-preview-empty\">Preview failed.</p>";
+    previewDirty = false;
+  }
+
+  root.addEventListener("submit", function () { submitting = true; });
+  window.addEventListener("beforeunload", function (event) {
+    if (submitting || !dirty()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  if (textarea) {
+    textarea.dataset.original = textarea.value;
+    updateGutter();
+    textarea.addEventListener("input", function () {
+      updateGutter();
+      previewDirty = true;
+    });
+    textarea.addEventListener("scroll", function () {
+      if (gutter) gutter.scrollTop = textarea.scrollTop;
+    });
+    textarea.addEventListener("keydown", function (event) {
+      if (event.key !== "Tab") return;
+      event.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      textarea.setRangeText("  ", start, end, "end");
+      updateGutter();
+      previewDirty = true;
+    });
+  }
+
+  root.querySelectorAll("[data-editor-tab]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      const tab = button.dataset.editorTab;
+      root.querySelectorAll("[data-editor-tab]").forEach(function (b) {
+        const active = b === button;
+        b.classList.toggle("is-active", active);
+        b.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      root.querySelectorAll("[data-editor-pane]").forEach(function (pane) {
+        pane.hidden = pane.dataset.editorPane !== tab;
+      });
+      if (tab === "preview") renderPreview();
+    });
+  });
+
+  if (pathInput) {
+    pathInput.addEventListener("input", function () { previewDirty = true; });
+  }
+
+  if (uploadInput && uploadList) {
+    uploadInput.addEventListener("change", function () {
+      uploadList.innerHTML = "";
+      Array.from(uploadInput.files || []).forEach(function (file) {
+        const item = document.createElement("li");
+        item.textContent = file.name + " · " + file.size + " bytes";
+        uploadList.appendChild(item);
+      });
+    });
+  }
+}());
+</script>
+{{- end }}

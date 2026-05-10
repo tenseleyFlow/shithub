@@ -74,6 +74,11 @@ The complete map (also enforced by the matrix test):
 Read actions on **public** repos are short-circuited to allow before the
 role check — anyone (anonymous or otherwise) can read a public repo.
 
+The in-browser file editor uses `repo:write` for every mutation route
+(`edit`, `new`, `delete`, and `upload`). Its buttons are only rendered
+when the same action allows the current web actor on a named branch, and
+the POST handlers re-run the policy check before committing.
+
 ## Decision precedence
 
 `Can()` evaluates in a fixed order; the first matching rule produces
