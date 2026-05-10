@@ -70,7 +70,14 @@ func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int6
 		return deny(rule, "deletion of this branch is blocked by protection rule"), nil
 	}
 
-	// 2. Force-push gate. Only meaningful when this is an update of an
+	// 2. Pull-request-only gate. Direct web edits and git pushes both
+	// advance refs directly, so rules requiring PRs reject creates and
+	// updates here. Deletions remain governed by prevent_deletion above.
+	if !isDelete && rule.RequirePrForPush {
+		return deny(rule, "direct pushes to this branch must go through a pull request"), nil
+	}
+
+	// 3. Force-push gate. Only meaningful when this is an update of an
 	// existing branch (both sides non-zero). Skipping allows the create
 	// case (oldSHA all-zero) and the delete case (handled above).
 	if !isCreate && !isDelete && rule.PreventForcePush {
@@ -83,7 +90,7 @@ func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int6
 		}
 	}
 
-	// 3. Allowed-pushers gate.
+	// 4. Allowed-pushers gate.
 	if len(rule.AllowedPusherUserIds) > 0 {
 		ok := false
 		for _, id := range rule.AllowedPusherUserIds {
@@ -97,9 +104,9 @@ func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int6
 		}
 	}
 
-	// 4. require_signed_commits, require_pr_for_push, status_checks_required
-	//    are placeholder columns wired by S20's migration; their owning
-	//    sprints flip them on. No-op here.
+	// 5. require_signed_commits and status_checks_required are placeholder
+	//    columns wired by S20's migration; their owning sprints flip them on.
+	//    No-op here.
 
 	return Decision{Allow: true, Reason: "passed all rules", RuleID: rule.ID, Pattern: rule.Pattern}, nil
 }
