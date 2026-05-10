@@ -329,6 +329,114 @@ Other admin surfaces are scoped to later sub-sprints:
 - S41g: `shithubd admin actions cancel <run-id>` flips
   `cancel_requested`.
 
+## Trigger pipeline (S41b)
+
+Three layers between a triggering event and a queued `workflow_run`:
+
+```
+caller (push_process / pulls.Create / pr_jobs.PRSynchronize / dispatch HTTP)
+    │
+    └─► worker.Enqueue(KindWorkflowTrigger, JobPayload)
+            │
+            └─► trigger.Handler picks up:
+                  Discover .shithub/workflows/*.yml at HEAD SHA
+                  Parse each (skip + log on Error diagnostics)
+                  Match each against trigger.Event
+                  Enqueue each match
+                        │
+                        └─► trigger.Enqueue (one tx):
+                              INSERT workflow_runs (ON CONFLICT DO NOTHING)
+                              INSERT workflow_jobs per parsed job
+                              INSERT workflow_steps per parsed step
+                              (commit)
+                              checks.Create per job (post-tx, idempotent
+                                via ExternalID 'workflow_run:<id>:job:<key>')
+```
+
+### Idempotency on the triggering event
+
+The robust pattern, not a UNIQUE on `(repo_id, head_sha)`. Each
+caller constructs a stable `trigger_event_id` from its triggering
+event's identity:
+
+| Caller              | trigger_event_id format                          |
+| ------------------- | ------------------------------------------------ |
+| push_process        | `push:<push_event_id>`                           |
+| pulls.Create        | `pr_opened:<pr_id>:<head_sha>`                   |
+| pr_jobs.PRSynchronize | `pr_synchronize:<pr_id>:<head_sha>`            |
+| dispatch HTTP       | `dispatch:<file>:<sha>:<8-byte-random-hex>`      |
+| schedule sweep (S41b-2) | `schedule:<workflow_id>:<window_start_unix>` |
+
+Migration 0051 adds `workflow_runs.trigger_event_id` (text NOT NULL
+DEFAULT '') with a partial UNIQUE on
+`(repo_id, workflow_file, trigger_event_id) WHERE trigger_event_id <> ''`.
+The trigger handler does `INSERT … ON CONFLICT DO NOTHING` so:
+
+- Worker retries (the same push_process replay) → no duplicate runs.
+- Admin replays via `shithubd admin run-job workflow:trigger ...`
+  → no duplicate runs.
+- Re-runs (the future "Re-run" button) explicitly construct a NEW
+  trigger_event_id (`rerun:<original_run_id>:<request_uuid>`) and
+  chain back via `parent_run_id`. History is preserved, no
+  collision.
+
+Each caller's collision-free namespace is short-lived and
+human-debuggable: a Postgres operator can grep
+`workflow_runs.trigger_event_id` to see exactly which triggering
+event produced a given run.
+
+### Filter evaluation
+
+`trigger.Match(workflow, event)` is a pure function (no I/O, no DB).
+For each event kind:
+
+- **push**: branch vs tag classified from the ref; only the matching
+  filter list applies (a `branches:` filter rejects tag pushes and
+  vice versa). `paths:` (when set) requires at least one changed
+  path to match. Empty filter = match-all.
+- **pull_request**: `types:` defaults to
+  `[opened, synchronize, reopened]` when omitted (GHA parity).
+  `branches:` applies to the **base** ref. `paths:` as for push.
+- **schedule**: requires the workflow to declare the cron expression
+  that fired. The sweep is the source of truth for which cron
+  fires; we just gate on declaration. Avoids interpreting cron
+  semantics in two places.
+- **workflow_dispatch**: matches whenever the workflow declares
+  `on.workflow_dispatch`.
+
+Glob semantics in `branches:`/`tags:`/`paths:`: minimatch subset
+with `*` (single segment), `**` (any), `/**` end-anchor (optional
+trailing path), `**/` start-anchor, and `!exclude` (last-match-wins,
+exclusion-only list implies include-all).
+
+### Collaborator gate
+
+Per the S41b spec's "external-PR support is parked" decision: PR
+triggers (both `opened` and `synchronize`) only fire when the PR's
+author is the repo's owning user. Conservative — drops legitimate
+non-owner collaborators in the org-repo case. Expanding the gate
+requires plumbing `policy.Can` into the worker context, which we
+defer to S41g where the lifecycle work touches that surface anyway.
+
+### Operator surface
+
+- `POST /{owner}/{repo}/actions/workflows/{file}/dispatches`
+  Body: `{"ref": "...", "inputs": {"key": "value"}}` (both optional;
+  ref defaults to the repo's default branch). Returns 204 No Content
+  on success. Synchronous trigger.Enqueue (no discovery — file is
+  named in the URL). Auth: requires repo write.
+
+### What S41b deliberately doesn't do
+
+- Run jobs. Runs sit in `queued` forever — S41c+ runner work.
+- Schedule sweep. Cron-driven triggers split into S41b-2 to keep
+  this PR reviewable; the trigger pipeline accepts schedule events,
+  but no caller produces them yet. S41b-2 adds the sweep + the
+  `robfig/cron/v3` dep + `shithubd-cron.service` wiring.
+- External-PR triggers. Conservative collaborator gate above.
+- `workflow_run` webhook events. S41h adds the webhook event family
+  + atom feed.
+
 ## What S41a deliberately doesn't do
 
 - No trigger pipeline. `domain_events` aren't matched against `on:`
