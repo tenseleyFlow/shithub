@@ -26,6 +26,17 @@ func TestTreeEntryURL_NonNavigableEntries(t *testing.T) {
 	}
 }
 
+func TestCodeRefDisplayShortensSHAs(t *testing.T) {
+	t.Parallel()
+	sha := "cea2569cfb80705f3eaeceadd8968aa031c22813"
+	if got := codeRefDisplay(sha); got != "cea2569" {
+		t.Fatalf("codeRefDisplay(sha) = %q, want cea2569", got)
+	}
+	if got := codeRefDisplay("release/v1"); got != "release/v1" {
+		t.Fatalf("codeRefDisplay(branch) = %q, want release/v1", got)
+	}
+}
+
 func TestSubmoduleRouteURL_GitHubRemotesBecomeLocalTreeLinks(t *testing.T) {
 	t.Parallel()
 	cfg := submoduleRouteConfig{

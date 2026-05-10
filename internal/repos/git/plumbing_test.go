@@ -106,6 +106,50 @@ func TestInitialCommit_BuildSingleCommitWithFiles(t *testing.T) {
 	}
 }
 
+func TestCommitAt_ResolvesBranchesAndSHAs(t *testing.T) {
+	t.Parallel()
+	gitDir := initBare(t)
+
+	when := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	commit, err := repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice Anderson",
+		AuthorEmail: "alice@example.com",
+		Message:     "Initial commit",
+		Branch:      "trunk",
+		When:        when,
+		Files:       []repogit.FileEntry{{Path: "README.md", Body: []byte("# foo\n")}},
+	}.Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	for _, rev := range []string{"trunk", commit} {
+		rev := rev
+		t.Run(rev, func(t *testing.T) {
+			t.Parallel()
+			got, found, err := repogit.CommitAt(context.Background(), gitDir, rev)
+			if err != nil {
+				t.Fatalf("CommitAt(%q): %v", rev, err)
+			}
+			if !found {
+				t.Fatalf("CommitAt(%q) found = false", rev)
+			}
+			if got.OID != commit {
+				t.Fatalf("CommitAt(%q).OID = %q, want %q", rev, got.OID, commit)
+			}
+		})
+	}
+
+	_, found, err := repogit.CommitAt(context.Background(), gitDir, strings.Repeat("0", 40))
+	if err != nil {
+		t.Fatalf("CommitAt(missing): %v", err)
+	}
+	if found {
+		t.Fatal("CommitAt(missing) found = true, want false")
+	}
+}
+
 func TestInitialCommit_RejectsEmptyInputs(t *testing.T) {
 	t.Parallel()
 	for _, ic := range []repogit.InitialCommit{

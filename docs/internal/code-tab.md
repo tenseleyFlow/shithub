@@ -55,6 +55,10 @@ arrives as a single string. Resolution:
 This handles `release/v1.0/beta/CHANGELOG.md` correctly without
 ambiguity. Resolution lives in `internal/repos/git/treeops.go::ResolveRef`.
 
+When the matched ref is a raw 40-character commit SHA, the tree page
+resolves the top commit summary against that SHA and displays the short
+SHA in the ref switcher, matching GitHub's detached-commit tree view.
+
 Path validation rejects `..`, control chars, leading slashes, and
 backslashes — defense in depth on top of git's own validation.
 

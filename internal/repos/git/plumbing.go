@@ -202,16 +202,26 @@ func HasAnyBranch(ctx context.Context, gitDir string) (bool, error) {
 	return strings.TrimSpace(string(out)) != "", nil
 }
 
+// CommitAt returns the commit at rev. ok=false (no error) when the rev
+// doesn't exist or doesn't resolve to a commit.
+func CommitAt(ctx context.Context, gitDir, rev string) (HeadCommit, bool, error) {
+	return commitAt(ctx, gitDir, rev)
+}
+
 // HeadOf returns the head commit on the named branch. ok=false (no error)
 // when the ref doesn't exist — callers can branch on that without
 // distinguishing missing-ref from any other failure.
 func HeadOf(ctx context.Context, gitDir, branch string) (HeadCommit, bool, error) {
+	return commitAt(ctx, gitDir, "refs/heads/"+branch)
+}
+
+func commitAt(ctx context.Context, gitDir, rev string) (HeadCommit, bool, error) {
 	// Single git invocation — %x1f is ASCII unit-separator, an unambiguous
 	// delimiter that won't appear in commit subjects/authors.
 	const sep = "\x1f"
 	format := strings.Join([]string{"%H", "%s", "%an", "%ae", "%ct"}, sep)
 	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
-		"log", "-1", "--format="+format, "refs/heads/"+branch, "--")
+		"log", "-1", "--format="+format, rev, "--")
 	out, err := cmd.Output()
 	if err != nil {
 		// Missing ref → exit 128 with "unknown revision" on stderr; we don't
