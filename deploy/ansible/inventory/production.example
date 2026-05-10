@@ -21,6 +21,15 @@ shithub_db_pool_max=20
 # Postmark sender + DKIM are configured before the deploy.
 shithub_email_from="shithub <noreply@shithub.example>"
 shithub_email_backend=postmark
+# Runtime object storage. DigitalOcean Spaces uses virtual-hosted style
+# addressing and TLS; region remains us-east-1 for SigV4 signing.
+s3_endpoint=nyc3.digitaloceanspaces.com
+s3_region=us-east-1
+s3_bucket=shithub-prod
+s3_access_key_id=REPLACE_ME
+s3_secret_access_key=REPLACE_ME
+s3_use_ssl=true
+s3_force_path_style=false
 # WireGuard peer for the bare-metal monitoring box.
 wg_metal_endpoint=metal.shithub.example:51820
 wg_metal_pubkey=REPLACE_ME
