@@ -39,6 +39,9 @@ type Deps struct {
 	Logger *slog.Logger
 	Render *render.Renderer
 	Pool   *pgxpool.Pool
+	// RepoFS is optional for profile tests, but production passes it so
+	// org overview repo rows can render commit-activity sparklines.
+	RepoFS *storage.RepoFS
 	// ObjectStore is used to stream uploaded avatars. May be nil in tests
 	// or when S3 is not configured — falls back to identicon.
 	ObjectStore storage.ObjectStore

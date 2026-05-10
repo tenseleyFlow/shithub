@@ -74,6 +74,26 @@ func TestGetCommit_ReturnsErrCommitNotFound(t *testing.T) {
 	}
 }
 
+func TestWeeklyCommitActivity_BucketsByUTCWeek(t *testing.T) {
+	t.Parallel()
+	gitDir := buildSeedRepo(t)
+	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	buckets, err := gitops.WeeklyCommitActivity(context.Background(), gitDir, "trunk", 4, now)
+	if err != nil {
+		t.Fatalf("WeeklyCommitActivity: %v", err)
+	}
+	want := []int{0, 1, 0, 0}
+	if len(buckets) != len(want) {
+		t.Fatalf("bucket len = %d, want %d: %v", len(buckets), len(want), buckets)
+	}
+	for i := range want {
+		if buckets[i] != want[i] {
+			t.Fatalf("bucket[%d] = %d, want %d: %v", i, buckets[i], want[i], buckets)
+		}
+	}
+}
+
 func TestBlame_HappyPath(t *testing.T) {
 	t.Parallel()
 	gitDir := buildSeedRepo(t)

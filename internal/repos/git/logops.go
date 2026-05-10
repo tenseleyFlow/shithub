@@ -102,6 +102,57 @@ func CountCommits(ctx context.Context, gitDir, ref string) (int, error) {
 	return count, nil
 }
 
+// WeeklyCommitActivity counts commits by UTC week, oldest bucket first.
+// It is intentionally small and read-only so list surfaces can render
+// GitHub-style activity sparklines without parsing full commit rows.
+func WeeklyCommitActivity(ctx context.Context, gitDir, ref string, bucketCount int, now time.Time) ([]int, error) {
+	if bucketCount <= 0 {
+		bucketCount = 52
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	weekStart := startOfUTCWeek(now.UTC())
+	start := weekStart.AddDate(0, 0, -7*(bucketCount-1))
+	end := weekStart.AddDate(0, 0, 7)
+
+	//nolint:gosec // G204: gitDir is constrained by RepoFS path validation; ref is an argv value.
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "log",
+		"--format=%ct",
+		"--since="+start.Format(time.RFC3339),
+		"--until="+end.Format(time.RFC3339),
+		ref,
+		"--",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, wrapExecErr(err)
+	}
+
+	buckets := make([]int, bucketCount)
+	for _, raw := range strings.Fields(string(out)) {
+		ts, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			continue
+		}
+		when := time.Unix(ts, 0).UTC()
+		idx := int(when.Sub(start) / (7 * 24 * time.Hour))
+		if idx >= 0 && idx < bucketCount {
+			buckets[idx]++
+		}
+	}
+	return buckets, nil
+}
+
+func startOfUTCWeek(t time.Time) time.Time {
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	offset := (int(day.Weekday()) + 6) % 7
+	return day.AddDate(0, 0, -offset)
+}
+
 // parseLogOutput unpacks the format above into Commits. Stable: the
 // recordEnd lets us split records first, then unpack each.
 func parseLogOutput(out []byte) ([]Commit, error) {

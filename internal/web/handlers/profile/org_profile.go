@@ -4,10 +4,13 @@ package profile
 
 import (
 	"context"
+	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,6 +18,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -39,6 +43,8 @@ type orgProfileRepo struct {
 	ForkCount            int64
 	UpdatedAt            time.Time
 	Topics               []string
+	DefaultBranch        string
+	ActivitySparkline    template.HTML
 }
 
 type orgProfilePerson struct {
@@ -89,6 +95,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 	}
 
 	repos := h.orgProfileRepos(ctx, org.ID, viewer)
+	repoRows := h.withOrgRepoActivity(ctx, string(org.Slug), limitOrgRepos(repos, orgHomepageRepoLimit))
 	people := h.orgProfilePeople(ctx, q, org.ID)
 	memberCount := int64(len(people))
 	viewAs := "Public"
@@ -110,7 +117,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"Org":           org,
 		"AvatarURL":     avatarURL,
 		"WebsiteSafe":   safeWebsite(org.Website),
-		"Repos":         limitOrgRepos(repos, orgHomepageRepoLimit),
+		"Repos":         repoRows,
 		"PinnedRepos":   pinnedOrgRepos(repos),
 		"RepoCount":     int64(len(repos)),
 		"MemberCount":   memberCount,
@@ -166,11 +173,72 @@ func (h *Handlers) orgProfileRepos(ctx context.Context, orgID int64, viewer midd
 			UpdatedAt:       row.UpdatedAt.Time,
 			Topics:          h.orgRepoTopics(ctx, row.ID),
 			PrimaryLanguage: pgTextStringOrEmpty(row.PrimaryLanguage),
+			DefaultBranch:   row.DefaultBranch,
 		}
 		item.PrimaryLanguageColor = template.CSS(orgLanguageColor(item.PrimaryLanguage)) //nolint:gosec // CSS value comes from server-side constants.
 		out = append(out, item)
 	}
 	return out
+}
+
+func (h *Handlers) withOrgRepoActivity(ctx context.Context, orgSlug string, repos []orgProfileRepo) []orgProfileRepo {
+	out := append([]orgProfileRepo(nil), repos...)
+	for i := range out {
+		out[i].ActivitySparkline = h.orgRepoActivitySparkline(ctx, orgSlug, out[i])
+	}
+	return out
+}
+
+func (h *Handlers) orgRepoActivitySparkline(ctx context.Context, orgSlug string, repo orgProfileRepo) template.HTML {
+	if h.d.RepoFS == nil {
+		return orgActivitySparklineSVG(nil)
+	}
+	gitDir, err := h.d.RepoFS.RepoPath(orgSlug, repo.Name)
+	if err != nil {
+		return orgActivitySparklineSVG(nil)
+	}
+	buckets, err := repogit.WeeklyCommitActivity(ctx, gitDir, repo.DefaultBranch, 52, time.Now())
+	if err != nil {
+		return orgActivitySparklineSVG(nil)
+	}
+	return orgActivitySparklineSVG(buckets)
+}
+
+func orgActivitySparklineSVG(buckets []int) template.HTML {
+	const (
+		width    = 155.0
+		baseline = 27.0
+		top      = 5.0
+	)
+	if len(buckets) < 2 {
+		buckets = make([]int, 52)
+	}
+	maxCount := 0
+	for _, count := range buckets {
+		if count > maxCount {
+			maxCount = count
+		}
+	}
+
+	step := width / float64(len(buckets)-1)
+	points := make([]string, 0, len(buckets))
+	for i, count := range buckets {
+		y := baseline
+		if maxCount > 0 && count > 0 {
+			ratio := math.Sqrt(float64(count)) / math.Sqrt(float64(maxCount))
+			y = baseline - ratio*(baseline-top)
+		}
+		points = append(points, fmt.Sprintf("%.1f %.1f", float64(i)*step, y))
+	}
+
+	var b strings.Builder
+	b.WriteString(`<svg class="shithub-org-repo-spark" viewBox="0 0 155 32" width="155" height="32" aria-hidden="true" focusable="false">`)
+	b.WriteString(`<path class="shithub-org-repo-spark-base" d="M 0 27 H 155"></path>`)
+	b.WriteString(`<polyline class="shithub-org-repo-spark-line" points="`)
+	b.WriteString(strings.Join(points, " "))
+	b.WriteString(`"></polyline>`)
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String()) //nolint:gosec // SVG contains only server-generated numeric points.
 }
 
 func (h *Handlers) orgRepoTopics(ctx context.Context, repoID int64) []string {

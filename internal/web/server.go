@@ -167,7 +167,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.APIMounter = api.Mount
 
-		profile, err := buildProfileHandlers(pool, objectStore, deps.TemplatesFS, logger)
+		profile, err := buildProfileHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
 			return fmt.Errorf("profile handlers: %w", err)
 		}

@@ -17,11 +17,23 @@ S11 ships the create-a-repo flow end-to-end: a logged-in user clicks **New**, fi
 
 | Route | Method | Handler | Notes |
 |---|---|---|---|
-| `/new` | GET | `repo.newRepoForm` | Auth-required; renders the form. |
+| `/new` | GET | `repo.newRepoForm` | Auth-required; renders the form. Optional `owner=<slug-or-token>` preselects an allowed owner. |
 | `/new` | POST | `repo.newRepoSubmit` | Auth-required; calls `repos.Create`, redirects on success. |
 | `/{owner}/{repo}` | GET | `repo.repoHome` | Two-segment match — does NOT collide with the `/{username}` catch-all. Visibility-aware. |
 
 `/new` is on the reserved-name list so the catch-all profile route can't shadow it. Two-segment `/{owner}/{repo}` doesn't collide with the one-segment `/{username}` route — chi matches by segment count.
+
+## Owner picker
+
+`GET /new` shows the signed-in user's personal namespace plus every
+organization where they are allowed to create repositories. Org owners
+are always eligible; org members are eligible only when
+`allow_member_repo_create` is enabled.
+
+Links from an organization overview use `/new?owner=<org-slug>` so the
+form opens with that organization selected. The handler resolves the
+hint against the already-authorized owner options, so invalid or
+unauthorized hints fall back to the viewer's personal namespace.
 
 ## Creation flow
 
@@ -111,7 +123,6 @@ We refuse to fabricate a commit author. The user's verified primary email + disp
 ## Open follow-ups
 
 - **Fork count + `fork_of_repo_id`** are columns now but unused; S27 lights them up.
-- **Org-owned repos.** `owner_org_id` exists with the XOR check; S31 wires the org side.
 - **Disk size recalc.** `disk_used_bytes` defaults to 0 and stays there; S14 will enqueue a `repo:size_recalc` job after init.
 - **Code listing.** `/{owner}/{repo}` renders the empty placeholder unconditionally; S17 will switch on whether the repo has commits.
 

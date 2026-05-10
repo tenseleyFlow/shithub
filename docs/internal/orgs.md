@@ -47,9 +47,16 @@ The overview data is built in `internal/web/handlers/profile`:
 * pinned repo cards derived from the viewer-visible org repos, sorted
   by stars and recent update time until a first-class pin table ships.
 * recent visible repositories, sorted by `updated_at`, with visibility
-  badges, language, license, star/fork counts, topics, and update time.
+  badges, language, license, star/fork counts, topics, update time,
+  and a read-only weekly commit-activity sparkline for the default branch.
 * right rail aggregates for people, top primary languages, and most
   used topics.
+
+Owner/member viewers who can create repositories see org homepage
+**New** links to `/new?owner=<org-slug>`. The repo-create handler only
+honors that hint after matching it against the viewer's allowed owner
+picker entries, so unauthorized org hints fall back to the viewer's
+personal namespace.
 
 Repo visibility is filtered through `policy.IsVisibleTo` using an actor
 constructed from `middleware.CurrentUser`, including suspension,

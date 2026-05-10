@@ -5,6 +5,7 @@ package web
 import (
 	"io/fs"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -36,17 +37,29 @@ func buildObjectStore(s config.S3StorageConfig, logger *slog.Logger) (storage.Ob
 // buildProfileHandlers constructs the read-only profile handler set.
 // objectStore may be nil — handlers fall back to the identicon path.
 func buildProfileHandlers(
-	pool *pgxpool.Pool, objectStore storage.ObjectStore, tmplFS fs.FS,
+	cfg config.Config, pool *pgxpool.Pool, objectStore storage.ObjectStore, tmplFS fs.FS,
 	logger *slog.Logger,
 ) (*profileh.Handlers, error) {
 	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
 	if err != nil {
 		return nil, err
 	}
+	var repoFS *storage.RepoFS
+	if cfg.Storage.ReposRoot != "" {
+		root, err := filepath.Abs(cfg.Storage.ReposRoot)
+		if err != nil {
+			return nil, err
+		}
+		repoFS, err = storage.NewRepoFS(root)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return profileh.New(profileh.Deps{
 		Logger:      logger,
 		Render:      rr,
 		Pool:        pool,
+		RepoFS:      repoFS,
 		ObjectStore: objectStore,
 	})
 }

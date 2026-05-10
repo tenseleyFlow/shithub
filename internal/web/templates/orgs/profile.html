@@ -110,7 +110,7 @@
                 <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">Updated {{ relativeTime .UpdatedAt }}</time>
               </div>
             </div>
-            <span class="shithub-org-repo-spark" aria-hidden="true"></span>
+            {{ .ActivitySparkline }}
           </li>
         {{ end }}
         </ul>

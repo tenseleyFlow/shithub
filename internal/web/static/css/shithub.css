@@ -1397,7 +1397,7 @@ code {
 }
 .shithub-org-repo-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
+  grid-template-columns: minmax(0, 1fr) 170px;
   gap: 1rem;
   align-items: center;
   padding: 1rem;
@@ -1438,12 +1438,26 @@ code {
 }
 .shithub-org-repo-spark {
   justify-self: end;
-  width: 112px;
-  height: 28px;
-  background:
-    linear-gradient(135deg, transparent 0 66%, color-mix(in srgb, var(--success-fg) 75%, transparent) 67% 69%, transparent 70%),
-    linear-gradient(170deg, transparent 0 48%, color-mix(in srgb, var(--success-fg) 65%, transparent) 49% 51%, transparent 52%);
-  opacity: 0.85;
+  display: block;
+  width: 155px;
+  height: 32px;
+  overflow: visible;
+}
+.shithub-org-repo-spark-base,
+.shithub-org-repo-spark-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.shithub-org-repo-spark-base {
+  stroke: color-mix(in srgb, var(--success-fg) 32%, transparent);
+  stroke-width: 1;
+}
+.shithub-org-repo-spark-line {
+  stroke: var(--success-fg);
+  stroke-width: 1.5;
+  opacity: 0.78;
 }
 .shithub-org-sidebar {
   min-width: 0;
