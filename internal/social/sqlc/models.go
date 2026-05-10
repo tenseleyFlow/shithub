@@ -1266,6 +1266,238 @@ func (ns NullWebhookOwnerKind) Value() (driver.Value, error) {
 	return string(ns.WebhookOwnerKind), nil
 }
 
+type WorkflowJobStatus string
+
+const (
+	WorkflowJobStatusQueued    WorkflowJobStatus = "queued"
+	WorkflowJobStatusRunning   WorkflowJobStatus = "running"
+	WorkflowJobStatusCompleted WorkflowJobStatus = "completed"
+	WorkflowJobStatusCancelled WorkflowJobStatus = "cancelled"
+	WorkflowJobStatusSkipped   WorkflowJobStatus = "skipped"
+)
+
+func (e *WorkflowJobStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowJobStatus(s)
+	case string:
+		*e = WorkflowJobStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowJobStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowJobStatus struct {
+	WorkflowJobStatus WorkflowJobStatus
+	Valid             bool // Valid is true if WorkflowJobStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowJobStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowJobStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowJobStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowJobStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowJobStatus), nil
+}
+
+type WorkflowRunEvent string
+
+const (
+	WorkflowRunEventPush             WorkflowRunEvent = "push"
+	WorkflowRunEventPullRequest      WorkflowRunEvent = "pull_request"
+	WorkflowRunEventSchedule         WorkflowRunEvent = "schedule"
+	WorkflowRunEventWorkflowDispatch WorkflowRunEvent = "workflow_dispatch"
+)
+
+func (e *WorkflowRunEvent) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowRunEvent(s)
+	case string:
+		*e = WorkflowRunEvent(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowRunEvent: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowRunEvent struct {
+	WorkflowRunEvent WorkflowRunEvent
+	Valid            bool // Valid is true if WorkflowRunEvent is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowRunEvent) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowRunEvent, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowRunEvent.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowRunEvent) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowRunEvent), nil
+}
+
+type WorkflowRunStatus string
+
+const (
+	WorkflowRunStatusQueued    WorkflowRunStatus = "queued"
+	WorkflowRunStatusRunning   WorkflowRunStatus = "running"
+	WorkflowRunStatusCompleted WorkflowRunStatus = "completed"
+	WorkflowRunStatusCancelled WorkflowRunStatus = "cancelled"
+)
+
+func (e *WorkflowRunStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowRunStatus(s)
+	case string:
+		*e = WorkflowRunStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowRunStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowRunStatus struct {
+	WorkflowRunStatus WorkflowRunStatus
+	Valid             bool // Valid is true if WorkflowRunStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowRunStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowRunStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowRunStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowRunStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowRunStatus), nil
+}
+
+type WorkflowRunnerStatus string
+
+const (
+	WorkflowRunnerStatusIdle    WorkflowRunnerStatus = "idle"
+	WorkflowRunnerStatusBusy    WorkflowRunnerStatus = "busy"
+	WorkflowRunnerStatusOffline WorkflowRunnerStatus = "offline"
+)
+
+func (e *WorkflowRunnerStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowRunnerStatus(s)
+	case string:
+		*e = WorkflowRunnerStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowRunnerStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowRunnerStatus struct {
+	WorkflowRunnerStatus WorkflowRunnerStatus
+	Valid                bool // Valid is true if WorkflowRunnerStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowRunnerStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowRunnerStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowRunnerStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowRunnerStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowRunnerStatus), nil
+}
+
+type WorkflowStepStatus string
+
+const (
+	WorkflowStepStatusQueued    WorkflowStepStatus = "queued"
+	WorkflowStepStatusRunning   WorkflowStepStatus = "running"
+	WorkflowStepStatusCompleted WorkflowStepStatus = "completed"
+	WorkflowStepStatusCancelled WorkflowStepStatus = "cancelled"
+	WorkflowStepStatusSkipped   WorkflowStepStatus = "skipped"
+)
+
+func (e *WorkflowStepStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowStepStatus(s)
+	case string:
+		*e = WorkflowStepStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowStepStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowStepStatus struct {
+	WorkflowStepStatus WorkflowStepStatus
+	Valid              bool // Valid is true if WorkflowStepStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowStepStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowStepStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowStepStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowStepStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowStepStatus), nil
+}
+
+type ActionsVariable struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 type AuthAuditLog struct {
 	ID         int64
 	ActorID    pgtype.Int8
@@ -1784,6 +2016,15 @@ type ReposSearch struct {
 	Tsv    interface{}
 }
 
+type RunnerToken struct {
+	ID        int64
+	RunnerID  int64
+	TokenHash []byte
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
 type SignupIpThrottle struct {
 	Cidr            netip.Addr
 	Hits            int32
@@ -1999,5 +2240,118 @@ type WebhookEventsPending struct {
 	RepoID    int64
 	EventKind string
 	Payload   []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type WorkflowArtifact struct {
+	ID        int64
+	RunID     int64
+	Name      string
+	ObjectKey string
+	ByteCount int64
+	ExpiresAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
+type WorkflowJob struct {
+	ID              int64
+	RunID           int64
+	JobIndex        int32
+	JobKey          string
+	JobName         string
+	RunsOn          string
+	RunnerID        pgtype.Int8
+	NeedsJobs       []string
+	IfExpr          string
+	TimeoutMinutes  int32
+	Permissions     []byte
+	JobEnv          []byte
+	Status          WorkflowJobStatus
+	Conclusion      NullCheckConclusion
+	CancelRequested bool
+	StartedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+	Version         int32
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type WorkflowRun struct {
+	ID               int64
+	RepoID           int64
+	RunIndex         int64
+	WorkflowFile     string
+	WorkflowName     string
+	HeadSha          string
+	HeadRef          string
+	Event            WorkflowRunEvent
+	EventPayload     []byte
+	ActorUserID      pgtype.Int8
+	ParentRunID      pgtype.Int8
+	ConcurrencyGroup string
+	Status           WorkflowRunStatus
+	Conclusion       NullCheckConclusion
+	Pinned           bool
+	NeedApproval     bool
+	ApprovedByUserID pgtype.Int8
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	Version          int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type WorkflowRunner struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type WorkflowSecret struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type WorkflowStep struct {
+	ID               int64
+	JobID            int64
+	StepIndex        int32
+	StepID           string
+	StepName         string
+	IfExpr           string
+	RunCommand       string
+	UsesAlias        string
+	WorkingDirectory string
+	StepEnv          []byte
+	ContinueOnError  bool
+	Status           WorkflowStepStatus
+	Conclusion       NullCheckConclusion
+	LogObjectKey     pgtype.Text
+	LogByteCount     int64
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	Version          int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type WorkflowStepLogChunk struct {
+	ID        int64
+	StepID    int64
+	Seq       int32
+	Chunk     []byte
 	CreatedAt pgtype.Timestamptz
 }
