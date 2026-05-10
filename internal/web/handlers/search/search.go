@@ -302,7 +302,7 @@ func (h *Handlers) quick(w http.ResponseWriter, r *http.Request) {
 		"Issues":     issues,
 		"Users":      users,
 	}
-	if err := h.d.Render.RenderFragment(w, "search/_quick_dropdown", data); err != nil {
+	if err := h.d.Render.RenderFragment(w, "search/quick_dropdown", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "quick render", "error", err)
 	}
 }
