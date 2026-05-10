@@ -30,6 +30,7 @@ import (
 	infralog "github.com/tenseleyFlow/shithub/internal/infra/log"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/tracing"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	"github.com/tenseleyFlow/shithub/internal/version"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -221,7 +222,11 @@ func Run(ctx context.Context, opts Options) error {
 		deps.RepoSocialMounter = repoH.MountSocial
 		deps.RepoForkMounter = repoH.MountFork
 
-		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger)
+		// Search gets its own Limiter wired around /search +
+		// /search/quick (audit 2026-05-10 H4). Independent instance
+		// from auth's RateLimiter; both share DB-backed counter
+		// state, segregated by Policy.Scope.
+		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger, ratelimit.New(pool))
 		if err != nil {
 			return fmt.Errorf("search handlers: %w", err)
 		}
