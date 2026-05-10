@@ -90,9 +90,11 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 
 	repos := h.orgProfileRepos(ctx, org.ID, viewer)
 	people := h.orgProfilePeople(ctx, q, org.ID)
-	memberCount := h.orgMemberCount(ctx, org.ID)
+	memberCount := int64(len(people))
 	viewAs := "Public"
-	if isOwner {
+	if !viewer.IsAnonymous() && viewer.IsSiteAdmin {
+		viewAs = "Site admin"
+	} else if isOwner {
 		viewAs = "Owner"
 	} else if isMember {
 		viewAs = "Member"
@@ -119,7 +121,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"IsMember":      isMember,
 		"CanCreateRepo": isOwner || (isMember && org.AllowMemberRepoCreate),
 	}
-	if isMember {
+	if !viewer.IsAnonymous() {
 		w.Header().Set("Cache-Control", "no-cache, private")
 	} else {
 		w.Header().Set("Cache-Control", "max-age=120")
@@ -195,12 +197,6 @@ func (h *Handlers) orgProfilePeople(ctx context.Context, q *orgsdb.Queries, orgI
 		})
 	}
 	return out
-}
-
-func (h *Handlers) orgMemberCount(ctx context.Context, orgID int64) int64 {
-	var n int64
-	_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM org_members WHERE org_id = $1`, orgID).Scan(&n)
-	return n
 }
 
 func limitOrgRepos(repos []orgProfileRepo, limit int) []orgProfileRepo {
