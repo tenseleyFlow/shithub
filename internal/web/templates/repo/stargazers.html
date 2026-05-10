@@ -2,27 +2,33 @@
 <section class="shithub-repo-page">
   {{ template "repo-header" . }}
   <div class="shithub-social">
-  <header class="shithub-code-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Stargazers
-    </h1>
-    <p class="shithub-meta">{{ .Total }} {{ if eq .Total 1 }}stargazer{{ else }}stargazers{{ end }}</p>
+  <header class="shithub-social-subhead">
+    <h1>Stargazers</h1>
   </header>
+  <nav class="shithub-social-tabnav" aria-label="Stargazers">
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/stargazers" class="is-active" aria-current="page">All <span class="shithub-tab-count">{{ .Total }}</span></a>
+    <span class="is-disabled">You know</span>
+  </nav>
 
   {{ if .Stargazers }}
   <ul class="shithub-social-list">
     {{ range .Stargazers }}
     <li>
-      <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
-      <small>@{{ .Username }}</small>
-      <small><time datetime="{{ .StarredAt.Time.Format "2006-01-02T15:04:05Z" }}">starred {{ relativeTime .StarredAt.Time }}</time></small>
+      <a href="/{{ .Username }}" class="shithub-social-avatar"><img src="/avatars/{{ .Username }}" alt="" width="40" height="40"></a>
+      <div class="shithub-social-person">
+        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
+        <span>@{{ .Username }}</span>
+      </div>
+      <time class="shithub-social-time" datetime="{{ .StarredAt.Time.Format "2006-01-02T15:04:05Z" }}">Starred {{ relativeTime .StarredAt.Time }}</time>
     </li>
     {{ end }}
   </ul>
   {{ else }}
-  <p class="shithub-empty">No stargazers yet.</p>
+  <div class="shithub-social-blank">
+    {{ octicon "star" }}
+    <h2>Be the first to star this repository</h2>
+    <p>Stars help people track repositories and show appreciation for useful work.</p>
+  </div>
   {{ end }}
 
   {{ if or .HasPrev .HasNext }}
