@@ -16,6 +16,7 @@ type Querier interface {
 	// external_id). NULL external_id never matches via this query.
 	GetCheckRunByExternalID(ctx context.Context, db DBTX, arg GetCheckRunByExternalIDParams) (CheckRun, error)
 	GetCheckSuite(ctx context.Context, db DBTX, id int64) (CheckSuite, error)
+	GetCheckSuiteForRepo(ctx context.Context, db DBTX, arg GetCheckSuiteForRepoParams) (GetCheckSuiteForRepoRow, error)
 	// Required-check evaluator: most recent run with the given name on the
 	// specified head_sha.
 	GetLatestCheckRunByName(ctx context.Context, db DBTX, arg GetLatestCheckRunByNameParams) (CheckRun, error)
@@ -33,6 +34,7 @@ type Querier interface {
 	// the previous head to conclusion='stale'.
 	ListCheckSuiteIDsForHead(ctx context.Context, db DBTX, arg ListCheckSuiteIDsForHeadParams) ([]int64, error)
 	ListCheckSuitesForCommit(ctx context.Context, db DBTX, arg ListCheckSuitesForCommitParams) ([]CheckSuite, error)
+	ListCheckSuitesForRepo(ctx context.Context, db DBTX, arg ListCheckSuitesForRepoParams) ([]ListCheckSuitesForRepoRow, error)
 	MarkCheckSuiteStale(ctx context.Context, db DBTX, id int64) error
 	UpdateCheckRun(ctx context.Context, db DBTX, arg UpdateCheckRunParams) error
 	// Persists the rollup result computed in Go (suite_rollup.go).

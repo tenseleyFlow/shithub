@@ -1,0 +1,118 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-actions-run-page">
+  <header class="shithub-actions-run-head">
+    <div>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-actions-back">← {{ .Run.AppSlug }}</a>
+      <h1>
+        <span class="shithub-actions-state shithub-actions-state-{{ .Run.StateClass }}">{{ octicon .Run.StateIcon }}</span>
+        {{ .Run.Title }} <span>#{{ .Run.ID }}</span>
+      </h1>
+      <p>
+        {{ if .Run.PullNumber }}
+          {{ if .Run.PullAuthorUsername }}<a href="/{{ .Run.PullAuthorUsername }}">{{ .Run.PullAuthorUsername }}</a>{{ end }}
+          opened <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .Run.PullNumber }}">#{{ .Run.PullNumber }}</a>
+          {{ if .Run.HeadRef }}from <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Run.HeadRef }}">{{ .Run.HeadRef }}</a>{{ end }}
+          {{ if .Run.BaseRef }}into <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Run.BaseRef }}">{{ .Run.BaseRef }}</a>{{ end }}
+        {{ else }}
+          Check suite for <a href="/{{ .Owner }}/{{ .Repo.Name }}/commit/{{ .Run.HeadSha }}"><code>{{ .Run.HeadShaShort }}</code></a>
+        {{ end }}
+      </p>
+    </div>
+    <div class="shithub-actions-run-head-actions">
+      <span class="shithub-button shithub-actions-run-status shithub-actions-state-{{ .Run.StateClass }}">{{ octicon .Run.StateIcon }} {{ .Run.StateText }}</span>
+      <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ if .Run.HeadRef }}{{ .Run.HeadRef }}{{ else }}{{ .Run.HeadSha }}{{ end }}">{{ octicon "code" }} Code</a>
+    </div>
+  </header>
+
+  <div class="shithub-actions-run-layout">
+    <aside class="shithub-actions-sidebar shithub-actions-run-sidebar" aria-label="Run navigation">
+      <a href="#summary" class="shithub-actions-nav-item is-active" aria-current="page">{{ octicon "home" }} <span>Summary</span></a>
+      <div class="shithub-actions-sidebar-section">
+        <h2>All jobs</h2>
+        {{ range .Run.Runs }}
+          <a href="#job-{{ .ID }}" class="shithub-actions-nav-item">
+            <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+            <span>{{ .Name }}</span>
+          </a>
+        {{ end }}
+      </div>
+      <div class="shithub-actions-sidebar-section">
+        <h2>Run details</h2>
+        <span class="shithub-actions-nav-item">{{ octicon "pulse" }} <span>Usage</span></span>
+        <span class="shithub-actions-nav-item">{{ octicon "file" }} <span>Workflow file</span></span>
+      </div>
+    </aside>
+
+    <div class="shithub-actions-run-main">
+      <section id="summary" class="shithub-actions-summary-strip">
+        <div>
+          <span>Triggered via</span>
+          <strong>{{ if .Run.PullNumber }}pull request{{ else }}checks API{{ end }}</strong>
+        </div>
+        <div>
+          <span>Status</span>
+          <strong class="shithub-actions-state-{{ .Run.StateClass }}">{{ .Run.StateText }}</strong>
+        </div>
+        <div>
+          <span>Total duration</span>
+          <strong>{{ .Run.Duration }}</strong>
+        </div>
+        <div>
+          <span>Artifacts</span>
+          <strong>—</strong>
+        </div>
+      </section>
+
+      <section class="shithub-actions-workflow-card">
+        <header>
+          <div>
+            <h2><a href="/{{ .Owner }}/{{ .Repo.Name }}/actions">{{ .Run.AppSlug }}.yml</a></h2>
+            <p>on: {{ if .Run.PullNumber }}pull_request{{ else }}check_run{{ end }}</p>
+          </div>
+        </header>
+        <div class="shithub-actions-workflow-graph">
+          <div class="shithub-actions-workflow-stage">
+            {{ range .Run.Runs }}
+              <a id="job-{{ .ID }}" href="{{ if .DetailsURL }}{{ .DetailsURL }}{{ else }}#job-{{ .ID }}{{ end }}" class="shithub-actions-job-card">
+                <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+                <strong>{{ .Name }}</strong>
+                <span>{{ .Duration }}</span>
+              </a>
+            {{ end }}
+          </div>
+          <div class="shithub-actions-graph-controls" aria-hidden="true">
+            <button type="button" class="shithub-icon-button">{{ octicon "screen-full" }}</button>
+            <button type="button" class="shithub-icon-button">{{ octicon "dash" }}</button>
+            <button type="button" class="shithub-icon-button">{{ octicon "plus" }}</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="shithub-actions-annotations">
+        <header>
+          <h2>Annotations</h2>
+          <p>{{ .Run.AnnotationCount }} warning{{ if ne .Run.AnnotationCount 1 }}s{{ end }}</p>
+        </header>
+        {{ if .Run.AnnotationCount }}
+          <div class="shithub-actions-annotation-list">
+            {{ range .Run.Runs }}
+              {{ if .SummaryHTML }}
+                <article class="shithub-actions-annotation">
+                  {{ octicon "alert" }}
+                  <div>
+                    <strong>{{ .Name }}</strong>
+                    <div class="markdown-body">{{ .SummaryHTML }}</div>
+                  </div>
+                </article>
+              {{ end }}
+            {{ end }}
+          </div>
+        {{ else }}
+          <p class="shithub-muted">No annotations were reported for this run.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

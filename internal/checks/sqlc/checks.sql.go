@@ -163,6 +163,75 @@ func (q *Queries) GetCheckSuite(ctx context.Context, db DBTX, id int64) (CheckSu
 	return i, err
 }
 
+const getCheckSuiteForRepo = `-- name: GetCheckSuiteForRepo :one
+SELECT
+    cs.id, cs.repo_id, cs.head_sha, cs.app_slug, cs.status, cs.conclusion, cs.created_at, cs.updated_at,
+    COALESCE(pr_meta.number, 0)::bigint AS pull_number,
+    COALESCE(pr_meta.title, '')::text AS pull_title,
+    COALESCE(pr_meta.author_username, '')::text AS pull_author_username,
+    COALESCE(pr_meta.head_ref, '')::text AS head_ref,
+    COALESCE(pr_meta.base_ref, '')::text AS base_ref
+FROM check_suites cs
+LEFT JOIN LATERAL (
+    SELECT
+        i.number,
+        i.title,
+        COALESCE(u.username, '') AS author_username,
+        pr.head_ref,
+        pr.base_ref
+    FROM pull_requests pr
+    JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
+    LEFT JOIN users u ON u.id = i.author_user_id
+    WHERE i.repo_id = cs.repo_id
+      AND pr.head_oid = cs.head_sha
+    ORDER BY i.updated_at DESC, i.number DESC
+    LIMIT 1
+) pr_meta ON true
+WHERE cs.repo_id = $1 AND cs.id = $2
+`
+
+type GetCheckSuiteForRepoParams struct {
+	RepoID int64
+	ID     int64
+}
+
+type GetCheckSuiteForRepoRow struct {
+	ID                 int64
+	RepoID             int64
+	HeadSha            string
+	AppSlug            string
+	Status             CheckStatus
+	Conclusion         NullCheckConclusion
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	PullNumber         int64
+	PullTitle          string
+	PullAuthorUsername string
+	HeadRef            string
+	BaseRef            string
+}
+
+func (q *Queries) GetCheckSuiteForRepo(ctx context.Context, db DBTX, arg GetCheckSuiteForRepoParams) (GetCheckSuiteForRepoRow, error) {
+	row := db.QueryRow(ctx, getCheckSuiteForRepo, arg.RepoID, arg.ID)
+	var i GetCheckSuiteForRepoRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.HeadSha,
+		&i.AppSlug,
+		&i.Status,
+		&i.Conclusion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PullNumber,
+		&i.PullTitle,
+		&i.PullAuthorUsername,
+		&i.HeadRef,
+		&i.BaseRef,
+	)
+	return i, err
+}
+
 const getLatestCheckRunByName = `-- name: GetLatestCheckRunByName :one
 SELECT id, suite_id, repo_id, head_sha, name, status, conclusion, started_at, completed_at, details_url, output, external_id, created_at, updated_at FROM check_runs
 WHERE repo_id = $1 AND head_sha = $2 AND name = $3
@@ -387,6 +456,91 @@ func (q *Queries) ListCheckSuitesForCommit(ctx context.Context, db DBTX, arg Lis
 			&i.Conclusion,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCheckSuitesForRepo = `-- name: ListCheckSuitesForRepo :many
+SELECT
+    cs.id, cs.repo_id, cs.head_sha, cs.app_slug, cs.status, cs.conclusion, cs.created_at, cs.updated_at,
+    COALESCE(pr_meta.number, 0)::bigint AS pull_number,
+    COALESCE(pr_meta.title, '')::text AS pull_title,
+    COALESCE(pr_meta.author_username, '')::text AS pull_author_username,
+    COALESCE(pr_meta.head_ref, '')::text AS head_ref,
+    COALESCE(pr_meta.base_ref, '')::text AS base_ref
+FROM check_suites cs
+LEFT JOIN LATERAL (
+    SELECT
+        i.number,
+        i.title,
+        COALESCE(u.username, '') AS author_username,
+        pr.head_ref,
+        pr.base_ref
+    FROM pull_requests pr
+    JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
+    LEFT JOIN users u ON u.id = i.author_user_id
+    WHERE i.repo_id = cs.repo_id
+      AND pr.head_oid = cs.head_sha
+    ORDER BY i.updated_at DESC, i.number DESC
+    LIMIT 1
+) pr_meta ON true
+WHERE cs.repo_id = $1
+ORDER BY cs.updated_at DESC, cs.id DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListCheckSuitesForRepoParams struct {
+	RepoID int64
+	Limit  int32
+	Offset int32
+}
+
+type ListCheckSuitesForRepoRow struct {
+	ID                 int64
+	RepoID             int64
+	HeadSha            string
+	AppSlug            string
+	Status             CheckStatus
+	Conclusion         NullCheckConclusion
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	PullNumber         int64
+	PullTitle          string
+	PullAuthorUsername string
+	HeadRef            string
+	BaseRef            string
+}
+
+func (q *Queries) ListCheckSuitesForRepo(ctx context.Context, db DBTX, arg ListCheckSuitesForRepoParams) ([]ListCheckSuitesForRepoRow, error) {
+	rows, err := db.Query(ctx, listCheckSuitesForRepo, arg.RepoID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCheckSuitesForRepoRow{}
+	for rows.Next() {
+		var i ListCheckSuitesForRepoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.HeadSha,
+			&i.AppSlug,
+			&i.Status,
+			&i.Conclusion,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.PullNumber,
+			&i.PullTitle,
+			&i.PullAuthorUsername,
+			&i.HeadRef,
+			&i.BaseRef,
 		); err != nil {
 			return nil, err
 		}
