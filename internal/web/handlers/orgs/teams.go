@@ -259,17 +259,14 @@ func (h *Handlers) canSeeTeam(r *http.Request, team orgsdb.Team, viewer middlewa
 	if owner, _ := orgs.IsOwner(r.Context(), h.deps(), team.OrgID, viewer.ID); owner {
 		return true
 	}
-	// Team member?
-	_, err := orgsdb.New().ListTeamMembers(r.Context(), h.d.Pool, team.ID)
+	// Team member? (SR2 M2 + M3: was an inline EXISTS preceded by a
+	// wasted ListTeamMembers call whose result was dropped with `_`.)
+	member, err := orgsdb.New().IsTeamMember(r.Context(), h.d.Pool, orgsdb.IsTeamMemberParams{
+		TeamID: team.ID, UserID: viewer.ID,
+	})
 	if err != nil {
 		return false
 	}
-	var member bool
-	_ = h.d.Pool.QueryRow(
-		r.Context(),
-		`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
-		team.ID, viewer.ID,
-	).Scan(&member)
 	return member
 }
 
@@ -292,12 +289,10 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 		if viewer.IsAnonymous() {
 			continue
 		}
-		var member bool
-		err := h.d.Pool.QueryRow(
-			r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
-			t.ID, viewer.ID,
-		).Scan(&member)
+		// SR2 M2: was an inline EXISTS query.
+		member, err := orgsdb.New().IsTeamMember(r.Context(), h.d.Pool, orgsdb.IsTeamMemberParams{
+			TeamID: t.ID, UserID: viewer.ID,
+		})
 		if err == nil && member {
 			out = append(out, t)
 		}

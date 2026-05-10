@@ -75,7 +75,11 @@ func (h *Handlers) Mount(r chi.Router) {
 	// Repos
 	r.Get("/admin/repos", h.reposList)
 	r.Get("/admin/repos/{id}", h.repoView)
+	// Archive / Unarchive split into distinct routes (SR2 H8):
+	// pre-split, /archive was a toggle, so re-clicking on an already-
+	// archived repo silently un-archived with a misleading audit row.
 	r.Post("/admin/repos/{id}/archive", h.repoForceArchive)
+	r.Post("/admin/repos/{id}/unarchive", h.repoForceUnarchive)
 	r.Post("/admin/repos/{id}/delete", h.repoForceDelete)
 
 	// Jobs

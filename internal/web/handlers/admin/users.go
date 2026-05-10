@@ -113,13 +113,11 @@ func (h *Handlers) userUnsuspend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsuspend failed", http.StatusInternalServerError)
 		return
 	}
-	// SuspendUser zeros the reason but leaves suspended_at; clear it
-	// directly so the user reads as active again. (The unsuspend path
-	// is admin-only so we lean on a one-off SQL exec rather than
-	// extending the users sqlc surface.)
-	if _, err := h.d.Pool.Exec(r.Context(),
-		`UPDATE users SET suspended_at = NULL, suspended_reason = NULL WHERE id = $1`,
-		user.ID); err != nil {
+	// SR2 M2: was inline SQL with the comment "lean on a one-off SQL
+	// exec rather than extending the users sqlc surface." That comment
+	// stopped being true the moment we needed to test it; usersdb has
+	// the UnsuspendUser query now.
+	if err := h.uq.UnsuspendUser(r.Context(), h.d.Pool, user.ID); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "admin: unsuspend clear", "error", err)
 	}
 	h.recordAdminAction(r, audit.ActionAdminUserUnsuspended, audit.TargetUser, user.ID, nil)

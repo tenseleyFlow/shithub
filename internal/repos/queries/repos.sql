@@ -270,3 +270,12 @@ FROM repos r
 JOIN users u ON u.id = r.owner_user_id
 WHERE r.fork_of_repo_id = $1
   AND r.deleted_at IS NULL;
+
+
+-- name: AdminForceDeleteRepo :exec
+-- Bypasses the soft-delete grace window (admin only — S34): set
+-- deleted_at to a year ago so the next lifecycle sweep hard-deletes
+-- without waiting. Replaces the inline UPDATE in admin/repos.go
+-- (SR2 M2).
+UPDATE repos SET deleted_at = now() - interval '1 year' WHERE id = $1;
+
