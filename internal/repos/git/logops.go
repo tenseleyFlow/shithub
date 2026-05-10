@@ -88,6 +88,20 @@ func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
 	return parseLogOutput(out)
 }
 
+// CountCommits returns the number of commits reachable from ref.
+func CountCommits(ctx context.Context, gitDir, ref string) (int, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "rev-list", "--count", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, wrapExecErr(err)
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, fmt.Errorf("git rev-list count: %w", err)
+	}
+	return count, nil
+}
+
 // parseLogOutput unpacks the format above into Commits. Stable: the
 // recordEnd lets us split records first, then unpack each.
 func parseLogOutput(out []byte) ([]Commit, error) {

@@ -1000,9 +1000,49 @@ code {
 .shithub-code-crumbs { font-size: 1rem; }
 .shithub-code-crumbs a { color: var(--fg-default); }
 .shithub-code-sep { color: var(--fg-muted); margin: 0 0.25rem; }
-.shithub-code-actions { display: flex; gap: 0.5rem; align-items: center; }
+.shithub-code-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: min(100%, 420px);
+  justify-content: flex-end;
+  flex: 1 1 360px;
+}
 .shithub-code-primary-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .shithub-code-count { color: var(--fg-muted); display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+.shithub-go-to-file {
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: min(100%, 220px);
+  height: 32px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-go-to-file:hover {
+  border-color: var(--accent-fg);
+  text-decoration: none;
+}
+.shithub-go-to-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-go-to-file kbd {
+  min-width: 1.25rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font: 0.75rem ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  text-align: center;
+}
 
 .shithub-ref-switcher { position: relative; }
 .shithub-ref-switcher > summary {
@@ -1040,7 +1080,8 @@ code {
 .shithub-ref-panel strong { display: block; margin: 0.4rem 0 0.2rem; font-size: 0.75rem; color: var(--fg-muted); text-transform: uppercase; }
 
 .shithub-clone-dropdown { position: relative; }
-.shithub-clone-dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+.shithub-clone-dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; height: 32px; white-space: nowrap; }
+.shithub-clone-dropdown > summary svg:last-child { width: 12px; height: 12px; }
 .shithub-clone-dropdown > summary::-webkit-details-marker { display: none; }
 .shithub-clone-panel {
   position: absolute;
@@ -1286,24 +1327,87 @@ button.shithub-repo-action {
   gap: 0.5rem;
   min-width: 0;
 }
-.shithub-tree-commit-message span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shithub-tree-commit-message .shithub-avatar-sm {
+  margin-right: 0;
+}
+.shithub-tree-commit-subject,
+.shithub-tree-row-commit a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-tree-commit-subject {
+  color: var(--fg-default);
+  min-width: 0;
+}
 .shithub-tree-commit-meta { color: var(--fg-muted); flex: 0 0 auto; }
+.shithub-tree-commit-meta a {
+  color: var(--fg-muted);
+}
+.shithub-tree-commit-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
 .shithub-tree {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
   background: var(--canvas-default);
+  table-layout: fixed;
 }
 .shithub-tree td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border-default);
+  vertical-align: middle;
 }
 .shithub-tree tr:last-child td { border-bottom: 0; }
-.shithub-tree-icon { width: 24px; color: var(--fg-muted); }
+.shithub-tree-icon { width: 36px; color: var(--fg-muted); padding-right: 0; }
 .shithub-tree-icon svg { display: block; }
+.shithub-tree-name {
+  width: 34%;
+  font-weight: 600;
+}
 .shithub-tree-name a { color: var(--fg-default); }
-.shithub-tree-size { width: 100px; text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.shithub-tree-row-commit {
+  width: auto;
+  color: var(--fg-muted);
+}
+.shithub-tree-row-commit a {
+  display: block;
+  color: var(--fg-muted);
+}
+.shithub-tree-row-time {
+  width: 120px;
+  color: var(--fg-muted);
+  text-align: right;
+  white-space: nowrap;
+}
 .shithub-tree-symlink, .shithub-tree-submodule { color: var(--fg-muted); font-style: italic; font-size: 0.8rem; }
+@media (max-width: 760px) {
+  .shithub-code-actions {
+    flex: 1 1 100%;
+    justify-content: stretch;
+  }
+  .shithub-go-to-file {
+    flex: 1 1 auto;
+  }
+  .shithub-tree-commit {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .shithub-tree-commit-meta {
+    flex-wrap: wrap;
+  }
+  .shithub-tree-name {
+    width: auto;
+  }
+  .shithub-tree-row-commit,
+  .shithub-tree-row-time {
+    display: none;
+  }
+}
 
 /* Code-view layout: 2/3 main column + 1/3 About sidebar, mirroring
    the GitHub repo home layout. Single-column on narrow viewports so
