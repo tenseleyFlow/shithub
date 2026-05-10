@@ -192,21 +192,35 @@ func FriendlyMessageFor(err error, requestID string) string {
 	return "shithub: internal error (request_id=" + requestID + ")"
 }
 
-// buildSSHEnv assembles the SHITHUB_* env vars that S14's hooks read.
-// The shape matches the HTTP path so receive-pack hooks see identical
-// vars regardless of transport.
+// buildSSHEnv assembles the env we exec git-{upload,receive}-pack
+// with. The shape matches the HTTP path so receive-pack hooks see
+// identical vars regardless of transport.
+//
+// We INHERIT os.Environ() rather than building from scratch — the
+// receive-pack process forks the pre-receive / post-receive hooks
+// (`shithubd hook ...`), which call config.Load() and need the
+// SHITHUB_* config keys (DATABASE_URL, REPOS_ROOT, etc.) sourced
+// from /etc/shithub/web.env via the git-shell-commands wrapper.
+//
+// Pre-fix this function returned a minimal explicit list, so the
+// hook's loadHookCtx exited with "DB URL not set" the moment a
+// push tried to commit anything. The HTTPS-git path didn't see
+// this because shithubd-web's systemd unit sources web.env and
+// receive-pack inherits it directly.
+//
+// Push-event metadata (SHITHUB_USER_ID/REPO_ID/...) is appended
+// AFTER inherited env so the explicit values win on collision.
 func buildSSHEnv(user usersdb.User, ownerName string, repo reposdb.Repo, remoteIP, requestID string) []string {
-	return []string{
-		"SHITHUB_USER_ID=" + strconv.FormatInt(user.ID, 10),
-		"SHITHUB_USERNAME=" + user.Username,
-		"SHITHUB_REPO_ID=" + strconv.FormatInt(repo.ID, 10),
-		"SHITHUB_REPO_FULL_NAME=" + ownerName + "/" + repo.Name,
+	env := os.Environ()
+	env = append(
+		env,
+		"SHITHUB_USER_ID="+strconv.FormatInt(user.ID, 10),
+		"SHITHUB_USERNAME="+user.Username,
+		"SHITHUB_REPO_ID="+strconv.FormatInt(repo.ID, 10),
+		"SHITHUB_REPO_FULL_NAME="+ownerName+"/"+repo.Name,
 		"SHITHUB_PROTOCOL=ssh",
-		"SHITHUB_REMOTE_IP=" + remoteIP,
-		"SHITHUB_REQUEST_ID=" + requestID,
-		// PATH must be inherited so the exec'd git binary can find its
-		// sub-helpers (git-pack-objects, git-index-pack, etc.).
-		"PATH=" + os.Getenv("PATH"),
+		"SHITHUB_REMOTE_IP="+remoteIP,
+		"SHITHUB_REQUEST_ID="+requestID,
 		// safe.directory: when sshd runs ssh-shell as the `git` user
 		// but the bare repo dir is owned by `shithub`, git's
 		// dubious-ownership check rejects the invocation. We're
@@ -217,7 +231,8 @@ func buildSSHEnv(user usersdb.User, ownerName string, repo reposdb.Repo, remoteI
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=safe.directory",
 		"GIT_CONFIG_VALUE_0=*",
-	}
+	)
+	return env
 }
 
 // newRequestID returns a 16-byte hex token suitable for log
