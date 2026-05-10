@@ -534,9 +534,7 @@ func enqueuePushProcess(ctx context.Context, pool *pgxpool.Pool, repoID, actorUs
 	}{PushEventID: event.ID}, worker.EnqueueOptions{}); err != nil {
 		return 0, err
 	}
-	if err := worker.Notify(ctx, tx); err != nil {
-		// Workers also poll. Keep the commit path live if NOTIFY fails.
-	}
+	_ = worker.Notify(ctx, tx) // Workers also poll; keep the commit path live if NOTIFY fails.
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("webedit: commit push event tx: %w", err)
 	}

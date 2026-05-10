@@ -214,6 +214,10 @@ func (h *Handlers) codeUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, webedit.MaxUploadBytes)
+	// MaxBytesReader above caps the full multipart request body before
+	// ParseMultipartForm can spill parts to memory/disk.
+	//
+	//nolint:gosec // G120: request body is capped by MaxBytesReader.
 	if err := r.ParseMultipartForm(webedit.MaxUploadBytes); err != nil {
 		data := h.editorData(r, cc, "upload", "", "")
 		data.Error = "The uploaded files are too large or could not be read."
