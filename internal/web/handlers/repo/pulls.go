@@ -8,8 +8,10 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -18,16 +20,59 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
-	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
+
+type pullPageStats struct {
+	Comments         int
+	Commits          int
+	Files            int
+	Checks           int
+	SuccessfulChecks int
+	PendingChecks    int
+	FailedChecks     int
+	CheckState       string
+}
+
+type pullCheckRunView struct {
+	R           checksdb.CheckRun
+	SummaryHTML template.HTML
+	AppSlug     string
+}
+
+type pullCheckSuiteView struct {
+	Suite checksdb.CheckSuite
+	Runs  []pullCheckRunView
+}
+
+type pullFileView struct {
+	F      pullsdb.PullRequestFile
+	Anchor string
+	Dir    string
+	Name   string
+}
+
+type pullCommitView struct {
+	C           pullsdb.PullRequestCommit
+	Author      identity.Resolved
+	ShortSHA    string
+	When        time.Time
+	HasWhen     bool
+	AuthorLabel string
+}
+
+type pullCommitGroup struct {
+	Title   string
+	Commits []pullCommitView
+}
 
 // MountPulls registers /{owner}/{repo}/pulls* routes. Reads are
 // public (subject to policy.Can(ActionPullRead)); writes require auth.
@@ -279,7 +324,8 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 			mergedByName = u.Username
 		}
 	}
-	stats := h.pullTabStats(r.Context(), pr.IID)
+	checkGroups := h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid)
+	stats := h.pullStats(r.Context(), pr, checkGroups)
 	data := map[string]any{
 		"Title":        "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
 		"Owner":        owner.Username,
@@ -287,9 +333,14 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		"PR":           pr,
 		"AuthorName":   authorName,
 		"MergedByName": mergedByName,
-		"PullStats":    stats,
 		"Tab":          tab,
+		"PullStats":    stats,
+		"CheckGroups":  checkGroups,
 		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"RepoActions":  h.repoActions(r, row.ID),
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav": "pulls",
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
@@ -310,20 +361,68 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	_ = h.d.Render.RenderPage(w, r, "repo/pull_view", data)
 }
 
-type pullTabStats struct {
-	Commits int
-	Files   int
+func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRepoAndNumberRow, checkGroups []pullCheckSuiteView) pullPageStats {
+	stats := pullPageStats{CheckState: "none"}
+	if comments, err := h.iq.ListIssueComments(ctx, h.d.Pool, pr.IID); err == nil {
+		stats.Comments = len(comments)
+	}
+	if commits, err := h.pq.ListPullRequestCommits(ctx, h.d.Pool, pr.IID); err == nil {
+		stats.Commits = len(commits)
+	}
+	if files, err := h.pq.ListPullRequestFiles(ctx, h.d.Pool, pr.IID); err == nil {
+		stats.Files = len(files)
+	}
+	for _, group := range checkGroups {
+		for _, run := range group.Runs {
+			stats.Checks++
+			if run.R.Conclusion.Valid {
+				switch run.R.Conclusion.CheckConclusion {
+				case checksdb.CheckConclusionSuccess, checksdb.CheckConclusionSkipped, checksdb.CheckConclusionNeutral:
+					stats.SuccessfulChecks++
+				case checksdb.CheckConclusionFailure, checksdb.CheckConclusionCancelled, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired, checksdb.CheckConclusionStale:
+					stats.FailedChecks++
+				default:
+					stats.PendingChecks++
+				}
+				continue
+			}
+			stats.PendingChecks++
+		}
+	}
+	switch {
+	case stats.Checks == 0:
+		stats.CheckState = "none"
+	case stats.FailedChecks > 0:
+		stats.CheckState = "failure"
+	case stats.PendingChecks > 0:
+		stats.CheckState = "pending"
+	default:
+		stats.CheckState = "success"
+	}
+	return stats
 }
 
-func (h *Handlers) pullTabStats(ctx context.Context, prID int64) pullTabStats {
-	var out pullTabStats
-	if commits, err := h.pq.ListPullRequestCommits(ctx, h.d.Pool, prID); err == nil {
-		out.Commits = len(commits)
+func (h *Handlers) pullCheckGroups(ctx context.Context, repoID int64, headOID string) []pullCheckSuiteView {
+	groups := []pullCheckSuiteView{}
+	if headOID == "" {
+		return groups
 	}
-	if files, err := h.pq.ListPullRequestFiles(ctx, h.d.Pool, prID); err == nil {
-		out.Files = len(files)
+	suites, _ := h.cq.ListCheckSuitesForCommit(ctx, h.d.Pool, checksdb.ListCheckSuitesForCommitParams{
+		RepoID: repoID, HeadSha: headOID,
+	})
+	for _, suite := range suites {
+		runs, _ := h.cq.ListCheckRunsBySuite(ctx, h.d.Pool, suite.ID)
+		rs := make([]pullCheckRunView, 0, len(runs))
+		for _, run := range runs {
+			rs = append(rs, pullCheckRunView{
+				R:           run,
+				SummaryHTML: renderCheckSummary(run.Output),
+				AppSlug:     suite.AppSlug,
+			})
+		}
+		groups = append(groups, pullCheckSuiteView{Suite: suite, Runs: rs})
 	}
-	return out
+	return groups
 }
 
 // pullView renders the Conversation tab.
@@ -339,21 +438,27 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	}
 	comments, _ := h.iq.ListIssueComments(r.Context(), h.d.Pool, pr.IID)
 	events, _ := h.iq.ListIssueEvents(r.Context(), h.d.Pool, pr.IID)
+	labels, _ := h.iq.ListLabelsOnIssue(r.Context(), h.d.Pool, pr.IID)
+	assignees, _ := h.iq.ListIssueAssignees(r.Context(), h.d.Pool, pr.IID)
+	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
+	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
 
-	type commentRow struct {
-		C          issuesdb.IssueComment
-		AuthorName string
-	}
-	cs := make([]commentRow, 0, len(comments))
-	for _, c := range comments {
-		cr := commentRow{C: c}
-		if c.AuthorUserID.Valid {
-			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, c.AuthorUserID.Int64); err == nil {
-				cr.AuthorName = u.Username
-			}
+	usernames := map[int64]string{}
+	usernameFor := func(id int64) string {
+		if id == 0 {
+			return ""
 		}
-		cs = append(cs, cr)
+		if name, ok := usernames[id]; ok {
+			return name
+		}
+		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, id); err == nil {
+			usernames[id] = u.Username
+			return u.Username
+		}
+		return ""
 	}
+	timeline := h.issueTimelineRows(comments, events, allLabels, milestones, usernameFor)
+
 	// Reviews + reviewer requests for the Conversation sidebar.
 	reviews, _ := h.pq.ListPRReviews(r.Context(), h.d.Pool, pr.IID)
 	type reviewRow struct {
@@ -385,11 +490,53 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		reqs = append(reqs, rr)
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	pdeps := policy.Deps{Pool: h.d.Pool}
+	repoRef := policy.NewRepoRefFromRepo(row)
+	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
+	canCommentThroughLock := policy.HasRoleAtLeast(r.Context(), pdeps, actor, repoRef, policy.RoleTriage)
+	viewerAssigned := false
+	participants := map[string]struct{}{}
+	if pr.IAuthorUserID.Valid {
+		if name := usernameFor(pr.IAuthorUserID.Int64); name != "" {
+			participants[name] = struct{}{}
+		}
+	}
+	for _, c := range comments {
+		if c.AuthorUserID.Valid {
+			if name := usernameFor(c.AuthorUserID.Int64); name != "" {
+				participants[name] = struct{}{}
+			}
+		}
+	}
+	for _, a := range assignees {
+		participants[a.Username] = struct{}{}
+		if a.UserID == viewer.ID {
+			viewerAssigned = true
+		}
+	}
+	participantNames := make([]string, 0, len(participants))
+	for name := range participants {
+		participantNames = append(participantNames, name)
+	}
+	sort.Strings(participantNames)
 	h.renderPullPage(w, r, "conversation", map[string]any{
-		"Comments":       cs,
-		"Events":         events,
-		"Reviews":        rs,
-		"ReviewRequests": reqs,
+		"Timeline":              timeline,
+		"Events":                events,
+		"Labels":                labels,
+		"Assignees":             assignees,
+		"Participants":          participantNames,
+		"ViewerAssigned":        viewerAssigned,
+		"AllLabels":             allLabels,
+		"Milestones":            milestones,
+		"Reviews":               rs,
+		"ReviewRequests":        reqs,
+		"CanComment":            canCommentAction && (!pr.ILocked || canCommentThroughLock),
+		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
+		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
 	})
 }
 
@@ -404,9 +551,57 @@ func (h *Handlers) pullCommits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commits, _ := pullsdb.New().ListPullRequestCommits(r.Context(), h.d.Pool, pr.IID)
+	commitGroups := pullCommitGroups(r.Context(), commits, identity.New(h.d.Pool))
 	h.renderPullPage(w, r, "commits", map[string]any{
-		"Commits": commits,
+		"CommitGroups": commitGroups,
 	})
+}
+
+func pullCommitGroups(ctx context.Context, commits []pullsdb.PullRequestCommit, resolver *identity.Resolver) []pullCommitGroup {
+	groups := make([]pullCommitGroup, 0, 2)
+	for _, commit := range commits {
+		when, hasWhen := pullCommitWhen(commit)
+		title := "Commits"
+		if hasWhen {
+			title = "Commits on " + when.Format("January 2, 2006")
+		}
+		if len(groups) == 0 || groups[len(groups)-1].Title != title {
+			groups = append(groups, pullCommitGroup{Title: title})
+		}
+		author := identity.Resolved{}
+		if resolver != nil {
+			author = resolver.Resolve(ctx, commit.AuthorEmail)
+		}
+		authorLabel := commit.AuthorName
+		if author.User && author.DisplayName != "" {
+			authorLabel = author.DisplayName
+		} else if author.User {
+			authorLabel = author.Username
+		}
+		shortSHA := commit.Sha
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		groups[len(groups)-1].Commits = append(groups[len(groups)-1].Commits, pullCommitView{
+			C:           commit,
+			Author:      author,
+			ShortSHA:    shortSHA,
+			When:        when,
+			HasWhen:     hasWhen,
+			AuthorLabel: authorLabel,
+		})
+	}
+	return groups
+}
+
+func pullCommitWhen(commit pullsdb.PullRequestCommit) (time.Time, bool) {
+	if commit.CommittedAt.Valid {
+		return commit.CommittedAt.Time, true
+	}
+	if commit.AuthoredAt.Valid {
+		return commit.AuthoredAt.Time, true
+	}
+	return time.Time{}, false
 }
 
 // pullFiles renders the Files Changed tab. Uses the existing diff
@@ -426,6 +621,17 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	files, _ := pullsdb.New().ListPullRequestFiles(r.Context(), h.d.Pool, pr.IID)
+	fileViews := make([]pullFileView, 0, len(files))
+	for _, f := range files {
+		label := pullFileLabel(f)
+		dir, name := splitPullFilePath(f.Path)
+		fileViews = append(fileViews, pullFileView{
+			F:      f,
+			Anchor: pullFileAnchor(label),
+			Dir:    dir,
+			Name:   name,
+		})
+	}
 	diffHTML := ""
 	if pr.BaseOid != "" && pr.HeadOid != "" {
 		patch, perr := compareSourceMergeBase(r, gitDir, pr.BaseOid, pr.HeadOid)
@@ -460,10 +666,39 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 		threadsByFile[f.Path] = out
 	}
 	h.renderPullPage(w, r, "files", map[string]any{
-		"Files":         files,
+		"Files":         fileViews,
 		"DiffHTML":      diffHTML,
 		"ThreadsByFile": threadsByFile,
 	})
+}
+
+func pullFileLabel(f pullsdb.PullRequestFile) string {
+	if f.OldPath.Valid && f.OldPath.String != "" && f.OldPath.String != f.Path {
+		return f.OldPath.String + " → " + f.Path
+	}
+	return f.Path
+}
+
+func splitPullFilePath(p string) (string, string) {
+	idx := strings.LastIndex(p, "/")
+	if idx < 0 {
+		return "", p
+	}
+	return p[:idx], p[idx+1:]
+}
+
+func pullFileAnchor(p string) string {
+	var b strings.Builder
+	b.WriteString("diff-")
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 // pullChecks renders the Checks tab. Loads suites + runs grouped by
@@ -478,35 +713,8 @@ func (h *Handlers) pullChecks(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	type runRow struct {
-		R           checksdb.CheckRun
-		SummaryHTML template.HTML
-		AppSlug     string
-	}
-	type suiteGroup struct {
-		Suite checksdb.CheckSuite
-		Runs  []runRow
-	}
-	groups := []suiteGroup{}
-	if pr.HeadOid != "" {
-		suites, _ := h.cq.ListCheckSuitesForCommit(r.Context(), h.d.Pool, checksdb.ListCheckSuitesForCommitParams{
-			RepoID: row.ID, HeadSha: pr.HeadOid,
-		})
-		for _, s := range suites {
-			runs, _ := h.cq.ListCheckRunsBySuite(r.Context(), h.d.Pool, s.ID)
-			rs := make([]runRow, 0, len(runs))
-			for _, run := range runs {
-				rs = append(rs, runRow{
-					R:           run,
-					SummaryHTML: renderCheckSummary(run.Output),
-					AppSlug:     s.AppSlug,
-				})
-			}
-			groups = append(groups, suiteGroup{Suite: s, Runs: rs})
-		}
-	}
 	h.renderPullPage(w, r, "checks", map[string]any{
-		"CheckGroups": groups,
+		"CheckGroups": h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid),
 	})
 }
 

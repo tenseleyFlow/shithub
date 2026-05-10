@@ -97,7 +97,8 @@ func Diff(d *parse.Diff, opts Options) string {
 func RenderFile(f *parse.File, opts Options) string {
 	opts = defaults(opts)
 	var buf bytes.Buffer
-	buf.WriteString(`<section class="shithub-diff-file">`)
+	label, _ := fileLabelAction(f)
+	fmt.Fprintf(&buf, `<section id="%s" class="shithub-diff-file">`, html.EscapeString(diffFileAnchor(label)))
 	buf.WriteString(renderHeader(f))
 	switch {
 	case f.IsBinary:
@@ -114,6 +115,14 @@ func RenderFile(f *parse.File, opts Options) string {
 }
 
 func renderHeader(f *parse.File) string {
+	label, action := fileLabelAction(f)
+	return fmt.Sprintf(
+		`<header class="shithub-diff-file-head"><code>%s</code><span class="shithub-diff-file-action">%s</span></header>`,
+		html.EscapeString(label), html.EscapeString(action),
+	)
+}
+
+func fileLabelAction(f *parse.File) (string, string) {
 	var label, action string
 	switch {
 	case f.IsRename:
@@ -135,10 +144,21 @@ func renderHeader(f *parse.File) string {
 		}
 		action = "modified"
 	}
-	return fmt.Sprintf(
-		`<header class="shithub-diff-file-head"><code>%s</code><span class="shithub-diff-file-action">%s</span></header>`,
-		html.EscapeString(label), html.EscapeString(action),
-	)
+	return label, action
+}
+
+func diffFileAnchor(p string) string {
+	var b strings.Builder
+	b.WriteString("diff-")
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func renderBinary(f *parse.File) string {
