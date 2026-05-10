@@ -5,11 +5,19 @@ package workflow
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
+
+// identRe matches the canonical identifier shape we accept for job
+// keys and step IDs. Mirrors the regex in migrations 0043
+// (workflow_jobs_job_key_format) and 0044 (workflow_steps_step_id_format)
+// so a parse-time pass surfaces the same error the DB CHECK would —
+// just earlier and with a path the author can navigate.
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // ErrTooLarge is returned when the workflow file exceeds
 // MaxWorkflowFileBytes. The cap is enforced before YAML decode so a
@@ -457,6 +465,10 @@ func parseJobs(n *yaml.Node) ([]Job, []Diagnostic) {
 func parseJob(key string, n *yaml.Node) (Job, []Diagnostic) {
 	var diags []Diagnostic
 	j := Job{Key: key, TimeoutMinutes: 360}
+	if !identRe.MatchString(key) {
+		diags = append(diags, errAt("jobs."+key,
+			"job key must match ^[A-Za-z_][A-Za-z0-9_-]*$ (got "+strconv.Quote(key)+")"))
+	}
 	if n.Kind != yaml.MappingNode {
 		diags = append(diags, errAt("jobs."+key, "job spec must be a mapping"))
 		return j, diags
@@ -540,6 +552,10 @@ func parseStep(idx int, n *yaml.Node, jobPath string) (Step, []Diagnostic) {
 		switch k.Value {
 		case "id":
 			s.ID = v.Value
+			if s.ID != "" && !identRe.MatchString(s.ID) {
+				diags = append(diags, errAt(path,
+					"step id must match ^[A-Za-z_][A-Za-z0-9_-]*$ (got "+strconv.Quote(s.ID)+")"))
+			}
 		case "name":
 			s.Name = v.Value
 		case "if":
