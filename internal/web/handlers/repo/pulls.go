@@ -386,20 +386,17 @@ func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRep
 				}
 				continue
 			}
-			if run.R.Status == checksdb.CheckStatusCompleted {
-				stats.PendingChecks++
-			} else {
-				stats.PendingChecks++
-			}
+			stats.PendingChecks++
 		}
 	}
-	if stats.Checks == 0 {
+	switch {
+	case stats.Checks == 0:
 		stats.CheckState = "none"
-	} else if stats.FailedChecks > 0 {
+	case stats.FailedChecks > 0:
 		stats.CheckState = "failure"
-	} else if stats.PendingChecks > 0 {
+	case stats.PendingChecks > 0:
 		stats.CheckState = "pending"
-	} else {
+	default:
 		stats.CheckState = "success"
 	}
 	return stats
