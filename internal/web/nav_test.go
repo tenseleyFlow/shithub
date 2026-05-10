@@ -61,7 +61,7 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 				`href="/tenseleyFlow/shithub/issues"`,
 				`Pull requests`,
 			},
-			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `aria-label="Organization"`, `Copilot`},
+			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `aria-label="Organization"`, `Copilot`, `MCP registry`, `href="/mcp"`},
 		},
 		{
 			name: "org",
@@ -84,7 +84,7 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 				`href="/tenseleyFlow/teams"`,
 				`href="/tenseleyFlow/people"`,
 			},
-			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `Copilot`},
+			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `Copilot`, `MCP registry`, `href="/mcp"`},
 		},
 		{
 			name: "global",
@@ -100,7 +100,7 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 				`href="/explore"`,
 				`href="/about"`,
 			},
-			wantNot: []string{`shithub-nav-local`, `aria-label="Repository"`, `aria-label="Organization"`, `Copilot`},
+			wantNot: []string{`shithub-nav-local`, `aria-label="Repository"`, `aria-label="Organization"`, `Copilot`, `MCP registry`, `href="/mcp"`},
 		},
 	}
 	for _, tc := range cases {
