@@ -346,7 +346,7 @@ func parseDispatchInputs(n *yaml.Node, diags *[]Diagnostic) []DispatchInput {
 			case "default":
 				input.Default = v.Value
 			case "required":
-				input.Required = v.Value == "true"
+				input.Required = parseBool(v, "on.workflow_dispatch.inputs."+nameNode.Value+".required", diags)
 			case "options":
 				input.Options = scalarList(v, "on.workflow_dispatch.inputs."+nameNode.Value+".options", diags)
 			default:
@@ -426,7 +426,7 @@ func parseConcurrency(n *yaml.Node, path string) (Concurrency, []Diagnostic) {
 			case "group":
 				c.Group = V(v.Value)
 			case "cancel-in-progress":
-				c.CancelInProgress = v.Value == "true"
+				c.CancelInProgress = parseBool(v, path+".cancel-in-progress", &diags)
 			default:
 				diags = append(diags, errAt(path+"."+k.Value, "unknown concurrency key (allowed: group, cancel-in-progress)"))
 			}
@@ -559,7 +559,7 @@ func parseStep(idx int, n *yaml.Node, jobPath string) (Step, []Diagnostic) {
 			s.Env = env
 			diags = append(diags, ds...)
 		case "continue-on-error":
-			s.ContinueOnError = v.Value == "true"
+			s.ContinueOnError = parseBool(v, path, &diags)
 		default:
 			diags = append(diags, errAt(path, "unknown step key (allowed: id, name, if, run, uses, with, working-directory, env, continue-on-error)"))
 		}
@@ -602,6 +602,30 @@ func scalarList(n *yaml.Node, path string, diags *[]Diagnostic) []string {
 
 func errAt(path, msg string) Diagnostic {
 	return Diagnostic{Path: path, Message: msg, Severity: Error}
+}
+
+// parseBool resolves a YAML scalar to a bool. Pre-L1 the parser used
+// `n.Value == "true"` which silently mishandled `True`/`TRUE` (both
+// valid YAML 1.2 booleans) by falling to false. strconv.ParseBool
+// accepts the canonical bool literals — true, True, TRUE, false,
+// False, FALSE — plus 1/0 and t/f.
+//
+// On a non-bool value we surface a parse-time diagnostic and return
+// false. Authors get a precise error instead of a silently wrong
+// flag setting (which used to manifest as `cancel-in-progress: True`
+// quietly evaluating false and breaking the concurrency-cancel
+// behavior).
+func parseBool(n *yaml.Node, path string, diags *[]Diagnostic) bool {
+	if n == nil || n.Kind != yaml.ScalarNode {
+		*diags = append(*diags, errAt(path, "must be a scalar boolean"))
+		return false
+	}
+	b, err := strconv.ParseBool(n.Value)
+	if err != nil {
+		*diags = append(*diags, errAt(path, "boolean value must be true or false (got "+strconv.Quote(n.Value)+")"))
+		return false
+	}
+	return b
 }
 
 // triggerSetIsNonEmpty reports whether at least one trigger is declared.
