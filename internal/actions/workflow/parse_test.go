@@ -212,14 +212,6 @@ func BenchmarkParseTypical50Lines(b *testing.B) {
 	if err != nil {
 		b.Fatalf("read fixture: %v", err)
 	}
-	// Pad the source ~4× so we're well over 50 lines.
-	padded := append(src, src...)
-	padded = append(padded, src...)
-	padded = append(padded, src...)
-	// Strip duplicate top-level keys: keep just the first chunk for
-	// validity. The bench doesn't care about validity, only parse cost.
-	// Use the original src for validity, padded for length signal.
-	_ = padded
 	b.SetBytes(int64(len(src)))
 	for i := 0; i < b.N; i++ {
 		_, _, err := workflow.Parse(src)

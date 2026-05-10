@@ -156,7 +156,7 @@ func TestEval_AllowedFunctions(t *testing.T) {
 		{`contains('hello', 'WORLD')`, false},
 		{`startsWith('refs/heads/release/v1', 'refs/heads/release/')`, true},
 		{`endsWith('foo.tar.gz', '.gz')`, true},
-		{`success()`, true},      // JobStatus zero-value: not failed, not cancelled
+		{`success()`, true}, // JobStatus zero-value: not failed, not cancelled
 		{`failure()`, false},
 		{`always()`, true},
 		{`cancelled()`, false},
