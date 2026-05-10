@@ -23,6 +23,24 @@ SELECT id, name, labels, capacity, status, last_heartbeat_at, created_at
 FROM workflow_runners
 ORDER BY name ASC;
 
+-- name: LockRunnerByID :one
+SELECT id, name, labels, capacity, status, last_heartbeat_at,
+       registered_by_user_id, created_at, updated_at
+FROM workflow_runners
+WHERE id = $1
+FOR UPDATE;
+
+-- name: HeartbeatRunner :one
+UPDATE workflow_runners
+SET labels = $2,
+    capacity = $3,
+    last_heartbeat_at = now(),
+    status = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          registered_by_user_id, created_at, updated_at;
+
 -- name: TouchRunnerHeartbeat :exec
 UPDATE workflow_runners
 SET last_heartbeat_at = now(),

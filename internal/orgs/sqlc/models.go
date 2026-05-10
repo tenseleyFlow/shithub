@@ -2025,6 +2025,16 @@ type ReposSearch struct {
 	Tsv    interface{}
 }
 
+type RunnerJwtUsed struct {
+	Jti       string
+	RunnerID  int64
+	JobID     int64
+	RunID     int64
+	RepoID    int64
+	ExpiresAt pgtype.Timestamptz
+	UsedAt    pgtype.Timestamptz
+}
+
 type RunnerToken struct {
 	ID        int64
 	RunnerID  int64

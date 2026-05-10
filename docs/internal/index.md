@@ -55,6 +55,8 @@ site.
   [pr-review.md](./pr-review.md)
 - [branch-protection.md](./branch-protection.md),
   [checks.md](./checks.md)
+- [actions-schema.md](./actions-schema.md),
+  [actions-runner-api.md](./actions-runner-api.md)
 - [orgs.md](./orgs.md), [teams.md](./teams.md)
 - [notifications.md](./notifications.md)
 - [search.md](./search.md), [markdown.md](./markdown.md)

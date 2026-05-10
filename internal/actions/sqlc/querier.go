@@ -13,7 +13,11 @@ import (
 type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
+	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
+	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
+	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
 	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
+	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
 	DeleteOrgVariable(ctx context.Context, db DBTX, arg DeleteOrgVariableParams) error
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
@@ -30,6 +34,7 @@ type Querier interface {
 	// target.
 	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
+	GetFirstStepForJob(ctx context.Context, db DBTX, jobID int64) (WorkflowStep, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)
@@ -40,6 +45,7 @@ type Querier interface {
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
+	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertArtifact(ctx context.Context, db DBTX, arg InsertArtifactParams) (WorkflowArtifact, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -57,15 +63,20 @@ type Querier interface {
 	ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error)
 	ListRepoSecrets(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsRow, error)
 	ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error)
+	ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error)
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
+	LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
 	// Companion to EnqueueWorkflowRun for the conflict path: when an
 	// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
 	// handler uses this to find the existing row so it can surface a
 	// stable RunID. Matches the partial-unique index from migration 0051.
 	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	MarkRunnerJWTUsed(ctx context.Context, db DBTX, arg MarkRunnerJWTUsedParams) (RunnerJwtUsed, error)
+	MarkWorkflowRunRunning(ctx context.Context, db DBTX, id int64) error
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
 	// race here will catch a unique-violation and the caller retries.
@@ -74,6 +85,7 @@ type Querier interface {
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
+	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
 	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later

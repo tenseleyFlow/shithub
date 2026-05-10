@@ -12,7 +12,7 @@ without churning under them.
 
 ## SQL schema
 
-Migrations 0042–0049, in dependency order:
+Migrations 0042–0052, in dependency order:
 
 | #     | Table                       | Purpose                                                       |
 | ----- | --------------------------- | ------------------------------------------------------------- |
@@ -24,6 +24,9 @@ Migrations 0042–0049, in dependency order:
 | 0047  | `workflow_step_log_chunks`  | Hot-path append log buffer (concatenated to blob on finalize) |
 | 0048  | `workflow_artifacts`        | Per-run artifact metadata (90-day default expiry)             |
 | 0049  | `actions_variables`         | Non-secret per-repo/org config (Forgejo parity)               |
+| 0050  | `workflow_steps.step_with`  | Parsed `with:` inputs for magic `uses:` aliases               |
+| 0051  | `workflow_runs.trigger_event_id` | Trigger idempotency for retries/admin replays            |
+| 0052  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -56,6 +59,11 @@ later schema diff:
 - **`actions_variables`** — non-secret, plaintext, scoped exactly
   like secrets (per-repo or per-org, never both on the same row).
   Forgejo has the same split; we mirror it for parity.
+- **`runner_jwt_used`** — primary-keyed by JWT `jti`. Job endpoints
+  insert into this table during auth; zero inserted rows means replay
+  and the API returns 401. JWTs are HMAC-SHA256 and use an HKDF
+  subkey derived from `auth.totp_key_b64` with label
+  `actions-runner-jwt-v1`.
 
 The `version` and `run_index` patterns are the two pieces I'd point
 out to a future maintainer first. Both are cheap to add now and

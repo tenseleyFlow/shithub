@@ -12,12 +12,16 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -25,8 +29,12 @@ import (
 // Deps is the wiring the API handlers need. Constructed by the web
 // package and injected at registration time.
 type Deps struct {
-	Pool      *pgxpool.Pool
-	Debouncer *pat.Debouncer
+	Pool        *pgxpool.Pool
+	Debouncer   *pat.Debouncer
+	Logger      *slog.Logger
+	ObjectStore storage.ObjectStore
+	RunnerJWT   *runnerjwt.Signer
+	RateLimiter *ratelimit.Limiter
 }
 
 // Handlers is the registered API handler set. Construct with New.
@@ -43,6 +51,9 @@ func New(d Deps) (*Handlers, error) {
 	if d.Debouncer == nil {
 		d.Debouncer = pat.NewDebouncer(0)
 	}
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
 	return &Handlers{d: d, q: usersdb.New()}, nil
 }
 
@@ -57,9 +68,17 @@ func New(d Deps) (*Handlers, error) {
 // a 50 MB JSON blob to weaponize the parser.
 const apiMaxBodyBytes = 256 * 1024
 
+// runnerAPIMaxBodyBytes must fit a 512 KiB raw log chunk after base64
+// expansion plus JSON framing.
+const runnerAPIMaxBodyBytes = 768 * 1024
+
 // Mount registers /api/v1/* on r. Caller is responsible for putting r
 // in a CSRF-exempt group.
 func (h *Handlers) Mount(r chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.MaxBodySize(runnerAPIMaxBodyBytes))
+		h.mountRunners(r)
+	})
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.MaxBodySize(apiMaxBodyBytes))
 		r.Use(middleware.PATAuthMiddleware(middleware.PATConfig{
