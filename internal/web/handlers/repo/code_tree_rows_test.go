@@ -124,3 +124,63 @@ func TestSubmoduleRouteURL_UnsupportedRemotesStayPlain(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubSubmoduleFetchURL_CanonicalizesSupportedRemotes(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		remote string
+		want   string
+	}{
+		{
+			name:   "scp",
+			remote: "git@github.com:FortranGoingOnForty/afs-as.git",
+			want:   "https://github.com/FortranGoingOnForty/afs-as.git",
+		},
+		{
+			name:   "https",
+			remote: "https://github.com/tenseleyFlow/bencch.git",
+			want:   "https://github.com/tenseleyFlow/bencch.git",
+		},
+		{
+			name:   "ssh url",
+			remote: "ssh://git@github.com/FortranGoingOnForty/afs-ld.git",
+			want:   "https://github.com/FortranGoingOnForty/afs-ld.git",
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := githubSubmoduleFetchURL(tt.remote)
+			if !ok {
+				t.Fatalf("githubSubmoduleFetchURL(%q) ok = false", tt.remote)
+			}
+			if got != tt.want {
+				t.Fatalf("githubSubmoduleFetchURL(%q) = %q, want %q", tt.remote, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitHubSubmoduleFetchURL_RejectsUnsupportedRemotes(t *testing.T) {
+	t.Parallel()
+
+	for _, remote := range []string{
+		"https://shithub.sh/tenseleyFlow/bencch.git",
+		"../afs-ld.git",
+		"https://example.com/octo/lib.git",
+		"https://github.com/octo/nested/lib.git",
+		"https://github.com/%2F/lib.git",
+		"javascript:alert(1)",
+		"",
+	} {
+		remote := remote
+		t.Run(remote, func(t *testing.T) {
+			t.Parallel()
+			if got, ok := githubSubmoduleFetchURL(remote); ok || got != "" {
+				t.Fatalf("githubSubmoduleFetchURL(%q) = %q, %v; want empty, false", remote, got, ok)
+			}
+		})
+	}
+}
