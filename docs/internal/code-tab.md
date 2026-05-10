@@ -73,17 +73,17 @@ on the rendered ref, the Code tab parses it once, matches entries by
 submodule path, and links GitHub or configured shithub clone remotes to
 the local `/{owner}/{repo}/tree/{gitlink-oid}` route when the target
 repo has that commit. If the target repo exists locally but does not
-have the pinned commit object, and `.gitmodules` points at GitHub, the
-handler performs a bounded, non-forced fetch of heads/tags from that
-GitHub remote, re-checks the object, and then links to the exact
-detached-commit tree when it arrived. Successful backfills update the
-target repo's default-branch OID when that ref moved, then enqueue the
-same code-index and size-recalc maintenance used after pushes. Diverged
-local refs are never force-updated; on fetch failure or still-missing
-objects, the row links to the target repo's default Code tab so
-independently-created mirrors don't produce dead links. Unknown,
-external, absent, or malformed remotes stay as plain `name @ shortsha`
-rows.
+have the pinned commit object, and `.gitmodules` points at GitHub or a
+relative sibling repo, the handler performs a bounded, non-forced fetch
+of heads/tags from the corresponding GitHub remote, re-checks the
+object, and then links to the exact detached-commit tree when it
+arrived. Successful backfills update the target repo's default-branch
+OID when that ref moved, then enqueue the same code-index and
+size-recalc maintenance used after pushes. Diverged local refs are
+never force-updated; on fetch failure or still-missing objects, the row
+links to the target repo's default Code tab so independently-created
+mirrors don't produce dead links. Unknown, external, absent, or
+malformed remotes stay as plain `name @ shortsha` rows.
 
 The S17 ship excludes the htmx-driven "last commit per entry" column
 that the spec describes — an extra round-trip we can add later without
