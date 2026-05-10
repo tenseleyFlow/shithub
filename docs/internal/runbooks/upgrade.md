@@ -6,6 +6,24 @@ and the occasional config schema change.
 
 ## Standard release
 
+Pushes to `trunk` auto-deploy to production via the `deploy` GitHub
+Actions workflow once `ci` succeeds. The workflow SSHes to the app
+droplet and runs `deploy/redeploy.sh`, which fetches trunk, rebuilds
+the binary in place, runs `migrate up`, and restarts the web + worker
+units. There is no canary tier today (see "Canary" below).
+
+To redeploy current trunk without a push (e.g., after editing env
+files on the droplet), trigger the `deploy` workflow manually:
+`gh workflow run deploy.yml --ref trunk`. To deploy by hand from a
+console:
+
+```sh
+ssh root@shithub.sh 'bash /root/src/shithub/deploy/redeploy.sh'
+```
+
+For tagged releases on a staging-then-prod path (once we have a
+staging tier):
+
 ```sh
 # from a clean checkout of the release tag
 git fetch --tags
@@ -14,6 +32,31 @@ make deploy-check ANSIBLE_INVENTORY=staging
 make deploy ANSIBLE_INVENTORY=staging
 # ... canary period ...
 make deploy ANSIBLE_INVENTORY=production
+```
+
+### GitHub Actions secrets
+
+The `deploy` workflow needs three repo secrets (Settings → Secrets
+and variables → Actions, in the `production` environment):
+
+- `DEPLOY_HOST` — `shithub.sh` (or the app droplet's public IPv4)
+- `DEPLOY_USER` — `root`
+- `DEPLOY_SSH_KEY` — private half of an ed25519 key whose public half
+  is in `/root/.ssh/authorized_keys` on the app droplet
+- `DEPLOY_KNOWN_HOSTS` — output of `ssh-keyscan shithub.sh` on a
+  trusted host, pinning the host key so the runner won't TOFU-trust
+  a hijacked DNS answer
+
+Generate a dedicated deploy key (don't reuse the operator's laptop
+key):
+
+```sh
+ssh-keygen -t ed25519 -C 'gh-actions-deploy' -f ./gh-deploy -N ''
+ssh-copy-id -i ./gh-deploy.pub root@shithub.sh
+ssh-keyscan shithub.sh > known_hosts.txt
+# Paste ./gh-deploy            → DEPLOY_SSH_KEY
+# Paste known_hosts.txt        → DEPLOY_KNOWN_HOSTS
+# Then: rm gh-deploy gh-deploy.pub known_hosts.txt
 ```
 
 `shithubd migrate up` runs as the web service's ExecStartPre, so
