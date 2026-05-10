@@ -12,3 +12,13 @@ shithub_data_root=/data
 shithub_db_pool_max=8
 shithub_email_from="shithub-staging <noreply@staging.shithub.example>"
 shithub_email_backend=stdout    # no real outbound mail in staging
+
+# Optional runtime object storage. Leave blank/undefined to disable
+# avatar uploads in staging. When set, all S3 fields are required.
+# s3_endpoint=nyc3.digitaloceanspaces.com
+# s3_region=us-east-1
+# s3_bucket=shithub-staging
+# s3_access_key_id=REPLACE_ME
+# s3_secret_access_key=REPLACE_ME
+# s3_use_ssl=true
+# s3_force_path_style=false
