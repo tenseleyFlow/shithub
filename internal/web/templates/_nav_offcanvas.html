@@ -1,0 +1,69 @@
+{{ define "nav-offcanvas" -}}
+<div class="shithub-offcanvas" data-offcanvas hidden>
+  <button type="button" class="shithub-offcanvas-backdrop" aria-label="Close navigation menu" data-offcanvas-close></button>
+  <aside class="shithub-offcanvas-panel" id="shithub-global-navigation" role="dialog" aria-modal="true" aria-label="Global navigation" tabindex="-1">
+    <div class="shithub-offcanvas-head">
+      <a href="/" class="shithub-offcanvas-mark" aria-label="shithub home">{{ octicon "shithub" }}</a>
+      <button type="button" class="shithub-offcanvas-close" aria-label="Close navigation menu" data-offcanvas-close>{{ octicon "x" }}</button>
+    </div>
+
+    <nav class="shithub-offcanvas-nav" aria-label="Global navigation">
+      <a href="/" class="shithub-offcanvas-link">{{ octicon "home" }} <span>Home</span></a>
+      <a href="/search?type=issues" class="shithub-offcanvas-link">{{ octicon "issue-opened" }} <span>All issues</span></a>
+      <a href="/search?type=pullrequests" class="shithub-offcanvas-link">{{ octicon "git-pull-request" }} <span>All pull requests</span></a>
+      <a href="/search?type=repositories" class="shithub-offcanvas-link">{{ octicon "repo" }} <span>All repositories</span></a>
+      <a href="/projects" class="shithub-offcanvas-link">{{ octicon "table" }} <span>Projects</span></a>
+      <a href="/discussions" class="shithub-offcanvas-link">{{ octicon "comment-discussion" }} <span>Discussions</span></a>
+      <a href="/codespaces" class="shithub-offcanvas-link">{{ octicon "code-square" }} <span>Codespaces</span></a>
+    </nav>
+
+    <nav class="shithub-offcanvas-nav shithub-offcanvas-nav-secondary" aria-label="Explore">
+      <a href="/explore" class="shithub-offcanvas-link">{{ octicon "rocket" }} <span>Explore</span></a>
+      <a href="/marketplace" class="shithub-offcanvas-link">{{ octicon "package" }} <span>Marketplace</span></a>
+      <a href="/mcp" class="shithub-offcanvas-link">{{ octicon "link" }} <span>MCP registry</span></a>
+    </nav>
+
+    {{ if or .Repo .Org .Viewer.ID }}
+    <section class="shithub-offcanvas-repos" aria-labelledby="shithub-offcanvas-repos-heading">
+      <div class="shithub-offcanvas-section-head">
+        <h2 id="shithub-offcanvas-repos-heading">Top repositories</h2>
+        <a href="/search?type=repositories" aria-label="Search repositories">{{ octicon "search" }}</a>
+      </div>
+      <div class="shithub-offcanvas-repo-list">
+        {{ if .Repo }}
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-offcanvas-repo-item">
+          <img src="/avatars/{{ .Owner }}" alt="" width="20" height="20">
+          <span>{{ .Owner }}/{{ .Repo.Name }}</span>
+        </a>
+        {{ else if .Org }}
+        <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-offcanvas-repo-item">
+          <img src="/avatars/{{ .Org.Slug }}" alt="" width="20" height="20">
+          <span>{{ .Org.Slug }} repositories</span>
+        </a>
+        {{ else if .Viewer.ID }}
+        <a href="/{{ .Viewer.Username }}?tab=repositories" class="shithub-offcanvas-repo-item">
+          <img src="/avatars/{{ .Viewer.Username }}" alt="" width="20" height="20">
+          <span>{{ .Viewer.Username }} repositories</span>
+        </a>
+        {{ end }}
+      </div>
+      {{ if .Repo }}
+      <a href="/{{ .Owner }}?tab=repositories" class="shithub-offcanvas-show-more">Show more</a>
+      {{ else if .Org }}
+      <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-offcanvas-show-more">Show more</a>
+      {{ else if .Viewer.ID }}
+      <a href="/{{ .Viewer.Username }}?tab=repositories" class="shithub-offcanvas-show-more">Show more</a>
+      {{ end }}
+    </section>
+    {{ end }}
+
+    {{ if .Viewer.ID }}
+    <div class="shithub-offcanvas-notice" data-offcanvas-notice>
+      <span>{{ octicon "issue-opened" }}</span>
+      <p>Teams have moved to <a href="/settings/organizations">settings</a></p>
+      <button type="button" aria-label="Dismiss" data-offcanvas-notice-close>{{ octicon "x" }}</button>
+    </div>
+    {{ end }}
+  </aside>
+</div>
+{{- end }}

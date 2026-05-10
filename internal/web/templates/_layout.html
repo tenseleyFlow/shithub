@@ -66,6 +66,61 @@
   })();
 
   (function () {
+    var drawer = document.querySelector("[data-offcanvas]");
+    var opener = document.querySelector("[data-offcanvas-open]");
+    if (!drawer || !opener) return;
+    var panel = drawer.querySelector(".shithub-offcanvas-panel");
+    var closers = drawer.querySelectorAll("[data-offcanvas-close]");
+    var notice = drawer.querySelector("[data-offcanvas-notice]");
+    var noticeClose = drawer.querySelector("[data-offcanvas-notice-close]");
+    var lastFocus = null;
+
+    function openDrawer() {
+      lastFocus = document.activeElement;
+      drawer.hidden = false;
+      document.body.classList.add("shithub-offcanvas-open");
+      opener.setAttribute("aria-expanded", "true");
+      if (panel) panel.focus();
+    }
+
+    function closeDrawer() {
+      drawer.hidden = true;
+      document.body.classList.remove("shithub-offcanvas-open");
+      opener.setAttribute("aria-expanded", "false");
+      if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+
+    opener.addEventListener("click", openDrawer);
+    closers.forEach(function (button) {
+      button.addEventListener("click", closeDrawer);
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !drawer.hidden) closeDrawer();
+    });
+
+    var storage = null;
+    try { storage = window.localStorage; } catch (e) {}
+
+    if (notice && storage) {
+      try {
+        if (storage.getItem("shithubTeamsMovedNoticeDismissed") === "1") {
+          notice.hidden = true;
+        }
+      } catch (e) {}
+    }
+    if (noticeClose && notice) {
+      noticeClose.addEventListener("click", function () {
+        notice.hidden = true;
+        try {
+          if (storage) {
+            storage.setItem("shithubTeamsMovedNoticeDismissed", "1");
+          }
+        } catch (e) {}
+      });
+    }
+  })();
+
+  (function () {
     var root = document.querySelector("[data-search-root]");
     if (!root) return;
     var input = root.querySelector("[data-search-input]");
