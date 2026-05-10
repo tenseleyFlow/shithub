@@ -333,7 +333,7 @@ func (h *Handlers) ownerOptions(r *http.Request) []ownerOption {
 			Kind:    "org",
 			ID:      m.OrgID,
 			Slug:    string(m.Slug),
-			Display: display + " (" + string(m.Slug) + ")",
+			Display: display,
 			Token:   "org:" + strconv.FormatInt(m.OrgID, 10),
 		})
 	}

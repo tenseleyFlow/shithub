@@ -1,85 +1,107 @@
 {{ define "page" -}}
 <section class="shithub-repo-new">
-  <h1>Create a new repository</h1>
-  <p class="shithub-repo-new-lede">A repository contains all project files, including the revision history.</p>
+  <header class="shithub-repo-new-head">
+    <h1>Create a new repository</h1>
+    <p>Repositories contain a project's files and version history.</p>
+    <p class="shithub-repo-new-required">Required fields are marked with an asterisk (*).</p>
+  </header>
 
   {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
 
   <form method="POST" action="/new" novalidate class="shithub-repo-new-form">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
-    <div class="shithub-repo-new-row shithub-repo-new-owner-row">
-      <label class="shithub-repo-new-owner">
-        <span>Owner <em>*</em></span>
-        <select name="owner" required>
-          {{ range .Owners }}
-          <option value="{{ .Token }}"{{ if eq .Token $.Form.Owner }} selected{{ end }}>{{ .Display }}</option>
-          {{ end }}
-        </select>
-      </label>
-      <span class="shithub-repo-new-sep">/</span>
-      <label class="shithub-repo-new-name">
-        <span>Repository name <em>*</em></span>
-        <input type="text" name="name" required maxlength="100" autocomplete="off"
-               spellcheck="false" pattern="^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?$"
-               value="{{ .Form.Name }}">
-        <small>Lowercase letters, digits, dots, hyphens, underscores. 1–100 characters.</small>
-      </label>
+    <div class="shithub-repo-new-step">
+      <div class="shithub-repo-new-step-marker" aria-hidden="true">1</div>
+      <section class="shithub-repo-new-step-body" aria-labelledby="repo-new-general">
+        <h2 id="repo-new-general">General</h2>
+        <div class="shithub-repo-new-owner-row">
+          <label class="shithub-repo-new-owner">
+            <span>Owner <em>*</em></span>
+            <select name="owner" required>
+              {{ range .Owners }}
+              <option value="{{ .Token }}"{{ if eq .Token $.Form.Owner }} selected{{ end }}>{{ .Display }}</option>
+              {{ end }}
+            </select>
+          </label>
+          <span class="shithub-repo-new-sep">/</span>
+          <label class="shithub-repo-new-name">
+            <span>Repository name <em>*</em></span>
+            <input type="text" name="name" required maxlength="100" autocomplete="off"
+                   spellcheck="false" pattern="^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9_])?$"
+                   value="{{ .Form.Name }}">
+          </label>
+        </div>
+        <p class="shithub-repo-new-hint">Great repository names are short and memorable. How about <strong>effective-enigma</strong>?</p>
+        <label class="shithub-repo-new-description">
+          <span>Description</span>
+          <input type="text" name="description" maxlength="350" value="{{ .Form.Description }}">
+          <small>{{ len .Form.Description }} / 350 characters</small>
+        </label>
+      </section>
     </div>
 
-    <label>
-      <span>Description <small>(optional)</small></span>
-      <input type="text" name="description" maxlength="350" value="{{ .Form.Description }}">
-    </label>
-
-    <fieldset class="shithub-repo-new-visibility">
-      <legend>Visibility</legend>
-      <label class="shithub-repo-new-vis-card{{ if eq .Form.Visibility "public" }} active{{ end }}">
-        <input type="radio" name="visibility" value="public"{{ if eq .Form.Visibility "public" }} checked{{ end }}>
-        <span>
-          <strong>Public</strong>
-          <small>Anyone on the internet can see this repository. You choose who can commit.</small>
-        </span>
-      </label>
-      <label class="shithub-repo-new-vis-card{{ if eq .Form.Visibility "private" }} active{{ end }}">
-        <input type="radio" name="visibility" value="private"{{ if eq .Form.Visibility "private" }} checked{{ end }}>
-        <span>
-          <strong>Private</strong>
-          <small>You choose who can see and commit to this repository.</small>
-        </span>
-      </label>
-    </fieldset>
-
-    <fieldset class="shithub-repo-new-init">
-      <legend>Initialize this repository with</legend>
-      <label class="shithub-repo-new-init-row">
-        <input type="checkbox" name="init_readme" value="on"{{ if .Form.InitReadme }} checked{{ end }}>
-        <span>
-          <strong>Add a README file</strong>
-          <small>This is where you can write a long description for your project.</small>
-        </span>
-      </label>
-      <label>
-        <span>Add .gitignore</span>
-        <select name="gitignore">
-          <option value="">None</option>
-          {{ $picked := .Form.Gitignore }}
-          {{ range .Gitignores }}
-          <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
-          {{ end }}
-        </select>
-      </label>
-      <label>
-        <span>Choose a license</span>
-        <select name="license">
-          <option value="">None</option>
-          {{ $picked := .Form.License }}
-          {{ range .Licenses }}
-          <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
-          {{ end }}
-        </select>
-      </label>
-    </fieldset>
+    <div class="shithub-repo-new-step">
+      <div class="shithub-repo-new-step-marker" aria-hidden="true">2</div>
+      <section class="shithub-repo-new-step-body" aria-labelledby="repo-new-config">
+        <h2 id="repo-new-config">Configuration</h2>
+        <div class="shithub-repo-new-config">
+          <label class="shithub-repo-new-config-row">
+            <span>
+              <strong>Choose visibility <em>*</em></strong>
+              <small>Choose who can see and commit to this repository</small>
+            </span>
+            <select name="visibility" required>
+              <option value="public"{{ if eq .Form.Visibility "public" }} selected{{ end }}>Public</option>
+              <option value="private"{{ if eq .Form.Visibility "private" }} selected{{ end }}>Private</option>
+            </select>
+          </label>
+          <div class="shithub-repo-new-config-row" aria-disabled="true">
+            <span>
+              <strong>Start with a template</strong>
+              <small>Templates pre-configure your repository with files.</small>
+            </span>
+            <button type="button" class="shithub-button shithub-button-small" disabled>No template</button>
+          </div>
+          <label class="shithub-repo-new-config-row">
+            <span>
+              <strong>Add README</strong>
+              <small>READMEs can be used as longer descriptions.</small>
+            </span>
+            <span class="shithub-repo-new-toggle">
+              <span>Off</span>
+              <input type="checkbox" name="init_readme" value="on"{{ if .Form.InitReadme }} checked{{ end }} aria-label="Add README">
+            </span>
+          </label>
+          <label class="shithub-repo-new-config-row">
+            <span>
+              <strong>Add .gitignore</strong>
+              <small>.gitignore tells git which files not to track.</small>
+            </span>
+            <select name="gitignore">
+              <option value="">No .gitignore</option>
+              {{ $picked := .Form.Gitignore }}
+              {{ range .Gitignores }}
+              <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
+              {{ end }}
+            </select>
+          </label>
+          <label class="shithub-repo-new-config-row">
+            <span>
+              <strong>Add license</strong>
+              <small>Licenses explain how others can use your code.</small>
+            </span>
+            <select name="license">
+              <option value="">No license</option>
+              {{ $picked := .Form.License }}
+              {{ range .Licenses }}
+              <option value="{{ . }}"{{ if eq . $picked }} selected{{ end }}>{{ . }}</option>
+              {{ end }}
+            </select>
+          </label>
+        </div>
+      </section>
+    </div>
 
     <button type="submit" class="shithub-button shithub-button-primary">Create repository</button>
   </form>
