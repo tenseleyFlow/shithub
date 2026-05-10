@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -62,13 +63,23 @@ func (h *Handlers) submoduleTreeURL(ctx context.Context, cc *codeContext, remote
 		return route.RepoURL
 	}
 	if !existsAtCommit {
-		if fetchURL, ok := githubSubmoduleFetchURL(cfg, remoteURL); ok {
-			backfilled, backfillErr := h.backfillSubmoduleCommit(ctx, gitDir, fetchURL, oid)
+		for _, candidate := range h.submoduleBackfillFetchCandidates(ctx, cfg, route, remoteURL) {
+			backfilled, backfillErr := h.backfillSubmoduleCommit(ctx, gitDir, candidate.URL, oid)
 			if backfillErr != nil {
-				if h.d.Logger != nil {
-					h.d.Logger.WarnContext(ctx, "code: submodule backfill fetch", "error", backfillErr, "owner", route.Owner, "repo", route.RepoName, "oid", oid, "remote", fetchURL)
+				if candidate.SourceRepoID != 0 {
+					h.markRepoSourceRemoteFetchError(ctx, candidate.SourceRepoID, backfillErr)
 				}
-			} else if backfilled {
+				if h.d.Logger != nil {
+					h.d.Logger.WarnContext(ctx, "code: submodule backfill fetch", "error", backfillErr, "owner", route.Owner, "repo", route.RepoName, "oid", oid, "remote", candidate.URL)
+				}
+				continue
+			}
+			if backfilled {
+				if candidate.SourceRepoID != 0 {
+					if err := h.rq.MarkRepoSourceRemoteFetched(ctx, h.d.Pool, candidate.SourceRepoID); err != nil && h.d.Logger != nil {
+						h.d.Logger.WarnContext(ctx, "code: submodule backfill mark source fetched", "error", err, "repo_id", candidate.SourceRepoID)
+					}
+				}
 				h.recordSubmoduleBackfill(ctx, route.Owner, route.RepoName, gitDir)
 				return route.TreeURL
 			}
@@ -98,6 +109,49 @@ func (h *Handlers) backfillSubmoduleCommit(ctx context.Context, gitDir, fetchURL
 		return false, err
 	}
 	return v.(bool), nil
+}
+
+type submoduleBackfillFetchCandidate struct {
+	URL          string
+	SourceRepoID int64
+}
+
+func (h *Handlers) submoduleBackfillFetchCandidates(ctx context.Context, cfg submoduleRouteConfig, route submoduleRoute, remoteURL string) []submoduleBackfillFetchCandidate {
+	var out []submoduleBackfillFetchCandidate
+	seen := map[string]struct{}{}
+	if row, ok := h.lookupSubmoduleRepoRow(ctx, route.Owner, route.RepoName); ok {
+		if sourceRemote, err := h.rq.GetRepoSourceRemote(ctx, h.d.Pool, row.ID); err == nil {
+			if normalized, sourceErr := repos.ValidateSourceRemoteURL(ctx, sourceRemote.RemoteUrl); sourceErr == nil && normalized != "" {
+				out = appendSubmoduleBackfillCandidate(out, seen, submoduleBackfillFetchCandidate{
+					URL:          normalized,
+					SourceRepoID: row.ID,
+				})
+			} else if sourceErr != nil {
+				h.markRepoSourceRemoteFetchError(ctx, row.ID, sourceErr)
+				if h.d.Logger != nil {
+					h.d.Logger.WarnContext(ctx, "code: submodule stored source remote rejected", "error", sourceErr, "repo_id", row.ID, "remote", sourceRemote.RemoteUrl)
+				}
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule source remote lookup", "error", err, "repo_id", row.ID)
+		}
+	}
+	if fetchURL, ok := githubSubmoduleFetchURL(cfg, remoteURL); ok {
+		out = appendSubmoduleBackfillCandidate(out, seen, submoduleBackfillFetchCandidate{URL: fetchURL})
+	}
+	return out
+}
+
+func appendSubmoduleBackfillCandidate(out []submoduleBackfillFetchCandidate, seen map[string]struct{}, candidate submoduleBackfillFetchCandidate) []submoduleBackfillFetchCandidate {
+	candidate.URL = strings.TrimSpace(candidate.URL)
+	if candidate.URL == "" {
+		return out
+	}
+	if _, ok := seen[candidate.URL]; ok {
+		return out
+	}
+	seen[candidate.URL] = struct{}{}
+	return append(out, candidate)
 }
 
 func (h *Handlers) recordSubmoduleBackfill(ctx context.Context, owner, repoName, gitDir string) {

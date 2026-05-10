@@ -201,3 +201,18 @@ func TestGitHubSubmoduleFetchURL_RejectsUnsupportedRemotes(t *testing.T) {
 		})
 	}
 }
+
+func TestAppendSubmoduleBackfillCandidate_DedupesURLs(t *testing.T) {
+	t.Parallel()
+	seen := map[string]struct{}{}
+	var got []submoduleBackfillFetchCandidate
+	got = appendSubmoduleBackfillCandidate(got, seen, submoduleBackfillFetchCandidate{URL: " https://git.example.com/owner/repo.git ", SourceRepoID: 42})
+	got = appendSubmoduleBackfillCandidate(got, seen, submoduleBackfillFetchCandidate{URL: "https://git.example.com/owner/repo.git"})
+	got = appendSubmoduleBackfillCandidate(got, seen, submoduleBackfillFetchCandidate{})
+	if len(got) != 1 {
+		t.Fatalf("candidate count = %d, want 1", len(got))
+	}
+	if got[0].URL != "https://git.example.com/owner/repo.git" || got[0].SourceRepoID != 42 {
+		t.Fatalf("candidate = %+v", got[0])
+	}
+}
