@@ -26,6 +26,13 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the Mirror-to-shithub.sh step can prove
+          # ancestry against whatever the mirror's tip is. Default
+          # depth=1 makes any push that isn't the very first commit
+          # fail "non-fast-forward" because the runner can't see
+          # the parent chain.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
