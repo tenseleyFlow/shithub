@@ -70,7 +70,7 @@ Stored in `branch_protection_rules`:
 | `pattern`                  | (set)   | `filepath.Match` glob                        |
 | `prevent_force_push`       | `true`  | enforced                                     |
 | `prevent_deletion`         | `true`  | enforced                                     |
-| `require_pr_for_push`      | `false` | placeholder — column exists, no-op           |
+| `require_pr_for_push`      | `false` | enforced for direct git pushes and web edits |
 | `allowed_pusher_user_ids`  | `{}`    | enforced; empty = no restriction              |
 | `require_signed_commits`   | `false` | placeholder — post-MVP                       |
 | `status_checks_required`   | `{}`    | placeholder — S24 wires real checks          |
@@ -99,7 +99,8 @@ The pre-receive hook (`cmd/shithubd/hook.go::hookPreReceiveCmd`):
 3. For each ref update, calls `protection.Enforce`:
    - Skip non-`refs/heads/*` refs (tag protection out of scope).
    - Resolve the longest-matching rule.
-   - Apply the gates in order: deletion → force-push → allowed-pushers.
+   - Apply the gates in order: deletion → require-PR → force-push →
+     allowed-pushers.
    - Return a `Decision` with `Allow`, `Reason`, and `Pattern`.
 4. On any `Allow=false`: write `protection.FriendlyMessage(d)` to
    stderr; exit non-zero.
@@ -107,6 +108,12 @@ The pre-receive hook (`cmd/shithubd/hook.go::hookPreReceiveCmd`):
 **Force-push detection** uses `git merge-base --is-ancestor old new`
 (via `repogit.IsAncestor`). When the old SHA is not an ancestor of
 the new SHA, the update is non-fast-forward → reject.
+
+**Require pull request** rejects direct branch creates and updates when
+`require_pr_for_push` is true on the matching rule. That covers both
+normal git pushes and in-browser file-editor commits because both paths
+call `protection.Enforce` before advancing `refs/heads/*`. Branch
+deletions remain controlled by `prevent_deletion`.
 
 **Failure mode** (DB unavailable from hook): the rule lookup returns
 an error; the hook prints "transient; retry" to stderr and exits
@@ -157,7 +164,6 @@ land, the meta blob carries `action: "default_branch_changed"`/
 
 ## Deferred to later sprints
 
-- **`require_pr_for_push` enforcement** → S22 (PR engine) wires it.
 - **`require_signed_commits` enforcement** → post-MVP signing surface.
 - **`status_checks_required`** → S24 ships the check engine.
 - **Required reviewers attached to rules** → S23.

@@ -14,6 +14,15 @@ default branch Code tab directly, matching GitHub's canonical repo URL.
 | `GET /{owner}/{repo}/blob/{ref}/{path...}`       | `codeBlob`                       |
 | `GET /{owner}/{repo}/raw/{ref}/{path...}`        | `codeRaw`                        |
 | `GET /{owner}/{repo}/find/{ref}?q=...`           | `codeFinder`                     |
+| `GET /{owner}/{repo}/edit/{ref}/{path...}`       | in-browser file editor           |
+| `POST /{owner}/{repo}/edit/{ref}/{path...}`      | commit file edit / rename        |
+| `GET /{owner}/{repo}/new/{ref}/{path...}`        | in-browser new-file editor       |
+| `POST /{owner}/{repo}/new/{ref}/{path...}`       | commit new file                  |
+| `GET /{owner}/{repo}/delete/{ref}/{path...}`     | delete-file confirmation         |
+| `POST /{owner}/{repo}/delete/{ref}/{path...}`    | commit file deletion             |
+| `GET /{owner}/{repo}/upload/{ref}/{path...}`     | upload-files form                |
+| `POST /{owner}/{repo}/upload/{ref}/{path...}`    | commit uploaded files            |
+| `POST /{owner}/{repo}/markdown-preview`          | editor Markdown preview fragment |
 | `GET /{owner}/{repo}/actions`                    | parked product-tab shell         |
 | `GET /{owner}/{repo}/projects`                   | parked product-tab shell         |
 | `GET /{owner}/{repo}/wiki`                       | parked product-tab shell         |
@@ -26,6 +35,10 @@ default branch Code tab directly, matching GitHub's canonical repo URL.
 Every code-tab handler runs through `policy.Can(... ActionRepoRead)` —
 private repos hide from anonymous viewers and unrelated users via the
 existence-leak 404 guard from S15.
+
+The in-browser mutation routes run through `policy.Can(... ActionRepoWrite)`.
+They inherit the same archived-repo, suspended-user, collaborator-role,
+site-admin, and private-repo existence behavior as git push surfaces.
 
 ## Repository product tabs
 
@@ -116,6 +129,56 @@ deferral path; the tree template has the column slot ready.
 Chroma uses the `github` style baked at process start; the CSS is
 served from `/static/css/chroma.css` via a tiny in-process generator.
 
+## In-browser file edits
+
+The Code tab surfaces GitHub-style write affordances for users with
+`repo:write` on a named branch:
+
+- The tree header has an **Add file** dropdown with create and upload
+  actions.
+- Text blob headers show edit and delete icon buttons.
+- The rendered README header shows an edit icon when the README was
+  found in the current directory. SECURITY and CONTRIBUTING documents
+  use the same blob-header controls when opened from the document tabs.
+
+Direct web commits are intentionally limited to `refs/heads/<branch>`.
+Tags and detached 40-hex commit views render read-only controls and
+direct edit URLs return `400`.
+
+`internal/repos/webedit` owns the mutation path. For each edit it:
+
+1. Resolves the branch to its current commit and compares the submitted
+   hidden `base_oid`; a mismatch returns a stale-edit conflict.
+2. Builds a temporary index from the old commit with `git read-tree`.
+3. Stages file changes via canonical git plumbing (`hash-object`,
+   `update-index`, `write-tree`, `commit-tree`).
+4. Runs `protection.Enforce` before moving the branch, so protected
+   branches deny direct web commits just like pushes.
+5. Advances the branch with `git update-ref <ref> <new> <old>` CAS.
+6. Inserts a `push_events` row with `protocol = 'web'`, enqueues
+   `push:process`, and sends the worker NOTIFY. If enqueueing fails
+   after the ref has moved, the commit still succeeds and the failure
+   is logged; the same post-push reconciliation gap exists for hook
+   failures.
+
+Validation rules:
+
+- Text editor actions are capped at 1 MiB and reject NUL-byte binary
+  content. Existing edit sources must be regular blobs, not symlinks,
+  submodules, trees, or oversized blobs.
+- Uploads are capped at 25 MiB per request and 10 MiB per file. Uploads
+  may contain binary data.
+- Repository paths reject empty names, leading/trailing slash, duplicate
+  slash, backslash, `.`/`..` segments, control bytes, exact overwrites,
+  duplicate uploads, and parent-path conflicts.
+- Default commit messages are generated server-side (`Update`, `Create`,
+  `Rename`, `Delete`, or `Upload`) when the form leaves the message
+  blank.
+
+The editor component is still server-rendered Go templates plus a small
+page-local script. No frontend build pipeline or React/Vite layer is
+required for this slice.
+
 ## Raw view
 
 * Content-Type derived from the extension whitelist
@@ -168,6 +231,9 @@ mechanically straightforward.
   (TODO — minimal coverage today).
 * **Path traversal**: `validateSubpath` in `code.go` rejects `..`,
   controls, leading slashes.
+* **Web edit path traversal / overwrite**: `webedit.ValidateFilePath`
+  applies the stricter mutation path guard and the service re-checks
+  path existence against the commit being modified.
 * **Hex collision with SHA**: ref-list lookup wins over SHA shortcut
   when the same string is both.
 * **Encoding (GBK / Shift-JIS)**: TODO — text files outside UTF-8 may
