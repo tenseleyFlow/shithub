@@ -27,6 +27,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
+	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/issues"
@@ -37,6 +39,8 @@ import (
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/protection"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 // Deps wires this package against the rest of the runtime.
@@ -145,7 +149,71 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		}
 	}
 
+	// Actions trigger (S41b): on PR open, fan out a workflow:trigger
+	// with action="opened". Best-effort — failures log and let the
+	// PR creation succeed. The collaborator gate lives in the PR
+	// trigger helper (pr_jobs.go); this site just enqueues with
+	// enough payload for the handler to evaluate.
+	if err := enqueueOpenedActionsTrigger(ctx, deps, p, prRow, issueRow.Number, baseOID, headOID); err != nil {
+		if deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "pulls: enqueue workflow:trigger",
+				"error", err, "pr_id", prRow.IssueID)
+		}
+	}
+
 	return CreateResult{Issue: issueRow, PullRequest: prRow}, nil
+}
+
+// enqueueOpenedActionsTrigger is the PR-create-side counterpart to
+// jobs.enqueuePRActionsTrigger (which handles synchronize). Lives
+// here in the pulls orchestrator so the open path stays
+// self-contained — the alternative (a domain_event watcher in the
+// jobs package) would need to round-trip through the queue just to
+// observe the open.
+//
+// Collaborator gate: actor must be the repo's owning user. Same v1
+// posture as the synchronize path.
+func enqueueOpenedActionsTrigger(ctx context.Context, deps Deps, p CreateParams, prRow pullsdb.PullRequest, prNumber int64, baseOID, headOID string) error {
+	repo, err := reposdb.New().GetRepoByID(ctx, deps.Pool, p.RepoID)
+	if err != nil {
+		return fmt.Errorf("load repo: %w", err)
+	}
+	if !repo.OwnerUserID.Valid || repo.OwnerUserID.Int64 != p.AuthorUserID {
+		// Conservative collaborator gate — non-owner authors don't
+		// trigger. External-PR + org-member triggers parked for v2.
+		return nil
+	}
+	changed, err := repogit.ChangedPaths(ctx, p.GitDir, baseOID, headOID)
+	if err != nil {
+		changed = nil // best-effort; path-filtered workflows skip
+	}
+	authorLogin := ""
+	if u, err := usersdb.New().GetUserByID(ctx, deps.Pool, p.AuthorUserID); err == nil {
+		authorLogin = u.Username
+	}
+	payload := actionsevent.PullRequest(
+		"opened", prNumber, p.Title,
+		actionsevent.PRRef{Ref: prRow.HeadRef, SHA: prRow.HeadOid},
+		actionsevent.PRRef{Ref: prRow.BaseRef, SHA: prRow.BaseOid},
+		authorLogin,
+	)
+	job := trigger.JobPayload{
+		RepoID:         p.RepoID,
+		HeadSHA:        prRow.HeadOid,
+		HeadRef:        "refs/heads/" + prRow.HeadRef,
+		EventKind:      trigger.EventPullRequest,
+		EventPayload:   payload,
+		ActorUserID:    p.AuthorUserID,
+		TriggerEventID: fmt.Sprintf("pr_opened:%d:%s", prRow.IssueID, prRow.HeadOid),
+		Action:         "opened",
+		BaseRef:        prRow.BaseRef,
+		HeadRefShort:   prRow.HeadRef,
+		ChangedPaths:   changed,
+	}
+	if _, err := worker.Enqueue(ctx, deps.Pool, trigger.KindWorkflowTrigger, job, worker.EnqueueOptions{}); err != nil {
+		return fmt.Errorf("enqueue: %w", err)
+	}
+	return nil
 }
 
 // refreshCommitsAndFiles is shared by Create + Synchronize. Truncates +
