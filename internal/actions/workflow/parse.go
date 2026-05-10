@@ -25,7 +25,26 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 var ErrTooLarge = errors.New("workflow file exceeds size limit")
 
 // ErrTooManyAliases is returned when a YAML document expands more
-// than MaxYAMLAliases anchor references — the billion-laughs guard.
+// than MaxYAMLAliases anchor references — our hard cap on top of
+// yaml.v3's own defense.
+//
+// Two layers protect against anchor-bombs:
+//
+//  1. yaml.v3's built-in ratio defense: when alias count > 100 and
+//     decode count > 1000 and (alias/decode) ratio exceeds an internal
+//     threshold (scales 0.99 → 0.10 with document size), the decoder
+//     errors out. Not configurable; constants are baked into
+//     go.yaml.in/yaml/v3 (see decode.go's allowedAliasRatio).
+//
+//  2. Our hard 100-alias cap (countAliases below). The library's
+//     ratio-based defense doesn't fire on small documents, so a
+//     200-alias workflow would slip past it. We cap independent of
+//     document size because workflows are short-by-convention; nobody
+//     legitimately needs 100+ anchor references in a single file.
+//
+// Defense-in-depth: keep both. If yaml.v3 ever exposes a
+// configurable knob, prefer pinning it to a known value over the
+// internal heuristic. Until then, our cap is the only limit we own.
 var ErrTooManyAliases = errors.New("workflow YAML has too many aliases (anchor-bomb guard)")
 
 // Parse decodes a workflow file. It returns the parsed document, the
