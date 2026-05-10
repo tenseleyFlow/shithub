@@ -45,6 +45,7 @@ type Querier interface {
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).
 	DeleteRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) error
+	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
 	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
 	// Called by the periodic worker (transfers:expire) — flips pending
@@ -64,6 +65,8 @@ type Querier interface {
 	// jobs that need to derive the bare-repo on-disk path without round-
 	// tripping through the full user row.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)
 	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
 	HardDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error
@@ -111,6 +114,8 @@ type Querier interface {
 	// Returns the current repo_id when (old_owner_user_id, old_name) hits
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
+	MarkRepoSourceRemoteFetchError(ctx context.Context, db DBTX, arg MarkRepoSourceRemoteFetchErrorParams) error
+	MarkRepoSourceRemoteFetched(ctx context.Context, db DBTX, repoID int64) error
 	// ─── fork-anchor cleanup on hard delete ────────────────────────────────
 	// Children pointing at this repo lose their fork-of pointer. Mirrors
 	// GitHub's behavior when an upstream is deleted.
@@ -171,6 +176,7 @@ type Querier interface {
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
 	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
 }
 
 var _ Querier = (*Queries)(nil)

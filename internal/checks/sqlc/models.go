@@ -1990,6 +1990,15 @@ type RepoRedirect struct {
 	RedirectedAt   pgtype.Timestamptz
 }
 
+type RepoSourceRemote struct {
+	RepoID        int64
+	RemoteUrl     string
+	LastFetchedAt pgtype.Timestamptz
+	LastError     pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type RepoTopic struct {
 	RepoID    int64
 	Topic     string
