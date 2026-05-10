@@ -21,11 +21,15 @@ SELECT 1 / (CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END) FROM users;
 SELECT COUNT(*) FROM repos;
 
 \echo === every repo has a real owner ===
+-- A repo's owner is exactly one of {owner_user_id, owner_org_id}; the
+-- other is NULL. Both being NULL or both being non-NULL is corruption.
 SELECT 1 / (CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END) AS orphan_repos
   FROM repos r
-  LEFT JOIN users u ON u.id = r.owner_id
-  LEFT JOIN orgs  o ON o.id = r.owner_id
-  WHERE u.id IS NULL AND o.id IS NULL;
+  LEFT JOIN users u ON u.id = r.owner_user_id
+  LEFT JOIN orgs  o ON o.id = r.owner_org_id
+  WHERE (r.owner_user_id IS NULL AND r.owner_org_id IS NULL)
+     OR (r.owner_user_id IS NOT NULL AND u.id IS NULL)
+     OR (r.owner_org_id IS NOT NULL AND o.id IS NULL);
 
 \echo === every push_event references a real repo ===
 SELECT 1 / (CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END) AS orphan_push_events
@@ -40,7 +44,7 @@ SELECT 1 / (CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END) AS orphan_issues
   WHERE r.id IS NULL;
 
 \echo === auth_audit_log columns intact ===
-SELECT actor_user_id, action, occurred_at FROM auth_audit_log LIMIT 1;
+SELECT actor_id, action, target_type, created_at FROM auth_audit_log LIMIT 1;
 
 \echo === migrations applied through latest known ===
 SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1;
