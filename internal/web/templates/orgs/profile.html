@@ -82,7 +82,7 @@
               <summary>Sort {{ octicon "triangle-down" }}</summary>
               <div><a href="#org-repositories">Last updated</a><a href="#org-repositories">Name</a><a href="#org-repositories">Stars</a></div>
             </details>
-            {{ if .CanCreateRepo }}<a href="/new" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
+            {{ if .CanCreateRepo }}<a href="/new?owner={{ .Org.Slug }}" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
           </div>
         </div>
 
@@ -117,7 +117,7 @@
         {{ else }}
         <div class="shithub-org-empty">
           <h3>No repositories yet.</h3>
-          {{ if .CanCreateRepo }}<a href="/new" class="shithub-button shithub-button-primary">Create a repository</a>{{ end }}
+          {{ if .CanCreateRepo }}<a href="/new?owner={{ .Org.Slug }}" class="shithub-button shithub-button-primary">Create a repository</a>{{ end }}
         </div>
         {{ end }}
       </section>
