@@ -185,6 +185,15 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 	return i, err
 }
 
+const deleteProfilePinsForSet = `-- name: DeleteProfilePinsForSet :exec
+DELETE FROM profile_pins WHERE set_id = $1
+`
+
+func (q *Queries) DeleteProfilePinsForSet(ctx context.Context, db DBTX, setID int64) error {
+	_, err := db.Exec(ctx, deleteProfilePinsForSet, setID)
+	return err
+}
+
 const existsRepoForOwnerOrg = `-- name: ExistsRepoForOwnerOrg :one
 SELECT EXISTS(
     SELECT 1 FROM repos
@@ -221,6 +230,30 @@ func (q *Queries) ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg Exist
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const getProfilePinSetForOrg = `-- name: GetProfilePinSetForOrg :one
+SELECT id FROM profile_pin_sets WHERE owner_org_id = $1
+`
+
+func (q *Queries) GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, getProfilePinSetForOrg, ownerOrgID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getProfilePinSetForUser = `-- name: GetProfilePinSetForUser :one
+
+SELECT id FROM profile_pin_sets WHERE owner_user_id = $1
+`
+
+// ─── profile/org pinned repositories ───────────────────────────────
+func (q *Queries) GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, getProfilePinSetForUser, ownerUserID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getRepoByID = `-- name: GetRepoByID :one
@@ -402,6 +435,22 @@ func (q *Queries) GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int6
 	return i, err
 }
 
+const insertProfilePin = `-- name: InsertProfilePin :exec
+INSERT INTO profile_pins (set_id, repo_id, position)
+VALUES ($1, $2, $3)
+`
+
+type InsertProfilePinParams struct {
+	SetID    int64
+	RepoID   int64
+	Position int32
+}
+
+func (q *Queries) InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error {
+	_, err := db.Exec(ctx, insertProfilePin, arg.SetID, arg.RepoID, arg.Position)
+	return err
+}
+
 const insertRepoTopic = `-- name: InsertRepoTopic :exec
 INSERT INTO repo_topics (repo_id, topic)
 VALUES ($1, $2)
@@ -549,6 +598,38 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 	for rows.Next() {
 		var i ListForksOfRepoForRepackRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.OwnerUsername); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProfilePinsForSet = `-- name: ListProfilePinsForSet :many
+SELECT repo_id, position
+FROM profile_pins
+WHERE set_id = $1
+ORDER BY position ASC
+`
+
+type ListProfilePinsForSetRow struct {
+	RepoID   int64
+	Position int32
+}
+
+func (q *Queries) ListProfilePinsForSet(ctx context.Context, db DBTX, setID int64) ([]ListProfilePinsForSetRow, error) {
+	rows, err := db.Query(ctx, listProfilePinsForSet, setID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProfilePinsForSetRow{}
+	for rows.Next() {
+		var i ListProfilePinsForSetRow
+		if err := rows.Scan(&i.RepoID, &i.Position); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -899,4 +980,34 @@ func (q *Queries) UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg Upda
 		arg.DefaultMergeMethod,
 	)
 	return err
+}
+
+const upsertProfilePinSetForOrg = `-- name: UpsertProfilePinSetForOrg :one
+INSERT INTO profile_pin_sets (owner_org_id)
+VALUES ($1)
+ON CONFLICT (owner_org_id) WHERE owner_org_id IS NOT NULL
+DO UPDATE SET updated_at = now()
+RETURNING id
+`
+
+func (q *Queries) UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, upsertProfilePinSetForOrg, ownerOrgID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertProfilePinSetForUser = `-- name: UpsertProfilePinSetForUser :one
+INSERT INTO profile_pin_sets (owner_user_id)
+VALUES ($1)
+ON CONFLICT (owner_user_id) WHERE owner_user_id IS NOT NULL
+DO UPDATE SET updated_at = now()
+RETURNING id
+`
+
+func (q *Queries) UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, upsertProfilePinSetForUser, ownerUserID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

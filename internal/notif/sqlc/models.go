@@ -1629,6 +1629,20 @@ type Principal struct {
 	ID   int64
 }
 
+type ProfilePin struct {
+	SetID    int64
+	RepoID   int64
+	Position int32
+	PinnedAt pgtype.Timestamptz
+}
+
+type ProfilePinSet struct {
+	ID          int64
+	OwnerUserID pgtype.Int8
+	OwnerOrgID  pgtype.Int8
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type PullRequest struct {
 	IssueID            int64
 	BaseRef            string
