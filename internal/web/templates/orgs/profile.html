@@ -13,7 +13,7 @@
         </ul>
       </div>
       <div class="shithub-org-hero-actions">
-        {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile" class="shithub-button">Settings</a>{{ else }}<button type="button" class="shithub-button">Follow</button>{{ end }}
+        {{ if .IsOwner }}<button type="button" class="shithub-button" disabled>Settings</button>{{ else }}<button type="button" class="shithub-button" disabled>Follow</button>{{ end }}
       </div>
     </div>
   </header>
@@ -21,13 +21,13 @@
   <nav class="shithub-org-nav" aria-label="Organization">
     <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item is-active">{{ octicon "home" }} Overview</a>
     <a href="#org-repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories <span class="shithub-tab-count">{{ .RepoCount }}</span></a>
-    <a href="/{{ .Org.Slug }}/projects" class="shithub-org-nav-item">{{ octicon "table" }} Projects</a>
-    <a href="/{{ .Org.Slug }}/packages" class="shithub-org-nav-item">{{ octicon "package" }} Packages</a>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
     <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item">{{ octicon "people" }} Teams</a>
     <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item">{{ octicon "person" }} People <span class="shithub-tab-count">{{ .MemberCount }}</span></a>
-    <a href="/{{ .Org.Slug }}/security" class="shithub-org-nav-item">{{ octicon "shield-check" }} Security and quality</a>
-    <a href="/{{ .Org.Slug }}/insights" class="shithub-org-nav-item">{{ octicon "pulse" }} Insights</a>
-    {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item">{{ octicon "gear" }} Settings</a>{{ end }}
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
+    {{ if .IsOwner }}<span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "gear" }} Settings</span>{{ end }}
   </nav>
 
   {{ if .Org.SuspendedAt.Valid }}
@@ -40,7 +40,7 @@
       <section class="shithub-org-pinned" aria-labelledby="org-pinned-heading">
         <div class="shithub-org-section-head">
           <h2 id="org-pinned-heading">Pinned</h2>
-          {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile">Customize pins</a>{{ end }}
+          {{ if .IsOwner }}<span class="shithub-muted">Customize pins</span>{{ end }}
         </div>
         <ol class="shithub-org-pinned-grid">
         {{ range .PinnedRepos }}
@@ -125,14 +125,13 @@
 
     <aside class="shithub-org-sidebar" aria-label="Organization sidebar">
       <section class="shithub-org-sidebox">
-        <button type="button" class="shithub-button shithub-org-viewas">{{ octicon "eye" }} View as: {{ .ViewAs }}</button>
+        <span class="shithub-button shithub-org-viewas" aria-label="View mode">{{ octicon "eye" }} View as: {{ .ViewAs }}</span>
         <p>You are viewing the public profile, README, and visible repositories for this organization.</p>
       </section>
 
       <section class="shithub-org-sidebox">
         <h2>Discussions</h2>
         <p>Set up discussions to engage with your community.</p>
-        {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile">Turn on discussions</a>{{ end }}
       </section>
 
       <section class="shithub-org-sidebox">

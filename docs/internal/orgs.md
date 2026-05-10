@@ -32,6 +32,35 @@ POST /invitations/{token}/accept
 POST /invitations/{token}/decline
 ```
 
+## Organization profile
+
+`GET /{slug}` renders a GitHub-style organization overview when
+`principals.Resolve` returns `kind='org'`.
+
+The overview data is built in `internal/web/handlers/profile`:
+
+* org identity header with slug, display name, description, location,
+  website, avatar fallback, and owner/member view state.
+* org underline nav with Overview active, repository and member counts,
+  links to the shipped people/teams surfaces, and disabled parity tabs
+  for deferred GitHub org sections.
+* pinned repo cards derived from the viewer-visible org repos, sorted
+  by stars and recent update time until a first-class pin table ships.
+* recent visible repositories, sorted by `updated_at`, with visibility
+  badges, language, license, star/fork counts, topics, and update time.
+* right rail aggregates for people, top primary languages, and most
+  used topics.
+
+Repo visibility is filtered through `policy.IsVisibleTo` using an actor
+constructed from `middleware.CurrentUser`, including suspension,
+site-admin, and impersonation write-mode fields. Anonymous viewers only
+see public repositories; members and owners see whatever the policy
+layer grants them.
+
+There is no dedicated `/orgs/{org}/repositories` page yet. The Overview
+nav's Repositories item anchors to the homepage repository list until a
+full org repositories tab lands.
+
 `/{slug}` resolution flow inside `internal/web/handlers/profile/profile.go`:
 
 1. Reserved-name check (defense in depth — chi already matches static
@@ -43,8 +72,8 @@ POST /invitations/{token}/decline
 
 ## Member roles
 
-* `owner` → implicit `admin` on every org-owned repo (policy hook
-  forthcoming).
+* `owner` → implicit `admin` on every org-owned repo through
+  `policy.Can`.
 * `member` → org-membership badge; no implicit access to private repos.
   Repo-level access is granted via direct collaboration (S15) or
   teams (S31).
@@ -88,19 +117,10 @@ old slug for 301s during the rename cooldown.
   (each one gets a regenerated model). Org renames aren't in the
   S30 DoD; deferred to a follow-up sprint that owns the rename
   refactor end to end.
-* **Owner-implicit-admin in policy.Can**. The `org_members.role`
-  shape is in place; wiring it into `policy.Can` so org owners
-  automatically get `admin` on org-owned repos lands when the
-  policy refactor next touches the repo-permission resolver.
-* **Repo creation owner picker**. Repo create form still defaults
-  to user-owner; extending the picker to list orgs the viewer is a
-  member of (and honoring `allow_member_repo_create`) is one
-  follow-up handler change.
-* **Org-level audit log surface**, **suspension UI**, **soft-delete
-  + grace + `org:hard_delete` worker**, **org settings page**,
-  **avatar upload**, **email notifications for invite / role-change
-  / remove**. Schema columns are present; UI + worker land in
-  follow-ups.
+* **Org-level audit log surface**, **suspension UI**, **org settings
+  page**, **avatar upload**, **email notifications for role-change /
+  remove / suspension / deletion**. Schema columns are present; UI and
+  notification fan-out land in follow-ups.
 * **Org renaming via `principal_redirects`** — depends on the
   rename refactor.
 * **Daily digest / billing / SAML** — post-MVP per spec.

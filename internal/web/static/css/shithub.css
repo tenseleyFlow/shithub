@@ -215,6 +215,10 @@ code {
   border: 1px solid transparent;
   cursor: pointer;
 }
+.shithub-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
 .shithub-button-small {
   padding: 0.25rem 0.7rem;
   font-size: 0.75rem;
@@ -1243,6 +1247,14 @@ code {
   border-bottom-color: #fd8c73;
   font-weight: 600;
 }
+.shithub-org-nav-item.is-disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.shithub-org-nav-item.is-disabled:hover {
+  background: transparent;
+  border-radius: 0;
+}
 .shithub-org-layout {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(260px, 0.72fr);
@@ -1452,6 +1464,7 @@ code {
 .shithub-org-viewas {
   width: 100%;
   justify-content: center;
+  cursor: default;
 }
 .shithub-org-people-strip {
   display: flex;
