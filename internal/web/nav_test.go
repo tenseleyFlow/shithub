@@ -19,7 +19,7 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 		"_layout.html": {Data: []byte(`{{ define "layout" }}{{ template "nav" . }}{{ template "page" . }}{{ end }}`)},
 		"page.html":    {Data: []byte(`{{ define "page" }}page{{ end }}`)},
 	}
-	for _, name := range []string{"_nav.html", "_repo_subnav.html", "_org_subnav.html"} {
+	for _, name := range []string{"_nav.html", "_nav_offcanvas.html", "_repo_subnav.html", "_org_subnav.html"} {
 		body, err := fs.ReadFile(TemplatesFS(), name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -53,12 +53,15 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 			},
 			want: []string{
 				`class="shithub-nav has-context"`,
+				`data-offcanvas-open`,
+				`role="dialog" aria-modal="true" aria-label="Global navigation"`,
 				`aria-label="Repository"`,
 				`href="/tenseleyFlow/shithub" class="is-strong">shithub</a>`,
+				`href="/tenseleyFlow/shithub" class="shithub-offcanvas-repo-item"`,
 				`href="/tenseleyFlow/shithub/issues"`,
 				`Pull requests`,
 			},
-			wantNot: []string{`href="/explore"`, `href="/about"`, `aria-label="Organization"`},
+			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `aria-label="Organization"`, `Copilot`},
 		},
 		{
 			name: "org",
@@ -73,12 +76,15 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 			},
 			want: []string{
 				`class="shithub-nav has-context"`,
+				`data-offcanvas-open`,
+				`role="dialog" aria-modal="true" aria-label="Global navigation"`,
 				`aria-label="Organization"`,
 				`href="/tenseleyFlow" class="is-strong">tenseleyFlow</a>`,
+				`href="/tenseleyFlow#org-repositories" class="shithub-offcanvas-repo-item"`,
 				`href="/tenseleyFlow/teams"`,
 				`href="/tenseleyFlow/people"`,
 			},
-			wantNot: []string{`href="/explore"`, `href="/about"`, `Pull requests`},
+			wantNot: []string{`class="shithub-nav-links"`, `href="/about"`, `Copilot`},
 		},
 		{
 			name: "global",
@@ -88,10 +94,13 @@ func TestNavRendersContextualRepoAndOrgHeaders(t *testing.T) {
 			},
 			want: []string{
 				`class="shithub-nav"`,
+				`data-offcanvas-open`,
+				`role="dialog" aria-modal="true" aria-label="Global navigation"`,
+				`All pull requests`,
 				`href="/explore"`,
 				`href="/about"`,
 			},
-			wantNot: []string{`shithub-nav-local`, `aria-label="Repository"`, `aria-label="Organization"`},
+			wantNot: []string{`shithub-nav-local`, `aria-label="Repository"`, `aria-label="Organization"`, `Copilot`},
 		},
 	}
 	for _, tc := range cases {
