@@ -229,3 +229,160 @@ func hasError(diags []workflow.Diagnostic) bool {
 	}
 	return false
 }
+
+// TestParse_BooleanCanonicalForms pins L1: workflow boolean fields
+// accept the canonical YAML 1.2 forms (true/True/TRUE, false/False/
+// FALSE) instead of strict-string matching only "true". Pre-L1 the
+// parser silently treated everything except "true" as false.
+func TestParse_BooleanCanonicalForms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"true", true},
+		{"True", true},
+		{"TRUE", true},
+		{"false", false},
+		{"False", false},
+		{"FALSE", false},
+	}
+	for _, tc := range cases {
+		t.Run("cancel-in-progress="+tc.val, func(t *testing.T) {
+			t.Parallel()
+			src := []byte(`name: x
+on: push
+concurrency:
+  group: g
+  cancel-in-progress: ` + tc.val + `
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+			w, diags, err := workflow.Parse(src)
+			if err != nil || w == nil {
+				t.Fatalf("parse: err=%v w=%v", err, w)
+			}
+			if hasError(diags) {
+				t.Fatalf("unexpected diagnostics: %v", diags)
+			}
+			if w.Concurrency.CancelInProgress != tc.want {
+				t.Errorf("got %v, want %v for input %q", w.Concurrency.CancelInProgress, tc.want, tc.val)
+			}
+		})
+	}
+}
+
+// TestParse_BadStepIDProducesDiagnostic pins L2: the parser surfaces
+// an Error-severity diagnostic on a malformed step id immediately,
+// instead of letting the workflow be valid at parse time and failing
+// at INSERT time during S41b dispatch.
+func TestParse_BadStepIDProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - id: 'has spaces and ; semicolons'
+        run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "step id must match") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected step-id format diagnostic, got: %v", diags)
+	}
+}
+
+// TestParse_BadJobKeyProducesDiagnostic mirrors the step-id check
+// for the jobs.<key> regex constraint.
+func TestParse_BadJobKeyProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  "bad job":
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "job key must match") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected job-key format diagnostic, got: %v", diags)
+	}
+}
+
+// TestParse_EmptyStepIDIsOK pins that the optional-id semantic still
+// works: a step with no `id:` (empty string in the parser's struct)
+// doesn't surface a diagnostic. Only set values are validated.
+func TestParse_EmptyStepIDIsOK(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo no-id
+`)
+	w, diags, err := workflow.Parse(src)
+	if err != nil || w == nil {
+		t.Fatalf("parse: err=%v w=%v", err, w)
+	}
+	for _, d := range diags {
+		if strings.Contains(d.Message, "step id must match") {
+			t.Fatalf("unexpected step-id diagnostic on omitted id: %v", d)
+		}
+	}
+}
+
+// TestParse_BooleanInvalidProducesDiagnostic asserts that a non-
+// boolean value (e.g. "yes" — valid YAML 1.1, NOT 1.2) surfaces a
+// parse-time diagnostic instead of silently coercing.
+func TestParse_BooleanInvalidProducesDiagnostic(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+concurrency:
+  group: g
+  cancel-in-progress: yes
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "boolean") && d.Severity == workflow.Error {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected boolean-error diagnostic for 'yes', got: %v", diags)
+	}
+}
