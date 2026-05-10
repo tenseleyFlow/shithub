@@ -92,11 +92,12 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 	people := h.orgProfilePeople(ctx, q, org.ID)
 	memberCount := int64(len(people))
 	viewAs := "Public"
-	if !viewer.IsAnonymous() && viewer.IsSiteAdmin {
+	switch {
+	case !viewer.IsAnonymous() && viewer.IsSiteAdmin:
 		viewAs = "Site admin"
-	} else if isOwner {
+	case isOwner:
 		viewAs = "Owner"
-	} else if isMember {
+	case isMember:
 		viewAs = "Member"
 	}
 
