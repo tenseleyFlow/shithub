@@ -372,3 +372,67 @@ func DiffStat(ctx context.Context, gitDir, sha string) ([]FileChange, error) {
 	}
 	return out, nil
 }
+
+// ChangedPaths returns the de-duplicated list of repo-relative paths
+// touched by the range (before, after]. Used by the actions trigger
+// pipeline (S41b) to evaluate `on.push.paths` and
+// `on.pull_request.paths` filters.
+//
+// When before is the zero-SHA (`0000000…`, signalling a brand-new
+// branch), we list every path at after instead — GHA matches this
+// semantic ("new branch creation surfaces all files as changed for
+// path-filter purposes").
+//
+// Caller is responsible for normalizing the zero-SHA shape (the
+// `isZeroSHA` helper in push_process matches what git emits in its
+// post-receive hook); we accept any 40-zero string here.
+func ChangedPaths(ctx context.Context, gitDir, before, after string) ([]string, error) {
+	if isZeroSHAGit(before) {
+		return ListAllPaths(ctx, gitDir, after)
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", gitDir,
+		"diff", "--name-only", "-z", before+".."+after).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && isMissingGitObjectError(ee.Stderr) {
+			// One end of the range doesn't exist (e.g., before-sha
+			// pruned). Fall back to listing every file at after so
+			// path-filtered workflows still trigger.
+			return ListAllPaths(ctx, gitDir, after)
+		}
+		return nil, wrapExecErr(err)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	// -z separator is NUL.
+	parts := bytes.Split(bytes.TrimRight(out, "\x00"), []byte{0})
+	paths := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		s := string(p)
+		if s == "" {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		paths = append(paths, s)
+	}
+	return paths, nil
+}
+
+// isZeroSHAGit reports whether s is the all-zero 40-char OID Git emits
+// for "no such ref" in receive packs (branch create / branch delete).
+func isZeroSHAGit(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for i := 0; i < 40; i++ {
+		if s[i] != '0' {
+			return false
+		}
+	}
+	return true
+}

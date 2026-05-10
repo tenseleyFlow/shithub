@@ -19,6 +19,16 @@ type Querier interface {
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	// Idempotent insert: if a row with the same (repo_id, workflow_file,
+	// trigger_event_id) already exists, returns no rows (pgx.ErrNoRows in
+	// Go). The handler treats that as a successful no-op so worker
+	// retries and admin replays of the same triggering event don't
+	// duplicate runs.
+	//
+	// The ON CONFLICT predicate matches the partial unique index defined
+	// in migration 0051; both must agree for postgres to infer the
+	// target.
+	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)
@@ -49,10 +59,17 @@ type Querier interface {
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
+	// Companion to EnqueueWorkflowRun for the conflict path: when an
+	// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
+	// handler uses this to find the existing row so it can surface a
+	// stable RunID. Matches the partial-unique index from migration 0051.
+	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
 	// race here will catch a unique-violation and the caller retries.
-	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
+	// Cast to bigint so sqlc generates int64 (the column type) rather
+	// than int32 (the type the +1 literal would default to).
+	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)

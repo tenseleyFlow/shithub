@@ -112,6 +112,25 @@ var (
 	)
 )
 
+// Actions trigger pipeline metrics (S41b). Incremented from
+// internal/actions/trigger.
+var (
+	ActionsRunsEnqueuedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runs_enqueued_total",
+			Help: "Total workflow runs enqueued by triggering event kind. Result is 'fresh' for new runs or 'already_exists' when ON CONFLICT noop'd.",
+		},
+		[]string{"event", "result"},
+	)
+	ActionsTriggerMatchDurationSeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "shithub_actions_trigger_match_duration_seconds",
+			Help:    "Wall-clock time spent in the trigger handler discovering + parsing + matching workflows for one triggering event.",
+			Buckets: prometheus.ExponentialBuckets(0.005, 2.0, 12),
+		},
+	)
+)
+
 func init() {
 	Registry.MustRegister(
 		HTTPRequestsTotal,
@@ -125,6 +144,8 @@ func init() {
 		WorkerJobsProcessedTotal,
 		WorkerJobDurationSeconds,
 		WorkerInFlight,
+		ActionsRunsEnqueuedTotal,
+		ActionsTriggerMatchDurationSeconds,
 	)
 }
 

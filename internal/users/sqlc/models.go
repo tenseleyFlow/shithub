@@ -2299,6 +2299,7 @@ type WorkflowRun struct {
 	Version          int32
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	TriggerEventID   string
 }
 
 type WorkflowRunner struct {
