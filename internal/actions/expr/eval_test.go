@@ -3,10 +3,13 @@
 package expr_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/expr"
+	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 )
 
 // evalString is the test helper that lex + parse + eval in one shot.
@@ -374,6 +377,66 @@ func TestEval_GithubUnknownFieldErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEval_GithubAliasFixtureEndToEnd lifts the actual github-alias.yml
+// fixture, parses the workflow, extracts the `${{ … }}` body from the
+// step's run command, and evaluates it through the alias path. This is
+// the end-to-end pin that would have caught S41a-H1: the fixture
+// existed but no test exercised it through eval.
+func TestEval_GithubAliasFixtureEndToEnd(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile(filepath.Join("../../../tests/fixtures/workflows", "github-alias.yml"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	w, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+	// Step 0's run command is: echo "${{ github.event.head_commit.message }}"
+	run := w.Jobs[0].Steps[0].Run
+	body, ok := extractFirstExpression(run)
+	if !ok {
+		t.Fatalf("expected ${{ ... }} expression in run command, got %q", run)
+	}
+	v, err := evalString(t, body, &expr.Context{
+		Shithub: expr.ShithubContext{
+			Event: map[string]any{
+				"head_commit": map[string]any{
+					"message": "WIP: from fixture",
+				},
+			},
+		},
+		Untrusted: expr.DefaultUntrusted(),
+	})
+	if err != nil {
+		t.Fatalf("eval %q: %v", body, err)
+	}
+	if v.S != "WIP: from fixture" {
+		t.Errorf("got %q, want %q", v.S, "WIP: from fixture")
+	}
+	if !v.Tainted {
+		t.Error("github.event.head_commit.message must be tainted (S41d injection guard)")
+	}
+}
+
+// extractFirstExpression pulls the body of the first `${{ … }}` block
+// out of s. Tiny helper used by the fixture round-trip test; the real
+// runner-side templating in S41d will be more sophisticated.
+func extractFirstExpression(s string) (string, bool) {
+	start := strings.Index(s, "${{")
+	if start < 0 {
+		return "", false
+	}
+	end := strings.Index(s[start:], "}}")
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(s[start+3 : start+end]), true
 }
 
 func TestEval_JobStatusFunctions(t *testing.T) {
