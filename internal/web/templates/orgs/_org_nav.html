@@ -1,0 +1,13 @@
+{{ define "org-nav" -}}
+<nav class="shithub-org-nav" aria-label="Organization">
+  <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item{{ if eq .ActiveOrgTab "overview" }} is-active{{ end }}">{{ octicon "home" }} Overview</a>
+  <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-org-nav-item{{ if eq .ActiveOrgTab "repositories" }} is-active{{ end }}">{{ octicon "repo" }} Repositories <span class="shithub-tab-count">{{ .RepoCount }}</span></a>
+  <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
+  <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
+  <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item{{ if eq .ActiveOrgTab "teams" }} is-active{{ end }}">{{ octicon "people" }} Teams <span class="shithub-tab-count">{{ .TeamCount }}</span></a>
+  <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item{{ if eq .ActiveOrgTab "people" }} is-active{{ end }}">{{ octicon "person" }} People <span class="shithub-tab-count">{{ .MemberCount }}</span></a>
+  <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
+  <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
+  {{ if .IsOwner }}<a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item{{ if eq .ActiveOrgTab "settings" }} is-active{{ end }}">{{ octicon "gear" }} Settings</a>{{ end }}
+</nav>
+{{- end }}

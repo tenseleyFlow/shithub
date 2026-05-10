@@ -3,13 +3,14 @@
 package orgs
 
 import (
-	"errors"
+	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -27,14 +28,52 @@ func (h *Handlers) MountTeams(r chi.Router) {
 	r.Post("/{org}/teams/{teamSlug}/repos", h.teamRepoGrant)
 }
 
-// teamsList renders /{org}/teams. Filters secret teams out for
-// non-members + non-owners.
+type orgNavCounts struct {
+	RepoCount   int64
+	MemberCount int64
+	TeamCount   int64
+}
+
+type teamAggregateCounts struct {
+	MemberCount int64
+	RepoCount   int64
+	ChildCount  int64
+}
+
+type teamListItem struct {
+	ID           int64
+	Slug         string
+	DisplayName  string
+	Description  string
+	Privacy      string
+	ParentSlug   string
+	Path         string
+	MemberCount  int64
+	RepoCount    int64
+	ChildCount   int64
+	IsSecret     bool
+	HasParent    bool
+	CreatedLabel string
+}
+
+type teamRepoCandidate struct {
+	ID         int64
+	Name       string
+	Visibility string
+}
+
+// teamsList renders /{org}/teams. GitHub keeps org teams member-only:
+// visible teams are visible to org members, while secret teams are
+// further limited to team members and org owners.
 func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.orgFromSlug(w, r)
 	if !ok {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
+	if !h.canSeeOrgTeams(w, r, org.ID, viewer) {
+		return
+	}
 	all, err := orgsdb.New().ListTeamsForOrg(r.Context(), h.d.Pool, org.ID)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "teams: list", "error", err)
@@ -42,16 +81,34 @@ func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	visible := h.filterSecretTeams(r, all, org.ID, viewer)
+	counts := h.teamAggregateCounts(r.Context(), org.ID)
+	parentSlugs := teamParentSlugs(all)
+	items := h.teamListItems(org, visible, counts, parentSlugs)
+	visibleCount, secretCount := teamPrivacyCounts(items)
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	privacy := strings.TrimSpace(r.URL.Query().Get("privacy"))
+	items = filterTeamListItems(items, query, privacy)
 	isOwner := false
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
+	navCounts := h.orgNavCounts(r.Context(), org.ID, int64(len(visible)))
 	_ = h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
-		"Title":     org.Slug + " · teams",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Teams":     visible,
-		"IsOwner":   isOwner,
+		"Title":          org.Slug + " · teams",
+		"CSRFToken":      middleware.CSRFTokenForRequest(r),
+		"Org":            org,
+		"AvatarURL":      "/avatars/" + url.PathEscape(string(org.Slug)),
+		"Teams":          items,
+		"TeamTotalCount": len(visible),
+		"VisibleCount":   visibleCount,
+		"SecretCount":    secretCount,
+		"Query":          query,
+		"PrivacyFilter":  privacy,
+		"ActiveOrgTab":   "teams",
+		"RepoCount":      navCounts.RepoCount,
+		"MemberCount":    navCounts.MemberCount,
+		"TeamCount":      navCounts.TeamCount,
+		"IsOwner":        isOwner,
 	})
 }
 
@@ -98,6 +155,9 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
+	if !h.canSeeOrgTeams(w, r, org.ID, viewer) {
+		return
+	}
 	if !h.canSeeTeam(r, team, viewer) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
@@ -105,18 +165,34 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	q := orgsdb.New()
 	members, _ := q.ListTeamMembers(r.Context(), h.d.Pool, team.ID)
 	repos, _ := q.ListTeamRepoAccess(r.Context(), h.d.Pool, team.ID)
+	children, _ := q.ListChildTeams(r.Context(), h.d.Pool, pgtype.Int8{Int64: team.ID, Valid: true})
+	childItems := h.teamListItems(org, h.filterSecretTeams(r, children, org.ID, viewer),
+		h.teamAggregateCounts(r.Context(), org.ID), teamParentSlugs(children))
+	repoCandidates := h.teamRepoCandidates(r.Context(), org.ID, team.ID)
 	isOwner := false
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
+	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	_ = h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
-		"Title":     string(org.Slug) + "/" + string(team.Slug),
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Team":      team,
-		"Members":   members,
-		"Repos":     repos,
-		"IsOwner":   isOwner,
+		"Title":           string(org.Slug) + "/" + string(team.Slug),
+		"CSRFToken":       middleware.CSRFTokenForRequest(r),
+		"Org":             org,
+		"AvatarURL":       "/avatars/" + url.PathEscape(string(org.Slug)),
+		"Team":            team,
+		"TeamDisplayName": teamDisplayName(team),
+		"TeamPath":        h.teamPath(org, team),
+		"TeamPrivacy":     string(team.Privacy),
+		"TeamIsSecret":    team.Privacy == orgsdb.TeamPrivacySecret,
+		"ChildTeams":      childItems,
+		"Members":         members,
+		"Repos":           repos,
+		"RepoCandidates":  repoCandidates,
+		"ActiveOrgTab":    "teams",
+		"RepoCount":       navCounts.RepoCount,
+		"MemberCount":     navCounts.MemberCount,
+		"TeamCount":       navCounts.TeamCount,
+		"IsOwner":         isOwner,
 	})
 }
 
@@ -179,9 +255,13 @@ func (h *Handlers) teamRepoGrant(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	repoID, err := strconv.ParseInt(r.PostFormValue("repo_id"), 10, 64)
+	repoID, err := h.repoIDFromTeamForm(r, org.ID)
 	if err != nil || repoID == 0 {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	if !h.repoBelongsToOrg(r.Context(), org.ID, repoID) {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
 	if r.PostFormValue("action") == "remove" {
@@ -205,6 +285,22 @@ func (h *Handlers) teamFromSlug(w http.ResponseWriter, r *http.Request, orgID in
 		return orgsdb.Team{}, false
 	}
 	return row, true
+}
+
+func (h *Handlers) canSeeOrgTeams(w http.ResponseWriter, r *http.Request, orgID int64, viewer middleware.CurrentUser) bool {
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return false
+	}
+	if viewer.IsSiteAdmin {
+		return true
+	}
+	isMember, _ := orgs.IsMember(r.Context(), h.deps(), orgID, viewer.ID)
+	if !isMember {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return false
+	}
+	return true
 }
 
 func (h *Handlers) requireOrgOwner(w http.ResponseWriter, r *http.Request, orgID int64, viewer middleware.CurrentUser) bool {
@@ -233,12 +329,10 @@ func (h *Handlers) userIDByUsername(r *http.Request, username string) (int64, bo
 	return id, true
 }
 
-// canSeeTeam decides whether the viewer is allowed to see a team's
-// members + repos. Visible teams are public to all org members and
-// their basic info is public to everyone; secret teams are private
-// to (team members ∪ org owners). For simplicity the page-render
-// check requires ANY membership/owner; the list page does the same
-// filter when assembling the visible set.
+// canSeeTeam decides whether the viewer is allowed to see a team's members
+// and repositories. canSeeOrgTeams has already enforced org membership;
+// visible teams are readable to those members, while secret teams require
+// team membership or org ownership.
 func (h *Handlers) canSeeTeam(r *http.Request, team orgsdb.Team, viewer middleware.CurrentUser) bool {
 	if team.Privacy == orgsdb.TeamPrivacyVisible {
 		return true
@@ -264,7 +358,8 @@ func (h *Handlers) canSeeTeam(r *http.Request, team orgsdb.Team, viewer middlewa
 	return member
 }
 
-// filterSecretTeams strips secret teams the viewer can't see.
+// filterSecretTeams strips secret teams the viewer can't see after the
+// caller has already established org-team-page visibility.
 func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID int64, viewer middleware.CurrentUser) []orgsdb.Team {
 	if len(all) == 0 {
 		return all
@@ -296,15 +391,179 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 	return out
 }
 
+func (h *Handlers) orgNavCounts(ctx context.Context, orgID int64, visibleTeamCount int64) orgNavCounts {
+	var counts orgNavCounts
+	_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM repos WHERE owner_org_id = $1 AND deleted_at IS NULL`, orgID).Scan(&counts.RepoCount)
+	_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM org_members WHERE org_id = $1`, orgID).Scan(&counts.MemberCount)
+	if visibleTeamCount >= 0 {
+		counts.TeamCount = visibleTeamCount
+	} else {
+		_ = h.d.Pool.QueryRow(ctx, `SELECT count(*) FROM teams WHERE org_id = $1`, orgID).Scan(&counts.TeamCount)
+	}
+	return counts
+}
+
+func (h *Handlers) teamAggregateCounts(ctx context.Context, orgID int64) map[int64]teamAggregateCounts {
+	rows, err := h.d.Pool.Query(ctx, `
+		SELECT t.id,
+		       count(DISTINCT tm.user_id)::bigint AS member_count,
+		       count(DISTINCT tra.repo_id)::bigint AS repo_count,
+		       count(DISTINCT child.id)::bigint AS child_count
+		  FROM teams t
+		  LEFT JOIN team_members tm ON tm.team_id = t.id
+		  LEFT JOIN team_repo_access tra ON tra.team_id = t.id
+		  LEFT JOIN teams child ON child.parent_team_id = t.id
+		 WHERE t.org_id = $1
+		 GROUP BY t.id`, orgID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "teams: counts", "org_id", orgID, "error", err)
+		return nil
+	}
+	defer rows.Close()
+	out := map[int64]teamAggregateCounts{}
+	for rows.Next() {
+		var id int64
+		var c teamAggregateCounts
+		if err := rows.Scan(&id, &c.MemberCount, &c.RepoCount, &c.ChildCount); err == nil {
+			out[id] = c
+		}
+	}
+	return out
+}
+
+func (h *Handlers) teamListItems(org orgsdb.Org, teams []orgsdb.Team, counts map[int64]teamAggregateCounts, parentSlugs map[int64]string) []teamListItem {
+	out := make([]teamListItem, 0, len(teams))
+	for _, team := range teams {
+		c := counts[team.ID]
+		parentSlug := ""
+		if team.ParentTeamID.Valid {
+			parentSlug = parentSlugs[team.ParentTeamID.Int64]
+		}
+		out = append(out, teamListItem{
+			ID:           team.ID,
+			Slug:         string(team.Slug),
+			DisplayName:  teamDisplayName(team),
+			Description:  team.Description,
+			Privacy:      string(team.Privacy),
+			ParentSlug:   parentSlug,
+			Path:         h.teamPath(org, team),
+			MemberCount:  c.MemberCount,
+			RepoCount:    c.RepoCount,
+			ChildCount:   c.ChildCount,
+			IsSecret:     team.Privacy == orgsdb.TeamPrivacySecret,
+			HasParent:    team.ParentTeamID.Valid,
+			CreatedLabel: team.CreatedAt.Time.Format("Jan 2, 2006"),
+		})
+	}
+	return out
+}
+
+func teamParentSlugs(teams []orgsdb.Team) map[int64]string {
+	if len(teams) == 0 {
+		return nil
+	}
+	byID := make(map[int64]string, len(teams))
+	for _, team := range teams {
+		byID[team.ID] = string(team.Slug)
+	}
+	return byID
+}
+
+func teamDisplayName(team orgsdb.Team) string {
+	if strings.TrimSpace(team.DisplayName) != "" {
+		return team.DisplayName
+	}
+	return string(team.Slug)
+}
+
+func teamPrivacyCounts(items []teamListItem) (visibleCount, secretCount int) {
+	for _, item := range items {
+		if item.IsSecret {
+			secretCount++
+		} else {
+			visibleCount++
+		}
+	}
+	return visibleCount, secretCount
+}
+
+func filterTeamListItems(items []teamListItem, query, privacy string) []teamListItem {
+	query = strings.ToLower(strings.TrimSpace(query))
+	privacy = strings.ToLower(strings.TrimSpace(privacy))
+	if query == "" && privacy == "" {
+		return items
+	}
+	out := make([]teamListItem, 0, len(items))
+	for _, item := range items {
+		if privacy == "visible" && item.IsSecret {
+			continue
+		}
+		if privacy == "secret" && !item.IsSecret {
+			continue
+		}
+		if query != "" {
+			haystack := strings.ToLower(item.Slug + " " + item.DisplayName + " " + item.Description)
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (h *Handlers) teamRepoCandidates(ctx context.Context, orgID, teamID int64) []teamRepoCandidate {
+	rows, err := h.d.Pool.Query(ctx, `
+		SELECT r.id, r.name, r.visibility::text
+		  FROM repos r
+		  LEFT JOIN team_repo_access a
+		    ON a.repo_id = r.id AND a.team_id = $2
+		 WHERE r.owner_org_id = $1
+		   AND r.deleted_at IS NULL
+		   AND a.repo_id IS NULL
+		 ORDER BY lower(r.name)
+		 LIMIT 100`, orgID, teamID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "teams: repo candidates", "org_id", orgID, "team_id", teamID, "error", err)
+		return nil
+	}
+	defer rows.Close()
+	out := []teamRepoCandidate{}
+	for rows.Next() {
+		var item teamRepoCandidate
+		if err := rows.Scan(&item.ID, &item.Name, &item.Visibility); err == nil {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (h *Handlers) repoIDFromTeamForm(r *http.Request, orgID int64) (int64, error) {
+	if raw := strings.TrimSpace(r.PostFormValue("repo_id")); raw != "" {
+		return strconv.ParseInt(raw, 10, 64)
+	}
+	repoName := strings.TrimSpace(r.PostFormValue("repo_name"))
+	if repoName == "" {
+		return 0, strconv.ErrSyntax
+	}
+	var id int64
+	err := h.d.Pool.QueryRow(
+		r.Context(),
+		`SELECT id FROM repos WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL`,
+		orgID, repoName,
+	).Scan(&id)
+	return id, err
+}
+
+func (h *Handlers) repoBelongsToOrg(ctx context.Context, orgID, repoID int64) bool {
+	var exists bool
+	err := h.d.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND owner_org_id = $2 AND deleted_at IS NULL)`,
+		repoID, orgID,
+	).Scan(&exists)
+	return err == nil && exists
+}
+
 func (h *Handlers) teamPath(org orgsdb.Org, team orgsdb.Team) string {
 	return "/" + string(org.Slug) + "/teams/" + string(team.Slug)
 }
-
-// ensure pgx is referenced when the rest of the file's imports
-// settle (avoids a "imported and not used" if a future refactor
-// drops the only inline pgx use).
-var _ = pgx.ErrNoRows
-
-// errTeamNotFound is reserved for the future; surfaced via
-// orgs.ErrTeamNotFound when needed.
-var _ = errors.New

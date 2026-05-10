@@ -198,13 +198,20 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
 		}
 	}
+	var repoCount, teamCount int64
+	_ = h.d.Pool.QueryRow(r.Context(), `SELECT count(*) FROM repos WHERE owner_org_id = $1 AND deleted_at IS NULL`, org.ID).Scan(&repoCount)
+	_ = h.d.Pool.QueryRow(r.Context(), `SELECT count(*) FROM teams WHERE org_id = $1`, org.ID).Scan(&teamCount)
 	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
-		"Title":     org.Slug + " · people",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Members":   members,
-		"Pending":   pending,
-		"IsOwner":   isOwner,
+		"Title":        org.Slug + " · people",
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Org":          org,
+		"Members":      members,
+		"Pending":      pending,
+		"ActiveOrgTab": "people",
+		"RepoCount":    repoCount,
+		"MemberCount":  int64(len(members)),
+		"TeamCount":    teamCount,
+		"IsOwner":      isOwner,
 	})
 }
 

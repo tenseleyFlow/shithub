@@ -1,9 +1,10 @@
 {{ define "page" -}}
-<section class="shithub-org-people">
+<section class="shithub-org-profile shithub-org-people">
   <header class="shithub-org-profile-head">
     <h1>{{ .Org.DisplayName }} · People</h1>
     <p class="shithub-meta">@{{ .Org.Slug }}</p>
   </header>
+  {{ template "org-nav" . }}
 
   {{ if .IsOwner }}
   <section class="shithub-org-invite">

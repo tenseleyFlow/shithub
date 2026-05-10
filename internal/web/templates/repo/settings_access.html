@@ -54,7 +54,7 @@
     {{ if .OwnerKindOrg }}
     <section class="shithub-settings-section">
       <h2>Team grants</h2>
-      <p class="shithub-hint">Teams from <a href="/orgs/{{ .Owner }}/teams">{{ .Owner }}</a> with access to this repo.</p>
+      <p class="shithub-hint">Teams from <a href="/{{ .Owner }}/teams">{{ .Owner }}</a> with access to this repo.</p>
       {{ if .TeamGrants }}
       <table class="shithub-branches-table">
         <thead>
@@ -63,7 +63,7 @@
         <tbody>
           {{ range .TeamGrants }}
           <tr>
-            <td><a href="/orgs/{{ $.Owner }}/teams/{{ .TeamSlug }}">{{ .TeamDisplayName }}</a> <span class="shithub-fg-muted">@{{ .TeamSlug }}</span></td>
+            <td><a href="/{{ $.Owner }}/teams/{{ .TeamSlug }}">{{ .TeamDisplayName }}</a> <span class="shithub-fg-muted">@{{ .TeamSlug }}</span></td>
             <td>{{ .Role }}</td>
             <td>{{ relativeTime .AddedAt.Time }}</td>
             <td>

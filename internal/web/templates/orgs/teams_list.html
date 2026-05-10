@@ -1,47 +1,99 @@
 {{ define "page" -}}
-<section class="shithub-org-teams">
-  <header class="shithub-org-profile-head">
-    <h1>{{ .Org.DisplayName }} · Teams</h1>
-    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+<section class="shithub-org-profile shithub-org-teams">
+  <header class="shithub-org-profile-head shithub-org-teams-head">
+    <div class="shithub-org-teams-title">
+      <img class="shithub-org-teams-avatar" src="{{ .AvatarURL }}" alt="" width="48" height="48">
+      <div>
+        <h1>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</h1>
+        <p class="shithub-meta">@{{ .Org.Slug }}</p>
+      </div>
+    </div>
   </header>
 
-  {{ if .IsOwner }}
-  <section class="shithub-org-invite">
-    <h2>New team</h2>
-    <form method="POST" action="/{{ .Org.Slug }}/teams">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <label><span>Slug</span><input type="text" name="slug" required pattern="[a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?"></label>
-      <label><span>Display name</span><input type="text" name="display_name"></label>
-      <label><span>Description</span><input type="text" name="description"></label>
-      <label><span>Privacy</span>
-        <select name="privacy">
-          <option value="visible">Visible</option>
-          <option value="secret">Secret</option>
-        </select>
-      </label>
-      <button type="submit" class="shithub-button shithub-button-primary">Create team</button>
-    </form>
-  </section>
-  {{ end }}
+  {{ template "org-nav" . }}
 
-  <section class="shithub-org-members">
-    <h2>Teams ({{ len .Teams }})</h2>
-    {{ if .Teams }}
-    <ul class="shithub-repo-list">
-      {{ range .Teams }}
-      <li class="shithub-repo-list-row">
-        <h3 class="shithub-repo-list-name">
-          <a href="/{{ $.Org.Slug }}/teams/{{ .Slug }}">{{ .Slug }}</a>
-          {{ if eq (printf "%s" .Privacy) "secret" }}<span class="shithub-pill shithub-pill-private">secret</span>{{ end }}
-          {{ if .ParentTeamID.Valid }}<small class="shithub-meta">child team</small>{{ end }}
-        </h3>
-        {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
-      </li>
+  <div class="shithub-org-teams-layout">
+    <main class="shithub-org-teams-main">
+      <div class="shithub-org-team-toolbar">
+        <div>
+          <h2>Teams</h2>
+          <p>Use teams to manage repository access and group organization members.</p>
+        </div>
+        {{ if .IsOwner }}
+        <details class="shithub-org-team-create">
+          <summary class="shithub-button shithub-button-primary">{{ octicon "people" }} New team</summary>
+          <form method="POST" action="/{{ .Org.Slug }}/teams" class="shithub-org-team-create-form">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <label><span>Team name</span><input type="text" name="display_name" placeholder="Engineering" autocomplete="off"></label>
+            <label><span>Team slug</span><input type="text" name="slug" required pattern="[a-z0-9](?:[a-z0-9._-]{0,48}[a-z0-9])?" placeholder="engineering" autocomplete="off"></label>
+            <label><span>Description</span><input type="text" name="description" placeholder="What is this team responsible for?"></label>
+            <label><span>Privacy</span>
+              <select name="privacy">
+                <option value="visible">Visible</option>
+                <option value="secret">Secret</option>
+              </select>
+            </label>
+            <button type="submit" class="shithub-button shithub-button-primary">Create team</button>
+          </form>
+        </details>
+        {{ end }}
+      </div>
+
+      <form method="GET" action="/{{ .Org.Slug }}/teams" class="shithub-org-team-filters" role="search">
+        <label class="shithub-org-team-search">
+          {{ octicon "search" }}
+          <input type="search" name="q" value="{{ .Query }}" placeholder="Find a team..." aria-label="Find a team">
+        </label>
+        {{ if .PrivacyFilter }}<input type="hidden" name="privacy" value="{{ .PrivacyFilter }}">{{ end }}
+        <button type="submit" class="shithub-button">Search</button>
+      </form>
+
+      <nav class="shithub-org-team-filter-tabs" aria-label="Team filters">
+        <a href="/{{ .Org.Slug }}/teams{{ if .Query }}?q={{ urlquery .Query }}{{ end }}" class="{{ if not .PrivacyFilter }}is-selected{{ end }}">All <span>{{ .TeamTotalCount }}</span></a>
+        <a href="/{{ .Org.Slug }}/teams?privacy=visible{{ if .Query }}&amp;q={{ urlquery .Query }}{{ end }}" class="{{ if eq .PrivacyFilter "visible" }}is-selected{{ end }}">Visible <span>{{ .VisibleCount }}</span></a>
+        <a href="/{{ .Org.Slug }}/teams?privacy=secret{{ if .Query }}&amp;q={{ urlquery .Query }}{{ end }}" class="{{ if eq .PrivacyFilter "secret" }}is-selected{{ end }}">Secret <span>{{ .SecretCount }}</span></a>
+      </nav>
+
+      {{ if .Teams }}
+      <ol class="shithub-org-team-list">
+        {{ range .Teams }}
+        <li class="shithub-org-team-row">
+          <div class="shithub-org-team-row-icon" aria-hidden="true">{{ octicon "people" }}</div>
+          <div class="shithub-org-team-row-main">
+            <div class="shithub-org-team-row-title">
+              <a href="{{ .Path }}">{{ .DisplayName }}</a>
+              <span class="shithub-meta">@{{ $.Org.Slug }}/{{ .Slug }}</span>
+              {{ if .IsSecret }}<span class="shithub-pill shithub-pill-private">{{ octicon "lock" }} Secret</span>{{ else }}<span class="shithub-pill">{{ octicon "eye" }} Visible</span>{{ end }}
+            </div>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ else }}<p class="shithub-muted">No description provided.</p>{{ end }}
+            <div class="shithub-org-team-row-meta">
+              <span>{{ octicon "person" }} {{ .MemberCount }} member{{ if ne .MemberCount 1 }}s{{ end }}</span>
+              <span>{{ octicon "repo" }} {{ .RepoCount }} repositor{{ if eq .RepoCount 1 }}y{{ else }}ies{{ end }}</span>
+              {{ if .ChildCount }}<span>{{ octicon "people" }} {{ .ChildCount }} child team{{ if ne .ChildCount 1 }}s{{ end }}</span>{{ end }}
+              {{ if .HasParent }}<span>{{ octicon "git-branch" }} Child of <a href="/{{ $.Org.Slug }}/teams/{{ .ParentSlug }}">{{ .ParentSlug }}</a></span>{{ end }}
+            </div>
+          </div>
+        </li>
+        {{ end }}
+      </ol>
+      {{ else }}
+      <div class="shithub-org-empty">
+        <h3>No teams found.</h3>
+        <p>Teams matching the current filters will appear here.</p>
+      </div>
       {{ end }}
-    </ul>
-    {{ else }}
-    <p class="shithub-empty">No teams yet.</p>
-    {{ end }}
-  </section>
+    </main>
+
+    <aside class="shithub-org-sidebar" aria-label="Teams sidebar">
+      <section class="shithub-org-sidebox">
+        <h2>About teams</h2>
+        <p>Visible teams can be found by organization members. Secret teams are limited to team members and owners.</p>
+      </section>
+      <section class="shithub-org-sidebox">
+        <h2>Organization access</h2>
+        <p><strong>{{ .MemberCount }}</strong> member{{ if ne .MemberCount 1 }}s{{ end }} across <strong>{{ .TeamCount }}</strong> team{{ if ne .TeamCount 1 }}s{{ end }}.</p>
+      </section>
+    </aside>
+  </div>
 </section>
 {{- end }}
