@@ -13,19 +13,13 @@ import (
 // recordAdminAction writes an audit row attributed to the current
 // site admin, with optional impersonation-target metadata so post-
 // incident forensics has both the real actor and the impersonated id.
+//
+// The (actorID, meta) substitution lives on middleware.CurrentUser
+// so non-admin handlers can record uniform impersonation trails
+// (SR2 H2).
 func (h *Handlers) recordAdminAction(r *http.Request, action audit.Action, target audit.Target, targetID int64, meta map[string]any) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actorID := viewer.ID
-	if viewer.RealActorID != 0 {
-		// Inside an impersonated session, the "real" admin id was
-		// stashed before the binding swap. Use that for actor_id and
-		// keep the impersonated id in meta.
-		actorID = viewer.RealActorID
-		if meta == nil {
-			meta = map[string]any{}
-		}
-		meta["impersonated_user_id"] = viewer.ImpersonatedUserID
-	}
+	actorID, meta := viewer.AuditActor(meta)
 	if err := h.d.Audit.Record(r.Context(), h.d.Pool, actorID, action, target, targetID, meta); err != nil && h.d.Logger != nil {
 		h.d.Logger.WarnContext(r.Context(), "admin: audit write", "error", err, "action", string(action))
 	}
