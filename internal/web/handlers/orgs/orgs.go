@@ -4,6 +4,7 @@
 //
 //	GET  /organizations/new            create form
 //	POST /organizations                create submit
+//	GET  /orgs/{org}/repositories                          repository list
 //	GET  /{org}/people                                      members + pending invites + invite form
 //	POST /{org}/people/invite                               invite by username or email
 //	POST /{org}/people/{user}/role                          change role

@@ -9,7 +9,7 @@
     </div>
     <nav class="shithub-org-nav" aria-label="Organization">
       <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item">{{ octicon "home" }} Overview</a>
-      <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories</a>
+      <a href="/orgs/{{ .Org.Slug }}/repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories</a>
       <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
       <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
       <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item">{{ octicon "people" }} Teams</a>

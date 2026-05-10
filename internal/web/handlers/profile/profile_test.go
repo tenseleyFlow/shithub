@@ -4,6 +4,7 @@ package profile_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,6 +48,7 @@ func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *pr
 		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"orgs/repositories.html": {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
 		"errors/404.html":        {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":        {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
@@ -87,6 +89,7 @@ func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *pr
 		_, _ = w.Write([]byte("login-handler"))
 	})
 	h.MountAvatars(r)
+	h.MountOrgRepositories(r)
 	h.MountProfile(r)
 
 	srv := httptest.NewServer(r)
@@ -356,6 +359,63 @@ func TestProfile_DispatchesOrgOverviewWithVisibleAggregates(t *testing.T) {
 	}
 	if strings.Contains(got, "private-roadmap") || strings.Contains(got, "Rust") {
 		t.Fatalf("anonymous org overview leaked private repo data: %s", got)
+	}
+}
+
+func TestProfile_OrgRepositoriesPagePaginatesVisibleRepos(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	creator := env.insertUser(t, "alice", "Alice", "")
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", creator)
+	for i := 0; i < 31; i++ {
+		env.insertOrgRepo(t, orgID, fmt.Sprintf("repo-%02d", i), "public repo", "public", "Go", int64(i), 0)
+	}
+	env.insertOrgRepo(t, orgID, "private-roadmap", "hidden", "private", "Rust", 99, 0)
+
+	body := env.getAs(t, "/orgs/tenseleyflow/repositories?sort=name&page=2", usersdb.User{})
+	for _, want := range []string{
+		"ORGREPOS=tenseleyflow",
+		"ACTIVE=repositories",
+		"TOTAL=31",
+		"FILTERED=31",
+		"PAGE=2/2",
+		"SORT=name",
+		"NAMES=repo-30;",
+		"P1=false",
+		"P2=true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "private-roadmap") || strings.Contains(body, "Rust") {
+		t.Fatalf("anonymous org repositories page leaked private repo data: %s", body)
+	}
+}
+
+func TestProfile_OrgRepositoriesPageFilters(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	creator := env.insertUser(t, "alice", "Alice", "")
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", creator)
+	env.insertOrgRepo(t, orgID, "shithub", "GitHub clone", "public", "Go", 3, 1, "forge")
+	env.insertOrgRepo(t, orgID, "loader", "local agent loop", "public", "Python", 9, 0, "agents")
+	env.insertOrgRepo(t, orgID, "sway", "adapter research", "public", "Python", 1, 0, "llm")
+
+	body := env.getAs(t, "/orgs/tenseleyflow/repositories?q=agent&type=public&language=Python&sort=stars", usersdb.User{})
+	for _, want := range []string{
+		"FILTERED=1",
+		"TYPE=public",
+		"LANG=Python",
+		"SORT=stars",
+		"NAMES=loader;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "shithub") || strings.Contains(body, "sway;") {
+		t.Fatalf("org repositories filters returned unexpected repo: %s", body)
 	}
 }
 

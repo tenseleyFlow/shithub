@@ -1,0 +1,117 @@
+{{ define "page" -}}
+<section class="shithub-org-repositories-page">
+  <header class="shithub-org-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+    {{ template "org-subnav" . }}
+  </header>
+
+  <main class="shithub-org-repositories-shell">
+    <div class="shithub-org-repositories-titlebar">
+      <div>
+        <h1>Repositories</h1>
+        <p>
+          {{ if .HasActiveFilters }}
+            {{ .FilteredCount }} result{{ if ne .FilteredCount 1 }}s{{ end }}
+          {{ else }}
+            {{ .RepoCount }} repositor{{ if eq .RepoCount 1 }}y{{ else }}ies{{ end }}
+          {{ end }}
+        </p>
+      </div>
+      {{ if .CanCreateRepo }}<a href="/new?owner={{ .Org.Slug }}" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
+    </div>
+
+    <div class="shithub-org-repositories-toolbar">
+      <form action="/orgs/{{ .Org.Slug }}/repositories" method="get" role="search" class="shithub-org-repositories-search">
+        <span aria-hidden="true">{{ octicon "search" }}</span>
+        <label class="sr-only" for="org-repositories-search">Find a repository</label>
+        <input id="org-repositories-search" type="search" name="q" value="{{ .Query }}" placeholder="Find a repository...">
+        {{ if ne .SelectedType "all" }}<input type="hidden" name="type" value="{{ .SelectedType }}">{{ end }}
+        {{ if .SelectedLanguage }}<input type="hidden" name="language" value="{{ .SelectedLanguage }}">{{ end }}
+        {{ if ne .SelectedSort "updated" }}<input type="hidden" name="sort" value="{{ .SelectedSort }}">{{ end }}
+      </form>
+
+      <div class="shithub-org-repositories-filters">
+        <details class="shithub-filter-menu">
+          <summary>Type: <span>{{ .SelectedTypeLabel }}</span> {{ octicon "triangle-down" }}</summary>
+          <div>
+            {{ range .TypeFilters }}
+            <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }} <span class="shithub-filter-count">{{ .Count }}</span></a>
+            {{ end }}
+          </div>
+        </details>
+        <details class="shithub-filter-menu">
+          <summary>Language: <span>{{ .SelectedLanguageLabel }}</span> {{ octicon "triangle-down" }}</summary>
+          <div>
+            {{ range .LanguageFilters }}
+            <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }} <span class="shithub-filter-count">{{ .Count }}</span></a>
+            {{ end }}
+          </div>
+        </details>
+        <details class="shithub-filter-menu">
+          <summary>Sort: <span>{{ .SelectedSortLabel }}</span> {{ octicon "triangle-down" }}</summary>
+          <div>
+            {{ range .SortOptions }}
+            <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }}</a>
+            {{ end }}
+          </div>
+        </details>
+      </div>
+    </div>
+
+    {{ if .Repos }}
+    <ul class="shithub-org-repo-list shithub-org-repositories-list">
+    {{ range .Repos }}
+      <li class="shithub-org-repo-row">
+        <div class="shithub-org-repo-row-main">
+          <h3>
+            <a href="/{{ $.Org.Slug }}/{{ .Name }}">{{ .Name }}</a>
+            {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+            {{ if .IsArchived }}<span class="shithub-pill shithub-pill-archived">Archived</span>{{ end }}
+          </h3>
+          {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+          {{ if .Topics }}
+          <div class="shithub-org-row-topics">
+            {{ range .Topics }}<a href="/search?q=topic:{{ . }}&amp;type=repositories" class="shithub-topic">{{ . }}</a>{{ end }}
+          </div>
+          {{ end }}
+          <div class="shithub-org-repo-meta">
+            {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+            {{ if .LicenseKey }}<span>{{ octicon "law" }} {{ .LicenseKey }}</span>{{ end }}
+            <span>{{ octicon "star" }} {{ .StarCount }}</span>
+            <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
+            <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">Updated {{ relativeTime .UpdatedAt }}</time>
+          </div>
+        </div>
+        {{ .ActivitySparkline }}
+      </li>
+    {{ end }}
+    </ul>
+    {{ else }}
+    <div class="shithub-org-empty shithub-org-repositories-empty">
+      {{ if .HasActiveFilters }}
+      <h2>No repositories matched your search.</h2>
+      <p>Try another search term or a different filter.</p>
+      {{ else }}
+      <h2>No repositories yet.</h2>
+      {{ if .CanCreateRepo }}<a href="/new?owner={{ .Org.Slug }}" class="shithub-button shithub-button-primary">Create a repository</a>{{ end }}
+      {{ end }}
+    </div>
+    {{ end }}
+
+    {{ if gt .PageCount 1 }}
+    <nav class="shithub-org-repositories-pagination" aria-label="Pagination">
+      {{ if .HasPrev }}<a href="{{ .PrevHref }}">Previous</a>{{ else }}<span class="is-disabled" aria-disabled="true">Previous</span>{{ end }}
+      {{ range .PaginationPages }}
+        {{ if .Current }}<span class="is-current" aria-current="page">{{ .Number }}</span>{{ else }}<a href="{{ .Href }}">{{ .Number }}</a>{{ end }}
+      {{ end }}
+      {{ if .HasNext }}<a href="{{ .NextHref }}">Next</a>{{ else }}<span class="is-disabled" aria-disabled="true">Next</span>{{ end }}
+    </nav>
+    {{ end }}
+  </main>
+</section>
+{{- end }}

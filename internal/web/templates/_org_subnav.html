@@ -3,7 +3,7 @@
   <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item{{ if eq .ActiveOrgNav "overview" }} is-active{{ end }}">
     {{ octicon "home" }} Overview
   </a>
-  <a href="/{{ .Org.Slug }}#org-repositories" class="shithub-org-nav-item{{ if eq .ActiveOrgNav "repositories" }} is-active{{ end }}">
+  <a href="/orgs/{{ .Org.Slug }}/repositories" class="shithub-org-nav-item{{ if eq .ActiveOrgNav "repositories" }} is-active{{ end }}">
     {{ octicon "repo" }} Repositories
     {{ with .RepoCount }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
