@@ -452,7 +452,7 @@ func TestLex_UnicodeIdentifier(t *testing.T) {
 	cases := []string{
 		"αlpha",      // Greek letter
 		"über",       // Latin-1 supplement
-		"日本語",     // CJK
+		"日本語",        // CJK
 		"snake_α",    // mixed ASCII + non-ASCII
 		"_underline", // leading underscore
 	}
