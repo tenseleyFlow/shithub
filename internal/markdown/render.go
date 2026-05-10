@@ -129,3 +129,14 @@ func RenderHTML(src []byte) (string, error) {
 	}
 	return string(out), nil
 }
+
+// RenderDocumentHTML renders README-like markdown where source line
+// wrapping should remain semantic markdown, not comment-style hard
+// breaks.
+func RenderDocumentHTML(src []byte) (string, error) {
+	out, _, _, err := Render(context.Background(), src, Options{SoftBreakAsBR: false})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}

@@ -122,7 +122,20 @@
       </section>
       {{ if .README }}
       <section class="shithub-readme markdown-body" id="readme" aria-label="README">
-        <div class="shithub-readme-head">{{ octicon "book" }} README</div>
+        <div class="shithub-readme-head">
+          {{ if .ReadmeTabs }}
+          <nav class="shithub-readme-tabs" aria-label="Repository documents">
+            {{ range .ReadmeTabs }}
+            <a href="{{ .Href }}" class="shithub-readme-tab{{ if .Active }} is-active{{ end }}">
+              {{ octicon .Icon }}
+              <span>{{ .Label }}</span>
+            </a>
+            {{ end }}
+          </nav>
+          {{ else }}
+          <span class="shithub-readme-tab is-active">{{ octicon "book" }} <span>README</span></span>
+          {{ end }}
+        </div>
         <div class="shithub-readme-body">{{ .README }}</div>
       </section>
       {{ end }}

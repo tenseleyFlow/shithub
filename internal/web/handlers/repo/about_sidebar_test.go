@@ -49,6 +49,32 @@ func TestRepoAboutResources_GitHubResourceOrder(t *testing.T) {
 	}
 }
 
+func TestRepoReadmeTabs_FiltersDocumentTabs(t *testing.T) {
+	t.Parallel()
+	resources := []repoAboutResource{
+		{Icon: "book", Label: "Readme", Href: "#readme"},
+		{Icon: "law", Label: "AGPL-3.0 license", Href: "/LICENSE"},
+		{Icon: "people", Label: "Code of conduct", Href: "/CODE_OF_CONDUCT.md"},
+		{Icon: "people", Label: "Contributing", Href: "/CONTRIBUTING.md"},
+		{Icon: "law", Label: "Security policy", Href: "/SECURITY.md"},
+		{Icon: "pulse", Label: "Activity", Href: "/activity"},
+		{Icon: "note", Label: "Custom properties", Href: "/settings/custom-properties"},
+	}
+	got := repoReadmeTabs(resources)
+	want := []string{"README", "AGPL-3.0 license", "Code of conduct", "Contributing", "Security"}
+	if len(got) != len(want) {
+		t.Fatalf("tabs = %#v, want labels %#v", got, want)
+	}
+	for i := range want {
+		if got[i].Label != want[i] {
+			t.Fatalf("tabs = %#v, want labels %#v", got, want)
+		}
+	}
+	if !got[0].Active {
+		t.Fatalf("README tab should be active: %#v", got[0])
+	}
+}
+
 func TestRepoLanguageForPath_ApproximatesGitHubLinguist(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

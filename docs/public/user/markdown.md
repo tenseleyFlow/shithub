@@ -93,9 +93,11 @@ shortcode list.
 - **Footnotes** — not yet (planned).
 - **MathJax / KaTeX** — not yet (planned).
 - **Mermaid diagrams** — not yet (post-MVP).
-- **Image attributes** like `<img width="200">` — strip-and-render
-  without the attribute. Use markdown image syntax with a small
-  thumbnail upstream.
+
+README-style HTML alignment (`align="center"` on headings,
+paragraphs, or divs) and image dimensions (`<img width="200">`) are
+preserved because GitHub READMEs commonly use them for logos and
+badges.
 
 ## Why a sanitizer?
 
