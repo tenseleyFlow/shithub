@@ -201,27 +201,28 @@ type Step struct {
 	ContinueOnError bool
 }
 
-// Value is a parsed value that may have come from a literal string,
-// a `${{ … }}` expression, or a mix. Tainted=true when the value
-// transitively depends on an untrusted source (event payload fields
-// the workflow author doesn't control). The runner refuses to
-// interpolate Tainted values into shell strings.
+// Value is a parsed value carried in the workflow tree (env entries,
+// `with:` inputs, concurrency-group expressions). At parse time we
+// only know the raw source string — the taint determination happens
+// at expression-evaluation time inside `internal/actions/expr` when
+// the runner resolves a reference against the trigger context. The
+// runner-side `expr.Value` carries the load-bearing `Tainted bool`.
 //
-// Raw is the original source string — useful for diagnostics and for
-// the runner's input-binding logic.
+// Pre-L5 this struct also had a `Tainted bool` field plus a `Tainted()`
+// constructor — both unused (the parser only ever called `V()`). The
+// duplication confused readers because two different `Value` types
+// claimed to own the taint contract; the architecture doc has always
+// described `expr.Value.Tainted` as load-bearing. Single source of
+// truth now: this struct just carries `Raw`; taint lives in
+// `expr.Value.Tainted` exclusively.
 type Value struct {
-	Raw     string
-	Tainted bool
+	Raw string
 }
 
-// V is a tiny constructor for trusted (literal) values, used by the
-// parser when it knows the source is the workflow file itself.
-func V(raw string) Value { return Value{Raw: raw, Tainted: false} }
-
-// Tainted is the constructor for untrusted-source values. The
-// expression evaluator (internal/actions/expr) calls this when it
-// resolves a reference into the `shithub.event.*` namespace.
-func Tainted(raw string) Value { return Value{Raw: raw, Tainted: true} }
+// V wraps a raw source string into a parser-side Value. The parser
+// uses this when it carries a literal or expression body verbatim
+// from the YAML — taint resolution is a runtime concern.
+func V(raw string) Value { return Value{Raw: raw} }
 
 // Diagnostic is a parser finding. Severity controls whether parsing
 // continues; Path is dot-notated for UI display ("jobs.test.steps[2].run").

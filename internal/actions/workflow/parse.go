@@ -25,7 +25,26 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 var ErrTooLarge = errors.New("workflow file exceeds size limit")
 
 // ErrTooManyAliases is returned when a YAML document expands more
-// than MaxYAMLAliases anchor references — the billion-laughs guard.
+// than MaxYAMLAliases anchor references — our hard cap on top of
+// yaml.v3's own defense.
+//
+// Two layers protect against anchor-bombs:
+//
+//  1. yaml.v3's built-in ratio defense: when alias count > 100 and
+//     decode count > 1000 and (alias/decode) ratio exceeds an internal
+//     threshold (scales 0.99 → 0.10 with document size), the decoder
+//     errors out. Not configurable; constants are baked into
+//     go.yaml.in/yaml/v3 (see decode.go's allowedAliasRatio).
+//
+//  2. Our hard 100-alias cap (countAliases below). The library's
+//     ratio-based defense doesn't fire on small documents, so a
+//     200-alias workflow would slip past it. We cap independent of
+//     document size because workflows are short-by-convention; nobody
+//     legitimately needs 100+ anchor references in a single file.
+//
+// Defense-in-depth: keep both. If yaml.v3 ever exposes a
+// configurable knob, prefer pinning it to a known value over the
+// internal heuristic. Until then, our cap is the only limit we own.
 var ErrTooManyAliases = errors.New("workflow YAML has too many aliases (anchor-bomb guard)")
 
 // Parse decodes a workflow file. It returns the parsed document, the
@@ -408,7 +427,7 @@ func parseEnv(n *yaml.Node, path string) (map[string]Value, []Diagnostic) {
 		k := n.Content[i]
 		v := n.Content[i+1]
 		if v.Kind != yaml.ScalarNode {
-			diags = append(diags, errAt(path+"."+k.Value, "env values must be scalars"))
+			diags = append(diags, errAt(joinPath(path, k.Value), "env values must be scalars"))
 			continue
 		}
 		// We tag env values literal-trusted here. The expression
@@ -642,6 +661,25 @@ func parseBool(n *yaml.Node, path string, diags *[]Diagnostic) bool {
 		return false
 	}
 	return b
+}
+
+// joinPath builds a dot-separated diagnostic path with bracket-quoting
+// for keys that aren't identifier-shaped. Identifier-shaped keys
+// appear as `parent.child`; anything else (keys containing dots,
+// spaces, quotes, brackets, or starting with a digit) appears as
+// `parent["weird key"]` so the path is unambiguous.
+//
+// Pre-L6, env-bag keys with dots produced ambiguous diagnostic paths
+// like `env.foo.bar.baz` for the entry `foo.bar` → `baz`. Authors
+// reading admin-actions-parse output had to deduce the boundary.
+//
+// Reuses identRe (defined at the top of this file by the L2 polish
+// bundle) so we have one canonical identifier-shape regex.
+func joinPath(parent, key string) string {
+	if identRe.MatchString(key) {
+		return parent + "." + key
+	}
+	return parent + "[" + strconv.Quote(key) + "]"
 }
 
 // triggerSetIsNonEmpty reports whether at least one trigger is declared.

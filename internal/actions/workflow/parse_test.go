@@ -386,3 +386,36 @@ jobs:
 		t.Fatalf("expected boolean-error diagnostic for 'yes', got: %v", diags)
 	}
 }
+
+// TestParse_DiagnosticPathQuotesNonIdentKeys pins L6: env keys that
+// contain dots, spaces, etc. produce bracket-quoted diagnostic paths
+// instead of ambiguous concat. Compare:
+//   - identifier-shaped key: path is `jobs.j.env.GOOD`
+//   - dotted key: path is `jobs.j.env["weird.key"]` (unambiguous)
+func TestParse_DiagnosticPathQuotesNonIdentKeys(t *testing.T) {
+	t.Parallel()
+	src := []byte(`name: x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    env:
+      "weird.key":
+        nested: not-a-scalar
+    steps:
+      - run: echo
+`)
+	_, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Path, `["weird.key"]`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected bracket-quoted path for dotted env key, got diags: %v", diags)
+	}
+}
