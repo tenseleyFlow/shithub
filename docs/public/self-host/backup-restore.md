@@ -28,7 +28,7 @@ By hand:
 
 ```sh
 ssh db
-sudo -u postgres rclone --config /root/.config/rclone/rclone.conf \
+sudo -u postgres rclone --config /etc/rclone-shithub.conf \
      lsf spaces-prod:shithub-backups/daily/$(date -u +%Y/%m/%d)/
 ```
 

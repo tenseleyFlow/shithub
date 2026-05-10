@@ -22,7 +22,7 @@ BUCKET="${SHITHUB_WAL_BUCKET:-spaces-prod:shithub-wal}"
 # --s3-no-check-bucket: scoped Spaces keys lack GetBucketLocation; the
 # actual PUT works fine on a key with bucket-level readwrite. Matches
 # the same flag in backup-daily.sh + sync-cross-region.sh.
-rclone --config /root/.config/rclone/rclone.conf \
+rclone --config /etc/rclone-shithub.conf \
        --s3-no-check-bucket \
        --quiet \
        copyto "$SRC" "$BUCKET/$(date +%Y/%m/%d)/$NAME"

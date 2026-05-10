@@ -70,7 +70,7 @@ say "restore drill start (work=$WORK port=$PGPORT pg=$PG_BIN)"
 # 1. Resolve dump path. --s3-no-check-bucket: scoped Spaces keys lack
 # GetBucketLocation; the actual GET works fine.
 if [[ -z "$DUMP" ]]; then
-  LATEST="$(rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+  LATEST="$(rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
                    lsf "$BUCKET/daily/" --recursive --files-only \
                 | sort | tail -n 1)"
   if [[ -z "$LATEST" ]]; then
@@ -79,7 +79,7 @@ if [[ -z "$DUMP" ]]; then
   fi
   DUMP="$WORK/$(basename "$LATEST")"
   say "fetching $LATEST"
-  rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+  rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
          copyto "$BUCKET/daily/$LATEST" "$DUMP"
 fi
 chown postgres:postgres "$DUMP"

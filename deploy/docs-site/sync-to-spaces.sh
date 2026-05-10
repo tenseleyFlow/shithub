@@ -30,7 +30,7 @@ if [[ ! -d build/docs ]]; then
 fi
 
 echo "syncing to $BUCKET..."
-rclone --config /root/.config/rclone/rclone.conf \
+rclone --config /etc/rclone-shithub.conf \
        sync --transfers 8 --checkers 16 \
        build/docs "$BUCKET"
 

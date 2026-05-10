@@ -107,7 +107,7 @@ will print the rclone error. Common causes:
 Confirm by hand:
 
 ```sh
-sudo -u postgres rclone --config /root/.config/rclone/rclone.conf \
+sudo -u postgres rclone --config /etc/rclone-shithub.conf \
      lsd spaces-prod:
 ```
 

@@ -32,7 +32,7 @@ pg_restore --list "$LOCAL_DIR/$NAME" >/dev/null
 # --s3-no-check-bucket: skip the GetBucketLocation pre-check that
 # requires a permission our scoped-RW Spaces key doesn't grant.
 # The actual PUT works fine on a key with bucket-level readwrite.
-rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
        copyto "$LOCAL_DIR/$NAME" "$BUCKET/daily/$(date -u +%Y/%m/%d)/$NAME"
 
 # Local retention: keep the last 7 dumps; bucket lifecycle handles
