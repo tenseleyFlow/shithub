@@ -26,10 +26,12 @@
       <input type="hidden" name="type" value="repositories">
       <div id="global-search-suggestions" class="shithub-nav-search-popover" data-search-results hidden></div>
     </form>
+    {{ if and (not .Repo) (not .Org) }}
     <nav class="shithub-nav-links" aria-label="Primary">
       <a href="/explore">Explore</a>
       <a href="/about">About</a>
     </nav>
+    {{ end }}
     <div class="shithub-nav-actions">
   {{- if .Viewer.ID }}
     <a href="/notifications" class="shithub-button shithub-button-ghost" title="Notifications" aria-label="Notifications">{{ octicon "bell" }}</a>
