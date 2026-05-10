@@ -47,7 +47,10 @@
     </section>
 
     <section class="shithub-border-grid-row">
-      <h2 class="shithub-repo-about-section-heading">Contributors</h2>
+      <h2 class="shithub-repo-about-section-heading">
+        <span>Contributors</span>
+        {{ if .RepoAbout.Contributors }}<span class="shithub-repo-section-count">{{ len .RepoAbout.Contributors }}</span>{{ end }}
+      </h2>
       {{ if .RepoAbout.Contributors }}
       <div class="shithub-repo-contributors">
         {{ range .RepoAbout.Contributors }}
