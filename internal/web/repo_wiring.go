@@ -81,7 +81,8 @@ func buildRepoHandlers(
 		ShithubdPath: shithubdPath,
 		CloneURLs: repoh.CloneURLs{
 			BaseURL:    cfg.Auth.BaseURL,
-			SSHEnabled: false, // S12/S13 will flip this when SSH service ships.
+			SSHEnabled: cfg.Auth.SSH.Enabled,
+			SSHHost:    cfg.Auth.SSH.Host,
 		},
 	})
 }

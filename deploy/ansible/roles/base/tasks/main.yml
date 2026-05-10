@@ -65,6 +65,26 @@
     shell: /usr/sbin/nologin
     create_home: yes
 
+# The `git` user is the SSH login target sshd matches against in the
+# sshd_config Match-User-git block. Its shell can't be nologin (sshd
+# rejects), but the AuthorizedKeysCommand returns a key with a forced
+# `command=` prefix that overrides whatever a login shell would do.
+# /usr/bin/git-shell adds a second layer of constraint: even if the
+# AKC's command= is somehow bypassed, git-shell only allows git
+# commands.
+- name: Ensure git-shell is installed (provided by `git` package, already a dep)
+  command: which git-shell
+  register: git_shell
+  changed_when: false
+
+- name: System users — create git (SSH login target)
+  user:
+    name: git
+    system: yes
+    home: /var/lib/git
+    shell: "{{ git_shell.stdout }}"
+    create_home: yes
+
 - name: Data root — create + own
   file:
     path: "{{ shithub_data_root }}"
