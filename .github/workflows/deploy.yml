@@ -100,13 +100,39 @@ jobs:
       # diverges from origin/trunk, the push fails non-fast-forward
       # and a human reconciles. We never want a runner to silently
       # overwrite a human edit on the mirror.
+      #
+      # The app may still be coming back through Caddy immediately
+      # after the systemd restart. Wait for the public HTTP surface
+      # and retry the mirror push so a transient 502 does not mark a
+      # successful deploy as failed. Persistent auth, divergence, or
+      # server errors still fail the job.
       - name: Mirror to shithub.sh
         if: success()
         env:
           SHITHUB_PUSH_USER: ${{ secrets.SHITHUB_PUSH_USER }}
           SHITHUB_PUSH_PAT:  ${{ secrets.SHITHUB_PUSH_PAT }}
         run: |
-          git -c "credential.helper=!f() { echo username=$SHITHUB_PUSH_USER; echo password=$SHITHUB_PUSH_PAT; }; f" \
-              push \
-              https://shithub.sh/tenseleyflow/shithub.git \
-              HEAD:trunk
+          curl --fail --silent --show-error \
+            --retry 6 --retry-delay 5 --retry-all-errors \
+            https://shithub.sh/ \
+            --output /dev/null
+
+          mirror_push() {
+            git -c "credential.helper=!f() { echo username=$SHITHUB_PUSH_USER; echo password=$SHITHUB_PUSH_PAT; }; f" \
+                push \
+                https://shithub.sh/tenseleyflow/shithub.git \
+                HEAD:trunk
+          }
+
+          status=0
+          for attempt in 1 2 3 4 5; do
+            if mirror_push; then
+              exit 0
+            fi
+            status=$?
+            if [ "$attempt" -eq 5 ]; then
+              break
+            fi
+            sleep "$((attempt * 10))"
+          done
+          exit "$status"
