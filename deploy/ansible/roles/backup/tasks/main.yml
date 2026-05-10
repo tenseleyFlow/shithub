@@ -31,17 +31,19 @@
     - { src: run.sh,             mode: "0755" }
     - { src: smoke-queries.sql,  mode: "0644" }
 
-- name: rclone config dir
-  file:
-    path: /root/.config/rclone
-    state: directory
-    mode: "0700"
-
-- name: rclone config — Spaces credentials
+# Single rclone config shared by every script that talks to Spaces:
+# - root-owned for the daily/cross-region cron jobs (running as root)
+# - postgres-readable (group 0640) for archive_command, which Postgres
+#   invokes as the postgres user. The previous /root/.config/rclone/
+#   path was unreachable to postgres because /root is mode 0700;
+#   moving to /etc/ with explicit group sidesteps the traversal block.
+- name: rclone config — Spaces credentials, shared with postgres
   template:
     src: rclone.conf.j2
-    dest: /root/.config/rclone/rclone.conf
-    mode: "0600"
+    dest: /etc/rclone-shithub.conf
+    owner: root
+    group: postgres
+    mode: "0640"
 
 - name: cron — daily logical backup
   cron:
