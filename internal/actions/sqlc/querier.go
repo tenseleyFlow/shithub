@@ -14,6 +14,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
 	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
+	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
 	DeleteOrgVariable(ctx context.Context, db DBTX, arg DeleteOrgVariableParams) error
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
@@ -66,6 +67,8 @@ type Querier interface {
 	// handler uses this to find the existing row so it can surface a
 	// stable RunID. Matches the partial-unique index from migration 0051.
 	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	MarkRunnerJWTUsed(ctx context.Context, db DBTX, arg MarkRunnerJWTUsedParams) (RunnerJwtUsed, error)
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
 	// race here will catch a unique-violation and the caller retries.
