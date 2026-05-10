@@ -3,10 +3,13 @@
 package expr_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/expr"
+	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 )
 
 // evalString is the test helper that lex + parse + eval in one shot.
@@ -282,6 +285,158 @@ func TestEval_StringEscapeQuote(t *testing.T) {
 	if v.S != "it's ok" {
 		t.Errorf("got %q", v.S)
 	}
+}
+
+// TestEval_GithubAliasResolves exercises the documented `${{ github.* }}`
+// → `${{ shithub.* }}` rebrand alias. Workflow authors copy-pasting GHA
+// workflows expect the github namespace to keep working; the evaluator
+// rewrites at the namespace boundary and routes through shithub semantics.
+// Audit S41a-H1 found this was dead code; this test pins it live.
+func TestEval_GithubAliasResolves(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{`github.run_id`, "42"},
+		{`github.sha`, "deadbeef"},
+		{`github.actor`, "alice"},
+		{`github.ref`, "refs/heads/trunk"},
+		{`github.event.pull_request.title`, "feat: add foo"},
+		{`github.event.head_commit.message`, "WIP: testing"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			t.Parallel()
+			v, err := evalString(t, tc.src, ctx)
+			if err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			if v.S != tc.want {
+				t.Errorf("got %q, want %q", v.S, tc.want)
+			}
+		})
+	}
+}
+
+// TestEval_GithubAliasIsTainted asserts the rebrand alias preserves the
+// load-bearing taint flag: github.event.* must taint exactly like
+// shithub.event.*. If the alias rewrite happens after isUntrusted runs,
+// taint quietly disappears and S41d's injection guard misses untrusted
+// PR-title input. Pin it.
+func TestEval_GithubAliasIsTainted(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	v, err := evalString(t, `github.event.pull_request.title`, ctx)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if !v.Tainted {
+		t.Fatal("github.event.* must be tainted (load-bearing for S41d injection prevention)")
+	}
+}
+
+// TestEval_GithubAliasNonEventNotTainted is the inverse pin: github.run_id
+// (and friends) ride the same alias path but must NOT be tainted because
+// they don't derive from the user-controlled event payload.
+func TestEval_GithubAliasNonEventNotTainted(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	for _, src := range []string{`github.run_id`, `github.sha`, `github.actor`, `github.ref`} {
+		t.Run(src, func(t *testing.T) {
+			t.Parallel()
+			v, err := evalString(t, src, ctx)
+			if err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			if v.Tainted {
+				t.Fatalf("expected Tainted=false on %s; got Tainted=true (would falsely trip S41d guard)", src)
+			}
+		})
+	}
+}
+
+// TestEval_GithubUnknownFieldErrors confirms the alias is *narrow*: only
+// the shithub.{run_id,sha,ref,actor,event} subset routes through. github
+// fields we don't expose (event_name, repository, run_number, etc.) get
+// the canonical shithub error message — slightly confusing for a github-
+// flavored author but actionable.
+func TestEval_GithubUnknownFieldErrors(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	for _, src := range []string{`github.event_name`, `github.repository`, `github.run_number`} {
+		t.Run(src, func(t *testing.T) {
+			t.Parallel()
+			_, err := evalString(t, src, ctx)
+			if err == nil {
+				t.Fatalf("expected eval error for unsupported github.* field %s", src)
+			}
+			if !strings.Contains(err.Error(), "unknown shithub field") {
+				t.Errorf("expected 'unknown shithub field' (canonical), got: %v", err)
+			}
+		})
+	}
+}
+
+// TestEval_GithubAliasFixtureEndToEnd lifts the actual github-alias.yml
+// fixture, parses the workflow, extracts the `${{ … }}` body from the
+// step's run command, and evaluates it through the alias path. This is
+// the end-to-end pin that would have caught S41a-H1: the fixture
+// existed but no test exercised it through eval.
+func TestEval_GithubAliasFixtureEndToEnd(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile(filepath.Join("../../../tests/fixtures/workflows", "github-alias.yml"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	w, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+	// Step 0's run command is: echo "${{ github.event.head_commit.message }}"
+	run := w.Jobs[0].Steps[0].Run
+	body, ok := extractFirstExpression(run)
+	if !ok {
+		t.Fatalf("expected ${{ ... }} expression in run command, got %q", run)
+	}
+	v, err := evalString(t, body, &expr.Context{
+		Shithub: expr.ShithubContext{
+			Event: map[string]any{
+				"head_commit": map[string]any{
+					"message": "WIP: from fixture",
+				},
+			},
+		},
+		Untrusted: expr.DefaultUntrusted(),
+	})
+	if err != nil {
+		t.Fatalf("eval %q: %v", body, err)
+	}
+	if v.S != "WIP: from fixture" {
+		t.Errorf("got %q, want %q", v.S, "WIP: from fixture")
+	}
+	if !v.Tainted {
+		t.Error("github.event.head_commit.message must be tainted (S41d injection guard)")
+	}
+}
+
+// extractFirstExpression pulls the body of the first `${{ … }}` block
+// out of s. Tiny helper used by the fixture round-trip test; the real
+// runner-side templating in S41d will be more sophisticated.
+func extractFirstExpression(s string) (string, bool) {
+	start := strings.Index(s, "${{")
+	if start < 0 {
+		return "", false
+	}
+	end := strings.Index(s[start:], "}}")
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(s[start+3 : start+end]), true
 }
 
 func TestEval_JobStatusFunctions(t *testing.T) {

@@ -140,20 +140,36 @@ func Eval(e Expr, ctx *Context) (Value, error) {
 // namespace; subsequent segments index into it. Anything outside the
 // allowlist is an error so we don't silently let workflows reach for
 // e.g. `runner.os` (which we don't define).
+//
+// `github.*` is accepted as an alias for `shithub.*` (intentional
+// rebrand — see the campaign decision and docs/internal/actions-schema.md).
+// We rewrite path[0] from "github" to "shithub" up-front so taint
+// computation, dispatch, and error messages all flow through the
+// canonical name. github.* refs that don't resolve under shithub.*
+// (e.g. `github.event_name`, which we don't expose in v1) error with
+// the canonical "unknown shithub field" message — slightly confusing
+// for github-flavored authors but actionable.
 func evalRef(r Ref, ctx *Context) (Value, error) {
 	if len(r.Path) == 0 {
 		return Value{}, fmt.Errorf("expr: empty reference")
 	}
-	root := r.Path[0]
-	tainted := isUntrusted(r.Path, ctx.Untrusted)
+	path := r.Path
+	if path[0] == "github" {
+		aliased := make([]string, len(path))
+		copy(aliased, path)
+		aliased[0] = "shithub"
+		path = aliased
+	}
+	root := path[0]
+	tainted := isUntrusted(path, ctx.Untrusted)
 	switch root {
 	case "secrets":
-		if len(r.Path) != 2 {
+		if len(path) != 2 {
 			return Value{}, fmt.Errorf("expr: secrets.<name> requires exactly one member")
 		}
-		v, ok := ctx.Secrets[r.Path[1]]
+		v, ok := ctx.Secrets[path[1]]
 		if !ok {
-			return Value{}, fmt.Errorf("expr: secret %q not bound", r.Path[1])
+			return Value{}, fmt.Errorf("expr: secret %q not bound", path[1])
 		}
 		// Secrets are NEVER tainted — they're operator-controlled.
 		// The runner's log scrubber (S41e) replaces their values in
@@ -161,26 +177,26 @@ func evalRef(r Ref, ctx *Context) (Value, error) {
 		// untrusted-source taint, not secret-vs-not.
 		return Value{Kind: KindString, S: v}, nil
 	case "vars":
-		if len(r.Path) != 2 {
+		if len(path) != 2 {
 			return Value{}, fmt.Errorf("expr: vars.<name> requires exactly one member")
 		}
-		v, ok := ctx.Vars[r.Path[1]]
+		v, ok := ctx.Vars[path[1]]
 		if !ok {
 			// Missing var resolves to empty string (matches GHA).
 			return Value{Kind: KindString, S: ""}, nil
 		}
 		return Value{Kind: KindString, S: v}, nil
 	case "env":
-		if len(r.Path) != 2 {
+		if len(path) != 2 {
 			return Value{}, fmt.Errorf("expr: env.<name> requires exactly one member")
 		}
-		v, ok := ctx.Env[r.Path[1]]
+		v, ok := ctx.Env[path[1]]
 		if !ok {
 			return Value{Kind: KindString, S: ""}, nil
 		}
 		return Value{Kind: KindString, S: v}, nil
 	case "shithub":
-		return evalShithub(r.Path[1:], ctx, tainted)
+		return evalShithub(path[1:], ctx, tainted)
 	}
 	return Value{}, fmt.Errorf("expr: unknown namespace %q (allowed: secrets, vars, env, shithub)", root)
 }
