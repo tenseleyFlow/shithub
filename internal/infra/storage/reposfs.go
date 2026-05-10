@@ -151,6 +151,20 @@ func (r *RepoFS) Exists(path string) (bool, error) {
 //
 // The parent directory tree is created on demand. ErrAlreadyExists is
 // returned if path is non-empty.
+//
+// The repo is initialized with `--shared=group`, which:
+//
+//   - persists `core.sharedRepository=group` in config
+//   - sets the setgid bit on directories (2775)
+//   - keeps group-writable mode bits on files (0664)
+//
+// Both shithubd-web (web pushes via the HTTPS handler, runs as the
+// `shithub` user) and the SSH `git` user (the AuthorizedKeysCommand
+// dispatches into a process running as `git`, which is in the
+// `shithub` group) write to the same bare repo on disk. Without
+// `--shared=group`, git-receive-pack via SSH fails with
+// "unable to create temporary object directory" because objects/
+// is 0755 and group write isn't set.
 func (r *RepoFS) InitBare(ctx context.Context, path string) error {
 	if err := r.containedInRoot(path); err != nil {
 		return err
@@ -158,15 +172,15 @@ func (r *RepoFS) InitBare(ctx context.Context, path string) error {
 	if entries, err := os.ReadDir(path); err == nil && len(entries) > 0 {
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o2750); err != nil {
 		return fmt.Errorf("storage: repofs: mkdir parent: %w", err)
 	}
-	if err := os.MkdirAll(path, 0o750); err != nil {
+	if err := os.MkdirAll(path, 0o2750); err != nil {
 		return fmt.Errorf("storage: repofs: mkdir target: %w", err)
 	}
 	// G204: path is constructed via RepoPath (strict whitelist) and verified
 	// to live under r.root. Caller cannot inject arbitrary args.
-	cmd := exec.CommandContext(ctx, "git", "init", "--bare", "--initial-branch=trunk", path) //nolint:gosec
+	cmd := exec.CommandContext(ctx, "git", "init", "--bare", "--shared=group", "--initial-branch=trunk", path) //nolint:gosec
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("storage: repofs: git init --bare: %w (output: %s)", err, strings.TrimSpace(string(out)))
@@ -197,17 +211,72 @@ func (r *RepoFS) CloneBareShared(ctx context.Context, src, dst string) error {
 	if entries, err := os.ReadDir(dst); err == nil && len(entries) > 0 {
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, dst)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o2750); err != nil {
 		return fmt.Errorf("storage: repofs: mkdir parent: %w", err)
 	}
+	// `git clone --shared` (here: object-alternates flag, NOT a perms
+	// flag — same name, different sense than init's --shared=group).
+	// To get group-writable perms we set core.sharedRepository=group
+	// via -c so the cloned config has it from byte zero. Without this,
+	// SSH-git push to a fork hits the same EACCES on objects/ that
+	// PR for SR2 #287 fixed for `git init --bare` (see InitBare).
+	//
 	// G204: src/dst are RepoPath-derived, both verified under r.root.
-	cmd := exec.CommandContext(ctx, "git", "clone", "--bare", "--shared", src, dst) //nolint:gosec
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.sharedRepository=group", "clone", "--bare", "--shared", src, dst) //nolint:gosec
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// Best-effort cleanup; if removal fails too, surface the
 		// original clone error since that's the actionable signal.
 		_ = os.RemoveAll(dst)
 		return fmt.Errorf("storage: repofs: git clone --bare --shared: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// RepairSharedPerms brings an existing bare repo to the
+// `--shared=group` contract InitBare now produces from byte zero
+// (SR2 #287). Idempotent: a repo already at the contract is left
+// alone except for explicitly setting the config (cheap).
+//
+// Steps:
+//  1. `git config core.sharedRepository=group`
+//  2. `chmod -R g+w` and `find -type d -exec chmod g+s` so future
+//     writes inherit the group on creation.
+//
+// Group ownership itself is NOT changed — the shipped invariant is
+// that all repos are owned by the `shithub` group already (the
+// shithub user creates them). If a repo's group is wrong, that's a
+// separate provisioning bug; this method's job is only the bits.
+func (r *RepoFS) RepairSharedPerms(ctx context.Context, path string) error {
+	if err := r.containedInRoot(path); err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("storage: repofs: stat %s: %w", path, err)
+	}
+	// Persist the contract in config.
+	cfg := exec.CommandContext(ctx, "git", "-C", path, "config", "core.sharedRepository", "group") //nolint:gosec
+	if out, err := cfg.CombinedOutput(); err != nil {
+		return fmt.Errorf("storage: repofs: git config sharedRepository: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	// Walk the tree once: directories get +g+s, files get +g+w.
+	// We use filepath.Walk over an exec.Command(find ...) so the
+	// behavior is identical across Linux and macOS test harnesses.
+	if err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := info.Mode()
+		newMode := mode | 0o060 // group rw
+		if info.IsDir() {
+			newMode |= os.ModeSetgid // g+s
+		}
+		if newMode == mode {
+			return nil
+		}
+		return os.Chmod(p, newMode)
+	}); err != nil {
+		return fmt.Errorf("storage: repofs: walk chmod: %w", err)
 	}
 	return nil
 }
