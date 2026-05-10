@@ -113,10 +113,18 @@ func (h *Handlers) MountNew(r chi.Router) {
 	r.Post("/new", h.newRepoSubmit)
 }
 
-// MountRepoHome registers /{owner}/{repo}. This is a 2-segment route so
-// it doesn't collide with the /{username} catch-all from S09. Caller is
-// responsible for ordering: register this BEFORE /{username}.
+// MountRepoHome registers the root repository route plus product-tab shells
+// that are intentionally public and read-gated like the Code tab. The
+// two-segment route doesn't collide with the /{username} catch-all from S09;
+// caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions", h.repoTabActions)
+	r.Get("/{owner}/{repo}/projects", h.repoTabProjects)
+	r.Get("/{owner}/{repo}/wiki", h.repoTabWiki)
+	r.Get("/{owner}/{repo}/security", h.repoTabSecurity)
+	r.Get("/{owner}/{repo}/pulse", h.repoTabInsights)
+	r.Get("/{owner}/{repo}/packages", h.repoTabPackages)
+	r.Get("/{owner}/{repo}/releases", h.repoTabReleases)
 	r.Get("/{owner}/{repo}", h.repoHome)
 }
 

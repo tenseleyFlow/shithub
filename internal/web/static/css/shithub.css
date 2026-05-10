@@ -2034,7 +2034,8 @@ button.shithub-repo-action {
   gap: 0.25rem;
   margin: 0;
   border-bottom: 1px solid var(--border-default);
-  flex-wrap: wrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 .shithub-repo-subnav-tab {
   display: inline-flex;
@@ -2047,6 +2048,8 @@ button.shithub-repo-action {
   text-decoration: none;
   position: relative;
   bottom: -1px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .shithub-repo-subnav-tab:hover { background: var(--canvas-subtle); border-radius: 6px 6px 0 0; }
 .shithub-repo-subnav-tab.is-active { border-bottom-color: var(--accent-emphasis, #fd8c73); font-weight: 600; }
@@ -2063,6 +2066,98 @@ button.shithub-repo-action {
   align-items: start;
 }
 .shithub-repo-main { min-width: 0; }
+
+.shithub-repo-product-page {
+  max-width: 80rem;
+  margin: 1.5rem auto 2rem;
+  padding: 0 1rem;
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr);
+  gap: 1.5rem;
+}
+.shithub-repo-product-sidebar { min-width: 0; }
+.shithub-repo-product-sidebar h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.shithub-repo-product-sidebar nav {
+  display: grid;
+  gap: 0.15rem;
+}
+.shithub-repo-product-sidebar a {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  color: var(--fg-default);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+.shithub-repo-product-sidebar a:hover,
+.shithub-repo-product-sidebar a.is-active {
+  background: var(--canvas-subtle);
+}
+.shithub-repo-product-main { min-width: 0; }
+.shithub-repo-product-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-repo-product-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  flex: 0 0 auto;
+}
+.shithub-repo-product-head h1 {
+  margin: 0 0 0.2rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.shithub-repo-product-head p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.95rem;
+}
+.shithub-repo-product-blankslate {
+  margin-top: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-repo-product-section {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-repo-product-section:last-child { border-bottom: 0; }
+.shithub-repo-product-section h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+.shithub-repo-product-section p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+@media (max-width: 800px) {
+  .shithub-repo-product-page {
+    grid-template-columns: 1fr;
+  }
+  .shithub-repo-product-sidebar nav {
+    display: flex;
+    overflow-x: auto;
+  }
+  .shithub-repo-product-sidebar a {
+    white-space: nowrap;
+  }
+}
 .shithub-tree-panel {
   border: 1px solid var(--border-default);
   border-radius: 6px;

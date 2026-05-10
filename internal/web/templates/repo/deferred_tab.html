@@ -1,0 +1,30 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-repo-product-page">
+  <aside class="shithub-repo-product-sidebar" aria-label="{{ .Tab.Heading }}">
+    <h2>{{ .Tab.Heading }}</h2>
+    <nav aria-label="{{ .Tab.Heading }} sections">
+      {{ range $i, $section := .Tab.Sections }}
+        <a href="#{{ $section.Anchor }}"{{ if eq $i 0 }} class="is-active" aria-current="page"{{ end }}>{{ $section.Title }}</a>
+      {{ end }}
+    </nav>
+  </aside>
+  <div class="shithub-repo-product-main">
+    <header class="shithub-repo-product-head">
+      <span class="shithub-repo-product-icon">{{ octicon .Tab.Icon }}</span>
+      <div>
+        <h1>{{ .Tab.Heading }}</h1>
+        <p>{{ .Tab.Description }}</p>
+      </div>
+    </header>
+    <div class="shithub-repo-product-blankslate">
+      {{ range .Tab.Sections }}
+      <section id="{{ .Anchor }}" class="shithub-repo-product-section">
+        <h2>{{ .Title }}</h2>
+        <p>{{ .Body }}</p>
+      </section>
+      {{ end }}
+    </div>
+  </div>
+</section>
+{{- end }}
