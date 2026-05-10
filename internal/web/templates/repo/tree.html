@@ -141,6 +141,19 @@
           {{ else }}
           <span class="shithub-readme-tab is-active">{{ octicon "book" }} <span>README</span></span>
           {{ end }}
+          <details class="shithub-readme-outline" data-readme-outline hidden>
+            <summary aria-label="Outline" title="Outline">
+              {{ octicon "list-unordered" }}
+            </summary>
+            <div class="shithub-readme-outline-panel" role="dialog" aria-label="README outline">
+              <label class="shithub-readme-outline-filter">
+                <span class="sr-only">Filter headings</span>
+                <input type="search" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off" data-readme-outline-filter>
+              </label>
+              <nav class="shithub-readme-outline-list" aria-label="README headings" data-readme-outline-list></nav>
+              <p class="shithub-readme-outline-empty" data-readme-outline-empty hidden>No matching headings.</p>
+            </div>
+          </details>
         </div>
         <div class="shithub-readme-body">{{ .README }}</div>
       </section>

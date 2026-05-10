@@ -161,6 +161,24 @@ viewer-aware visibility — should call `markdown.Render` directly.
 The interim `RenderHTML` keeps a sensible default (SoftBreakAsBR
 on, no resolvers).
 
+## README presentation chrome
+
+Repository READMEs use the same sanitized HTML pipeline as comments and
+issues. The repo page adds GitHub-parity presentation chrome in the web
+layer only:
+
+- `<pre>` blocks inside `.markdown-body` are wrapped client-side with a
+  stable code-block container and a copy button. The copied text comes
+  from the original `<code>` or `<pre>` textContent, not from injected
+  controls.
+- The README outline menu is populated client-side from rendered `h1`-
+  `h6` elements. Goldmark-generated IDs are reused. Raw HTML headings
+  without IDs get deterministic page-local slugs so the outline can link
+  to them.
+- The JavaScript only reads sanitized text/IDs and mutates local chrome;
+  it is not part of the trust boundary. Sanitization remains entirely in
+  `internal/markdown`.
+
 ## Lint guard
 
 `scripts/lint-markdown-boundary.sh` fails CI when goldmark or

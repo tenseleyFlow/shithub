@@ -4567,16 +4567,17 @@ button.shithub-repo-action {
   border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--canvas-default);
-  overflow: hidden;
+  overflow: visible;
 }
 .shithub-readme-head {
+  position: relative;
   display: flex;
   align-items: center;
+  gap: 1rem;
   min-height: 48px;
   padding: 0 1rem;
   border-bottom: 1px solid var(--border-default);
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   scrollbar-width: none;
 }
 .shithub-readme-head::-webkit-scrollbar {
@@ -4585,8 +4586,14 @@ button.shithub-repo-action {
 .shithub-readme-tabs {
   display: flex;
   align-items: stretch;
+  flex: 1 1 auto;
   gap: 1.25rem;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.shithub-readme-tabs::-webkit-scrollbar {
+  display: none;
 }
 .shithub-readme-tab {
   display: inline-flex;
@@ -4608,6 +4615,99 @@ button.shithub-repo-action {
 .shithub-readme-tab.is-active {
   border-bottom-color: var(--accent-emphasis, #fd8c73);
   color: var(--fg-default);
+}
+.shithub-readme-outline {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+}
+.shithub-readme-outline > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+  list-style: none;
+}
+.shithub-readme-outline > summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-readme-outline > summary:hover,
+.shithub-readme-outline[open] > summary {
+  color: var(--fg-default);
+  background: var(--canvas-subtle);
+}
+.shithub-readme-outline-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: min(360px, calc(100vw - 2rem));
+  max-height: min(520px, calc(100vh - 8rem));
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--canvas-default);
+  box-shadow: 0 16px 32px rgba(31, 35, 40, 0.16);
+}
+[data-theme="dark"] .shithub-readme-outline-panel,
+[data-theme="high-contrast"] .shithub-readme-outline-panel {
+  box-shadow: 0 16px 32px rgba(1, 4, 9, 0.6);
+}
+.shithub-readme-outline-filter {
+  display: block;
+  margin: 0 0 0.75rem;
+}
+.shithub-readme-outline-filter input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-default);
+  background: var(--canvas-default);
+  font: inherit;
+}
+.shithub-readme-outline-filter input:focus {
+  border-color: var(--accent-emphasis);
+  outline: 2px solid var(--accent-emphasis);
+  outline-offset: -1px;
+}
+.shithub-readme-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.shithub-readme-outline-item {
+  display: block;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.shithub-readme-outline-item:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-readme-outline-item.is-depth-2 { padding-left: 1.25rem; }
+.shithub-readme-outline-item.is-depth-3 { padding-left: 2rem; }
+.shithub-readme-outline-item.is-depth-4,
+.shithub-readme-outline-item.is-depth-5,
+.shithub-readme-outline-item.is-depth-6 { padding-left: 2.75rem; }
+.shithub-readme-outline-empty {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
 }
 .shithub-readme-body { padding: 2rem; }
 .markdown-body {
@@ -4662,9 +4762,72 @@ button.shithub-repo-action {
 .markdown-body [align="center"] { text-align: center; }
 .markdown-body [align="right"] { text-align: right; }
 .markdown-body [align="left"] { text-align: left; }
-.shithub-readme code { font-family: monospace; padding: 0.1em 0.3em; background: var(--canvas-default); border-radius: 3px; }
-.shithub-readme pre code { padding: 0; background: none; }
-.shithub-readme-plain { white-space: pre-wrap; }
+.markdown-body :not(pre) > code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  font-size: 85%;
+}
+.markdown-body pre {
+  padding: 1rem;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  font-size: 85%;
+  line-height: 1.45;
+}
+.markdown-body pre code {
+  display: inline;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 100%;
+  line-height: inherit;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.markdown-body .shithub-markdown-codeblock {
+  position: relative;
+  margin: 0 0 1rem;
+}
+.markdown-body > .shithub-markdown-codeblock:last-child {
+  margin-bottom: 0;
+}
+.markdown-body .shithub-markdown-codeblock pre {
+  margin: 0;
+  padding-right: 3rem;
+}
+.shithub-markdown-code-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  cursor: pointer;
+}
+.shithub-markdown-code-copy:hover,
+.shithub-markdown-code-copy:focus {
+  color: var(--fg-default);
+  background: var(--button-default-hover-bg);
+}
+.shithub-markdown-code-copy.is-copied {
+  color: var(--success-fg);
+}
+.shithub-readme-plain { white-space: pre; }
 
 @media (max-width: 900px) {
   .shithub-repo-header-inner { align-items: flex-start; flex-direction: column; }
