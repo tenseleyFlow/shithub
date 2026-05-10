@@ -29,6 +29,8 @@ wg_metal_pubkey=REPLACE_ME
 # these from grafana.com → Stack → Prometheus details. Token is
 # from Access Policies with metrics:write scope.
 # See docs/internal/runbooks/observability.md for the full signup.
-grafana_cloud_prom_url=https://prometheus-prod-NN-prod-us-central-0.grafana.net/api/prom/push
+# The host below varies — copy the exact "Remote Write Endpoint"
+# shown on the Prometheus details page (region + tenant differ).
+grafana_cloud_prom_url=https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom/push
 grafana_cloud_prom_user=REPLACE_ME    # numeric tenant id
 grafana_cloud_prom_token=REPLACE_ME   # access-policy token
