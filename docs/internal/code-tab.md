@@ -2,23 +2,44 @@
 
 The code tab is the GitHub-style repo browser: tree listing, blob view
 with syntax highlighting, raw view, "Go to file" finder, and the
-branch/tag switcher. After a successful push, hitting `/{owner}/{repo}`
-sends the user to `/tree/{default_branch}`.
+branch/tag switcher. For populated repos, `/{owner}/{repo}` renders the
+default branch Code tab directly, matching GitHub's canonical repo URL.
 
 ## Routes
 
 | Route                                            | Handler                          |
 | ------------------------------------------------ | -------------------------------- |
-| `GET /{owner}/{repo}`                            | redirects to `/tree/{default}`   |
+| `GET /{owner}/{repo}`                            | default-branch Code tab          |
 | `GET /{owner}/{repo}/tree/{ref}/{path...}`       | `codeTree`                       |
 | `GET /{owner}/{repo}/blob/{ref}/{path...}`       | `codeBlob`                       |
 | `GET /{owner}/{repo}/raw/{ref}/{path...}`        | `codeRaw`                        |
 | `GET /{owner}/{repo}/find/{ref}?q=...`           | `codeFinder`                     |
+| `GET /{owner}/{repo}/actions`                    | parked product-tab shell         |
+| `GET /{owner}/{repo}/projects`                   | parked product-tab shell         |
+| `GET /{owner}/{repo}/wiki`                       | parked product-tab shell         |
+| `GET /{owner}/{repo}/security`                   | parked product-tab shell         |
+| `GET /{owner}/{repo}/pulse`                      | parked product-tab shell         |
+| `GET /{owner}/{repo}/packages`                   | parked product-tab shell         |
+| `GET /{owner}/{repo}/releases`                   | parked product-tab shell         |
 | `GET /static/css/chroma.css`                     | runtime-generated Chroma theme   |
 
 Every code-tab handler runs through `policy.Can(... ActionRepoRead)` —
 private repos hide from anonymous viewers and unrelated users via the
 existence-leak 404 guard from S15.
+
+## Repository product tabs
+
+The repo header intentionally exposes GitHub's major product-map tabs:
+Code, Issues, Pull requests, Actions, Projects, Wiki, Security and
+quality, Insights, and Settings when visible to the viewer. Forks remain
+available from the repo action button and About sidebar, but are not a
+top-level tab on GitHub.
+
+Actions, Projects, Wiki, Security and quality, Insights, Packages, and
+Releases currently render honest parked shells via `repo/deferred_tab`.
+They are public read surfaces gated by `ActionRepoRead`, so private repo
+existence behavior matches Code/Issues/Pull requests while the deeper
+systems remain assigned to their later sprints.
 
 ## Ref + path disambiguation
 

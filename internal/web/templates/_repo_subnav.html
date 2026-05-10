@@ -11,9 +11,20 @@
     {{ octicon "git-pull-request" }} Pull requests
     {{ with .RepoCounts.Pulls }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
-  <a href="/{{ .Owner }}/{{ .Repo.Name }}/forks" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "forks" }} is-active{{ end }}">
-    {{ octicon "repo-forked" }} Forks
-    {{ with .RepoCounts.Forks }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
+  <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "actions" }} is-active{{ end }}">
+    {{ octicon "play" }} Actions
+  </a>
+  <a href="/{{ .Owner }}/{{ .Repo.Name }}/projects" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "projects" }} is-active{{ end }}">
+    {{ octicon "table" }} Projects
+  </a>
+  <a href="/{{ .Owner }}/{{ .Repo.Name }}/wiki" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "wiki" }} is-active{{ end }}">
+    {{ octicon "book" }} Wiki
+  </a>
+  <a href="/{{ .Owner }}/{{ .Repo.Name }}/security" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "security" }} is-active{{ end }}">
+    {{ octicon "shield-check" }} Security and quality
+  </a>
+  <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulse" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "insights" }} is-active{{ end }}">
+    {{ octicon "pulse" }} Insights
   </a>
   {{ if .CanSettings }}
   <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings" class="shithub-repo-subnav-tab{{ if eq .ActiveSubnav "settings" }} is-active{{ end }}">
