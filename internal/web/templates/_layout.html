@@ -64,6 +64,74 @@
       });
     });
   })();
+
+  (function () {
+    var modal = document.querySelector("[data-pins-modal]");
+    if (!modal) return;
+
+    var openers = document.querySelectorAll("[data-pins-open]");
+    var closeButton = modal.querySelector("[data-pins-close]");
+    var filter = modal.querySelector("[data-pins-filter]");
+    var rows = Array.prototype.slice.call(modal.querySelectorAll("[data-pins-row]"));
+    var checkboxes = Array.prototype.slice.call(modal.querySelectorAll("[data-pins-checkbox]"));
+    var remaining = modal.querySelector("[data-pins-remaining]");
+    var submit = modal.querySelector("[data-pins-submit]");
+
+    function checkedCount() {
+      return checkboxes.filter(function (box) { return box.checked; }).length;
+    }
+
+    function refreshPins() {
+      var count = checkedCount();
+      var left = Math.max(0, 6 - count);
+      if (remaining) {
+        remaining.textContent = String(left);
+        remaining.parentElement.classList.toggle("is-full", left === 0);
+      }
+      if (submit) submit.disabled = count > 6;
+      checkboxes.forEach(function (box) {
+        box.disabled = !box.checked && count >= 6;
+      });
+    }
+
+    function applyFilter() {
+      if (!filter) return;
+      var query = filter.value.trim().toLowerCase();
+      rows.forEach(function (row) {
+        var haystack = (row.getAttribute("data-pins-search") || "").toLowerCase();
+        row.hidden = query !== "" && haystack.indexOf(query) === -1;
+      });
+    }
+
+    function openModal() {
+      modal.hidden = false;
+      document.body.classList.add("shithub-modal-open");
+      applyFilter();
+      refreshPins();
+      if (filter) filter.focus();
+    }
+
+    function closeModal() {
+      modal.hidden = true;
+      document.body.classList.remove("shithub-modal-open");
+    }
+
+    openers.forEach(function (button) {
+      button.addEventListener("click", openModal);
+    });
+    if (closeButton) closeButton.addEventListener("click", closeModal);
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) closeModal();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !modal.hidden) closeModal();
+    });
+    if (filter) filter.addEventListener("input", applyFilter);
+    checkboxes.forEach(function (box) {
+      box.addEventListener("change", refreshPins);
+    });
+    refreshPins();
+  })();
 </script>
 </body>
 </html>

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -20,6 +22,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	profileh "github.com/tenseleyFlow/shithub/internal/web/handlers/profile"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
@@ -36,9 +39,9 @@ func setupProfileEnv(t *testing.T) *profileEnv {
 	tmplFS := fstest.MapFS{
 		"_layout.html":           {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":             {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}}{{ end }}`)},
+		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
-		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ end }}`)},
+		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"errors/404.html":        {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":        {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
@@ -56,6 +59,24 @@ func setupProfileEnv(t *testing.T) *profileEnv {
 	}
 
 	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rawID := r.Header.Get("X-Test-User-ID")
+			if rawID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			id, err := strconv.ParseInt(rawID, 10, 64)
+			if err != nil {
+				t.Fatalf("bad X-Test-User-ID: %v", err)
+			}
+			u := middleware.CurrentUser{
+				ID:       id,
+				Username: r.Header.Get("X-Test-Username"),
+			}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), u)))
+		})
+	})
 	r.Get("/login", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("login-handler"))
 	})
@@ -134,6 +155,22 @@ func (e *profileEnv) insertOrgRepo(t *testing.T, orgID int64, name, desc, visibi
 	return repoID
 }
 
+func (e *profileEnv) insertUserRepo(t *testing.T, userID int64, name, desc, visibility, language string, stars, forks int64) int64 {
+	t.Helper()
+	var repoID int64
+	if err := e.pool.QueryRow(context.Background(),
+		`INSERT INTO repos (
+		    owner_user_id, name, description, visibility, default_branch,
+		    primary_language, star_count, fork_count, updated_at
+		  )
+		  VALUES ($1, $2, $3, $4, 'trunk', $5, $6, $7, now())
+		  RETURNING id`,
+		userID, name, desc, visibility, language, stars, forks).Scan(&repoID); err != nil {
+		t.Fatalf("insert user repo: %v", err)
+	}
+	return repoID
+}
+
 func (e *profileEnv) insertRedirect(t *testing.T, oldname string, userID int64) {
 	t.Helper()
 	if _, err := e.pool.Exec(context.Background(),
@@ -164,6 +201,49 @@ func newNonRedirClient(t *testing.T) *http.Client {
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+func (e *profileEnv) getAs(t *testing.T, path string, user usersdb.User) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, e.srv.URL+path, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if user.ID != 0 {
+		req.Header.Set("X-Test-User-ID", strconv.FormatInt(user.ID, 10))
+		req.Header.Set("X-Test-Username", user.Username)
+	}
+	resp, err := newNonRedirClient(t).Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return string(body)
+}
+
+func (e *profileEnv) postPins(t *testing.T, path string, user usersdb.User, repoIDs ...int64) *http.Response {
+	t.Helper()
+	form := url.Values{}
+	for _, repoID := range repoIDs {
+		form.Add("repo_id", strconv.FormatInt(repoID, 10))
+	}
+	req, err := http.NewRequest(http.MethodPost, e.srv.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Test-User-ID", strconv.FormatInt(user.ID, 10))
+	req.Header.Set("X-Test-Username", user.Username)
+	resp, err := newNonRedirClient(t).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
 }
 
 // =============================== tests ==================================
@@ -270,6 +350,98 @@ func TestProfile_DispatchesOrgOverviewWithVisibleAggregates(t *testing.T) {
 	}
 	if strings.Contains(got, "private-roadmap") || strings.Contains(got, "Rust") {
 		t.Fatalf("anonymous org overview leaked private repo data: %s", got)
+	}
+}
+
+func TestProfile_UserPinsCanBeCustomized(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+	loaderID := env.insertUserRepo(t, alice.ID, "loader", "local assistant", "public", "Python", 0, 0)
+	shithubID := env.insertUserRepo(t, alice.ID, "shithub", "GitHub clone", "public", "Go", 3, 1)
+	env.insertUserRepo(t, alice.ID, "private-roadmap", "hidden", "private", "Rust", 9, 0)
+
+	got := env.getAs(t, "/alice", alice)
+	for _, want := range []string{"SELF=1", "PINS=0", "CANDIDATES=2", "CUSTOMIZE=1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "private-roadmap") {
+		t.Fatalf("private repo was offered as a pin candidate: %s", got)
+	}
+
+	resp := env.postPins(t, "/alice/pins", alice, shithubID, loaderID)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/alice#pinned" {
+		t.Fatalf("Location = %q", loc)
+	}
+
+	got = env.getAs(t, "/alice", usersdb.User{})
+	for _, want := range []string{"PINS=2", "PINNAMES=shithub;loader;", "SELECTED=loader;shithub;"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "CUSTOMIZE=1") {
+		t.Fatalf("anonymous viewer saw customize affordance: %s", got)
+	}
+}
+
+func TestProfile_OrgPinsFallbackUntilCustomized(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	owner := env.insertUser(t, "alice", "Alice", "")
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", owner)
+	shithubID := env.insertOrgRepo(t, orgID, "shithub", "GitHub clone", "public", "Go", 5, 1)
+	loaderID := env.insertOrgRepo(t, orgID, "loader", "local assistant", "public", "Python", 1, 0)
+	env.insertOrgRepo(t, orgID, "private-roadmap", "hidden", "private", "Rust", 9, 0)
+
+	got := env.getAs(t, "/tenseleyflow", usersdb.User{})
+	for _, want := range []string{"PINS=2", "PINNAMES=shithub;loader;", "CANDIDATES=2"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+
+	resp := env.postPins(t, "/tenseleyflow/pins", owner, loaderID)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/tenseleyflow#pinned" {
+		t.Fatalf("Location = %q", loc)
+	}
+
+	got = env.getAs(t, "/tenseleyflow", usersdb.User{})
+	for _, want := range []string{"PINS=1", "PINNAMES=loader;", "SELECTED=loader;"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "PINNAMES=shithub;") || strings.Contains(got, strconv.FormatInt(shithubID, 10)) {
+		t.Fatalf("custom org pins fell back to the synthetic set: %s", got)
+	}
+}
+
+func TestProfile_PinUpdatesRequireOwnershipAndPublicRepos(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	owner := env.insertUser(t, "alice", "Alice", "")
+	outsider := env.insertUser(t, "bob", "Bob", "")
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", owner)
+	env.insertOrgRepo(t, orgID, "public-repo", "visible", "public", "Go", 0, 0)
+	privateID := env.insertOrgRepo(t, orgID, "private-roadmap", "hidden", "private", "Rust", 0, 0)
+
+	resp := env.postPins(t, "/tenseleyflow/pins", outsider)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("outsider status %d, want 403", resp.StatusCode)
+	}
+
+	resp = env.postPins(t, "/tenseleyflow/pins", owner, privateID)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("private repo status %d, want 400", resp.StatusCode)
 	}
 }
 

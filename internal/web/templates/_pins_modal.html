@@ -1,0 +1,41 @@
+{{ define "pins-modal" -}}
+{{ if .CanCustomizePins }}
+<div class="shithub-pins-overlay" data-pins-modal hidden>
+  <div class="shithub-pins-dialog" role="dialog" aria-modal="true" aria-labelledby="pins-modal-title">
+    <div class="shithub-pins-head">
+      <h2 id="pins-modal-title">Edit pinned repositories</h2>
+      <button type="button" class="shithub-icon-button shithub-pins-close" data-pins-close aria-label="Close">{{ octicon "x" }}</button>
+    </div>
+    <p class="shithub-pins-help">Select up to six public repositories you'd like to show to anyone.</p>
+    <form method="post" action="{{ .PinsAction }}" data-pins-form>
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label class="shithub-pins-filter">
+        {{ octicon "search" }}
+        <input type="search" data-pins-filter placeholder="Filter repositories" aria-label="Filter repositories" autocomplete="off">
+      </label>
+      <p class="shithub-pins-count"><span data-pins-remaining>{{ .PinsRemaining }}</span> remaining</p>
+      <div class="shithub-pins-list" data-pins-list>
+        {{ if .PinCandidates }}
+          {{ range .PinCandidates }}
+          <label class="shithub-pins-row" data-pins-row data-pins-search="{{ .Name }} {{ .Description }} {{ .PrimaryLanguage }}">
+            <input type="checkbox" name="repo_id" value="{{ .ID }}" data-pins-checkbox{{ if .IsPinned }} checked{{ end }}>
+            <span class="shithub-pins-row-icon">{{ octicon "repo" }}</span>
+            <span class="shithub-pins-row-main">
+              <span class="shithub-pins-row-name">{{ .Name }}</span>
+              {{ if .Description }}<span class="shithub-pins-row-desc">{{ .Description }}</span>{{ end }}
+            </span>
+            <span class="shithub-pins-row-stars">{{ .StarCount }} {{ octicon "star" }}</span>
+          </label>
+          {{ end }}
+        {{ else }}
+          <p class="shithub-pins-empty">No public repositories available.</p>
+        {{ end }}
+      </div>
+      <div class="shithub-pins-actions">
+        <button type="submit" class="shithub-button shithub-button-primary" data-pins-submit>Save pins</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{ end }}
+{{- end }}
