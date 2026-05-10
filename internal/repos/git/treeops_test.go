@@ -3,7 +3,10 @@
 package git_test
 
 import (
+	"context"
+	"os/exec"
 	"testing"
+	"time"
 
 	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
 )
@@ -59,5 +62,46 @@ func TestResolveRef_HexLooksLikeBranch(t *testing.T) {
 	ref, path, ok := gitops.ResolveRef([]string{"main", sha}, []string{sha, "x"})
 	if !ok || ref != sha || path != "x" {
 		t.Errorf("ref-lookup should win: got (%q, %q, %v)", ref, path, ok)
+	}
+}
+
+func TestListBlobs_RecursiveSizes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "--initial-branch=trunk", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	build := gitops.InitialCommit{
+		GitDir:      dir,
+		AuthorName:  "Test Author",
+		AuthorEmail: "test@example.com",
+		Branch:      "trunk",
+		When:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Files: []gitops.FileEntry{
+			{Path: "README.md", Body: []byte("# demo\n")},
+			{Path: "cmd/app/main.go", Body: []byte("package main\n")},
+			{Path: "web/index.html", Body: []byte("<h1>x</h1>\n")},
+		},
+	}
+	if _, err := build.Build(context.Background()); err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+
+	blobs, err := gitops.ListBlobs(context.Background(), dir, "trunk")
+	if err != nil {
+		t.Fatalf("ListBlobs: %v", err)
+	}
+	got := map[string]int64{}
+	for _, b := range blobs {
+		got[b.Path] = b.Size
+	}
+	if got["cmd/app/main.go"] != int64(len("package main\n")) {
+		t.Errorf("go blob size = %d", got["cmd/app/main.go"])
+	}
+	if got["web/index.html"] != int64(len("<h1>x</h1>\n")) {
+		t.Errorf("html blob size = %d", got["web/index.html"])
+	}
+	if got["README.md"] != int64(len("# demo\n")) {
+		t.Errorf("readme blob size = %d", got["README.md"])
 	}
 }

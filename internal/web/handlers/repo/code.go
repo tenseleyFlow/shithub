@@ -149,6 +149,14 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		h.d.Logger.WarnContext(r.Context(), "code: HeadOf", "error", headErr)
 	}
 	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, cc.row.ID)
+	aboutEntries := entries
+	if cc.subpath != "" {
+		if rootEntries, rerr := repogit.LsTree(r.Context(), cc.gitDir, cc.ref, ""); rerr == nil {
+			aboutEntries = rootEntries
+		} else {
+			h.d.Logger.WarnContext(r.Context(), "code: about root LsTree", "error", rerr)
+		}
+	}
 
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
 		"Title":         cc.row.Name + " · " + cc.owner,
@@ -168,6 +176,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
 		"RepoTopics":    topics,
+		"RepoAbout":     h.repoAbout(r.Context(), cc.gitDir, cc.ref, cc.owner, cc.row, aboutEntries),
 		"RepoActions":   h.repoActions(r, cc.row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
