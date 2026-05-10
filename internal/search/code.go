@@ -43,11 +43,7 @@ func SearchCode(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQuer
 		ownerPos := len(args) + 1
 		namePos := len(args) + 2
 		args = append(args, q.RepoFilter.Owner, q.RepoFilter.Name)
-		repoFilter = fmt.Sprintf(
-			" AND r.id = (SELECT r2.id FROM repos r2 JOIN users u2 ON u2.id = r2.owner_user_id "+
-				"WHERE u2.username = $%d AND r2.name = $%d AND r2.deleted_at IS NULL)",
-			ownerPos, namePos,
-		)
+		repoFilter = repoFilterByOwnerName("r", ownerPos, namePos)
 	}
 
 	limPos := len(args) + 1
@@ -82,13 +78,13 @@ func SearchCode(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQuer
 		    UNION ALL
 		    SELECT * FROM content_hits
 		)
-		SELECT h.repo_id, u.username, r.name, h.ref_name, h.path, h.preview, h.rank
+		SELECT h.repo_id, %[6]s, r.name, h.ref_name, h.path, h.preview, h.rank
 		FROM all_hits h
 		JOIN repos r ON r.id = h.repo_id
-		JOIN users u ON u.id = r.owner_user_id
+		%[7]s
 		ORDER BY h.rank DESC, h.path
 		LIMIT $%[4]d OFFSET $%[5]d
-	`, tsCtor, visClause, repoFilter, limPos, offPos)
+	`, tsCtor, visClause, repoFilter, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
