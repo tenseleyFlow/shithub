@@ -2346,6 +2346,7 @@ type WorkflowStep struct {
 	Version          int32
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	StepWith         []byte
 }
 
 type WorkflowStepLogChunk struct {
