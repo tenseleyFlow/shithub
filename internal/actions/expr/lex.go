@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // TokenKind classifies a lexed token.
@@ -96,68 +97,76 @@ func (k TokenKind) String() string {
 // Lex returns the token stream for src or an error on the first lexical
 // problem. Whitespace is skipped silently. The lexer doesn't strip the
 // surrounding `${{ … }}` — the caller does that before calling Lex.
+//
+// The main loop walks runes (not bytes) so multi-byte UTF-8 characters
+// in identifiers — e.g., a Greek-letter variable name in an env-bag
+// key — produce correct identifier boundaries instead of mangled
+// "unexpected character" errors at continuation bytes.
 func Lex(src string) ([]Token, error) {
 	var out []Token
 	i := 0
 	for i < len(src) {
-		c := src[i]
+		r, size := utf8.DecodeRuneInString(src[i:])
+		if r == utf8.RuneError && size <= 1 {
+			return nil, fmt.Errorf("expr: invalid UTF-8 at offset %d", i)
+		}
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
-			i++
-		case c == '.':
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			i += size
+		case r == '.':
 			out = append(out, Token{Kind: TokDot, Value: ".", Pos: i})
-			i++
-		case c == '(':
+			i += size
+		case r == '(':
 			out = append(out, Token{Kind: TokLParen, Value: "(", Pos: i})
-			i++
-		case c == ')':
+			i += size
+		case r == ')':
 			out = append(out, Token{Kind: TokRParen, Value: ")", Pos: i})
-			i++
-		case c == ',':
+			i += size
+		case r == ',':
 			out = append(out, Token{Kind: TokComma, Value: ",", Pos: i})
-			i++
-		case c == '\'':
+			i += size
+		case r == '\'':
 			tok, n, err := lexString(src[i:], i)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, tok)
 			i += n
-		case c == '&':
+		case r == '&':
 			if i+1 < len(src) && src[i+1] == '&' {
 				out = append(out, Token{Kind: TokAnd, Value: "&&", Pos: i})
 				i += 2
 			} else {
 				return nil, fmt.Errorf("expr: stray '&' at offset %d (expected '&&')", i)
 			}
-		case c == '|':
+		case r == '|':
 			if i+1 < len(src) && src[i+1] == '|' {
 				out = append(out, Token{Kind: TokOr, Value: "||", Pos: i})
 				i += 2
 			} else {
 				return nil, fmt.Errorf("expr: stray '|' at offset %d (expected '||')", i)
 			}
-		case c == '!':
+		case r == '!':
 			if i+1 < len(src) && src[i+1] == '=' {
 				out = append(out, Token{Kind: TokNe, Value: "!=", Pos: i})
 				i += 2
 			} else {
 				out = append(out, Token{Kind: TokNot, Value: "!", Pos: i})
-				i++
+				i += size
 			}
-		case c == '=':
+		case r == '=':
 			if i+1 < len(src) && src[i+1] == '=' {
 				out = append(out, Token{Kind: TokEq, Value: "==", Pos: i})
 				i += 2
 			} else {
 				return nil, fmt.Errorf("expr: stray '=' at offset %d (expected '==')", i)
 			}
-		case isIdentStart(c):
+		case isIdentStart(r):
 			tok, n := lexIdent(src[i:], i)
 			out = append(out, tok)
 			i += n
 		default:
-			return nil, fmt.Errorf("expr: unexpected character %q at offset %d", c, i)
+			return nil, fmt.Errorf("expr: unexpected character %q at offset %d", r, i)
 		}
 	}
 	out = append(out, Token{Kind: TokEOF, Pos: i})
@@ -190,8 +199,15 @@ func lexString(src string, basePos int) (Token, int, error) {
 
 func lexIdent(src string, basePos int) (Token, int) {
 	i := 0
-	for i < len(src) && isIdentChar(src[i]) {
-		i++
+	for i < len(src) {
+		r, size := utf8.DecodeRuneInString(src[i:])
+		if r == utf8.RuneError {
+			break
+		}
+		if !isIdentChar(r) {
+			break
+		}
+		i += size
 	}
 	v := src[:i]
 	switch v {
@@ -203,10 +219,10 @@ func lexIdent(src string, basePos int) (Token, int) {
 	return Token{Kind: TokIdent, Value: v, Pos: basePos}, i
 }
 
-func isIdentStart(c byte) bool {
-	return unicode.IsLetter(rune(c)) || c == '_'
+func isIdentStart(r rune) bool {
+	return unicode.IsLetter(r) || r == '_'
 }
 
-func isIdentChar(c byte) bool {
-	return unicode.IsLetter(rune(c)) || unicode.IsDigit(rune(c)) || c == '_'
+func isIdentChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
