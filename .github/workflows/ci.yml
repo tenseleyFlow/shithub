@@ -7,6 +7,14 @@ on:
 permissions:
   contents: read
 
+# GH Actions is migrating its built-in Node from 20 to 24 by 2026-09-16.
+# This flag forces our pinned action versions (checkout@v4, setup-go@v5,
+# golangci-lint@v8) to use Node 24 today, which silences the deprecation
+# warning and removes the cliff-edge break when the runner default flips.
+# Drop this once we bump every action past its Node-24-native release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   ci:
     runs-on: ubuntu-latest
