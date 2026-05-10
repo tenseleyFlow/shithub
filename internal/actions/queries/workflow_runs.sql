@@ -62,6 +62,14 @@ SELECT id, repo_id, run_index, workflow_file, workflow_name,
 FROM workflow_runs
 WHERE id = $1;
 
+-- name: MarkWorkflowRunRunning :exec
+UPDATE workflow_runs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND status = 'queued';
+
 -- name: NextRunIndexForRepo :one
 -- Atomic next-index emitter: take the max + 1 for this repo. Pairs
 -- with the (repo_id, run_index) UNIQUE so concurrent inserts that

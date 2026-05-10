@@ -335,6 +335,20 @@ func (q *Queries) LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, 
 	return i, err
 }
 
+const markWorkflowRunRunning = `-- name: MarkWorkflowRunRunning :exec
+UPDATE workflow_runs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND status = 'queued'
+`
+
+func (q *Queries) MarkWorkflowRunRunning(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, markWorkflowRunRunning, id)
+	return err
+}
+
 const nextRunIndexForRepo = `-- name: NextRunIndexForRepo :one
 SELECT (COALESCE(MAX(run_index), 0) + 1)::bigint AS next_index
 FROM workflow_runs

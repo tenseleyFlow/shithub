@@ -17,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
@@ -36,10 +37,20 @@ import (
 var sharedPATDebouncer = pat.NewDebouncer(0)
 
 // buildAPIHandlers wires the PAT-authenticated API surface.
-func buildAPIHandlers(pool *pgxpool.Pool) (*apih.Handlers, error) {
+func buildAPIHandlers(
+	pool *pgxpool.Pool,
+	objectStore storage.ObjectStore,
+	runnerJWT *runnerjwt.Signer,
+	rateLimiter *ratelimit.Limiter,
+	logger *slog.Logger,
+) (*apih.Handlers, error) {
 	return apih.New(apih.Deps{
-		Pool:      pool,
-		Debouncer: sharedPATDebouncer,
+		Pool:        pool,
+		Debouncer:   sharedPATDebouncer,
+		Logger:      logger,
+		ObjectStore: objectStore,
+		RunnerJWT:   runnerJWT,
+		RateLimiter: rateLimiter,
 	})
 }
 

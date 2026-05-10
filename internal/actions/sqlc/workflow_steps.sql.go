@@ -122,6 +122,76 @@ func (q *Queries) InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWor
 	return i, err
 }
 
+const listRunnerStepsForJob = `-- name: ListRunnerStepsForJob :many
+SELECT id, job_id, step_index, step_id, step_name, if_expr,
+       run_command, uses_alias, working_directory, step_env,
+       continue_on_error, status, conclusion, log_byte_count,
+       started_at, completed_at, created_at, step_with
+FROM workflow_steps
+WHERE job_id = $1
+ORDER BY step_index ASC
+`
+
+type ListRunnerStepsForJobRow struct {
+	ID               int64
+	JobID            int64
+	StepIndex        int32
+	StepID           string
+	StepName         string
+	IfExpr           string
+	RunCommand       string
+	UsesAlias        string
+	WorkingDirectory string
+	StepEnv          []byte
+	ContinueOnError  bool
+	Status           WorkflowStepStatus
+	Conclusion       NullCheckConclusion
+	LogByteCount     int64
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	StepWith         []byte
+}
+
+func (q *Queries) ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error) {
+	rows, err := db.Query(ctx, listRunnerStepsForJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunnerStepsForJobRow{}
+	for rows.Next() {
+		var i ListRunnerStepsForJobRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.StepIndex,
+			&i.StepID,
+			&i.StepName,
+			&i.IfExpr,
+			&i.RunCommand,
+			&i.UsesAlias,
+			&i.WorkingDirectory,
+			&i.StepEnv,
+			&i.ContinueOnError,
+			&i.Status,
+			&i.Conclusion,
+			&i.LogByteCount,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.StepWith,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStepsForJob = `-- name: ListStepsForJob :many
 SELECT id, job_id, step_index, step_id, step_name, run_command,
        uses_alias, status, conclusion, log_byte_count,

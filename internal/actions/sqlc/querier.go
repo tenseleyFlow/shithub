@@ -13,6 +13,8 @@ import (
 type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
+	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
+	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
 	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
 	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
@@ -41,6 +43,7 @@ type Querier interface {
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
+	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertArtifact(ctx context.Context, db DBTX, arg InsertArtifactParams) (WorkflowArtifact, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -58,10 +61,12 @@ type Querier interface {
 	ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error)
 	ListRepoSecrets(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsRow, error)
 	ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error)
+	ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error)
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
+	LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
 	// Companion to EnqueueWorkflowRun for the conflict path: when an
 	// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
 	// handler uses this to find the existing row so it can surface a
@@ -69,6 +74,7 @@ type Querier interface {
 	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	MarkRunnerJWTUsed(ctx context.Context, db DBTX, arg MarkRunnerJWTUsedParams) (RunnerJwtUsed, error)
+	MarkWorkflowRunRunning(ctx context.Context, db DBTX, id int64) error
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
 	// race here will catch a unique-violation and the caller retries.

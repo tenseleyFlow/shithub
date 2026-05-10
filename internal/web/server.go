@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/chacha20poly1305"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
@@ -164,7 +165,17 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.AuthMounter = auth.Mount
 
-		api, err := buildAPIHandlers(pool)
+		var runnerJWT *runnerjwt.Signer
+		if cfg.Auth.TOTPKeyB64 != "" {
+			runnerJWT, err = runnerjwt.NewFromTOTPKeyB64(cfg.Auth.TOTPKeyB64)
+			if err != nil {
+				return fmt.Errorf("runner jwt: %w", err)
+			}
+		} else {
+			logger.Warn("actions runner API disabled: auth.totp_key_b64 is not configured",
+				"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable runner job JWTs")
+		}
+		api, err := buildAPIHandlers(pool, objectStore, runnerJWT, ratelimit.New(pool), logger)
 		if err != nil {
 			return fmt.Errorf("api handlers: %w", err)
 		}

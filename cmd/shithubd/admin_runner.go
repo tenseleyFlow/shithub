@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -16,13 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 )
-
-var runnerLabelRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 func newAdminRunnerCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -206,28 +204,7 @@ func openAdminRunnerPool(ctx context.Context, cfg config.Config, op string) (*pg
 }
 
 func parseRunnerLabels(raw string) ([]string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return []string{}, nil
-	}
-	parts := strings.Split(raw, ",")
-	seen := make(map[string]struct{}, len(parts))
-	labels := make([]string, 0, len(parts))
-	for _, part := range parts {
-		label := strings.TrimSpace(part)
-		if label == "" {
-			return nil, errors.New("admin runner: labels must not contain empty entries")
-		}
-		if len(label) > 100 || !runnerLabelRE.MatchString(label) {
-			return nil, fmt.Errorf("admin runner: invalid label %q", label)
-		}
-		if _, ok := seen[label]; ok {
-			continue
-		}
-		seen[label] = struct{}{}
-		labels = append(labels, label)
-	}
-	return labels, nil
+	return runnerlabels.ParseCSV(raw)
 }
 
 func init() {

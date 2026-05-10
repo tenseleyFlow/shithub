@@ -94,6 +94,47 @@ func (q *Queries) GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash [
 	return i, err
 }
 
+const heartbeatRunner = `-- name: HeartbeatRunner :one
+UPDATE workflow_runners
+SET labels = $2,
+    capacity = $3,
+    last_heartbeat_at = now(),
+    status = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          registered_by_user_id, created_at, updated_at
+`
+
+type HeartbeatRunnerParams struct {
+	ID       int64
+	Labels   []string
+	Capacity int32
+	Status   WorkflowRunnerStatus
+}
+
+func (q *Queries) HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error) {
+	row := db.QueryRow(ctx, heartbeatRunner,
+		arg.ID,
+		arg.Labels,
+		arg.Capacity,
+		arg.Status,
+	)
+	var i WorkflowRunner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Labels,
+		&i.Capacity,
+		&i.Status,
+		&i.LastHeartbeatAt,
+		&i.RegisteredByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertRunner = `-- name: InsertRunner :one
 
 INSERT INTO workflow_runners (name, labels, capacity, registered_by_user_id)
@@ -200,6 +241,31 @@ func (q *Queries) ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockRunnerByID = `-- name: LockRunnerByID :one
+SELECT id, name, labels, capacity, status, last_heartbeat_at,
+       registered_by_user_id, created_at, updated_at
+FROM workflow_runners
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error) {
+	row := db.QueryRow(ctx, lockRunnerByID, id)
+	var i WorkflowRunner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Labels,
+		&i.Capacity,
+		&i.Status,
+		&i.LastHeartbeatAt,
+		&i.RegisteredByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const revokeAllTokensForRunner = `-- name: RevokeAllTokensForRunner :exec

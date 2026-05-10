@@ -11,6 +11,133 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimQueuedWorkflowJob = `-- name: ClaimQueuedWorkflowJob :one
+WITH candidate AS (
+    SELECT j.id
+    FROM workflow_jobs j
+    WHERE j.status = 'queued'
+      AND j.runner_id IS NULL
+      AND (j.runs_on = '' OR j.runs_on = ANY($1::text[]))
+      AND NOT EXISTS (
+          SELECT 1
+          FROM workflow_jobs dep
+          WHERE dep.run_id = j.run_id
+            AND dep.job_key = ANY(j.needs_jobs)
+            AND (dep.status <> 'completed' OR dep.conclusion <> 'success')
+      )
+    ORDER BY j.created_at ASC, j.id ASC
+    FOR UPDATE OF j SKIP LOCKED
+    LIMIT 1
+),
+claimed AS (
+    UPDATE workflow_jobs j
+    SET runner_id = $2::bigint,
+        status = 'running',
+        started_at = COALESCE(j.started_at, now()),
+        version = j.version + 1,
+        updated_at = now()
+    FROM candidate c
+    WHERE j.id = c.id
+    RETURNING j.id, j.run_id, j.job_index, j.job_key, j.job_name, j.runs_on,
+              j.runner_id, j.needs_jobs, j.if_expr, j.timeout_minutes,
+              j.permissions, j.job_env, j.status, j.conclusion,
+              j.cancel_requested, j.started_at, j.completed_at, j.version,
+              j.created_at, j.updated_at
+)
+SELECT c.id, c.run_id, c.job_index, c.job_key, c.job_name, c.runs_on,
+       c.runner_id, c.needs_jobs, c.if_expr, c.timeout_minutes,
+       c.permissions, c.job_env, c.status, c.conclusion,
+       c.cancel_requested, c.started_at, c.completed_at, c.version,
+       c.created_at, c.updated_at,
+       r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event
+FROM claimed c
+JOIN workflow_runs r ON r.id = c.run_id
+`
+
+type ClaimQueuedWorkflowJobParams struct {
+	Labels   []string
+	RunnerID int64
+}
+
+type ClaimQueuedWorkflowJobRow struct {
+	ID              int64
+	RunID           int64
+	JobIndex        int32
+	JobKey          string
+	JobName         string
+	RunsOn          string
+	RunnerID        pgtype.Int8
+	NeedsJobs       []string
+	IfExpr          string
+	TimeoutMinutes  int32
+	Permissions     []byte
+	JobEnv          []byte
+	Status          WorkflowJobStatus
+	Conclusion      NullCheckConclusion
+	CancelRequested bool
+	StartedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+	Version         int32
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	RepoID          int64
+	RunIndex        int64
+	WorkflowFile    string
+	WorkflowName    string
+	HeadSha         string
+	HeadRef         string
+	Event           WorkflowRunEvent
+}
+
+func (q *Queries) ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error) {
+	row := db.QueryRow(ctx, claimQueuedWorkflowJob, arg.Labels, arg.RunnerID)
+	var i ClaimQueuedWorkflowJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.JobIndex,
+		&i.JobKey,
+		&i.JobName,
+		&i.RunsOn,
+		&i.RunnerID,
+		&i.NeedsJobs,
+		&i.IfExpr,
+		&i.TimeoutMinutes,
+		&i.Permissions,
+		&i.JobEnv,
+		&i.Status,
+		&i.Conclusion,
+		&i.CancelRequested,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+	)
+	return i, err
+}
+
+const countRunningJobsForRunner = `-- name: CountRunningJobsForRunner :one
+SELECT COUNT(*)::integer
+FROM workflow_jobs
+WHERE runner_id = $1::bigint AND status = 'running'
+`
+
+func (q *Queries) CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error) {
+	row := db.QueryRow(ctx, countRunningJobsForRunner, runnerID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getWorkflowJobByID = `-- name: GetWorkflowJobByID :one
 SELECT id, run_id, job_index, job_key, job_name, runs_on,
        runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
