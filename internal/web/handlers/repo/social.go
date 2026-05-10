@@ -58,7 +58,7 @@ func (h *Handlers) repoStar(w http.ResponseWriter, r *http.Request) {
 		h.handleSocialError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/"+owner+"/"+row.Name, http.StatusSeeOther)
+	redirectAfterRepoAction(w, r, "/"+owner+"/"+row.Name)
 }
 
 // repoUnstar handles POST /{owner}/{repo}/unstar. Same shape as star;
@@ -74,7 +74,7 @@ func (h *Handlers) repoUnstar(w http.ResponseWriter, r *http.Request) {
 		h.handleSocialError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/"+owner+"/"+row.Name, http.StatusSeeOther)
+	redirectAfterRepoAction(w, r, "/"+owner+"/"+row.Name)
 }
 
 // repoWatch handles POST /{owner}/{repo}/watch with a level form
@@ -102,7 +102,7 @@ func (h *Handlers) repoWatch(w http.ResponseWriter, r *http.Request) {
 		h.handleSocialError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/"+owner+"/"+row.Name, http.StatusSeeOther)
+	redirectAfterRepoAction(w, r, "/"+owner+"/"+row.Name)
 }
 
 // stargazersList renders /{owner}/{repo}/stargazers. Read-public on

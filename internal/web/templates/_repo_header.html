@@ -8,10 +8,73 @@
       <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-repo-name">{{ .Repo.Name }}</a>
       {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
     </h1>
+    {{ $root := . }}
     <div class="shithub-repo-actions" aria-label="Repository actions">
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/watchers" class="shithub-repo-action">{{ octicon "eye" }} Watch <span>{{ .Repo.WatcherCount }}</span></a>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/forks" class="shithub-repo-action">{{ octicon "repo-forked" }} Fork <span>{{ .Repo.ForkCount }}</span></a>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/stargazers" class="shithub-repo-action">{{ octicon "star" }} Star <span>{{ .Repo.StarCount }}</span></a>
+      {{ with .RepoActions }}
+      {{ if .IsLoggedIn }}
+      <details class="shithub-repo-action-menu">
+        <summary class="shithub-repo-action shithub-repo-action-button" aria-label="Notification settings">
+          {{ octicon "bell" }}
+          <span class="shithub-repo-action-label">Notifications</span>
+          {{ octicon "triangle-down" }}
+        </summary>
+        <div class="shithub-repo-action-popover" role="menu" aria-label="Notification settings">
+          <strong>Notifications</strong>
+          {{ range .WatchOptions }}
+          <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/watch" class="shithub-repo-action-option-form">
+            <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
+            <input type="hidden" name="level" value="{{ .Level }}">
+            <input type="hidden" name="return_to" value="{{ $root.RepoActions.ReturnTo }}">
+            <button type="submit" class="shithub-repo-action-option{{ if .Checked }} is-selected{{ end }}" role="menuitemradio" aria-checked="{{ .Checked }}">
+              <span class="shithub-repo-action-radio" aria-hidden="true"></span>
+              <span>
+                <span class="shithub-repo-action-option-title">{{ .Label }}</span>
+                <span class="shithub-repo-action-option-description">{{ .Description }}</span>
+              </span>
+            </button>
+          </form>
+          {{ end }}
+          <a href="/{{ $root.Owner }}/{{ $root.Repo.Name }}/watchers" class="shithub-repo-action-popover-link">{{ $root.Repo.WatcherCount }} watcher{{ if ne $root.Repo.WatcherCount 1 }}s{{ end }}</a>
+        </div>
+      </details>
+      <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/fork" class="shithub-repo-action-form">
+        <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
+        <button type="submit" class="shithub-repo-action">
+          {{ octicon "repo-forked" }}
+          <span class="shithub-repo-action-label">Fork</span>
+          <span class="shithub-counter">{{ $root.Repo.ForkCount }}</span>
+        </button>
+      </form>
+      <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/{{ if .Starred }}unstar{{ else }}star{{ end }}" class="shithub-repo-action-form">
+        <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
+        <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
+        <button type="submit" class="shithub-repo-action{{ if .Starred }} is-active{{ end }}" aria-pressed="{{ .Starred }}">
+          {{ octicon "star" }}
+          <span class="shithub-repo-action-label">{{ if .Starred }}Starred{{ else }}Star{{ end }}</span>
+          <span class="shithub-counter">{{ $root.Repo.StarCount }}</span>
+        </button>
+      </form>
+      {{ else }}
+      <a href="{{ .LoginURL }}" class="shithub-repo-action" aria-label="You must be signed in to change notification settings">
+        {{ octicon "bell" }}
+        <span class="shithub-repo-action-label">Notifications</span>
+      </a>
+      <a href="{{ .LoginURL }}" class="shithub-repo-action" aria-label="You must be signed in to fork a repository">
+        {{ octicon "repo-forked" }}
+        <span class="shithub-repo-action-label">Fork</span>
+        <span class="shithub-counter">{{ $root.Repo.ForkCount }}</span>
+      </a>
+      <a href="{{ .LoginURL }}" class="shithub-repo-action" aria-label="You must be signed in to star a repository">
+        {{ octicon "star" }}
+        <span class="shithub-repo-action-label">Star</span>
+        <span class="shithub-counter">{{ $root.Repo.StarCount }}</span>
+      </a>
+      {{ end }}
+      {{ else }}
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/watchers" class="shithub-repo-action">{{ octicon "eye" }} Watch <span class="shithub-counter">{{ .Repo.WatcherCount }}</span></a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/forks" class="shithub-repo-action">{{ octicon "repo-forked" }} Fork <span class="shithub-counter">{{ .Repo.ForkCount }}</span></a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/stargazers" class="shithub-repo-action">{{ octicon "star" }} Star <span class="shithub-counter">{{ .Repo.StarCount }}</span></a>
+      {{ end }}
     </div>
   </div>
   {{ template "repo-subnav" . }}
