@@ -203,10 +203,23 @@ var sysExec = syscall.Exec
 // authorizedKeysLine builds the single line sshd consumes. The forced
 // command runs `shithubd ssh-shell <user_id>`; the option set strips
 // every interactive affordance.
+//
+// The command uses the BARE binary name (`shithubd`), not the absolute
+// path of os.Args[0]. Reason: when the git user's login shell is
+// /usr/bin/git-shell (kept as a defense-in-depth wall — git-shell
+// only allows git's own commands plus entries in ~/git-shell-commands/),
+// git-shell rejects any first token that contains a slash. With a
+// bare token, git-shell looks for ~git/git-shell-commands/shithubd
+// (must be a symlink to /usr/local/bin/shithubd installed by ansible)
+// and execs it.
+//
+// PATH on the AKC's child process inherits sshd's env, which on
+// Debian includes /usr/local/bin — so a fallback `shithubd` lookup
+// would also find the binary even without git-shell-commands. The
+// git-shell-commands symlink is the authoritative path.
 func authorizedKeysLine(row usersdb.UserSshKey) string {
-	binary := os.Args[0]
-	// Quote-escape only the binary path; user_id is a digit string so it
-	// can never contain shell metacharacters.
+	binary := filepath.Base(os.Args[0])
+	// user_id is a digit string so it can never contain shell metacharacters.
 	cmd := fmt.Sprintf(`%s ssh-shell %d`, binary, row.UserID)
 	options := strings.Join([]string{
 		fmt.Sprintf(`command="%s"`, cmd),

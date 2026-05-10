@@ -30,6 +30,9 @@
     creates: /var/lib/shithub/binaries/shithubd-{{ ansible_date_time.iso8601_basic_short }}
 
 - name: Config dir — ensure /etc/shithub exists
+  # 0750 with shithub group: shithub user has full RW; group members
+  # (shithub-worker AND `git` for the SSH-shell wrapper) can traverse
+  # + read group-readable files inside.
   file:
     path: /etc/shithub
     state: directory
@@ -37,13 +40,17 @@
     group: "{{ shithub_group }}"
     mode: "0750"
 
-- name: Web env file (0600 — secrets)
+- name: Web env file (0640 — group-readable for ssh-shell wrapper)
+  # The git user (running ssh-shell via the AKC's forced command)
+  # is in the shithub group and needs to source this file via the
+  # /var/lib/git/git-shell-commands/shithubd wrapper. 0640 with
+  # group=shithub gives exactly that and nothing more.
   template:
     src: web.env.j2
     dest: /etc/shithub/web.env
     owner: "{{ shithub_user }}"
     group: "{{ shithub_group }}"
-    mode: "0600"
+    mode: "0640"
   notify: restart shithubd-web
 
 - name: Worker env file (0600 — secrets)
@@ -85,6 +92,38 @@
     dest: /etc/ssh/sshd_config
     mode: "0644"
   notify: restart sshd
+
+# AKC wrapper. sshd doesn't source EnvironmentFile= for AKC commands,
+# so this script sources /etc/shithub/web.env (for SHITHUB_DATABASE_URL)
+# before exec'ing the real shithubd ssh-authkeys.
+- name: AKC wrapper — install /usr/local/bin/shithub-ssh-authkeys
+  copy:
+    src: shithub-ssh-authkeys
+    dest: /usr/local/bin/shithub-ssh-authkeys
+    mode: "0755"
+    owner: root
+    group: root
+
+# git-shell-commands wrapper for the AKC's forced ssh-shell command.
+# git-shell only allows its three built-in commands plus entries
+# under ~git/git-shell-commands/. Symlinking the bare `shithubd`
+# binary in there isn't enough — the wrapper also sources web.env so
+# ssh-shell (running as the git user) can read DATABASE_URL.
+- name: git-shell-commands dir
+  file:
+    path: /var/lib/git/git-shell-commands
+    state: directory
+    owner: git
+    group: git
+    mode: "0755"
+
+- name: git-shell-commands shithubd wrapper
+  copy:
+    src: git-shell-commands-shithubd
+    dest: /var/lib/git/git-shell-commands/shithubd
+    owner: git
+    group: git
+    mode: "0755"
 
 - name: Enable + start shithubd-web
   systemd: { name: shithubd-web, state: started, enabled: yes }

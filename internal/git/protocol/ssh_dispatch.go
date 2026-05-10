@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -95,16 +96,30 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 		return nil, parsed, ErrSSHSuspended
 	}
 
-	owner, err := uq.GetUserByUsername(ctx, deps.Pool, parsed.Owner)
+	// Owner can be a user OR an org; orgs.Resolve hits the principals
+	// table to dispatch on kind. Mirrors the same lookup the HTTP git
+	// handler uses (web/handlers/githttp/handler.go::lookupRepo) — see
+	// the regression that #20 fixed for the HTTPS path; this is the SSH
+	// twin of that bug.
+	principal, err := orgs.Resolve(ctx, deps.Pool, parsed.Owner)
 	if err != nil {
-		// Unknown owner — surface as not-found regardless of whether
-		// the row never existed or was soft-deleted.
 		return nil, parsed, ErrSSHRepoNotFound
 	}
-	repo, err := rq.GetRepoByOwnerUserAndName(ctx, deps.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
-		OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
-		Name:        parsed.Repo,
-	})
+	var repo reposdb.Repo
+	switch principal.Kind {
+	case orgs.PrincipalUser:
+		repo, err = rq.GetRepoByOwnerUserAndName(ctx, deps.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:        parsed.Repo,
+		})
+	case orgs.PrincipalOrg:
+		repo, err = rq.GetRepoByOwnerOrgAndName(ctx, deps.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+			OwnerOrgID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:       parsed.Repo,
+		})
+	default:
+		return nil, parsed, ErrSSHRepoNotFound
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, parsed, ErrSSHRepoNotFound
@@ -144,7 +159,7 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 	if err != nil {
 		return nil, parsed, fmt.Errorf("%w: %v", ErrSSHInternal, err)
 	}
-	env := buildSSHEnv(user, owner, repo, in.RemoteIP, requestID)
+	env := buildSSHEnv(user, parsed.Owner, repo, in.RemoteIP, requestID)
 
 	return &SSHDispatchResult{
 		Argv0:     string(parsed.Service),
@@ -180,18 +195,28 @@ func FriendlyMessageFor(err error, requestID string) string {
 // buildSSHEnv assembles the SHITHUB_* env vars that S14's hooks read.
 // The shape matches the HTTP path so receive-pack hooks see identical
 // vars regardless of transport.
-func buildSSHEnv(user usersdb.User, owner usersdb.User, repo reposdb.Repo, remoteIP, requestID string) []string {
+func buildSSHEnv(user usersdb.User, ownerName string, repo reposdb.Repo, remoteIP, requestID string) []string {
 	return []string{
 		"SHITHUB_USER_ID=" + strconv.FormatInt(user.ID, 10),
 		"SHITHUB_USERNAME=" + user.Username,
 		"SHITHUB_REPO_ID=" + strconv.FormatInt(repo.ID, 10),
-		"SHITHUB_REPO_FULL_NAME=" + owner.Username + "/" + repo.Name,
+		"SHITHUB_REPO_FULL_NAME=" + ownerName + "/" + repo.Name,
 		"SHITHUB_PROTOCOL=ssh",
 		"SHITHUB_REMOTE_IP=" + remoteIP,
 		"SHITHUB_REQUEST_ID=" + requestID,
 		// PATH must be inherited so the exec'd git binary can find its
 		// sub-helpers (git-pack-objects, git-index-pack, etc.).
 		"PATH=" + os.Getenv("PATH"),
+		// safe.directory: when sshd runs ssh-shell as the `git` user
+		// but the bare repo dir is owned by `shithub`, git's
+		// dubious-ownership check rejects the invocation. We're
+		// invoking on a path shithubd resolved (not user input), so
+		// the trust gate already happened upstream; tell git to
+		// trust this directory. Inline GIT_CONFIG_* avoids touching
+		// /etc/gitconfig and confines the override to this exec.
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
 	}
 }
 
