@@ -144,7 +144,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 	}
 	// README detection on the requested directory only.
 	readmeHTML := h.findAndRenderREADME(r, cc, entries)
-	head, headFound, headErr := repogit.HeadOf(r.Context(), cc.gitDir, cc.ref)
+	head, headFound, headErr := repogit.CommitAt(r.Context(), cc.gitDir, cc.ref)
 	if headErr != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: HeadOf", "error", headErr)
 	}
@@ -173,6 +173,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"Owner":         cc.owner,
 		"Repo":          cc.row,
 		"Ref":           cc.ref,
+		"RefDisplay":    codeRefDisplay(cc.ref),
 		"Path":          cc.subpath,
 		"Crumbs":        breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
 		"Entries":       entries,
@@ -206,6 +207,13 @@ func refNames(refs repogit.RefListing) []string {
 		allNames = append(allNames, t.Name)
 	}
 	return allNames
+}
+
+func codeRefDisplay(ref string) string {
+	if len(ref) == 40 && isHex(ref) {
+		return ref[:7]
+	}
+	return ref
 }
 
 // findAndRenderREADME looks for README* in the supplied entries (case-
