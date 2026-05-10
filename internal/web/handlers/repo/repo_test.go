@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -140,6 +142,7 @@ func minimalTemplatesFS() fstest.MapFS {
 		"errors/404.html": {Data: body},
 		"errors/429.html": {Data: body},
 		"errors/500.html": {Data: body},
+		"repo/new.html":   {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
 	}
 }
 
@@ -163,6 +166,29 @@ func TestSafeLocalPath(t *testing.T) {
 		if got := safeLocalPath(path); got != want {
 			t.Errorf("safeLocalPath(%q) = %v; want %v", path, got, want)
 		}
+	}
+}
+
+func TestNewRepoForm_PreselectsAllowedOrgOwnerHint(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "tenseleyflow")
+
+	req := httptest.NewRequest(http.MethodGet, "/new?owner=tenseleyflow", nil)
+	req = withViewer(req, viewerFor(f.owner))
+	rw := httptest.NewRecorder()
+	f.handlers.newRepoForm(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rw.Code)
+	}
+	want := "org:" + strconv.FormatInt(orgID, 10) + ":selected:tenseleyflow;"
+	if !strings.Contains(rw.Body.String(), want) {
+		t.Fatalf("org owner was not preselected; want %q in %s", want, rw.Body.String())
+	}
+	userSelected := "user:" + strconv.FormatInt(f.owner.ID, 10) + ":selected:alice;"
+	if strings.Contains(rw.Body.String(), userSelected) {
+		t.Fatalf("personal owner unexpectedly selected: %s", rw.Body.String())
 	}
 }
 
@@ -285,4 +311,22 @@ func viewerFor(u usersdb.User) middleware.CurrentUser {
 		ID:       u.ID,
 		Username: u.Username,
 	}
+}
+
+func (f *repoFixture) insertOwnedOrg(t *testing.T, slug string) int64 {
+	t.Helper()
+	var orgID int64
+	if err := f.pool.QueryRow(context.Background(),
+		`INSERT INTO orgs (slug, display_name, created_by_user_id)
+		 VALUES ($1, $2, $3)
+		 RETURNING id`,
+		slug, slug, f.owner.ID).Scan(&orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := f.pool.Exec(context.Background(),
+		`INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')`,
+		orgID, f.owner.ID); err != nil {
+		t.Fatalf("insert org member: %v", err)
+	}
+	return orgID
 }

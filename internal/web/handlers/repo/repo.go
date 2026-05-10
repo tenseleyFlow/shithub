@@ -123,7 +123,7 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 // newRepoForm renders GET /new.
 func (h *Handlers) newRepoForm(w http.ResponseWriter, r *http.Request) {
 	h.renderNewForm(w, r, formState{
-		Owner:      "user:0", // template substitutes the viewer's id below
+		Owner:      strings.TrimSpace(r.URL.Query().Get("owner")),
 		Visibility: "public",
 	}, "")
 }
@@ -250,10 +250,10 @@ func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form fo
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	owners := h.ownerOptions(r)
 	// Default the form's owner pick to the viewer when the field is
-	// empty (first GET) so the picker has a valid pre-selection.
-	if form.Owner == "" && len(owners) > 0 {
-		form.Owner = owners[0].Token
-	}
+	// empty or invalid. GET /new?owner=<slug> can preselect an org,
+	// but only after matching that slug against the viewer's allowed
+	// owner choices.
+	form.Owner = selectedOwnerToken(form.Owner, owners)
 	if err := h.d.Render.RenderPage(w, r, "repo/new", map[string]any{
 		"Title":      "New repository",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
@@ -265,6 +265,26 @@ func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form fo
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo: render new", "error", err)
 	}
+}
+
+func selectedOwnerToken(raw string, owners []ownerOption) string {
+	if len(owners) == 0 {
+		return ""
+	}
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		for _, owner := range owners {
+			if raw == owner.Token {
+				return owner.Token
+			}
+		}
+		for _, owner := range owners {
+			if strings.EqualFold(raw, owner.Slug) {
+				return owner.Token
+			}
+		}
+	}
+	return owners[0].Token
 }
 
 // ownerOptions returns the entries the form's owner picker shows:
