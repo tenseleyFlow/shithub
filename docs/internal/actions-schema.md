@@ -136,14 +136,26 @@ and we have an answer for supply-chain trust.
 
 The dialect is intentionally rebranded to `${{ shithub.* }}`.
 Authors who paste GHA workflows in unmodified will see their
-`${{ github.* }}` references continue to work, with a Warning-
-severity diagnostic suggesting they migrate. The aliasing layer
-rewrites at parse time so downstream consumers (the trigger
-pipeline, the runner) see only the `shithub.*` form.
+`${{ github.* }}` references continue to work because the evaluator
+rewrites `path[0]` from `github` to `shithub` at the top of `evalRef`
+before taint computation, dispatch, and error rendering.
+
+The alias is intentionally **scope-narrow**: only fields that exist
+in our `shithub.*` namespace (`run_id`, `sha`, `ref`, `actor`,
+`event`) route through. GHA fields we don't expose in v1 —
+`event_name`, `repository`, `run_number`, `workspace`, etc. — error
+with the canonical `unknown shithub field "X"` message. Slightly
+confusing for a GHA-flavored author but keeps the v1 namespace
+surface tight.
+
+The alias preserves the load-bearing taint flag: `github.event.X`
+taints exactly like `shithub.event.X`. `TestEval_GithubAliasIsTainted`
+pins this contract.
+
+Migration to strict-compat (drop the alias entirely) later is a
+one-PR flip; moving the other direction is much harder.
 
 This is a deliberate decision recorded in the campaign plan.
-Migration to strict-compat (drop the alias) later is a one-PR flip;
-moving the other direction is much harder.
 
 ## Expression evaluator
 
