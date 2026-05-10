@@ -1,0 +1,12 @@
+name: untrusted-pr-title
+on: pull_request
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      # The PR title is user-controlled. The expression evaluator MUST
+      # tag this value as Tainted, and the runner (S41d) MUST refuse
+      # to interpolate it directly into the shell — this fixture's
+      # round-trip golden assertion verifies the Tainted flag is set.
+      - name: echo title
+        run: echo "${{ shithub.event.pull_request.title }}"

@@ -1,0 +1,7 @@
+name: github-alias-test
+on: push
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.head_commit.message }}"

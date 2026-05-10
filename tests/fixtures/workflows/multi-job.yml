@@ -1,0 +1,26 @@
+name: multi-job
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [trunk]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/lint.sh
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - run: go test ./...
+  package:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - run: make package
+      - uses: shithub/upload-artifact@v1
+        with:
+          name: build-output

@@ -1,0 +1,8 @@
+name: unknown-key-test
+on: push
+bogus: this-key-doesnt-exist
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
