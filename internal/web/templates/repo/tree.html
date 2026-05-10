@@ -98,12 +98,18 @@
                   {{ else }}{{ octicon "file" }}{{ end }}
                 </td>
                 <td class="shithub-tree-name">
-                  {{ if .URL }}
+                  {{ if eq (printf "%s" .Entry.Kind) "commit" }}
+                    {{ if .URL }}
+                    <a href="{{ .URL }}">{{ .Entry.Name }} <span class="shithub-tree-submodule">@ {{ slice .Entry.OID 0 7 }}</span></a>
+                    {{ else }}
+                    {{ .Entry.Name }} <span class="shithub-tree-submodule">@ {{ slice .Entry.OID 0 7 }}</span>
+                    {{ end }}
+                  {{ else if .URL }}
                   <a href="{{ .URL }}">{{ .Entry.Name }}</a>
                   {{ else if eq (printf "%s" .Entry.Kind) "symlink" }}
                   {{ .Entry.Name }} <em class="shithub-tree-symlink">(symlink)</em>
                   {{ else }}
-                  {{ .Entry.Name }} <em class="shithub-tree-submodule">@ {{ slice .Entry.OID 0 7 }}</em>
+                  {{ .Entry.Name }}
                   {{ end }}
                 </td>
                 <td class="shithub-tree-row-commit">
