@@ -42,7 +42,7 @@ if you haven't.
 1. **Backups.** The first daily logical backup should have run.
    ```sh
    ssh db
-   sudo -u postgres rclone --config /root/.config/rclone/rclone.conf \
+   sudo -u postgres rclone --config /etc/rclone-shithub.conf \
         lsf spaces-prod:shithub-backups/daily/$(date -u +%Y/%m/%d)/
    ```
    Should list one `.dump` file. If empty, see

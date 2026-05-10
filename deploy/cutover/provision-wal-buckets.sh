@@ -127,19 +127,19 @@ doctl spaces keys update "$PROD_KEY_ID" \
 # both buckets using its on-disk config (which references the just-
 # updated scoped key). A failure here means either the key cache
 # hasn't propagated (wait 30s, re-run) or the scoped key isn't the
-# one in /root/.config/rclone/rclone.conf (check by hand).
+# one in /etc/rclone-shithub.conf (check by hand).
 echo "verifying droplet → both WAL buckets..." >&2
 ssh -o BatchMode=yes "root@$DEPLOY_HOST" "
         set -e
         echo wal-write-probe-\$(date -u +%Y%m%dT%H%M%SZ) \
-                | rclone --config /root/.config/rclone/rclone.conf \
+                | rclone --config /etc/rclone-shithub.conf \
                         --s3-no-check-bucket \
                         rcat spaces-prod:$WAL_BUCKET/.write-probe
         echo wal-write-probe-\$(date -u +%Y%m%dT%H%M%SZ) \
-                | rclone --config /root/.config/rclone/rclone.conf \
+                | rclone --config /etc/rclone-shithub.conf \
                         --s3-no-check-bucket \
                         rcat spaces-dr:$WAL_DR_BUCKET/.write-probe
-        rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+        rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
                 delete spaces-prod:$WAL_BUCKET/.write-probe spaces-dr:$WAL_DR_BUCKET/.write-probe
         echo OK
 "
@@ -162,6 +162,6 @@ already in place — see the WAL archive PR for that change).
 
 Verify within ~60s:
   ssh root@$DEPLOY_HOST 'sudo -u postgres psql -xc "SELECT * FROM pg_stat_archiver"'
-  ssh root@$DEPLOY_HOST 'rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket lsf spaces-prod:$WAL_BUCKET/ --recursive | head'
+  ssh root@$DEPLOY_HOST 'rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket lsf spaces-prod:$WAL_BUCKET/ --recursive | head'
 ==============================================================
 DONE

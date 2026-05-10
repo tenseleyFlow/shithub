@@ -27,7 +27,7 @@ ships zero WAL segments until the operator runs through this once:
    Edit) to grant `readwrite` on `shithub-wal`. The `dr` key needs
    `readwrite` on `shithub-wal-dr` so `sync-cross-region.sh` can push.
 3. **Confirm the rclone config on the app droplet** has both keys
-   (`/root/.config/rclone/rclone.conf` — `spaces-prod` and
+   (`/etc/rclone-shithub.conf` — `spaces-prod` and
    `spaces-dr` remotes).
 4. **Re-run ansible** (or drop the conf.d file by hand at
    `/etc/postgresql/16/main/conf.d/99_shithub_archive.conf`), then
@@ -39,7 +39,7 @@ ships zero WAL segments until the operator runs through this once:
    # last_archived_wal: 000000010000000000000003 (or similar)
    # last_archived_time: <recent timestamp>
    # failed_count: 0
-   rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
+   rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
           lsf spaces-prod:shithub-wal/ --recursive | head
    ```
 6. **If `failed_count > 0`** before any successful archive:
@@ -62,7 +62,7 @@ If you want to confirm by hand:
 
 ```sh
 ssh db
-sudo -u postgres rclone --config /root/.config/rclone/rclone.conf \
+sudo -u postgres rclone --config /etc/rclone-shithub.conf \
      lsf spaces-prod:shithub-backups/daily/$(date -u +%Y/%m/%d)/
 ```
 
