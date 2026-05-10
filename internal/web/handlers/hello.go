@@ -41,6 +41,11 @@ type helloData struct {
 	// no query of its own, but the field must exist or template
 	// execution errors out.
 	GlobalSearchQuery string
+	// Repo/Org are optional nav contexts. They are nil on the home page,
+	// but typed data must still expose them because _nav.html probes
+	// these fields before deciding whether to render context tabs.
+	Repo any
+	Org  any
 }
 
 func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -104,39 +104,113 @@ code {
 }
 
 .shithub-nav {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.25rem;
+  display: block;
   background: var(--canvas-subtle);
   border-bottom: 1px solid var(--border-default);
 }
 
+.shithub-nav-global {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-height: 64px;
+  padding: 0.75rem 1rem;
+}
+
+.shithub-nav.has-context .shithub-nav-global {
+  min-height: 56px;
+  padding-bottom: 0.35rem;
+}
+
+.shithub-nav-context {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.shithub-nav-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-default);
+  background: transparent;
+  cursor: pointer;
+}
+.shithub-nav-menu:hover { background: var(--canvas-inset); }
+
 .shithub-nav-brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
+  min-height: 32px;
   color: var(--fg-default);
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 .shithub-nav-brand:hover { text-decoration: none; }
 .shithub-nav-brand svg { color: var(--shithub-mark); }
+.shithub-nav.has-context .shithub-nav-brand-word { display: none; }
+
+.shithub-nav-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.shithub-nav-breadcrumb a {
+  color: var(--fg-default);
+}
+.shithub-nav-breadcrumb .is-strong {
+  font-weight: 700;
+}
+.shithub-nav-breadcrumb span {
+  color: var(--fg-muted);
+}
 
 .shithub-nav-links {
   display: flex;
   gap: 1rem;
-  flex: 1;
+  flex: 0 0 auto;
 }
 .shithub-nav-links a {
   color: var(--fg-default);
   font-size: 0.9rem;
 }
+.shithub-nav:not(.has-context) .shithub-nav-links { flex: 1; }
+.shithub-nav.has-context .shithub-nav-links { display: none; }
 
 .shithub-nav-actions {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-shrink: 0;
+}
+.shithub-nav-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.shithub-nav-local {
+  padding: 0 1rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.shithub-nav-local .shithub-repo-subnav,
+.shithub-nav-local .shithub-org-nav {
+  margin: 0;
+  padding: 0;
+  border-bottom: 0;
 }
 
 /* User-menu dropdown — uses native <details>/<summary> so it works without JS. */
@@ -4943,6 +5017,12 @@ button.shithub-repo-action {
   align-items: center;
   max-width: 32rem;
   margin: 0 1rem;
+}
+.shithub-nav.has-context .shithub-nav-search {
+  flex: 0 1 22rem;
+  max-width: 22rem;
+  margin-left: auto;
+  margin-right: 0.25rem;
 }
 .shithub-nav-search-icon {
   position: absolute;

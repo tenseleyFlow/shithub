@@ -45,11 +45,12 @@ func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
 	if err := h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
-		"Title":     org.Slug + " · teams",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Teams":     visible,
-		"IsOwner":   isOwner,
+		"Title":        org.Slug + " · teams",
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Org":          org,
+		"ActiveOrgNav": "teams",
+		"Teams":        visible,
+		"IsOwner":      isOwner,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/teams_list", "error", err)
 	}
@@ -110,13 +111,14 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
 	if err := h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
-		"Title":     string(org.Slug) + "/" + string(team.Slug),
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Team":      team,
-		"Members":   members,
-		"Repos":     repos,
-		"IsOwner":   isOwner,
+		"Title":        string(org.Slug) + "/" + string(team.Slug),
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Org":          org,
+		"ActiveOrgNav": "teams",
+		"Team":         team,
+		"Members":      members,
+		"Repos":        repos,
+		"IsOwner":      isOwner,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/team_view", "error", err)
 	}

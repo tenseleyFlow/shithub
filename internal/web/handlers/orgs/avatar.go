@@ -122,6 +122,7 @@ func (h *Handlers) renderSettingsProfile(
 		"CSRFToken":           middleware.CSRFTokenForRequest(r),
 		"Org":                 org,
 		"AvatarURL":           "/avatars/" + org.Slug,
+		"ActiveOrgNav":        "settings",
 		"AvatarUploadEnabled": h.d.ObjectStore != nil,
 		"HasAvatar":           org.AvatarObjectKey.Valid && org.AvatarObjectKey.String != "",
 		"Error":               errMsg,
