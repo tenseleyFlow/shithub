@@ -54,8 +54,12 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        # Stream over an exec channel rather than scp/sftp — the
+        # hardened sshd on the droplet has the sftp-server subsystem
+        # disabled, and modern scp insists on sftp.
         run: |
-          scp -o BatchMode=yes shithubd "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/shithubd-new"
+          ssh -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'cat > /tmp/shithubd-new && chmod 0755 /tmp/shithubd-new' < shithubd
 
       - name: Redeploy
         env:
