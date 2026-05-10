@@ -1000,9 +1000,49 @@ code {
 .shithub-code-crumbs { font-size: 1rem; }
 .shithub-code-crumbs a { color: var(--fg-default); }
 .shithub-code-sep { color: var(--fg-muted); margin: 0 0.25rem; }
-.shithub-code-actions { display: flex; gap: 0.5rem; align-items: center; }
+.shithub-code-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: min(100%, 420px);
+  justify-content: flex-end;
+  flex: 1 1 360px;
+}
 .shithub-code-primary-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .shithub-code-count { color: var(--fg-muted); display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+.shithub-go-to-file {
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: min(100%, 220px);
+  height: 32px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-go-to-file:hover {
+  border-color: var(--accent-fg);
+  text-decoration: none;
+}
+.shithub-go-to-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-go-to-file kbd {
+  min-width: 1.25rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font: 0.75rem ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  text-align: center;
+}
 
 .shithub-ref-switcher { position: relative; }
 .shithub-ref-switcher > summary {
@@ -1040,7 +1080,8 @@ code {
 .shithub-ref-panel strong { display: block; margin: 0.4rem 0 0.2rem; font-size: 0.75rem; color: var(--fg-muted); text-transform: uppercase; }
 
 .shithub-clone-dropdown { position: relative; }
-.shithub-clone-dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+.shithub-clone-dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; height: 32px; white-space: nowrap; }
+.shithub-clone-dropdown > summary svg:last-child { width: 12px; height: 12px; }
 .shithub-clone-dropdown > summary::-webkit-details-marker { display: none; }
 .shithub-clone-panel {
   position: absolute;

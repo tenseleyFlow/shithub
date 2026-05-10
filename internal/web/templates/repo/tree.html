@@ -28,9 +28,13 @@
             <a href="/{{ .Owner }}/{{ .Repo.Name }}/tags" class="shithub-code-count">{{ octicon "tag" }} {{ len .Tags }} Tags</a>
           </div>
           <div class="shithub-code-actions">
-            <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-button">Go to file</a>
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/find/{{ .Ref }}" class="shithub-go-to-file">
+              {{ octicon "search" }}
+              <span>Go to file</span>
+              <kbd>T</kbd>
+            </a>
             <details class="shithub-clone-dropdown">
-              <summary class="shithub-button shithub-button-primary">{{ octicon "code" }} Code</summary>
+              <summary class="shithub-button shithub-button-primary">{{ octicon "code" }} Code {{ octicon "triangle-down" }}</summary>
               <div class="shithub-clone-panel" role="dialog" aria-label="Clone this repository">
                 <div class="shithub-clone-row">
                   <label for="clone-https">Clone with HTTPS</label>
