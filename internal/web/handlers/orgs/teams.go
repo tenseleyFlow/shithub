@@ -3,13 +3,11 @@
 package orgs
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -46,13 +44,15 @@ func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
 		"Title":     org.Slug + " · teams",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Org":       org,
 		"Teams":     visible,
 		"IsOwner":   isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/teams_list", "error", err)
+	}
 }
 
 // teamCreate handles POST /{org}/teams. Owner-only.
@@ -109,7 +109,7 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
 		"Title":     string(org.Slug) + "/" + string(team.Slug),
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Org":       org,
@@ -117,7 +117,9 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 		"Members":   members,
 		"Repos":     repos,
 		"IsOwner":   isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/team_view", "error", err)
+	}
 }
 
 // teamMemberAddRemove handles POST .../members. Form action=add|remove.
@@ -212,6 +214,15 @@ func (h *Handlers) requireOrgOwner(w http.ResponseWriter, r *http.Request, orgID
 		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 		return false
 	}
+	// Suspended actors get the same 403 as non-owners. Mirrors the
+	// suspended gate the policy package enforces on every other
+	// mutation surface — this gate doesn't go through policy.Can yet
+	// (the org/team actions aren't in the policy enum), so we
+	// short-circuit here (SR2 C4). Same shape as SR1 C1 fix.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return false
+	}
 	owner, _ := orgs.IsOwner(r.Context(), h.deps(), orgID, viewer.ID)
 	if !owner {
 		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
@@ -250,17 +261,14 @@ func (h *Handlers) canSeeTeam(r *http.Request, team orgsdb.Team, viewer middlewa
 	if owner, _ := orgs.IsOwner(r.Context(), h.deps(), team.OrgID, viewer.ID); owner {
 		return true
 	}
-	// Team member?
-	_, err := orgsdb.New().ListTeamMembers(r.Context(), h.d.Pool, team.ID)
+	// Team member? (SR2 M2 + M3: was an inline EXISTS preceded by a
+	// wasted ListTeamMembers call whose result was dropped with `_`.)
+	member, err := orgsdb.New().IsTeamMember(r.Context(), h.d.Pool, orgsdb.IsTeamMemberParams{
+		TeamID: team.ID, UserID: viewer.ID,
+	})
 	if err != nil {
 		return false
 	}
-	var member bool
-	_ = h.d.Pool.QueryRow(
-		r.Context(),
-		`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
-		team.ID, viewer.ID,
-	).Scan(&member)
 	return member
 }
 
@@ -283,12 +291,10 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 		if viewer.IsAnonymous() {
 			continue
 		}
-		var member bool
-		err := h.d.Pool.QueryRow(
-			r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)`,
-			t.ID, viewer.ID,
-		).Scan(&member)
+		// SR2 M2: was an inline EXISTS query.
+		member, err := orgsdb.New().IsTeamMember(r.Context(), h.d.Pool, orgsdb.IsTeamMemberParams{
+			TeamID: t.ID, UserID: viewer.ID,
+		})
 		if err == nil && member {
 			out = append(out, t)
 		}
@@ -299,12 +305,3 @@ func (h *Handlers) filterSecretTeams(r *http.Request, all []orgsdb.Team, orgID i
 func (h *Handlers) teamPath(org orgsdb.Org, team orgsdb.Team) string {
 	return "/" + string(org.Slug) + "/teams/" + string(team.Slug)
 }
-
-// ensure pgx is referenced when the rest of the file's imports
-// settle (avoids a "imported and not used" if a future refactor
-// drops the only inline pgx use).
-var _ = pgx.ErrNoRows
-
-// errTeamNotFound is reserved for the future; surfaced via
-// orgs.ErrTeamNotFound when needed.
-var _ = errors.New

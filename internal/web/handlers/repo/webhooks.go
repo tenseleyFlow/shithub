@@ -118,9 +118,10 @@ func (h *Handlers) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		}, friendlyWebhookError(err), "")
 		return
 	}
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
-		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "webhook_created", "webhook_id": created.ID, "url": params.URL})
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"webhook_id": created.ID, "url": params.URL})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		audit.ActionWebhookCreated, audit.TargetRepo, row.ID,
+		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks?notice=saved", http.StatusSeeOther)
 }
@@ -179,9 +180,10 @@ func (h *Handlers) webhookUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
-		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "webhook_updated", "webhook_id": hook.ID})
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"webhook_id": hook.ID})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		audit.ActionWebhookUpdated, audit.TargetRepo, row.ID,
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks/"+strconv.FormatInt(hook.ID, 10)+"?notice=saved", http.StatusSeeOther)
 }
 
@@ -202,9 +204,10 @@ func (h *Handlers) webhookDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
-		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "webhook_deleted", "webhook_id": hook.ID})
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"webhook_id": hook.ID, "url": hook.Url})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		audit.ActionWebhookDeleted, audit.TargetRepo, row.ID,
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks?notice=saved", http.StatusSeeOther)
 }
 
@@ -219,12 +222,22 @@ func (h *Handlers) webhookToggle(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	newActive := !hook.Active
 	if err := webhook.SetActive(r.Context(), webhook.ManageDeps{
 		Pool: h.d.Pool, SecretBox: h.d.SecretBox,
-	}, hook.ID, !hook.Active); err != nil {
+	}, hook.ID, newActive); err != nil {
 		http.Error(w, "toggle failed", http.StatusInternalServerError)
 		return
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	action := audit.ActionWebhookActiveSet
+	if !newActive {
+		action = audit.ActionWebhookActiveUnset
+	}
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"webhook_id": hook.ID})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		action, audit.TargetRepo, row.ID,
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks/"+strconv.FormatInt(hook.ID, 10)+"?notice=saved", http.StatusSeeOther)
 }
 
@@ -243,6 +256,11 @@ func (h *Handlers) webhookPing(w http.ResponseWriter, r *http.Request) {
 	}, hook.ID); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "webhook ping", "error", err)
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"webhook_id": hook.ID})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		audit.ActionWebhookPinged, audit.TargetRepo, row.ID,
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks/"+strconv.FormatInt(hook.ID, 10)+"?notice=saved", http.StatusSeeOther)
 }
 
@@ -307,6 +325,15 @@ func (h *Handlers) webhookRedeliver(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "redeliver failed", http.StatusInternalServerError)
 		return
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{
+		"webhook_id":           hook.ID,
+		"original_delivery_id": originalID,
+		"new_delivery_id":      newID,
+	})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
+		audit.ActionWebhookRedelivered, audit.TargetRepo, row.ID,
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/webhooks/"+strconv.FormatInt(hook.ID, 10)+"/deliveries/"+strconv.FormatInt(newID, 10), http.StatusSeeOther)
 }
 

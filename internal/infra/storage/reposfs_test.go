@@ -170,6 +170,119 @@ func TestInitBare_HEADIsTrunk(t *testing.T) {
 	}
 }
 
+// TestInitBare_SharedGroupContract pins SR2 #287:
+// `git init --bare --shared=group` MUST be used so two users
+// (shithubd-web's `shithub` user and the SSH dispatcher's `git`
+// user, both in the `shithub` group) can write to objects/.
+//
+// Pre-fix the SSH-git push path failed with "unable to create
+// temporary object directory" because objects/ was 0755 with no
+// group-write bit.
+//
+// We assert the persisted config + the directory mode bits the
+// flag produces.
+func TestInitBare_SharedGroupContract(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	r, _ := mustNewRepoFS(t)
+	path, err := r.RepoPath("alice", "sharedgrouptest")
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := r.InitBare(context.Background(), path); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+
+	// 1) config has core.sharedRepository=group. git stores this as
+	// the integer "1" internally (0=false, 1=group, 2=all, …);
+	// either form satisfies the contract.
+	out, err := exec.Command("git", "--git-dir", path, "config", "--get", "core.sharedRepository").Output() //nolint:gosec
+	if err != nil {
+		t.Fatalf("git config: %v", err)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != "group" && got != "1" {
+		t.Fatalf("core.sharedRepository = %q, want \"group\" or \"1\"", got)
+	}
+
+	// 2) objects/ dir has group-write set (mode bit 0o020).
+	objects := path + "/objects"
+	st, err := os.Stat(objects)
+	if err != nil {
+		t.Fatalf("stat objects: %v", err)
+	}
+	mode := st.Mode().Perm()
+	if mode&0o020 == 0 {
+		t.Fatalf("objects/ mode = %#o; group-write bit (0o020) missing — SSH push will EACCES", mode)
+	}
+}
+
+// TestRepairSharedPerms_FixesPreFixRepo pins the backfill path:
+// a repo created without --shared=group (the pre-SR2 #287 layout)
+// gets brought to the contract by RepairSharedPerms — config flag
+// set, group-write bit on objects/, setgid on dirs.
+func TestRepairSharedPerms_FixesPreFixRepo(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	r, root := mustNewRepoFS(t)
+	path, err := r.RepoPath("alice", "repairtest")
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	// Create the parent dir + a deliberately pre-fix bare repo
+	// (NO --shared=group). This simulates a live repo from before
+	// the fix landed.
+	if err := os.MkdirAll(path, 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if out, err := exec.Command("git", "init", "--bare", "--initial-branch=trunk", path).CombinedOutput(); err != nil {
+		t.Fatalf("pre-fix init: %v: %s", err, out)
+	}
+	// Sanity: the pre-fix objects/ should NOT have group-write.
+	objects := path + "/objects"
+	st, err := os.Stat(objects)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if st.Mode().Perm()&0o020 != 0 {
+		t.Skipf("pre-fix init produced 0%o; test environment differs (umask?). Skipping.", st.Mode().Perm())
+	}
+
+	// Run the repair.
+	if err := r.RepairSharedPerms(context.Background(), path); err != nil {
+		t.Fatalf("RepairSharedPerms: %v", err)
+	}
+
+	// Post-condition: config has the flag.
+	out, err := exec.Command("git", "--git-dir", path, "config", "--get", "core.sharedRepository").Output() //nolint:gosec
+	if err != nil {
+		t.Fatalf("git config: %v", err)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != "group" && got != "1" {
+		t.Fatalf("core.sharedRepository = %q, want \"group\" or \"1\"", got)
+	}
+	// objects/ has g+w.
+	st, err = os.Stat(objects)
+	if err != nil {
+		t.Fatalf("stat after repair: %v", err)
+	}
+	mode := st.Mode().Perm()
+	if mode&0o020 == 0 {
+		t.Fatalf("after repair, objects/ mode = %#o; group-write missing", mode)
+	}
+	// objects/ has setgid.
+	if st.Mode()&os.ModeSetgid == 0 {
+		t.Fatalf("after repair, objects/ missing setgid bit; new files won't inherit group")
+	}
+
+	_ = root
+}
+
 func TestInitBare_RefusesNonEmpty(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {

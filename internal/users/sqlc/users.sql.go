@@ -349,6 +349,21 @@ func (q *Queries) TouchUserLastLogin(ctx context.Context, db DBTX, id int64) err
 	return err
 }
 
+const unsuspendUser = `-- name: UnsuspendUser :exec
+UPDATE users
+SET suspended_at     = NULL,
+    suspended_reason = NULL
+WHERE id = $1
+`
+
+// Clears the suspended state. Mirrors SuspendUser; used by the
+// /admin/users/{id}/unsuspend handler. Replaces an inline UPDATE
+// in admin/users.go (SR2 M2).
+func (q *Queries) UnsuspendUser(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, unsuspendUser, id)
+	return err
+}
+
 const updateUserAvatarKey = `-- name: UpdateUserAvatarKey :exec
 UPDATE users
 SET avatar_object_key = $2

@@ -298,7 +298,7 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		authorName = usernameFor(issue.AuthorUserID.Int64)
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	pdeps := policy.Deps{Pool: h.d.Pool}
 	repoRef := policy.NewRepoRefFromRepo(row)
 	stateRef := issueStateRepoRef(row, issue)
@@ -552,7 +552,7 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 	// posters). We resolve the *real* role via the policy package — owner
 	// is implicit admin, and any explicit collaborator with role >= triage
 	// passes. Read fails (DB miss, unknown role) fail closed via RoleNone.
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	isCollab := policy.HasRoleAtLeast(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.NewRepoRefFromRepo(row), policy.RoleTriage)
 
 	var commentID int64
@@ -609,7 +609,7 @@ func (h *Handlers) issueSetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	stateRef := issueStateRepoRef(row, issue)
 	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueClose, stateRef); !dec.Allow {
 		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, stateRef, actor), "")

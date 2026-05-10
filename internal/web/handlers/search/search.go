@@ -58,7 +58,7 @@ func (h *Handlers) actor(r *http.Request) policy.Actor {
 	if viewer.IsAnonymous() {
 		return policy.AnonymousActor()
 	}
-	return policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	return viewer.PolicyActor()
 }
 
 // results renders the full /search page with type tabs.

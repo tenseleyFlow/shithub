@@ -64,6 +64,10 @@ type Querier interface {
 	// Final row removal after the cascade finished. The principals
 	// trigger drops the matching principals row in the same tx.
 	HardDeleteOrgRow(ctx context.Context, db DBTX, id int64) error
+	// Replaces the inline EXISTS query in handlers/orgs/teams.go
+	// canSeeTeam + filterSecretTeams (SR2 M2). Used by the visibility
+	// gate for secret teams.
+	IsTeamMember(ctx context.Context, db DBTX, arg IsTeamMemberParams) (bool, error)
 	ListChildTeams(ctx context.Context, db DBTX, parentTeamID pgtype.Int8) ([]Team, error)
 	// Sweep input for the lifecycle worker: every soft-deleted org whose
 	// 14-day grace window has elapsed. The interval is intentionally a

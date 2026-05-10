@@ -21,10 +21,17 @@
     <section class="shithub-settings-section">
       <h2>Force actions</h2>
       <p class="shithub-hint">These bypass owner consent. Use only for emergency takedown / abuse response.</p>
+      {{ if .Repo.IsArchived }}
+      <form method="POST" action="/admin/repos/{{ .Repo.ID }}/unarchive" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Force-unarchive</button>
+      </form>
+      {{ else }}
       <form method="POST" action="/admin/repos/{{ .Repo.ID }}/archive" style="display:inline">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-        <button type="submit" class="shithub-button">{{ if .Repo.IsArchived }}Force-unarchive{{ else }}Force-archive{{ end }}</button>
+        <button type="submit" class="shithub-button">Force-archive</button>
       </form>
+      {{ end }}
 
       <form method="POST" action="/admin/repos/{{ .Repo.ID }}/delete">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">

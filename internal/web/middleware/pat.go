@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
@@ -235,7 +234,3 @@ func remoteAddrFromRequest(r *http.Request) *netip.Addr {
 	}
 	return nil
 }
-
-// ensure pgx import is used by static-analysis tools (the ErrNoRows
-// sentinel is referenced via err comparison in dependent middleware).
-var _ = pgx.ErrNoRows

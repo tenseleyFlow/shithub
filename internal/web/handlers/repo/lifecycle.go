@@ -105,7 +105,7 @@ func (h *Handlers) loadRepoAndAuthorize(w http.ResponseWriter, r *http.Request, 
 		return reposdb.Repo{}, usersdb.User{}, false
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(row)
 	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, repoRef)
 	if !dec.Allow {
@@ -293,7 +293,7 @@ func (h *Handlers) transferCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(repo)
 	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoAdmin, repoRef); !dec.Allow {
 		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")

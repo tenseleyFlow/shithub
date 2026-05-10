@@ -343,7 +343,7 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		"ActiveSubnav": "pulls",
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	pdeps := policy.Deps{Pool: h.d.Pool}
 	repoRef := policy.NewRepoRefFromRepo(row)
 	stateRef := repoRef
@@ -491,7 +491,7 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		reqs = append(reqs, rr)
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	pdeps := policy.Deps{Pool: h.d.Pool}
 	repoRef := policy.NewRepoRefFromRepo(row)
 	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
@@ -777,7 +777,7 @@ func (h *Handlers) pullSetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(row)
 	if pr.IAuthorUserID.Valid {
 		repoRef.AuthorUserID = pr.IAuthorUserID.Int64

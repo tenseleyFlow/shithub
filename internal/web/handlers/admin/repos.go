@@ -74,20 +74,36 @@ func (h *Handlers) repoView(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// repoForceArchive flips is_archived without owner consent. Used for
-// emergency takedown — the normal Archive flow is owner-only.
+// repoForceArchive forces is_archived=true without owner consent.
+// Used for emergency takedown — the normal Archive flow is owner-only.
+// Idempotent: a no-op when the repo is already archived (still audited).
 func (h *Handlers) repoForceArchive(w http.ResponseWriter, r *http.Request) {
 	row, ok := h.loadRepo(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.d.Pool.Exec(r.Context(),
-		`UPDATE repos SET is_archived = NOT is_archived, archived_at = CASE WHEN is_archived THEN NULL ELSE now() END WHERE id = $1`,
-		row.ID); err != nil {
-		http.Error(w, "force-archive failed", http.StatusInternalServerError)
+	if err := reposdb.New().ArchiveRepo(r.Context(), h.d.Pool, row.ID); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "force-archive failed")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminRepoForceArchived, audit.TargetRepo, row.ID, nil)
+	http.Redirect(w, r, "/admin/repos/"+strconv.FormatInt(row.ID, 10)+"?notice=saved", http.StatusSeeOther)
+}
+
+// repoForceUnarchive forces is_archived=false. Separate route from
+// repoForceArchive (split per SR2 H8 — pre-fix the single route was
+// a toggle, so clicking on an already-archived repo silently
+// un-archived it with a misleading audit row).
+func (h *Handlers) repoForceUnarchive(w http.ResponseWriter, r *http.Request) {
+	row, ok := h.loadRepo(w, r)
+	if !ok {
+		return
+	}
+	if err := reposdb.New().UnarchiveRepo(r.Context(), h.d.Pool, row.ID); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "force-unarchive failed")
+		return
+	}
+	h.recordAdminAction(r, audit.ActionAdminRepoForceUnarchived, audit.TargetRepo, row.ID, nil)
 	http.Redirect(w, r, "/admin/repos/"+strconv.FormatInt(row.ID, 10)+"?notice=saved", http.StatusSeeOther)
 }
 
@@ -100,18 +116,16 @@ func (h *Handlers) repoForceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "form parse", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
 		return
 	}
 	confirm := strings.TrimSpace(r.PostFormValue("confirm"))
 	if confirm != row.Name {
-		http.Error(w, "confirmation text didn't match the repo name", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "confirmation text didn't match the repo name")
 		return
 	}
-	if _, err := h.d.Pool.Exec(r.Context(),
-		`UPDATE repos SET deleted_at = now() - interval '1 year' WHERE id = $1`,
-		row.ID); err != nil {
-		http.Error(w, "force-delete failed", http.StatusInternalServerError)
+	if err := reposdb.New().AdminForceDeleteRepo(r.Context(), h.d.Pool, row.ID); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "force-delete failed")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminRepoForceDeleted, audit.TargetRepo, row.ID,

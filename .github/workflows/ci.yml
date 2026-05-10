@@ -37,6 +37,11 @@ jobs:
           version: latest
           args: --timeout=5m
 
+      - name: Lint — unused (no var-_-equals-symbol shims)
+        # Block the dead-code 'silence unused import' shims that
+        # accumulated during S00–S40 refactors (audit 2026-05-10 M1).
+        run: scripts/lint-unused.sh
+
       - name: Test
         run: go test -trimpath ./...
 

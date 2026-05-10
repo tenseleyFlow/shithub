@@ -72,22 +72,34 @@ const (
 	ActionRepoForked            Action = "repo_forked"
 	ActionRepoForkSynced        Action = "repo_fork_synced"
 
+	// S33 / SR2 H1 — webhook lifecycle. Pre-SR2 webhook create/update
+	// overloaded ActionRepoCreated; delete/toggle/ping/redeliver were
+	// not audited at all. Each event now has its own enum.
+	ActionWebhookCreated     Action = "webhook_created"
+	ActionWebhookUpdated     Action = "webhook_updated"
+	ActionWebhookDeleted     Action = "webhook_deleted"
+	ActionWebhookActiveSet   Action = "webhook_active_set"
+	ActionWebhookActiveUnset Action = "webhook_active_unset"
+	ActionWebhookPinged      Action = "webhook_pinged"
+	ActionWebhookRedelivered Action = "webhook_redelivered"
+
 	// S34 — site admin actions. Always recorded with the real admin's
 	// id in actor_id; impersonation flows additionally carry the
 	// impersonated user's id in meta.impersonated_user_id.
-	ActionAdminSiteAdminGranted   Action = "admin_site_admin_granted"
-	ActionAdminSiteAdminRevoked   Action = "admin_site_admin_revoked"
-	ActionAdminUserSuspended      Action = "admin_user_suspended"
-	ActionAdminUserUnsuspended    Action = "admin_user_unsuspended"
-	ActionAdminUserForceDeleted   Action = "admin_user_force_deleted"
-	ActionAdminUserPasswordReset  Action = "admin_user_password_reset"
-	ActionAdminRepoForceArchived  Action = "admin_repo_force_archived"
-	ActionAdminRepoForceDeleted   Action = "admin_repo_force_deleted"
-	ActionAdminJobRetried         Action = "admin_job_retried"
-	ActionAdminJobDiscarded       Action = "admin_job_discarded"
-	ActionAdminImpersonateStarted Action = "admin_impersonate_started"
-	ActionAdminImpersonateStopped Action = "admin_impersonate_stopped"
-	ActionAdminImpersonateWriteOn Action = "admin_impersonate_write_on"
+	ActionAdminSiteAdminGranted    Action = "admin_site_admin_granted"
+	ActionAdminSiteAdminRevoked    Action = "admin_site_admin_revoked"
+	ActionAdminUserSuspended       Action = "admin_user_suspended"
+	ActionAdminUserUnsuspended     Action = "admin_user_unsuspended"
+	ActionAdminUserForceDeleted    Action = "admin_user_force_deleted"
+	ActionAdminUserPasswordReset   Action = "admin_user_password_reset"
+	ActionAdminRepoForceArchived   Action = "admin_repo_force_archived"
+	ActionAdminRepoForceUnarchived Action = "admin_repo_force_unarchived"
+	ActionAdminRepoForceDeleted    Action = "admin_repo_force_deleted"
+	ActionAdminJobRetried          Action = "admin_job_retried"
+	ActionAdminJobDiscarded        Action = "admin_job_discarded"
+	ActionAdminImpersonateStarted  Action = "admin_impersonate_started"
+	ActionAdminImpersonateStopped  Action = "admin_impersonate_stopped"
+	ActionAdminImpersonateWriteOn  Action = "admin_impersonate_write_on"
 )
 
 // Target is a typed target-type constant.

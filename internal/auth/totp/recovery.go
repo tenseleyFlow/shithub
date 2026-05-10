@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base32"
 	"errors"
 	"strings"
 )
@@ -118,6 +117,3 @@ func mintCode() (string, error) {
 // ErrRecoveryCodeInvalid is returned by callers when the typed code
 // doesn't match any stored hash.
 var ErrRecoveryCodeInvalid = errors.New("totp: recovery code invalid")
-
-// noOpUseStdEncoding silences unused-import warnings during refactors.
-var _ = base32.StdEncoding

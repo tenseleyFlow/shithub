@@ -128,6 +128,10 @@ type Querier interface {
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error
+	// Clears the suspended state. Mirrors SuspendUser; used by the
+	// /admin/users/{id}/unsuspend handler. Replaces an inline UPDATE
+	// in admin/users.go (SR2 M2).
+	UnsuspendUser(ctx context.Context, db DBTX, id int64) error
 	UpdateUserAvatarKey(ctx context.Context, db DBTX, arg UpdateUserAvatarKeyParams) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error

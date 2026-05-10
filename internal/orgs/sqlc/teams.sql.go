@@ -190,6 +190,25 @@ func (q *Queries) GrantTeamRepoAccess(ctx context.Context, db DBTX, arg GrantTea
 	return err
 }
 
+const isTeamMember = `-- name: IsTeamMember :one
+SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)
+`
+
+type IsTeamMemberParams struct {
+	TeamID int64
+	UserID int64
+}
+
+// Replaces the inline EXISTS query in handlers/orgs/teams.go
+// canSeeTeam + filterSecretTeams (SR2 M2). Used by the visibility
+// gate for secret teams.
+func (q *Queries) IsTeamMember(ctx context.Context, db DBTX, arg IsTeamMemberParams) (bool, error) {
+	row := db.QueryRow(ctx, isTeamMember, arg.TeamID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listChildTeams = `-- name: ListChildTeams :many
 SELECT id, org_id, slug, display_name, description, parent_team_id, privacy, created_by_user_id, created_at, updated_at FROM teams WHERE parent_team_id = $1 ORDER BY slug ASC
 `

@@ -98,9 +98,10 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "general_settings_updated"})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "general_settings_updated"})
+		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=saved", http.StatusSeeOther)
 }
@@ -152,9 +153,10 @@ func (h *Handlers) settingsMergeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "merge_settings_updated"})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "merge_settings_updated"})
+		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=saved", http.StatusSeeOther)
 }
@@ -229,9 +231,10 @@ func (h *Handlers) settingsCollabUpsert(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	policy.InvalidateRepo(r.Context(), row.ID)
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "collaborator_added", "user": username, "role": string(role)})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "collaborator_added", "user": username, "role": string(role)})
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/access?notice=saved", http.StatusSeeOther)
 }
 
@@ -259,9 +262,10 @@ func (h *Handlers) settingsCollabRemove(w http.ResponseWriter, r *http.Request) 
 	}
 	policy.InvalidateRepo(r.Context(), row.ID)
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "collaborator_removed", "user_id": uid})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "collaborator_removed", "user_id": uid})
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/access?notice=saved", http.StatusSeeOther)
 }
 
@@ -306,9 +310,10 @@ func (h *Handlers) settingsTeamGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policy.InvalidateRepo(r.Context(), row.ID)
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "team_grant_added", "team_id": teamID, "role": string(role)})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "team_grant_added", "team_id": teamID, "role": string(role)})
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/access?notice=saved", http.StatusSeeOther)
 }
 
@@ -340,9 +345,10 @@ func (h *Handlers) settingsTeamRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	policy.InvalidateRepo(r.Context(), row.ID)
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "team_grant_removed", "team_id": teamID})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "team_grant_removed", "team_id": teamID})
+		auditMeta)
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/access?notice=saved", http.StatusSeeOther)
 }
 

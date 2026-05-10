@@ -107,3 +107,9 @@ ORDER BY t.slug ASC;
 SELECT team_id, repo_id, role
 FROM team_repo_access
 WHERE repo_id = $1 AND team_id = ANY($2::bigint[]);
+
+-- name: IsTeamMember :one
+-- Replaces the inline EXISTS query in handlers/orgs/teams.go
+-- canSeeTeam + filterSecretTeams (SR2 M2). Used by the visibility
+-- gate for secret teams.
+SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2);

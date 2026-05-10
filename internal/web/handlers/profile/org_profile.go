@@ -152,11 +152,7 @@ func (h *Handlers) orgProfileRepos(ctx context.Context, orgID int64, viewer midd
 	}
 	actor := policy.AnonymousActor()
 	if !viewer.IsAnonymous() {
-		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, viewer.IsSiteAdmin)
-		if viewer.ImpersonatedUserID != 0 {
-			actor.Impersonating = true
-			actor.ImpersonateWriteOK = viewer.ImpersonateWriteOK
-		}
+		actor = viewer.PolicyActor()
 	}
 	deps := policy.Deps{Pool: h.d.Pool}
 

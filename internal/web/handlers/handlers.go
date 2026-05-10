@@ -30,6 +30,12 @@ type Deps struct {
 	StaticFS     fs.FS
 	LogoSVG      string
 	SessionStore session.Store
+	// CookieSecure is the Secure flag for session-related cookies
+	// (currently the CSRF cookie). Mirrors session.Config.Secure
+	// from the loaded config so the CSRF cookie matches the
+	// session cookie in TLS deployments. Defaults to false when
+	// unset, which is correct for tests and dev (SR2 H6).
+	CookieSecure bool
 	// ReadyCheck is optionally invoked by /readyz. Returning a non-nil
 	// error makes /readyz report 503. If nil, /readyz always reports ready.
 	ReadyCheck func(context.Context) error
@@ -169,7 +175,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 	}
 
 	csrf := middleware.CSRF(middleware.CSRFConfig{
-		Secure: false, // S37 enables under TLS
+		// SR2 H6: session-cookie Secure flag mirrors here so TLS
+		// deployments don't accept the CSRF cookie over plaintext.
+		Secure: deps.CookieSecure,
 		FailureHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rr.HTTPError(w, r, http.StatusForbidden, "csrf")
 		}),
@@ -195,7 +203,11 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// theme; serve under /static/css/chroma.css so the layout can
 		// link it without a build step.
 		r.Get("/static/css/chroma.css", chromaCSSHandler())
+		// HEAD honored alongside GET so strict probes (HEAD-only health
+		// checks, some Kubernetes-style livenessProbes) get 200 not 405
+		// (SR2 L8).
 		r.Get("/healthz", healthz)
+		r.Head("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 		if deps.APIMounter != nil {
 			deps.APIMounter(r)

@@ -168,12 +168,14 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, slug, errMsg string) {
-	_ = h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
 		"Title":     "New organization",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Slug":      slug,
 		"Error":     errMsg,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
+	}
 }
 
 // ─── people ────────────────────────────────────────────────────────
@@ -201,7 +203,7 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
 		}
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
 		"Title":           org.Slug + " · people",
 		"CSRFToken":       middleware.CSRFTokenForRequest(r),
 		"Org":             org,
@@ -214,7 +216,9 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		"HasQuery":        query != "",
 		"IsOwner":         isOwner,
 		"CanManagePeople": isOwner,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
+	}
 }
 
 func filterOrgMembers(members []orgsdb.ListOrgMembersRow, query string) []orgsdb.ListOrgMembersRow {
@@ -241,6 +245,14 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
+		return
+	}
+	// Suspended owners are denied with the same 403 as non-owners
+	// (SR2 C4). Org/team mutations don't currently route through
+	// policy.Can; this short-circuit mirrors the suspended-actor
+	// gate every other write surface enforces.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	owner, err := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
@@ -300,6 +312,11 @@ func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action f
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
 		return
 	}
+	// Suspended owners denied like non-owners (SR2 C4).
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
 	owner, _ := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	if !owner {
 		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
@@ -335,13 +352,15 @@ func (h *Handlers) invitationView(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
 		"Title":      "Organization invitation",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
 		"Org":        org,
 		"Invitation": inv,
 		"Token":      tok,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/invitation", "error", err)
+	}
 }
 
 func (h *Handlers) invitationAccept(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +375,14 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+		return
+	}
+	// Suspended users can't act on invitations either way (SR2 C4).
+	// Joining an org while suspended would let them participate in
+	// org-scoped actions; declining is harmless but the consistent
+	// gate makes the surface uniform.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	tok := chi.URLParam(r, "token")
