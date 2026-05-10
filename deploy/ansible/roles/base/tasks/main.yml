@@ -66,12 +66,19 @@
     create_home: yes
 
 # The `git` user is the SSH login target sshd matches against in the
-# sshd_config Match-User-git block. Its shell can't be nologin (sshd
-# rejects), but the AuthorizedKeysCommand returns a key with a forced
-# `command=` prefix that overrides whatever a login shell would do.
-# /usr/bin/git-shell adds a second layer of constraint: even if the
-# AKC's command= is somehow bypassed, git-shell only allows git
-# commands.
+# sshd_config Match-User-git block. Three subtleties learned during
+# first-time enable:
+#
+#   1. Shell can't be nologin (sshd rejects) — git-shell is the right
+#      choice for defense-in-depth.
+#   2. `useradd --system` defaults to a LOCKED password (`!` in
+#      shadow); sshd refuses any auth (including pubkey) for locked
+#      accounts. `passwd -d` clears the password to NP (no password)
+#      which sshd accepts. With `PasswordAuthentication no` globally,
+#      no-password is fine — pubkey is the only path.
+#   3. ssh-shell (the AKC's forced command) needs to read
+#      /etc/shithub/web.env for SHITHUB_DATABASE_URL. Adding `git` to
+#      the `shithub` group + chmod g+r on web.env grants exactly that.
 - name: Ensure git-shell is installed (provided by `git` package, already a dep)
   command: which git-shell
   register: git_shell
@@ -84,6 +91,13 @@
     home: /var/lib/git
     shell: "{{ git_shell.stdout }}"
     create_home: yes
+    groups: ["{{ shithub_group }}"]
+    append: yes
+
+- name: System users — unlock git (sshd refuses locked accounts even for pubkey)
+  command: passwd -d git
+  register: passwd_d
+  changed_when: passwd_d.stdout is search('password changed')
 
 - name: Data root — create + own
   file:
