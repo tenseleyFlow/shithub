@@ -175,6 +175,16 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		}),
 	})
 
+	// /metrics MUST NOT pass through Compress: Prometheus scrapers
+	// (Alloy 1.16, vmagent, …) advertise Accept-Encoding: gzip but
+	// mis-handle Content-Encoding: gzip on the response, parsing the
+	// raw 0x1f magic byte as text and failing the scrape (up=0).
+	// Mount it on the bare router so only the global middleware
+	// (request_id, access_log, metrics, secure_headers) applies.
+	if deps.MetricsHandler != nil {
+		r.Handle("/metrics", deps.MetricsHandler)
+	}
+
 	// Static and health endpoints are CSRF-exempt; everything else passes
 	// through the CSRF wrapper for state-changing methods.
 	r.Group(func(r chi.Router) {
@@ -187,9 +197,6 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Get("/static/css/chroma.css", chromaCSSHandler())
 		r.Get("/healthz", healthz)
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
-		if deps.MetricsHandler != nil {
-			r.Handle("/metrics", deps.MetricsHandler)
-		}
 		if deps.APIMounter != nil {
 			deps.APIMounter(r)
 		}
