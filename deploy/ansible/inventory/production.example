@@ -24,3 +24,11 @@ shithub_email_backend=postmark
 # WireGuard peer for the bare-metal monitoring box.
 wg_metal_endpoint=metal.shithub.example:51820
 wg_metal_pubkey=REPLACE_ME
+
+# Grafana Cloud (free tier) — Prometheus remote_write target. Get
+# these from grafana.com → Stack → Prometheus details. Token is
+# from Access Policies with metrics:write scope.
+# See docs/internal/runbooks/observability.md for the full signup.
+grafana_cloud_prom_url=https://prometheus-prod-NN-prod-us-central-0.grafana.net/api/prom/push
+grafana_cloud_prom_user=REPLACE_ME    # numeric tenant id
+grafana_cloud_prom_token=REPLACE_ME   # access-policy token
