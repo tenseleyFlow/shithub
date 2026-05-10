@@ -113,6 +113,14 @@ func (h *Handlers) MountNew(r chi.Router) {
 	r.Post("/new", h.newRepoSubmit)
 }
 
+// MountRepoActionsAPI registers POST/state-changing routes under
+// /{owner}/{repo}/actions/. Caller wraps with RequireUser. Currently
+// just the workflow_dispatch endpoint (S41b); S41f will add re-run +
+// cancel.
+func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
+	r.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", h.repoActionsDispatch)
+}
+
 // MountRepoHome registers the root repository route plus product-tab shells
 // that are intentionally public and read-gated like the Code tab. The
 // two-segment route doesn't collide with the /{username} catch-all from S09;

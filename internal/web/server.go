@@ -198,6 +198,12 @@ func Run(ctx context.Context, opts Options) error {
 				repoH.MountSettingsBranches(r)
 			})
 		}
+		deps.RepoActionsAPIMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountRepoActionsAPI(r)
+			})
+		}
 		deps.RepoSettingsGeneralMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireUser)
