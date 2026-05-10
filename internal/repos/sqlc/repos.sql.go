@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adminForceDeleteRepo = `-- name: AdminForceDeleteRepo :exec
+UPDATE repos SET deleted_at = now() - interval '1 year' WHERE id = $1
+`
+
+// Bypasses the soft-delete grace window (admin only — S34): set
+// deleted_at to a year ago so the next lifecycle sweep hard-deletes
+// without waiting. Replaces the inline UPDATE in admin/repos.go
+// (SR2 M2).
+func (q *Queries) AdminForceDeleteRepo(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, adminForceDeleteRepo, id)
+	return err
+}
+
 const countForksOfRepo = `-- name: CountForksOfRepo :one
 SELECT count(*) FROM repos
 WHERE fork_of_repo_id = $1 AND deleted_at IS NULL

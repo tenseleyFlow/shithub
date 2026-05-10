@@ -17,8 +17,6 @@
     {{ if .Team.Description }}<p class="shithub-org-team-description">{{ .Team.Description }}</p>{{ else }}<p class="shithub-org-team-description shithub-muted">No description provided.</p>{{ end }}
   </header>
 
-  {{ template "org-nav" . }}
-
   <div class="shithub-org-team-view-layout">
     <main class="shithub-org-team-view-main">
       <nav class="shithub-org-team-tabs" aria-label="Team">

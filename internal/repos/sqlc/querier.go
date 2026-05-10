@@ -12,6 +12,11 @@ import (
 
 type Querier interface {
 	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
+	// Bypasses the soft-delete grace window (admin only — S34): set
+	// deleted_at to a year ago so the next lifecycle sweep hard-deletes
+	// without waiting. Replaces the inline UPDATE in admin/repos.go
+	// (SR2 M2).
+	AdminForceDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)

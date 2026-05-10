@@ -1,24 +1,41 @@
 {{ define "nav" -}}
-<header class="shithub-nav" role="banner">
-  <a href="/" class="shithub-nav-brand" aria-label="shithub home">
-    {{ octicon "shithub" }}
-    <span>shithub</span>
-  </a>
-  <form action="/search" method="get" class="shithub-nav-search" role="search" data-search-root>
-    <span class="shithub-nav-search-icon">{{ octicon "search" }}</span>
-    <input type="text" name="q"{{ with .GlobalSearchQuery }} value="{{ . }}"{{ end }} placeholder="Type / to search" aria-label="Search" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-controls="global-search-suggestions" data-search-input>
-    <span class="shithub-nav-search-key" aria-hidden="true">/</span>
-    <input type="hidden" name="type" value="repositories">
-    <div id="global-search-suggestions" class="shithub-nav-search-popover" data-search-results hidden></div>
-  </form>
-  <nav class="shithub-nav-links" aria-label="Primary">
-    <a href="/explore">Explore</a>
-    <a href="/about">About</a>
-  </nav>
-  <div class="shithub-nav-actions">
+<header class="shithub-nav{{ if .Repo }} has-context{{ else if .Org }} has-context{{ end }}" role="banner">
+  <div class="shithub-nav-global">
+    <div class="shithub-nav-context">
+      <button type="button" class="shithub-nav-menu" aria-label="Open navigation menu">{{ octicon "three-bars" }}</button>
+      <a href="/" class="shithub-nav-brand" aria-label="shithub home">
+        {{ octicon "shithub" }}
+        <span class="shithub-nav-brand-word">shithub</span>
+      </a>
+      {{ if .Repo }}
+      <nav class="shithub-nav-breadcrumb" aria-label="Repository">
+        <a href="/{{ .Owner }}">{{ .Owner }}</a>
+        <span aria-hidden="true">/</span>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="is-strong">{{ .Repo.Name }}</a>
+      </nav>
+      {{ else if .Org }}
+      <nav class="shithub-nav-breadcrumb" aria-label="Organization">
+        <a href="/{{ .Org.Slug }}" class="is-strong">{{ .Org.Slug }}</a>
+      </nav>
+      {{ end }}
+    </div>
+    <form action="/search" method="get" class="shithub-nav-search" role="search" data-search-root>
+      <span class="shithub-nav-search-icon">{{ octicon "search" }}</span>
+      <input type="text" name="q"{{ with .GlobalSearchQuery }} value="{{ . }}"{{ end }} placeholder="Type / to search" aria-label="Search" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-controls="global-search-suggestions" data-search-input>
+      <span class="shithub-nav-search-key" aria-hidden="true">/</span>
+      <input type="hidden" name="type" value="repositories">
+      <div id="global-search-suggestions" class="shithub-nav-search-popover" data-search-results hidden></div>
+    </form>
+    {{ if and (not .Repo) (not .Org) }}
+    <nav class="shithub-nav-links" aria-label="Primary">
+      <a href="/explore">Explore</a>
+      <a href="/about">About</a>
+    </nav>
+    {{ end }}
+    <div class="shithub-nav-actions">
   {{- if .Viewer.ID }}
     <a href="/notifications" class="shithub-button shithub-button-ghost" title="Notifications" aria-label="Notifications">{{ octicon "bell" }}</a>
-    <a href="/new" class="shithub-button shithub-button-ghost" title="New repository">+ New</a>
+    <a href="/new" class="shithub-button shithub-button-ghost shithub-nav-new" title="New repository">{{ octicon "plus" }} <span class="shithub-nav-new-label">New</span></a>
     <details class="shithub-user-menu">
       <summary aria-label="User menu" aria-haspopup="menu">
         <img src="/avatars/{{ .Viewer.Username }}" alt="" class="shithub-user-menu-avatar" width="24" height="24">
@@ -51,9 +68,6 @@
         <div class="shithub-user-menu-divider" role="separator"></div>
         <a role="menuitem" class="shithub-user-menu-item" href="/settings/profile">{{ octicon "gear" }} <span>Settings</span></a>
         <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
-          {{ octicon "copilot" }} <span>Copilot settings</span>
-        </button>
-        <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
           {{ octicon "beaker" }} <span>Feature preview</span>
         </button>
         <a role="menuitem" class="shithub-user-menu-item" href="/settings/appearance">{{ octicon "paintbrush" }} <span>Appearance</span></a>
@@ -74,6 +88,16 @@
     <a href="/login" class="shithub-button shithub-button-ghost">Sign in</a>
     <a href="/signup" class="shithub-button shithub-button-primary">Sign up</a>
   {{- end }}
+    </div>
   </div>
+  {{ if .Repo }}
+  <div class="shithub-nav-local">
+    {{ template "repo-subnav" . }}
+  </div>
+  {{ else if .Org }}
+  <div class="shithub-nav-local">
+    {{ template "org-subnav" . }}
+  </div>
+  {{ end }}
 </header>
 {{- end }}

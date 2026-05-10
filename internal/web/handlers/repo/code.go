@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
@@ -503,7 +502,3 @@ func joinPath(parent, child string) string {
 	}
 	return parent + "/" + child
 }
-
-// silence pgtype unused-import warning when the loadRepoAndAuthorize
-// helper is in this file's package but defined elsewhere.
-var _ = pgtype.Int8{}

@@ -60,6 +60,14 @@ honors that hint after matching it against the viewer's allowed owner
 picker entries, so unauthorized org hints fall back to the viewer's
 personal namespace.
 
+`GET /{org}/people` uses the same GitHub-style org pagehead and
+underline navigation, then renders the People surface as a permissions
+layout: a left-side "Organization permissions" menu, a member search
+toolbar, bordered member rows with avatars, and an owner-only Invite
+member action. The `query` URL parameter filters members by username,
+display name, or role without changing the membership management
+routes.
+
 Organization owners see a "Customize pins" modal on the overview. The
 picker mirrors GitHub's public-profile rule: it offers only public
 org-owned repos, has a live text filter, caps selections at six, and

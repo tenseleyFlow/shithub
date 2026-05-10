@@ -1,54 +1,246 @@
 {{ define "page" -}}
-<section class="shithub-commits">
-  <header class="shithub-code-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Ref }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Commits on <code>{{ .Ref }}</code>
-    </h1>
-    <details class="shithub-ref-switcher">
-      <summary>{{ .Ref }}</summary>
-      <div class="shithub-ref-panel">
-        {{ if .Branches }}<strong>Branches</strong>
-        {{ range .Branches }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commits/{{ .Name }}">{{ .Name }}</a>{{ end }}{{ end }}
-        {{ if .Tags }}<strong>Tags</strong>
-        {{ range .Tags }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commits/{{ .Name }}">{{ .Name }}</a>{{ end }}{{ end }}
-      </div>
-    </details>
-  </header>
+<section class="shithub-repo-page shithub-commits-page">
+  {{ template "repo-header" . }}
 
-  <form class="shithub-commits-filter" method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/commits/{{ .Ref }}">
-    <label>Path <input type="text" name="path" value="{{ .PathFilter }}" placeholder="path/to/file"></label>
-    <label>Author <input type="text" name="author" value="{{ .Author }}" placeholder="name or email"></label>
-    <label>Since <input type="date" name="since" value="{{ .Since }}"></label>
-    <label>Until <input type="date" name="until" value="{{ .Until }}"></label>
-    <button type="submit" class="shithub-button">Filter</button>
-  </form>
+  <div class="shithub-commits-shell">
+    <header class="shithub-commits-titlebar">
+      <h1>Commits</h1>
+    </header>
 
-  <ul class="shithub-commits-list">
-    {{ range .Rows }}
-    <li class="shithub-commits-row">
-      <div class="shithub-commits-author">
-        {{ if .Author.User }}
-        <a href="/{{ .Author.Username }}"><img src="{{ .Author.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
-        <a href="/{{ .Author.Username }}">{{ .Author.DisplayName }}</a>
-        {{ else }}
-        <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .Author.IdenticonSeed }}" aria-hidden="true"></span>
-        <span>{{ .Commit.AuthorName }}</span>
-        {{ end }}
+    <div class="shithub-commits-toolbar" aria-label="Commit history filters">
+      <details class="shithub-commit-menu shithub-commit-ref-menu">
+        <summary class="shithub-commit-menu-button">
+          {{ octicon "git-branch" }}
+          <span>{{ .Ref }}</span>
+          {{ octicon "triangle-down" }}
+        </summary>
+        <div class="shithub-commit-menu-panel shithub-commit-ref-panel">
+          <div class="shithub-commit-menu-header">
+            <strong>Switch branches/tags</strong>
+            <button type="button" class="shithub-icon-button" aria-label="Close menu" data-details-close>{{ octicon "x" }}</button>
+          </div>
+          <label class="shithub-commit-menu-search">
+            {{ octicon "search" }}
+            <input type="search" placeholder="Find a branch..." data-commit-filter-input>
+          </label>
+          <div class="shithub-commit-ref-tabs" role="tablist" aria-label="Branch or tag">
+            <button type="button" class="is-active" role="tab" aria-selected="true" data-ref-tab="branches">Branches</button>
+            <button type="button" role="tab" aria-selected="false" data-ref-tab="tags">Tags</button>
+          </div>
+          <div class="shithub-commit-ref-list" data-filter-list data-ref-pane="branches">
+            {{ range .RefMenu.Branches }}
+            <a class="shithub-commit-ref-item{{ if .Active }} is-active{{ end }}" href="{{ .Href }}" data-filter-item>
+              <span>{{ if .Active }}✓{{ end }}</span>
+              <span>{{ .Name }}</span>
+              {{ if .IsDefault }}<span class="shithub-ref-default">default</span>{{ end }}
+            </a>
+            {{ end }}
+          </div>
+          <div class="shithub-commit-ref-list" data-filter-list data-ref-pane="tags" hidden>
+            {{ if .RefMenu.Tags }}
+            {{ range .RefMenu.Tags }}
+            <a class="shithub-commit-ref-item{{ if .Active }} is-active{{ end }}" href="{{ .Href }}" data-filter-item>
+              <span>{{ if .Active }}✓{{ end }}</span>
+              <span>{{ .Name }}</span>
+            </a>
+            {{ end }}
+            {{ else }}
+            <p class="shithub-commit-menu-empty">No tags found.</p>
+            {{ end }}
+          </div>
+        </div>
+      </details>
+
+      <div class="shithub-commit-filter-stack">
+        <details class="shithub-commit-menu shithub-commit-author-menu">
+          <summary class="shithub-commit-menu-button">
+            {{ octicon "person" }}
+            <span>{{ .AuthorLabel }}</span>
+            {{ octicon "triangle-down" }}
+          </summary>
+          <div class="shithub-commit-menu-panel shithub-commit-author-panel">
+            <label class="shithub-commit-menu-search">
+              {{ octicon "search" }}
+              <input type="search" placeholder="Find a user..." data-commit-filter-input>
+            </label>
+            <div class="shithub-commit-author-list" data-filter-list>
+              {{ if .AuthorFilters }}
+              {{ range .AuthorFilters }}
+              <a class="shithub-commit-author-item{{ if .Active }} is-active{{ end }}" href="{{ .Href }}" data-filter-item>
+                {{ if .User }}
+                <img src="{{ .AvatarURL }}" alt="" class="shithub-avatar-sm">
+                {{ else }}
+                <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .IdenticonSeed }}" aria-hidden="true"></span>
+                {{ end }}
+                <span>{{ .Label }}</span>
+              </a>
+              {{ end }}
+              {{ else }}
+              <p class="shithub-commit-menu-empty">No authors on this page.</p>
+              {{ end }}
+            </div>
+            <a class="shithub-commit-menu-footer" href="{{ .AllAuthorsHref }}">View commits for all users</a>
+          </div>
+        </details>
+
+        <details class="shithub-commit-menu shithub-commit-date-menu">
+          <summary class="shithub-commit-menu-button">
+            {{ octicon "calendar" }}
+            <span>{{ .DateLabel }}</span>
+            {{ octicon "triangle-down" }}
+          </summary>
+          <div class="shithub-commit-menu-panel shithub-commit-calendar-panel">
+            <div class="shithub-commit-calendar-head">
+              <div class="shithub-commit-calendar-month">
+                <span>{{ .Calendar.MonthLabel }}</span>
+                <span>{{ .Calendar.YearLabel }}</span>
+              </div>
+              <div class="shithub-commit-calendar-nav">
+                <a href="{{ .Calendar.PrevMonthHref }}" aria-label="Previous month">‹</a>
+                <a href="{{ .Calendar.NextMonthHref }}" aria-label="Next month">›</a>
+              </div>
+            </div>
+            <table class="shithub-commit-calendar" aria-label="Commit date filter calendar">
+              <thead>
+                <tr>
+                  <th scope="col">Su</th>
+                  <th scope="col">Mo</th>
+                  <th scope="col">Tu</th>
+                  <th scope="col">We</th>
+                  <th scope="col">Th</th>
+                  <th scope="col">Fr</th>
+                  <th scope="col">Sa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Calendar.Weeks }}
+                <tr>
+                  {{ range . }}
+                  <td>
+                    <a class="shithub-commit-calendar-day{{ if .InMonth }} is-in-month{{ else }} is-muted{{ end }}{{ if .IsSelected }} is-selected{{ end }}{{ if .IsToday }} is-today{{ end }}" href="{{ .Href }}">{{ .Label }}</a>
+                  </td>
+                  {{ end }}
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+            <div class="shithub-commit-calendar-footer">
+              <a href="{{ .Calendar.ClearHref }}">Clear</a>
+              <a href="{{ .Calendar.TodayHref }}">Today</a>
+            </div>
+          </div>
+        </details>
       </div>
-      <div class="shithub-commits-meta">
-        <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Commit.OID }}">{{ .Commit.Subject }}</a>
-        <code class="shithub-commits-sha">{{ .Commit.ShortOID }}</code>
-        <time datetime="{{ .Commit.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Commit.AuthorWhen }}</time>
-      </div>
-    </li>
+    </div>
+
+    {{ if .PathFilter }}
+    <div class="shithub-commit-active-filter">
+      <span>Showing commits touching <code>{{ .PathFilter }}</code></span>
+      <a href="{{ .PathClearHref }}">Clear path filter</a>
+    </div>
     {{ end }}
-  </ul>
 
-  <nav class="shithub-pager" aria-label="Pagination">
-    {{ if gt .PrevPage 0 }}<a href="?page={{ .PrevPage }}{{ if .PathFilter }}&path={{ .PathFilter }}{{ end }}{{ if .Author }}&author={{ .Author }}{{ end }}{{ if .Since }}&since={{ .Since }}{{ end }}{{ if .Until }}&until={{ .Until }}{{ end }}">Newer</a>{{ end }}
-    {{ if .HasMore }}<a href="?page={{ .NextPage }}{{ if .PathFilter }}&path={{ .PathFilter }}{{ end }}{{ if .Author }}&author={{ .Author }}{{ end }}{{ if .Since }}&since={{ .Since }}{{ end }}{{ if .Until }}&until={{ .Until }}{{ end }}">Older</a>{{ end }}
-  </nav>
+    {{ if .CommitGroups }}
+    <div class="shithub-commit-timeline">
+      {{ range .CommitGroups }}
+      <section class="shithub-commit-day-group">
+        <h2>{{ octicon "git-commit" }} Commits on {{ .Title }}</h2>
+        <ol class="shithub-commits-list">
+          {{ range .Rows }}
+          <li class="shithub-commits-row">
+            <div class="shithub-commit-row-main">
+              <div class="shithub-commit-message-line">
+                <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Commit.OID }}">{{ .Commit.Subject }}</a>
+                {{ if .Commit.Body }}
+                <details class="shithub-commit-body-popover">
+                  <summary aria-label="Show full commit message">{{ octicon "kebab-horizontal" }}</summary>
+                  <pre>{{ .Commit.Body }}</pre>
+                </details>
+                {{ end }}
+              </div>
+              <div class="shithub-commit-attribution">
+                {{ if .Author.User }}
+                <a href="{{ .AuthorHref }}"><img src="{{ .Author.AvatarURL }}" alt="" class="shithub-avatar-sm"></a>
+                <a href="{{ .AuthorHref }}">{{ .AuthorLabel }}</a>
+                {{ else }}
+                <span class="shithub-avatar-sm shithub-identicon" data-seed="{{ .Author.IdenticonSeed }}" aria-hidden="true"></span>
+                <span>{{ .AuthorLabel }}</span>
+                {{ end }}
+                <span>committed</span>
+                <time datetime="{{ .Commit.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Commit.AuthorWhen }}</time>
+              </div>
+            </div>
+            <div class="shithub-commit-row-actions">
+              <a class="shithub-commits-sha" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Commit.OID }}">{{ .Commit.ShortOID }}</a>
+              <button type="button" class="shithub-commit-icon-action" title="Copy full SHA" aria-label="Copy full SHA" data-commit-copy="{{ .Commit.OID }}">{{ octicon "copy" }}</button>
+              <a class="shithub-commit-icon-action" href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Commit.OID }}" title="Browse repository at this commit" aria-label="Browse repository at this commit">{{ octicon "code" }}</a>
+            </div>
+          </li>
+          {{ end }}
+        </ol>
+      </section>
+      {{ end }}
+    </div>
+    {{ else }}
+    <div class="shithub-commit-empty">
+      {{ if .HasActiveFilters }}No commits found for these filters.{{ else }}No commits yet.{{ end }}
+    </div>
+    {{ end }}
+
+    {{ if or .NewerHref .OlderHref }}
+    <nav class="shithub-pager shithub-commit-pager" aria-label="Pagination">
+      {{ if .NewerHref }}<a href="{{ .NewerHref }}">Newer</a>{{ end }}
+      {{ if .OlderHref }}<a href="{{ .OlderHref }}">Older</a>{{ end }}
+    </nav>
+    {{ end }}
+  </div>
 </section>
+
+<script>
+(() => {
+  for (const input of document.querySelectorAll("[data-commit-filter-input]")) {
+    const panel = input.closest(".shithub-commit-menu-panel");
+    const items = panel ? panel.querySelectorAll("[data-filter-item]") : [];
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      for (const item of items) {
+        item.hidden = q !== "" && !item.textContent.toLowerCase().includes(q);
+      }
+    });
+  }
+  for (const button of document.querySelectorAll("[data-details-close]")) {
+    button.addEventListener("click", () => {
+      const details = button.closest("details");
+      if (details) details.open = false;
+    });
+  }
+  for (const panel of document.querySelectorAll(".shithub-commit-ref-panel")) {
+    const tabs = panel.querySelectorAll("[data-ref-tab]");
+    const panes = panel.querySelectorAll("[data-ref-pane]");
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        const target = tab.getAttribute("data-ref-tab");
+        for (const other of tabs) {
+          const active = other === tab;
+          other.classList.toggle("is-active", active);
+          other.setAttribute("aria-selected", active ? "true" : "false");
+        }
+        for (const pane of panes) {
+          pane.hidden = pane.getAttribute("data-ref-pane") !== target;
+        }
+      });
+    }
+  }
+  for (const button of document.querySelectorAll("[data-commit-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.getAttribute("data-commit-copy") || "");
+        button.classList.add("is-copied");
+        window.setTimeout(() => button.classList.remove("is-copied"), 1200);
+      } catch (_) {
+      }
+    });
+  }
+})();
+</script>
 {{- end }}

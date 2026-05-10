@@ -63,7 +63,7 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(source)
 	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionForkCreate, repoRef); !dec.Allow {
 		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
@@ -122,7 +122,7 @@ func (h *Handlers) repoSync(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	actor := viewer.PolicyActor()
 	repoRef := policy.NewRepoRefFromRepo(row)
 	if dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoWrite, repoRef); !dec.Allow {
 		h.d.Render.HTTPError(w, r, policy.Maybe404(dec, repoRef, actor), "")
@@ -217,7 +217,7 @@ func actorFor(viewer middleware.CurrentUser) policy.Actor {
 	if viewer.IsAnonymous() {
 		return policy.AnonymousActor()
 	}
-	return policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	return viewer.PolicyActor()
 }
 
 // handleForkError maps the orchestrator's typed errors to status

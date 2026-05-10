@@ -121,6 +121,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"OGImage":          avatarURL,
 		"Org":              org,
 		"AvatarURL":        avatarURL,
+		"ActiveOrgNav":     "overview",
 		"WebsiteSafe":      safeWebsite(org.Website),
 		"Repos":            repoRows,
 		"PinnedRepos":      pinnedRepos,
@@ -133,7 +134,6 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"TopLanguages":     orgTopLanguages(repos),
 		"TopTopics":        orgTopTopics(repos),
 		"ViewAs":           viewAs,
-		"ActiveOrgTab":     "overview",
 		"IsOwner":          isOwner,
 		"IsMember":         isMember,
 		"CanCustomizePins": isOwner,
@@ -158,11 +158,7 @@ func (h *Handlers) orgProfileRepos(ctx context.Context, orgID int64, viewer midd
 	}
 	actor := policy.AnonymousActor()
 	if !viewer.IsAnonymous() {
-		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, viewer.IsSiteAdmin)
-		if viewer.ImpersonatedUserID != 0 {
-			actor.Impersonating = true
-			actor.ImpersonateWriteOK = viewer.ImpersonateWriteOK
-		}
+		actor = viewer.PolicyActor()
 	}
 	deps := policy.Deps{Pool: h.d.Pool}
 

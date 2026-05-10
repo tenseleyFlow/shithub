@@ -22,6 +22,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -167,12 +168,14 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, slug, errMsg string) {
-	_ = h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
 		"Title":     "New organization",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Slug":      slug,
 		"Error":     errMsg,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
+	}
 }
 
 // ─── people ────────────────────────────────────────────────────────
@@ -190,6 +193,8 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	filteredMembers := filterOrgMembers(members, query)
 	var pending []orgsdb.ListPendingInvitationsForOrgRow
 	isOwner := false
 	if !viewer.IsAnonymous() {
@@ -198,21 +203,42 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
 		}
 	}
-	var repoCount, teamCount int64
-	_ = h.d.Pool.QueryRow(r.Context(), `SELECT count(*) FROM repos WHERE owner_org_id = $1 AND deleted_at IS NULL`, org.ID).Scan(&repoCount)
-	_ = h.d.Pool.QueryRow(r.Context(), `SELECT count(*) FROM teams WHERE org_id = $1`, org.ID).Scan(&teamCount)
-	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
-		"Title":        org.Slug + " · people",
-		"CSRFToken":    middleware.CSRFTokenForRequest(r),
-		"Org":          org,
-		"Members":      members,
-		"Pending":      pending,
-		"ActiveOrgTab": "people",
-		"RepoCount":    repoCount,
-		"MemberCount":  int64(len(members)),
-		"TeamCount":    teamCount,
-		"IsOwner":      isOwner,
-	})
+	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
+	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
+		"Title":           org.Slug + " · people",
+		"CSRFToken":       middleware.CSRFTokenForRequest(r),
+		"Org":             org,
+		"AvatarURL":       "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":    "people",
+		"RepoCount":       navCounts.RepoCount,
+		"Members":         filteredMembers,
+		"MemberCount":     navCounts.MemberCount,
+		"TeamCount":       navCounts.TeamCount,
+		"Pending":         pending,
+		"PendingCount":    len(pending),
+		"Query":           query,
+		"HasQuery":        query != "",
+		"IsOwner":         isOwner,
+		"CanManagePeople": isOwner,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
+	}
+}
+
+func filterOrgMembers(members []orgsdb.ListOrgMembersRow, query string) []orgsdb.ListOrgMembersRow {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return members
+	}
+	out := make([]orgsdb.ListOrgMembersRow, 0, len(members))
+	for _, member := range members {
+		if strings.Contains(strings.ToLower(member.Username), query) ||
+			strings.Contains(strings.ToLower(member.DisplayName), query) ||
+			strings.Contains(strings.ToLower(string(member.Role)), query) {
+			out = append(out, member)
+		}
+	}
+	return out
 }
 
 func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +249,14 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
+		return
+	}
+	// Suspended owners are denied with the same 403 as non-owners
+	// (SR2 C4). Org/team mutations don't currently route through
+	// policy.Can; this short-circuit mirrors the suspended-actor
+	// gate every other write surface enforces.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	owner, err := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
@@ -282,6 +316,11 @@ func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action f
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "")
 		return
 	}
+	// Suspended owners denied like non-owners (SR2 C4).
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
 	owner, _ := orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 	if !owner {
 		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
@@ -317,13 +356,15 @@ func (h *Handlers) invitationView(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	_ = h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
+	if err := h.d.Render.RenderPage(w, r, "orgs/invitation", map[string]any{
 		"Title":      "Organization invitation",
 		"CSRFToken":  middleware.CSRFTokenForRequest(r),
 		"Org":        org,
 		"Invitation": inv,
 		"Token":      tok,
-	})
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/invitation", "error", err)
+	}
 }
 
 func (h *Handlers) invitationAccept(w http.ResponseWriter, r *http.Request) {
@@ -338,6 +379,14 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
 		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+		return
+	}
+	// Suspended users can't act on invitations either way (SR2 C4).
+	// Joining an org while suspended would let them participate in
+	// org-scoped actions; declining is harmless but the consistent
+	// gate makes the surface uniform.
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 		return
 	}
 	tok := chi.URLParam(r, "token")

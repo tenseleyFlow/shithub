@@ -89,10 +89,63 @@ func (c Config) HTTPClient() *http.Client {
 	}
 }
 
+// ValidateWithResolve runs Validate plus a DNS resolve so callers can
+// reject loopback/private/CGNAT/multicast hosts at create-time, not
+// only at delivery-time. dialContext still re-resolves on each dial
+// (DNS rebinding defense) — this is the cheap-but-thorough gate
+// admin forms call so the persisted hook can't sit broken-on-arrival
+// (SR2 H3). It's NOT a substitute for the dial-time check.
+//
+// A nil Resolver uses net.DefaultResolver. AllowedHosts (exact match
+// case-insensitive) bypasses the IP block-list as in dialContext.
+func (c Config) ValidateWithResolve(ctx context.Context, rawURL string) error {
+	if err := c.Validate(rawURL); err != nil {
+		return err
+	}
+	cfg := c.applyDefaults()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return &Error{URL: rawURL, Reason: "malformed URL"}
+	}
+	host := u.Hostname()
+	if stringSetContainsFold(cfg.AllowedHosts, host) {
+		return nil
+	}
+	if cfg.AllowPrivateNetworks {
+		return nil
+	}
+	// IP literal — check directly without DNS.
+	if ip := net.ParseIP(host); ip != nil {
+		if IsForbiddenIP(ip) {
+			return &Error{URL: rawURL, Reason: "host resolves to forbidden IP " + ip.String()}
+		}
+		return nil
+	}
+	// Hostname — resolve and check every result.
+	resolver := cfg.Resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	ips, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return &Error{URL: rawURL, Reason: "DNS resolve: " + err.Error()}
+	}
+	if len(ips) == 0 {
+		return &Error{URL: rawURL, Reason: "no IPs resolved"}
+	}
+	for _, ipa := range ips {
+		if IsForbiddenIP(ipa.IP) {
+			return &Error{URL: rawURL, Reason: "host resolves to forbidden IP " + ipa.IP.String()}
+		}
+	}
+	return nil
+}
+
 // Validate runs the syntactic gate (scheme, port, host shape) without
 // resolving DNS. dialContext re-runs the IP-level checks at connect
 // time so a passing Validate doesn't imply the URL is safe to dial —
-// it's the early-rejection cheap gate.
+// it's the early-rejection cheap gate. For full create-time rejection
+// (loopback, private IPs, etc.) use ValidateWithResolve.
 func (c Config) Validate(rawURL string) error {
 	cfg := c.applyDefaults()
 	u, err := url.Parse(rawURL)

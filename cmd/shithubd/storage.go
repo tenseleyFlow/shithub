@@ -67,8 +67,89 @@ as a sanity check from the operator's terminal.`,
 	},
 }
 
+var storageRepairSharedPermsCmd = &cobra.Command{
+	Use:   "repair-shared-perms",
+	Short: "Bring existing bare repos to core.sharedRepository=group + g+w mode bits",
+	Long: `One-time backfill for repos created before SR2 #287 landed.
+
+Pre-fix, bare repos were created with 'git init --bare' (no
+--shared=group), so objects/ wound up 0755. The SSH-git push path
+(git-receive-pack runs as the 'git' user, repos owned by 'shithub')
+hit "unable to create temporary object directory" because the group
+write bit was missing.
+
+This subcommand walks every <prefix>/<owner>/<name>.git directory
+under storage.repos_root and:
+  - sets core.sharedRepository=group in each repo's config
+  - chmods every file g+w
+  - chmods every directory g+w + g+s so future writes inherit group
+
+Idempotent. Safe to re-run. Reports a per-repo summary.`,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		cfg, err := config.Load(nil)
+		if err != nil {
+			return err
+		}
+		root := cfg.Storage.ReposRoot
+		if root == "" {
+			return errors.New("storage.repos_root not configured")
+		}
+		fs, err := storage.NewRepoFS(root)
+		if err != nil {
+			return fmt.Errorf("repofs: %w", err)
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+		defer cancel()
+		out := cmd.OutOrStdout()
+		var ok, fail int
+		// Walk the canonical layout: <root>/<2-letter-prefix>/<owner>/<name>.git
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return fmt.Errorf("read repos_root: %w", err)
+		}
+		for _, prefix := range entries {
+			if !prefix.IsDir() {
+				continue
+			}
+			ownerEntries, err := os.ReadDir(root + "/" + prefix.Name())
+			if err != nil {
+				continue
+			}
+			for _, owner := range ownerEntries {
+				if !owner.IsDir() {
+					continue
+				}
+				ownerDir := root + "/" + prefix.Name() + "/" + owner.Name()
+				repos, err := os.ReadDir(ownerDir)
+				if err != nil {
+					continue
+				}
+				for _, repo := range repos {
+					if !repo.IsDir() || !strings.HasSuffix(repo.Name(), ".git") {
+						continue
+					}
+					path := ownerDir + "/" + repo.Name()
+					if err := fs.RepairSharedPerms(ctx, path); err != nil {
+						_, _ = fmt.Fprintf(out, "FAIL %s: %v\n", path, err)
+						fail++
+						continue
+					}
+					_, _ = fmt.Fprintf(out, "ok   %s\n", path)
+					ok++
+				}
+			}
+		}
+		_, _ = fmt.Fprintf(out, "\nrepaired %d repo(s); %d failure(s)\n", ok, fail)
+		if fail > 0 {
+			return fmt.Errorf("repair-shared-perms: %d failures", fail)
+		}
+		return nil
+	},
+}
+
 func init() {
 	storageCmd.AddCommand(storageCheckCmd)
+	storageCmd.AddCommand(storageRepairSharedPermsCmd)
 }
 
 func checkReposRoot(root string) error {

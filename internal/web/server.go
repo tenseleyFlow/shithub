@@ -30,6 +30,8 @@ import (
 	infralog "github.com/tenseleyFlow/shithub/internal/infra/log"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/tracing"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
+	"github.com/tenseleyFlow/shithub/internal/version"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -141,6 +143,7 @@ func Run(ctx context.Context, opts Options) error {
 		StaticFS:     StaticFS(),
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
+		CookieSecure: cfg.Session.Secure,
 	}
 	if pool != nil {
 		deps.ReadyCheck = func(ctx context.Context) error { return pool.Ping(ctx) }
@@ -219,7 +222,11 @@ func Run(ctx context.Context, opts Options) error {
 		deps.RepoSocialMounter = repoH.MountSocial
 		deps.RepoForkMounter = repoH.MountFork
 
-		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger)
+		// Search gets its own Limiter wired around /search +
+		// /search/quick (audit 2026-05-10 H4). Independent instance
+		// from auth's RateLimiter; both share DB-backed counter
+		// state, segregated by Policy.Scope.
+		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger, ratelimit.New(pool))
 		if err != nil {
 			return fmt.Errorf("search handlers: %w", err)
 		}
@@ -275,7 +282,16 @@ func Run(ctx context.Context, opts Options) error {
 		// S34 — site admin. Gated by RequireUser + RequireSiteAdmin
 		// (404 not 403 for non-admins). Uses its own renderer so the
 		// admin templates are loaded once at boot.
-		adminH, err := buildAdminHandlers(cfg, pool, deps.TemplatesFS, logger, "dev")
+		//
+		// Email sender is the same one auth uses; the admin "Reset
+		// password" action sends through it (SR2 C3). Version is the
+		// build-time-stamped value so /admin/system reports reality
+		// instead of the literal "dev" (SR2 L6).
+		adminSender, err := pickEmailSender(cfg)
+		if err != nil {
+			return fmt.Errorf("admin handlers: pick email sender: %w", err)
+		}
+		adminH, err := buildAdminHandlers(cfg, pool, deps.TemplatesFS, logger, version.Version, adminSender)
 		if err != nil {
 			return fmt.Errorf("admin handlers: %w", err)
 		}

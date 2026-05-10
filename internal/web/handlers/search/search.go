@@ -6,15 +6,18 @@
 package search
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	srch "github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -25,11 +28,17 @@ type Deps struct {
 	Logger *slog.Logger
 	Render *render.Renderer
 	Pool   *pgxpool.Pool
+	// Limiter, when non-nil, gates /search per-(viewer or IP). Audit
+	// 2026-05-10 H4: search renders amplify FTS cost 5×–6× per
+	// request, so without a limiter a single client can hammer the
+	// DB. Optional in tests; required in production wiring.
+	Limiter *ratelimit.Limiter
 }
 
 // Handlers is the registered handler set. Construct via New.
 type Handlers struct {
-	d Deps
+	d         Deps
+	tabsCache *tabsCache // nil-safe — Mount constructs it
 }
 
 // New constructs the handler set, validating Deps.
@@ -40,13 +49,51 @@ func New(d Deps) (*Handlers, error) {
 	if d.Pool == nil {
 		return nil, errors.New("search: nil Pool")
 	}
-	return &Handlers{d: d}, nil
+	return &Handlers{d: d, tabsCache: newTabsCache()}, nil
 }
 
-// Mount registers /search and /search/quick.
+// SearchRateLimitPolicy is the per-(viewer or IP) limit applied to
+// /search and /search/quick. 60/min is generous for human use
+// (typical browse rate is well under this) but cheap to defeat any
+// query-rotation attack that bypasses the tab-count cache (audit
+// 2026-05-10 H4+H5). Surfaced as a var so tests can tighten it.
+var SearchRateLimitPolicy = ratelimit.Policy{
+	Scope:  "search",
+	Max:    60,
+	Window: 1 * time.Minute,
+}
+
+// Mount registers /search and /search/quick. When d.Limiter is set,
+// both routes go through the rate-limit middleware before reaching
+// the handlers — protects the FTS path from query-rotation attacks
+// that the tab-counts cache alone can't absorb.
 func (h *Handlers) Mount(r chi.Router) {
+	if h.d.Limiter != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(h.d.Limiter.Middleware(SearchRateLimitPolicy, searchRateLimitKey))
+			r.Get("/search", h.results)
+			r.Get("/search/quick", h.quick)
+		})
+		return
+	}
 	r.Get("/search", h.results)
 	r.Get("/search/quick", h.quick)
+}
+
+// searchRateLimitKey picks the per-request key. Authed users key
+// on user_id (so an attacker can't bypass by hopping accounts they
+// don't have); anonymous users key on the trusted client IP. We
+// trust X-Forwarded-For only when middleware.RealIP has already
+// vetted it, which it does at the global stack level.
+func searchRateLimitKey(r *http.Request) string {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if !viewer.IsAnonymous() {
+		return "u:" + intString(int(viewer.ID))
+	}
+	if ip, ok := ratelimit.ClientIP(r, true); ok {
+		return "ip:" + ip.String()
+	}
+	return ""
 }
 
 func (h *Handlers) deps() srch.Deps {
@@ -58,7 +105,7 @@ func (h *Handlers) actor(r *http.Request) policy.Actor {
 	if viewer.IsAnonymous() {
 		return policy.AnonymousActor()
 	}
-	return policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+	return viewer.PolicyActor()
 }
 
 // results renders the full /search page with type tabs.
@@ -194,29 +241,81 @@ func (h *Handlers) searchTabs(r *http.Request, actor policy.Actor, parsed srch.P
 		return tabs
 	}
 
-	deps := h.deps()
+	// Counts are cached per-(query, viewer) for tabsCacheTTL. The
+	// active-tab's actual result rows are NOT cached here — only the
+	// 5 count-only badge calls that pre-fix were the dominant cost
+	// (audit 2026-05-10 H5). Single-flighted via lru.Group so a
+	// thundering-herd on the same key doesn't spawn N waves.
+	key := tabsCacheKey{q: canonicalizeQuery(parsed), userID: actorUserID(actor)}
+	cached, err := h.tabsCache.g.Do(r.Context(), key, func(ctx context.Context) ([]searchTab, error) {
+		return h.computeTabCounts(ctx, actor, parsed), nil
+	})
+	if err != nil {
+		// Group.Do never caches errors and our fetch returns nil; this
+		// path is unreachable today but kept for defensiveness.
+		h.d.Logger.ErrorContext(r.Context(), "search tabs cache", "error", err)
+		cached = h.computeTabCounts(r.Context(), actor, parsed)
+	}
+	// Merge cached counts into the freshly-built (Selected/Href-aware)
+	// tabs slice. The cached value carries Counts and the same Key
+	// ordering; everything else is per-request and not cached.
 	for i := range tabs {
-		var total int64
-		var err error
-		switch tabs[i].Key {
-		case "repositories":
-			_, total, err = srch.SearchRepos(r.Context(), deps, actor, parsed, 0, 0)
-		case "code":
-			_, total, err = srch.SearchCode(r.Context(), deps, actor, parsed, 0, 0)
-		case "issues":
-			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "issue", 0, 0)
-		case "pullrequests":
-			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "pr", 0, 0)
-		case "users":
-			_, total, err = srch.SearchUsers(r.Context(), deps, parsed, 0, 0)
+		for j := range cached {
+			if cached[j].Key == tabs[i].Key {
+				tabs[i].Count = cached[j].Count
+				break
+			}
 		}
-		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
-			h.d.Logger.ErrorContext(r.Context(), "search tab count", "tab", tabs[i].Key, "error", err)
-			continue
-		}
-		tabs[i].Count = total
 	}
 	return tabs
+}
+
+// computeTabCounts is the cache miss path: 5 FTS count-only queries.
+// Returned slice carries (Key, Count) only — Selected/Href/Label/
+// Icon are per-request and applied by the caller.
+func (h *Handlers) computeTabCounts(ctx context.Context, actor policy.Actor, parsed srch.ParsedQuery) []searchTab {
+	deps := h.deps()
+	out := []searchTab{
+		{Key: "code"},
+		{Key: "repositories"},
+		{Key: "issues"},
+		{Key: "pullrequests"},
+		{Key: "users"},
+	}
+	for i := range out {
+		var total int64
+		var err error
+		switch out[i].Key {
+		case "repositories":
+			_, total, err = srch.SearchRepos(ctx, deps, actor, parsed, 0, 0)
+		case "code":
+			_, total, err = srch.SearchCode(ctx, deps, actor, parsed, 0, 0)
+		case "issues":
+			_, total, err = srch.SearchIssues(ctx, deps, actor, parsed, "issue", 0, 0)
+		case "pullrequests":
+			_, total, err = srch.SearchIssues(ctx, deps, actor, parsed, "pr", 0, 0)
+		case "users":
+			_, total, err = srch.SearchUsers(ctx, deps, parsed, 0, 0)
+		}
+		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
+			h.d.Logger.ErrorContext(ctx, "search tab count", "tab", out[i].Key, "error", err)
+			continue
+		}
+		out[i].Count = total
+	}
+	return out
+}
+
+// actorUserID returns 0 for anonymous, the user_id otherwise. Used
+// as the (anon vs each-authed-user) discriminant in the tabs cache
+// key — anonymous viewers all see the same public-only result set
+// so they share a slot; authed viewers see private results based
+// on their collab roles, so each gets their own.
+func actorUserID(a policy.Actor) int64 {
+	if a.IsAnonymous {
+		return 0
+	}
+	return a.UserID
 }
 
 func searchHref(q, tab string, page int) string {

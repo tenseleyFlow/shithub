@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 )
 
 var currentUserKey = ctxKey{name: "current_user"}
@@ -33,6 +35,45 @@ type CurrentUser struct {
 
 // IsAnonymous reports whether this is an unauthenticated request.
 func (u CurrentUser) IsAnonymous() bool { return u.ID == 0 }
+
+// PolicyActor builds a policy.Actor that propagates suspension,
+// site-admin, and the impersonation pair. Use this everywhere the
+// web layer needs an actor — the alternative (plain
+// policy.UserActor) silently drops impersonation/site-admin and
+// re-introduces the C1/C2 leaks the SR2 sprint fixed.
+func (u CurrentUser) PolicyActor() policy.Actor {
+	return policy.UserActorFromCurrentUser(policy.CurrentUserView{
+		ID:                 u.ID,
+		Username:           u.Username,
+		IsSuspended:        u.IsSuspended,
+		IsSiteAdmin:        u.IsSiteAdmin,
+		ImpersonatedUserID: u.ImpersonatedUserID,
+		RealActorID:        u.RealActorID,
+		ImpersonateWriteOK: u.ImpersonateWriteOK,
+	})
+}
+
+// AuditActor returns the (actor_id, augmented meta) pair to record
+// for an audit row. During an impersonated session, the real admin
+// is the actor and the impersonated user_id is stashed in meta.
+// Outside impersonation, returns u.ID and meta unchanged.
+//
+// Use this anywhere a handler builds an audit row so impersonation
+// trails are uniform across admin and non-admin surfaces (SR2 H2).
+//
+// Most callers want the higher-level RecordAudit helper instead;
+// AuditActor is exposed for the rare case where the recorder/db
+// pair isn't readily threaded through.
+func (u CurrentUser) AuditActor(meta map[string]any) (int64, map[string]any) {
+	if u.RealActorID == 0 {
+		return u.ID, meta
+	}
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta["impersonated_user_id"] = u.ImpersonatedUserID
+	return u.RealActorID, meta
+}
 
 // UserLookupResult is what UserLookup returns. It's a struct so future
 // fields (e.g. is_admin once S34 lands) don't keep widening the signature

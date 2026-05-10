@@ -10,7 +10,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -120,6 +119,3 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 func writeAPIError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
-
-// silence unused import on the rare branch where context is not used.
-var _ = context.Background

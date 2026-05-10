@@ -23,8 +23,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/notif"
 	notifdb "github.com/tenseleyFlow/shithub/internal/notif/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -190,6 +193,17 @@ func (h *Handlers) unsubscribe(w http.ResponseWriter, r *http.Request) {
 // inserts (or updates) a row with subscribed=true; `false` flips it
 // off. The fan-out worker honors the explicit row over the auto-sub
 // derivation.
+//
+// SR2 H7: pre-fix this handler accepted any (kind, id) pair without
+// checking that the thread existed or that the viewer could read
+// the parent repo, letting any logged-in user pollute the thread
+// table with rows pointing at private/non-existent issues. Now we
+// load the issue, confirm the kind matches, and run the policy
+// visibility gate before upserting.
+//
+// SR2 L4: Referer is origin-checked before redirecting (was open-
+// redirect-shaped on Referer manipulation if the cookie surface
+// ever relaxed SameSite).
 func (h *Handlers) threadAction(w http.ResponseWriter, r *http.Request, subscribed bool) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
@@ -202,10 +216,40 @@ func (h *Handlers) threadAction(w http.ResponseWriter, r *http.Request, subscrib
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
+
+	// Existence + kind match. Issues and PRs share the issues table;
+	// the kind column distinguishes. Mismatched kind (e.g. /pr/<issue-id>)
+	// is treated as not-found, same as a non-existent id.
+	issue, err := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, id)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	wantKind := issuesdb.IssueKindIssue
+	if kindStr == "pr" {
+		wantKind = issuesdb.IssueKindPr
+	}
+	if issue.Kind != wantKind {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+
+	// Visibility — viewer must be able to read the parent repo.
+	repo, err := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, issue.RepoID)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	pdeps := policy.Deps{Pool: h.d.Pool}
+	if !policy.IsVisibleTo(r.Context(), pdeps, viewer.PolicyActor(), policy.NewRepoRefFromRepo(repo)) {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+
 	reason := "manual"
 	if !subscribed {
 		reason = "manual_unsubscribe"
@@ -220,13 +264,7 @@ func (h *Handlers) threadAction(w http.ResponseWriter, r *http.Request, subscrib
 		h.d.Logger.WarnContext(r.Context(), "notifications: thread action",
 			"kind", kindStr, "id", id, "subscribed", subscribed, "error", err)
 	}
-	// Bounce back to the thread the viewer was on. Best-effort: when
-	// the Referer is missing, fall back to /notifications.
-	dest := r.Header.Get("Referer")
-	if dest == "" {
-		dest = "/notifications"
-	}
-	http.Redirect(w, r, dest, http.StatusSeeOther)
+	http.Redirect(w, r, notificationReturnPath(r), http.StatusSeeOther)
 }
 
 // unsubscribeViaToken handles the email's one-click List-Unsubscribe
@@ -246,11 +284,13 @@ func (h *Handlers) unsubscribeViaToken(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	if !notif.VerifyUnsubscribe(h.d.UnsubscribeKey, uid, tk, tid, sig) {
+	// SR2 L5: kind check before HMAC compare so an unknown kind
+	// fast-fails without burning a constant-time compare.
+	if tk != "issue" && tk != "pr" {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	if tk != "issue" && tk != "pr" {
+	if !notif.VerifyUnsubscribe(h.d.UnsubscribeKey, uid, tk, tid, sig) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}

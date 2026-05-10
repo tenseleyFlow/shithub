@@ -224,6 +224,20 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 		ShithubdPath: h.d.ShithubdPath,
 	}, params)
 	if err != nil {
+		// Surface the real error in the journal — friendlyCreateError
+		// collapses every non-typed cause into the bland "Could not
+		// create the repository" string the user sees, so without
+		// this log line the operator has no signal to triage a failed
+		// create.
+		h.d.Logger.WarnContext(
+			r.Context(), "repos: create failed",
+			"error", err,
+			"actor_user_id", params.ActorUserID,
+			"owner_user_id", params.OwnerUserID,
+			"owner_org_id", params.OwnerOrgID,
+			"name", params.Name,
+			"visibility", params.Visibility,
+		)
 		h.renderNewForm(w, r, form, friendlyCreateError(err))
 		return
 	}
@@ -450,7 +464,7 @@ func (h *Handlers) lookupRepoForViewer(ctx context.Context, ownerName, repoName 
 	if viewer.IsAnonymous() {
 		actor = policy.AnonymousActor()
 	} else {
-		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+		actor = viewer.PolicyActor()
 	}
 	// ActionRepoRead deny on a private repo with a non-collab viewer is
 	// indistinguishable from "doesn't exist" — Maybe404 returns 404 in

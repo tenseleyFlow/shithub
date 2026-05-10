@@ -1,75 +1,122 @@
 {{ define "page" -}}
-<section class="shithub-org-profile shithub-org-people">
-  <header class="shithub-org-profile-head">
-    <h1>{{ .Org.DisplayName }} · People</h1>
-    <p class="shithub-meta">@{{ .Org.Slug }}</p>
+<section class="shithub-org-people">
+  <header class="shithub-org-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
   </header>
-  {{ template "org-nav" . }}
 
-  {{ if .IsOwner }}
-  <section class="shithub-org-invite">
-    <h2>Invite a new member</h2>
-    <form method="POST" action="/{{ .Org.Slug }}/people/invite">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <label>
-        <span>Username or email</span>
-        <input type="text" name="target" required placeholder="@username or someone@example.com">
-      </label>
-      <label>
-        <span>Role</span>
-        <select name="role">
-          <option value="member" selected>Member</option>
-          <option value="owner">Owner</option>
-        </select>
-      </label>
-      <button type="submit" class="shithub-button shithub-button-primary">Invite</button>
-    </form>
-  </section>
-  {{ end }}
-
-  <section class="shithub-org-members">
-    <h2>Members ({{ len .Members }})</h2>
-    <table class="shithub-table">
-      <thead><tr><th>User</th><th>Role</th><th>Joined</th>{{ if .IsOwner }}<th></th>{{ end }}</tr></thead>
-      <tbody>
-        {{ range .Members }}
-        <tr>
-          <td><a href="/{{ .Username }}">@{{ .Username }}</a> {{ if .DisplayName }}<span class="shithub-meta">— {{ .DisplayName }}</span>{{ end }}</td>
-          <td>{{ .Role }}</td>
-          <td>{{ relativeTime .JoinedAt.Time }}</td>
-          {{ if $.IsOwner }}
-          <td>
-            <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/role" style="display:inline">
-              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-              <select name="role" onchange="this.form.submit()" aria-label="Change role">
-                <option value="member" {{ if eq (printf "%s" .Role) "member" }}selected{{ end }}>Member</option>
-                <option value="owner" {{ if eq (printf "%s" .Role) "owner" }}selected{{ end }}>Owner</option>
-              </select>
-            </form>
-            <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/remove" style="display:inline">
-              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-              <button type="submit" class="shithub-button">Remove</button>
-            </form>
-          </td>
-          {{ end }}
-        </tr>
+  <div class="shithub-org-people-layout">
+    <aside class="shithub-org-people-sidebar" aria-label="People navigation">
+      <h1>People</h1>
+      <nav class="shithub-org-people-menu" aria-labelledby="organization-people-label">
+        <h2 id="organization-people-label">Organization permissions</h2>
+        <a href="/{{ .Org.Slug }}/people" class="is-selected" aria-current="page">
+          <span>Members</span>
+          <span class="shithub-counter">{{ .MemberCount }}</span>
+        </a>
+        {{ if .IsOwner }}
+        <a href="#pending-invitations">
+          <span>Pending invitations</span>
+          <span class="shithub-counter">{{ .PendingCount }}</span>
+        </a>
         {{ end }}
-      </tbody>
-    </table>
-  </section>
+      </nav>
+    </aside>
 
-  {{ if and .IsOwner .Pending }}
-  <section class="shithub-org-pending">
-    <h2>Pending invitations</h2>
-    <ul>
-    {{ range .Pending }}
-      <li>
-        {{ if .TargetUsername.Valid }}@{{ .TargetUsername.String }}{{ else }}{{ .TargetEmail.String }}{{ end }}
-        — {{ .Role }} — invited {{ relativeTime .CreatedAt.Time }}
-      </li>
-    {{ end }}
-    </ul>
-  </section>
-  {{ end }}
+    <div class="shithub-org-people-main">
+      <div class="shithub-org-people-toolbar">
+        <form method="GET" action="/{{ .Org.Slug }}/people" class="shithub-org-people-search" role="search">
+          {{ octicon "search" }}
+          <input type="search" name="query" value="{{ .Query }}" placeholder="Find a member..." aria-label="Find a member" autocomplete="off">
+        </form>
+
+        {{ if .CanManagePeople }}
+        <details class="shithub-org-people-invite">
+          <summary class="shithub-button shithub-button-primary">{{ octicon "plus" }} Invite member</summary>
+          <form method="POST" action="/{{ .Org.Slug }}/people/invite" class="shithub-org-people-invite-panel">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <label>
+              <span>Username or email</span>
+              <input type="text" name="target" required placeholder="@username or someone@example.com">
+            </label>
+            <label>
+              <span>Role</span>
+              <select name="role">
+                <option value="member" selected>Member</option>
+                <option value="owner">Owner</option>
+              </select>
+            </label>
+            <button type="submit" class="shithub-button shithub-button-primary">Send invitation</button>
+          </form>
+        </details>
+        {{ end }}
+      </div>
+
+      <section id="org-members-table" class="shithub-org-people-card" aria-label="Organization members">
+        {{ if .Members }}
+        <ul class="shithub-org-people-list">
+          {{ range .Members }}
+          <li class="shithub-org-people-row">
+            <a class="shithub-org-people-avatar" href="/{{ .Username }}">
+              <img src="/avatars/{{ .Username }}" alt="" width="48" height="48">
+            </a>
+            <div class="shithub-org-people-member">
+              <a class="shithub-org-people-name" href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+              <span class="shithub-org-people-username">{{ .Username }}</span>
+            </div>
+            <div class="shithub-org-people-meta">
+              <span class="shithub-pill">{{ if eq (printf "%s" .Role) "owner" }}Owner{{ else }}Member{{ end }}</span>
+              <span>Joined {{ relativeTime .JoinedAt.Time }}</span>
+            </div>
+            {{ if $.IsOwner }}
+            <div class="shithub-org-people-actions">
+              <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/role">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <select name="role" onchange="this.form.submit()" aria-label="Change role for {{ .Username }}">
+                  <option value="member" {{ if eq (printf "%s" .Role) "member" }}selected{{ end }}>Member</option>
+                  <option value="owner" {{ if eq (printf "%s" .Role) "owner" }}selected{{ end }}>Owner</option>
+                </select>
+              </form>
+              <form method="POST" action="/{{ $.Org.Slug }}/people/{{ .UserID }}/remove">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button">Remove</button>
+              </form>
+            </div>
+            {{ end }}
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <div class="shithub-org-people-empty">
+          {{ octicon "organization" }}
+          {{ if .HasQuery }}
+          <h2>No members matched your search.</h2>
+          {{ else }}
+          <h2>This organization has no members.</h2>
+          {{ end }}
+        </div>
+        {{ end }}
+      </section>
+
+      {{ if and .IsOwner .Pending }}
+      <section id="pending-invitations" class="shithub-org-pending">
+        <h2>Pending invitations</h2>
+        <ul class="shithub-org-pending-list">
+        {{ range .Pending }}
+          <li>
+            <span>{{ if .TargetUsername.Valid }}@{{ .TargetUsername.String }}{{ else }}{{ .TargetEmail.String }}{{ end }}</span>
+            <span class="shithub-pill">{{ if eq (printf "%s" .Role) "owner" }}Owner{{ else }}Member{{ end }}</span>
+            <span class="shithub-org-people-username">Invited {{ relativeTime .CreatedAt.Time }}</span>
+          </li>
+        {{ end }}
+        </ul>
+      </section>
+      {{ end }}
+    </div>
+  </div>
 </section>
 {{- end }}

@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
-	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
 // tryRedirect resolves a (stale_owner, stale_name) URL to its current
@@ -50,7 +49,3 @@ func (h *Handlers) tryRedirect(r *http.Request, ownerName, repoName string) stri
 	tail := strings.TrimPrefix(r.URL.Path, "/"+ownerName+"/"+repoName)
 	return "/" + currentOwner + "/" + row.Name + tail
 }
-
-// _ keeps usersdb imported even when only its types are referenced
-// indirectly via the handlers struct. Unused-import guard.
-var _ = usersdb.New

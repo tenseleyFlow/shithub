@@ -48,7 +48,7 @@ func (h *Handlers) serveStarsTab(w http.ResponseWriter, r *http.Request, user us
 
 	actor := policy.AnonymousActor()
 	if !viewer.IsAnonymous() {
-		actor = policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
+		actor = viewer.PolicyActor()
 	}
 	deps := policy.Deps{Pool: h.d.Pool}
 

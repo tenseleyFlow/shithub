@@ -128,9 +128,10 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
-		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": newID, "pattern": pattern, "action": "create"})
+		_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-			map[string]any{"branch_protection_rule_id": newID, "pattern": pattern, "action": "create"})
+			auditMeta)
 	} else {
 		// Update.
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -170,9 +171,10 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
-		_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": id, "pattern": pattern, "action": "update"})
+		_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-			map[string]any{"branch_protection_rule_id": id, "pattern": pattern, "action": "update"})
+			auditMeta)
 	}
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=saved", http.StatusSeeOther)
 }
@@ -199,9 +201,10 @@ func (h *Handlers) settingsBranchesDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": id, "pattern": existing.Pattern, "action": "delete"})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"branch_protection_rule_id": id, "pattern": existing.Pattern, "action": "delete"})
+		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=deleted", http.StatusSeeOther)
 }
@@ -259,9 +262,10 @@ func (h *Handlers) settingsDefaultBranch(w http.ResponseWriter, r *http.Request)
 	}
 
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	_ = h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID,
+	auditActor, auditMeta := viewer.AuditActor(map[string]any{"action": "default_branch_changed", "from": row.DefaultBranch, "to": newDefault})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
-		map[string]any{"action": "default_branch_changed", "from": row.DefaultBranch, "to": newDefault})
+		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=default-changed", http.StatusSeeOther)
 }

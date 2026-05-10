@@ -97,8 +97,7 @@ func performTeamsRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cur
 	t.Helper()
 	rr, err := render.New(fstest.MapFS{
 		"_layout.html":         {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
-		"orgs/_org_nav.html":   {Data: []byte(`{{ define "org-nav" }}NAV={{ .ActiveOrgTab }}:{{ .TeamCount }}{{ end }}`)},
-		"orgs/teams_list.html": {Data: []byte(`{{ define "page" }}{{ template "org-nav" . }} TOTAL={{ .TeamTotalCount }}{{ range .Teams }} TEAM={{ .Slug }}:{{ .DisplayName }}:{{ .MemberCount }}:{{ .RepoCount }}{{ end }}{{ end }}`)},
+		"orgs/teams_list.html": {Data: []byte(`{{ define "page" }}ACTIVE={{ .ActiveOrgNav }} TOTAL={{ .TeamTotalCount }}{{ range .Teams }} TEAM={{ .Slug }}:{{ .DisplayName }}:{{ .MemberCount }}:{{ .RepoCount }}{{ end }}{{ end }}`)},
 		"orgs/team_view.html":  {Data: []byte(`{{ define "page" }}TEAM{{ end }}`)},
 		"orgs/people.html":     {Data: []byte(`{{ define "page" }}PEOPLE{{ end }}`)},
 		"errors/400.html":      {Data: []byte(`{{ define "page" }}400{{ end }}`)},

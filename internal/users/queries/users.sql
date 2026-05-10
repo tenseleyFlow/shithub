@@ -47,6 +47,15 @@ SET suspended_at     = now(),
     suspended_reason = $2
 WHERE id = $1;
 
+-- name: UnsuspendUser :exec
+-- Clears the suspended state. Mirrors SuspendUser; used by the
+-- /admin/users/{id}/unsuspend handler. Replaces an inline UPDATE
+-- in admin/users.go (SR2 M2).
+UPDATE users
+SET suspended_at     = NULL,
+    suspended_reason = NULL
+WHERE id = $1;
+
 -- name: SoftDeleteUser :exec
 UPDATE users
 SET deleted_at = now()
