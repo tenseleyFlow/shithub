@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+# GH Actions is migrating its built-in Node from 20 to 24 by 2026-09-16.
+# Force our pinned action versions onto Node 24 now so the deprecation
+# warning clears and the eventual default flip is a no-op for us. Drop
+# this once every action below is bumped to a Node-24-native release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   # Serialize deploys so two pushes in flight don't race on the
   # remote git reset / binary swap.
