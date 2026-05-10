@@ -17,6 +17,60 @@ RETURNING *;
 -- name: GetCheckSuite :one
 SELECT * FROM check_suites WHERE id = $1;
 
+-- name: GetCheckSuiteForRepo :one
+SELECT
+    cs.*,
+    COALESCE(pr_meta.number, 0)::bigint AS pull_number,
+    COALESCE(pr_meta.title, '')::text AS pull_title,
+    COALESCE(pr_meta.author_username, '')::text AS pull_author_username,
+    COALESCE(pr_meta.head_ref, '')::text AS head_ref,
+    COALESCE(pr_meta.base_ref, '')::text AS base_ref
+FROM check_suites cs
+LEFT JOIN LATERAL (
+    SELECT
+        i.number,
+        i.title,
+        COALESCE(u.username, '') AS author_username,
+        pr.head_ref,
+        pr.base_ref
+    FROM pull_requests pr
+    JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
+    LEFT JOIN users u ON u.id = i.author_user_id
+    WHERE pr.head_repo_id = cs.repo_id
+      AND pr.head_oid = cs.head_sha
+    ORDER BY i.updated_at DESC, i.number DESC
+    LIMIT 1
+) pr_meta ON true
+WHERE cs.repo_id = $1 AND cs.id = $2;
+
+-- name: ListCheckSuitesForRepo :many
+SELECT
+    cs.*,
+    COALESCE(pr_meta.number, 0)::bigint AS pull_number,
+    COALESCE(pr_meta.title, '')::text AS pull_title,
+    COALESCE(pr_meta.author_username, '')::text AS pull_author_username,
+    COALESCE(pr_meta.head_ref, '')::text AS head_ref,
+    COALESCE(pr_meta.base_ref, '')::text AS base_ref
+FROM check_suites cs
+LEFT JOIN LATERAL (
+    SELECT
+        i.number,
+        i.title,
+        COALESCE(u.username, '') AS author_username,
+        pr.head_ref,
+        pr.base_ref
+    FROM pull_requests pr
+    JOIN issues i ON i.id = pr.issue_id AND i.kind = 'pr'
+    LEFT JOIN users u ON u.id = i.author_user_id
+    WHERE pr.head_repo_id = cs.repo_id
+      AND pr.head_oid = cs.head_sha
+    ORDER BY i.updated_at DESC, i.number DESC
+    LIMIT 1
+) pr_meta ON true
+WHERE cs.repo_id = $1
+ORDER BY cs.updated_at DESC, cs.id DESC
+LIMIT $2 OFFSET $3;
+
 -- name: ListCheckSuitesForCommit :many
 SELECT * FROM check_suites
 WHERE repo_id = $1 AND head_sha = $2
