@@ -21,13 +21,23 @@ MaxAuthTries 3
 MaxSessions 10
 MaxStartups 100:30:200
 
-# Per-user AKC: when a user named `git` connects, shithubd resolves
-# the offered key fingerprint to a shithub user via the user_ssh_keys
-# table and emits the matching authorized_keys line (including the
-# `command=...` prefix that locks the session to git protocol).
+# Per-user AKC: when a user named `git` connects, sshd runs the
+# wrapper at /usr/local/bin/shithub-ssh-authkeys (which sources
+# /etc/shithub/web.env so SHITHUB_DATABASE_URL is in scope) which in
+# turn execs `shithubd ssh-authkeys <fingerprint>`. shithubd resolves
+# the fingerprint to a shithub user via the user_ssh_keys table and
+# emits the matching authorized_keys line (including a `command=...`
+# prefix that locks the session to the git protocol).
+#
+# AuthorizedKeysCommandUser=shithub: the AKC needs read access to
+# /etc/shithub/web.env. shithub-ssh would also work after group
+# membership tweaks, but using the same user that owns the env file
+# is the simpler trust model — the wrapper script is small and well-
+# audited; running it as shithub doesn't widen the blast radius
+# beyond what shithubd-web already has.
 Match User git
-    AuthorizedKeysCommand /usr/local/bin/shithubd ssh-authkeys %f
-    AuthorizedKeysCommandUser shithub-ssh
+    AuthorizedKeysCommand /usr/local/bin/shithub-ssh-authkeys %f
+    AuthorizedKeysCommandUser shithub
     PermitTTY no
     AllowAgentForwarding no
     AllowTcpForwarding no
