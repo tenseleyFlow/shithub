@@ -20,35 +20,21 @@ errors at connect:
 
 ## First-time enable on an existing droplet
 
-If S13 shipped before the deploy ever ran SSH-git:
+The clean path is `ansible-playbook deploy/ansible/site.yml -l shithub-app`,
+which provisions everything below. SSH-git turned out to need
+**six** pieces — the obvious ones from S13 plus five subtleties
+discovered live. They are all encoded in ansible (after this PR);
+this list is for operators who want to apply piece-by-piece or
+debug one failure mode at a time.
 
-```sh
-# 1. Create the git login user with git-shell as a defense layer
-ssh root@shithub.sh '
-  apt-get install -y git  # provides git-shell
-  useradd --system --home-dir /var/lib/git --create-home \
-          --shell "$(which git-shell)" git
-  getent passwd git
-'
-
-# 2. Confirm sshd_config has the Match User git block
-ssh root@shithub.sh '
-  grep -A4 "Match User git" /etc/ssh/sshd_config
-'
-# Expected: AuthorizedKeysCommand /usr/local/bin/shithubd ssh-authkeys %f
-#           AuthorizedKeysCommandUser shithub-ssh
-#           PermitTTY no
-#           AllowAgentForwarding no
-
-# 3. Set the env knobs on web.env (worker.env doesn't render repo pages)
-ssh root@shithub.sh '
-  printf "\nSHITHUB_AUTH__SSH__ENABLED=true\nSHITHUB_AUTH__SSH__HOST=git@shithub.sh\n" \
-    >> /etc/shithub/web.env
-'
-
-# 4. Restart shithubd-web to pick up the new env (workers don't need it)
-ssh root@shithub.sh 'systemctl restart shithubd-web'
-```
+| # | Piece | Lives in | Failure if missing |
+|---|---|---|---|
+| 1 | `git` system user with `git-shell`, in `shithub` group, password-cleared (`passwd -d`) | `roles/base/tasks/main.yml` | "User git not allowed because account is locked" |
+| 2 | `Match User git` sshd block pointing at the AKC wrapper | `deploy/sshd_config.j2` | sshd offers no AKC for `git@`; "Permission denied (publickey)" |
+| 3 | `/usr/local/bin/shithub-ssh-authkeys` wrapper sourcing web.env then exec'ing `shithubd ssh-authkeys` | `roles/shithubd/files/shithub-ssh-authkeys` | AKC returns empty (no `SHITHUB_DATABASE_URL` in env); "Permission denied (publickey)" |
+| 4 | `/var/lib/git/git-shell-commands/shithubd` wrapper sourcing web.env then exec'ing the bare binary | `roles/shithubd/files/git-shell-commands-shithubd` | git-shell rejects forced command; "fatal: unrecognized command" |
+| 5 | `/etc/shithub/web.env` mode 0640 (group=shithub) so the git user can read it through the wrappers above | `roles/shithubd/tasks/main.yml` | `ssh-shell: cfg: ... permission denied` |
+| 6 | `SHITHUB_AUTH__SSH__{ENABLED,HOST}` env vars on web.env | `roles/shithubd/templates/web.env.j2` | repo pages don't show the SSH clone URL (sshd path still works) |
 
 Verify:
 
