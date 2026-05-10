@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
@@ -78,12 +79,13 @@ type Deps struct {
 
 // Handlers is the registered handler set. Construct via New.
 type Handlers struct {
-	d  Deps
-	rq *reposdb.Queries
-	uq *usersdb.Queries
-	iq *issuesdb.Queries
-	pq *pullsdb.Queries
-	cq *checksdb.Queries
+	d                  Deps
+	rq                 *reposdb.Queries
+	uq                 *usersdb.Queries
+	iq                 *issuesdb.Queries
+	pq                 *pullsdb.Queries
+	cq                 *checksdb.Queries
+	submoduleBackfills singleflight.Group
 }
 
 // New constructs the handler set, validating Deps.

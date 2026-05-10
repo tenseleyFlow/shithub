@@ -4,11 +4,19 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	pathpkg "path"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 type submoduleRouteConfig struct {
@@ -53,9 +61,105 @@ func (h *Handlers) submoduleTreeURL(ctx context.Context, cc *codeContext, remote
 		return route.RepoURL
 	}
 	if !existsAtCommit {
+		if fetchURL, ok := githubSubmoduleFetchURL(remoteURL); ok {
+			backfilled, backfillErr := h.backfillSubmoduleCommit(ctx, gitDir, fetchURL, oid)
+			if backfillErr != nil {
+				if h.d.Logger != nil {
+					h.d.Logger.WarnContext(ctx, "code: submodule backfill fetch", "error", backfillErr, "owner", route.Owner, "repo", route.RepoName, "oid", oid, "remote", fetchURL)
+				}
+			} else if backfilled {
+				h.recordSubmoduleBackfill(ctx, route.Owner, route.RepoName, gitDir)
+				return route.TreeURL
+			}
+		}
 		return route.RepoURL
 	}
 	return route.TreeURL
+}
+
+func (h *Handlers) backfillSubmoduleCommit(ctx context.Context, gitDir, fetchURL, oid string) (bool, error) {
+	key := gitDir + "\x00" + fetchURL + "\x00" + oid
+	v, err, _ := h.submoduleBackfills.Do(key, func() (any, error) {
+		if exists, err := repogit.CommitExists(ctx, gitDir, oid); err != nil || exists {
+			return exists, err
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if err := repogit.FetchRemoteHeadsAndTags(fetchCtx, gitDir, fetchURL); err != nil {
+			if exists, existsErr := repogit.CommitExists(ctx, gitDir, oid); existsErr == nil && exists {
+				return true, nil
+			}
+			return false, err
+		}
+		return repogit.CommitExists(ctx, gitDir, oid)
+	})
+	if err != nil {
+		return false, err
+	}
+	return v.(bool), nil
+}
+
+func (h *Handlers) recordSubmoduleBackfill(ctx context.Context, owner, repoName, gitDir string) {
+	row, ok := h.lookupSubmoduleRepoRow(ctx, owner, repoName)
+	if !ok {
+		return
+	}
+	if head, found, err := repogit.HeadOf(ctx, gitDir, row.DefaultBranch); err != nil {
+		if h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill default ref", "error", err, "repo_id", row.ID)
+		}
+	} else if found && (!row.DefaultBranchOid.Valid || row.DefaultBranchOid.String != head.OID) {
+		if err := h.rq.UpdateRepoDefaultBranchOID(ctx, h.d.Pool, reposdb.UpdateRepoDefaultBranchOIDParams{
+			ID:               row.ID,
+			DefaultBranchOid: pgtype.Text{String: head.OID, Valid: true},
+		}); err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill default oid", "error", err, "repo_id", row.ID)
+		}
+		if _, err := worker.Enqueue(ctx, h.d.Pool, worker.KindRepoIndexCode, map[string]any{"repo_id": row.ID}, worker.EnqueueOptions{}); err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill enqueue index", "error", err, "repo_id", row.ID)
+		}
+	}
+	if _, err := worker.Enqueue(ctx, h.d.Pool, worker.KindRepoSizeRecalc, map[string]any{"repo_id": row.ID}, worker.EnqueueOptions{}); err != nil && h.d.Logger != nil {
+		h.d.Logger.WarnContext(ctx, "code: submodule backfill enqueue size", "error", err, "repo_id", row.ID)
+	}
+	_ = worker.Notify(ctx, h.d.Pool)
+}
+
+func (h *Handlers) lookupSubmoduleRepoRow(ctx context.Context, owner, repoName string) (reposdb.Repo, bool) {
+	repoName = strings.ToLower(strings.TrimSpace(repoName))
+	if user, err := h.uq.GetUserByUsername(ctx, h.d.Pool, owner); err == nil {
+		row, repoErr := h.rq.GetRepoByOwnerUserAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: user.ID, Valid: true},
+			Name:        repoName,
+		})
+		if repoErr == nil {
+			return row, true
+		}
+		if !errors.Is(repoErr, pgx.ErrNoRows) && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill user repo lookup", "error", repoErr, "owner", owner, "repo", repoName)
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) && h.d.Logger != nil {
+		h.d.Logger.WarnContext(ctx, "code: submodule backfill user lookup", "error", err, "owner", owner)
+	}
+
+	org, err := orgsdb.New().GetOrgBySlug(ctx, h.d.Pool, owner)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill org lookup", "error", err, "owner", owner)
+		}
+		return reposdb.Repo{}, false
+	}
+	row, err := h.rq.GetRepoByOwnerOrgAndName(ctx, h.d.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+		OwnerOrgID: pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:       repoName,
+	})
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodule backfill org repo lookup", "error", err, "owner", owner, "repo", repoName)
+		}
+		return reposdb.Repo{}, false
+	}
+	return row, true
 }
 
 func submoduleRouteURL(cfg submoduleRouteConfig, remoteURL, oid string) string {
@@ -119,6 +223,39 @@ func submoduleRepoTarget(cfg submoduleRouteConfig, remoteURL string) (owner, rep
 		return "", "", false
 	}
 	return ownerRepoFromRemotePath(strings.TrimPrefix(u.EscapedPath(), "/"))
+}
+
+func githubSubmoduleFetchURL(remoteURL string) (string, bool) {
+	remoteURL = strings.TrimSpace(remoteURL)
+	if remoteURL == "" {
+		return "", false
+	}
+	var repoPath string
+	if host, path, ok := scpLikeRemote(remoteURL); ok {
+		if normalizeRemoteHost(host) != "github.com" {
+			return "", false
+		}
+		repoPath = path
+	} else {
+		u, err := url.Parse(remoteURL)
+		if err != nil || u.Scheme == "" {
+			return "", false
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "ssh", "git":
+		default:
+			return "", false
+		}
+		if normalizeRemoteHost(u.Hostname()) != "github.com" {
+			return "", false
+		}
+		repoPath = strings.TrimPrefix(u.EscapedPath(), "/")
+	}
+	owner, repoName, ok := ownerRepoFromRemotePath(repoPath)
+	if !ok {
+		return "", false
+	}
+	return "https://github.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + ".git", true
 }
 
 func submoduleRepoFromRelativeURL(cfg submoduleRouteConfig, remoteURL string) (owner, repoName string, ok bool) {
