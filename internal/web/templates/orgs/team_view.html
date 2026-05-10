@@ -46,7 +46,7 @@
             {{ if $.IsOwner }}
             <form method="POST" action="/{{ $.Org.Slug }}/teams/{{ $.Team.Slug }}/members">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-              <input type="hidden" name="username" value="{{ .Username }}">
+              <input type="hidden" name="user_id" value="{{ .UserID }}">
               <input type="hidden" name="action" value="remove">
               <button type="submit" class="shithub-button shithub-button-danger">Remove</button>
             </form>
@@ -129,9 +129,15 @@
       {{ if .IsOwner }}
       <section class="shithub-org-team-manage-box">
         <h2>Add member</h2>
+        {{ if .MemberCandidates }}
         <form method="POST" action="/{{ .Org.Slug }}/teams/{{ .Team.Slug }}/members">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-          <label><span>Username</span><input type="text" name="username" required placeholder="@username"></label>
+          <label><span>Organization member</span>
+            <select name="user_id" required>
+              <option value="">Select member</option>
+              {{ range .MemberCandidates }}<option value="{{ .ID }}">{{ if .DisplayName }}{{ .DisplayName }} · {{ end }}@{{ .Username }}</option>{{ end }}
+            </select>
+          </label>
           <label><span>Role</span>
             <select name="role">
               <option value="member" selected>Member</option>
@@ -140,6 +146,9 @@
           </label>
           <button type="submit" class="shithub-button shithub-button-primary">Add member</button>
         </form>
+        {{ else }}
+        <p class="shithub-muted">All organization members are already on this team.</p>
+        {{ end }}
       </section>
 
       <section class="shithub-org-team-manage-box">

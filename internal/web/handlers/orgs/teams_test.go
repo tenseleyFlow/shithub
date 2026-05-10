@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -64,7 +66,34 @@ func TestTeamsListRequiresOrgMemberAndFiltersSecretTeams(t *testing.T) {
 	}
 }
 
+func TestTeamMemberAddRejectsNonOrgUsers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	outsiderID := insertOrgAvatarUser(t, pool, "outsider")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	teamID := insertTeamForTest(t, pool, orgID, "engineering", "Engineering", "visible")
+
+	form := url.Values{"user_id": {strconv.FormatInt(outsiderID, 10)}, "role": {"member"}}
+	body, status, _ := performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/engineering/members", form)
+	if status != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM team_members WHERE team_id = $1`, teamID).Scan(&count); err != nil {
+		t.Fatalf("count team members: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no team member insert, got %d", count)
+	}
+}
+
 func performTeamsListRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, target string) (string, int, string) {
+	return performTeamsRequest(t, pool, viewer, http.MethodGet, target, nil)
+}
+
+func performTeamsRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, method, target string, form url.Values) (string, int, string) {
 	t.Helper()
 	rr, err := render.New(fstest.MapFS{
 		"_layout.html":         {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
@@ -72,6 +101,7 @@ func performTeamsListRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware
 		"orgs/teams_list.html": {Data: []byte(`{{ define "page" }}{{ template "org-nav" . }} TOTAL={{ .TeamTotalCount }}{{ range .Teams }} TEAM={{ .Slug }}:{{ .DisplayName }}:{{ .MemberCount }}:{{ .RepoCount }}{{ end }}{{ end }}`)},
 		"orgs/team_view.html":  {Data: []byte(`{{ define "page" }}TEAM{{ end }}`)},
 		"orgs/people.html":     {Data: []byte(`{{ define "page" }}PEOPLE{{ end }}`)},
+		"errors/400.html":      {Data: []byte(`{{ define "page" }}400{{ end }}`)},
 		"errors/403.html":      {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":      {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":      {Data: []byte(`{{ define "page" }}500{{ end }}`)},
@@ -95,7 +125,14 @@ func performTeamsListRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware
 	})
 	h.MountOrgRoutes(r)
 
-	req := httptest.NewRequest(http.MethodGet, target, nil)
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	req := httptest.NewRequest(method, target, body)
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec.Body.String(), rec.Code, rec.Header().Get("Location")

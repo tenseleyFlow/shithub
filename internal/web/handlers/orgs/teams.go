@@ -62,6 +62,12 @@ type teamRepoCandidate struct {
 	Visibility string
 }
 
+type teamMemberCandidate struct {
+	ID          int64
+	Username    string
+	DisplayName string
+}
+
 // teamsList renders /{org}/teams. GitHub keeps org teams member-only:
 // visible teams are visible to org members, while secret teams are
 // further limited to team members and org owners.
@@ -168,6 +174,7 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	children, _ := q.ListChildTeams(r.Context(), h.d.Pool, pgtype.Int8{Int64: team.ID, Valid: true})
 	childItems := h.teamListItems(org, h.filterSecretTeams(r, children, org.ID, viewer),
 		h.teamAggregateCounts(r.Context(), org.ID), teamParentSlugs(children))
+	memberCandidates := h.teamMemberCandidates(r.Context(), org.ID, team.ID)
 	repoCandidates := h.teamRepoCandidates(r.Context(), org.ID, team.ID)
 	isOwner := false
 	if !viewer.IsAnonymous() {
@@ -175,24 +182,25 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	_ = h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
-		"Title":           string(org.Slug) + "/" + string(team.Slug),
-		"CSRFToken":       middleware.CSRFTokenForRequest(r),
-		"Org":             org,
-		"AvatarURL":       "/avatars/" + url.PathEscape(string(org.Slug)),
-		"Team":            team,
-		"TeamDisplayName": teamDisplayName(team),
-		"TeamPath":        h.teamPath(org, team),
-		"TeamPrivacy":     string(team.Privacy),
-		"TeamIsSecret":    team.Privacy == orgsdb.TeamPrivacySecret,
-		"ChildTeams":      childItems,
-		"Members":         members,
-		"Repos":           repos,
-		"RepoCandidates":  repoCandidates,
-		"ActiveOrgTab":    "teams",
-		"RepoCount":       navCounts.RepoCount,
-		"MemberCount":     navCounts.MemberCount,
-		"TeamCount":       navCounts.TeamCount,
-		"IsOwner":         isOwner,
+		"Title":            string(org.Slug) + "/" + string(team.Slug),
+		"CSRFToken":        middleware.CSRFTokenForRequest(r),
+		"Org":              org,
+		"AvatarURL":        "/avatars/" + url.PathEscape(string(org.Slug)),
+		"Team":             team,
+		"TeamDisplayName":  teamDisplayName(team),
+		"TeamPath":         h.teamPath(org, team),
+		"TeamPrivacy":      string(team.Privacy),
+		"TeamIsSecret":     team.Privacy == orgsdb.TeamPrivacySecret,
+		"ChildTeams":       childItems,
+		"Members":          members,
+		"MemberCandidates": memberCandidates,
+		"Repos":            repos,
+		"RepoCandidates":   repoCandidates,
+		"ActiveOrgTab":     "teams",
+		"RepoCount":        navCounts.RepoCount,
+		"MemberCount":      navCounts.MemberCount,
+		"TeamCount":        navCounts.TeamCount,
+		"IsOwner":          isOwner,
 	})
 }
 
@@ -215,15 +223,14 @@ func (h *Handlers) teamMemberAddRemove(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	username := strings.ToLower(strings.TrimSpace(r.PostFormValue("username")))
 	action := r.PostFormValue("action")
-	if username == "" {
+	uid, ok := h.userIDFromTeamMemberForm(r)
+	if !ok {
 		http.Redirect(w, r, h.teamPath(org, team), http.StatusSeeOther)
 		return
 	}
-	uid, ok := h.userIDByUsername(r, username)
-	if !ok {
-		http.Redirect(w, r, h.teamPath(org, team), http.StatusSeeOther)
+	if action != "remove" && !h.userIsOrgMember(r.Context(), org.ID, uid) {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
 	switch action {
@@ -327,6 +334,30 @@ func (h *Handlers) userIDByUsername(r *http.Request, username string) (int64, bo
 		return 0, false
 	}
 	return id, true
+}
+
+func (h *Handlers) userIDFromTeamMemberForm(r *http.Request) (int64, bool) {
+	if raw := strings.TrimSpace(r.PostFormValue("user_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err == nil && id != 0 {
+			return id, true
+		}
+		return 0, false
+	}
+	username := strings.ToLower(strings.TrimSpace(r.PostFormValue("username")))
+	if username == "" {
+		return 0, false
+	}
+	return h.userIDByUsername(r, username)
+}
+
+func (h *Handlers) userIsOrgMember(ctx context.Context, orgID, userID int64) bool {
+	var exists bool
+	err := h.d.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM org_members WHERE org_id = $1 AND user_id = $2)`,
+		orgID, userID,
+	).Scan(&exists)
+	return err == nil && exists
 }
 
 // canSeeTeam decides whether the viewer is allowed to see a team's members
@@ -532,6 +563,33 @@ func (h *Handlers) teamRepoCandidates(ctx context.Context, orgID, teamID int64) 
 	for rows.Next() {
 		var item teamRepoCandidate
 		if err := rows.Scan(&item.ID, &item.Name, &item.Visibility); err == nil {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (h *Handlers) teamMemberCandidates(ctx context.Context, orgID, teamID int64) []teamMemberCandidate {
+	rows, err := h.d.Pool.Query(ctx, `
+		SELECT u.id, u.username, u.display_name
+		  FROM org_members om
+		  JOIN users u ON u.id = om.user_id
+		  LEFT JOIN team_members tm
+		    ON tm.team_id = $2 AND tm.user_id = u.id
+		 WHERE om.org_id = $1
+		   AND u.deleted_at IS NULL
+		   AND tm.user_id IS NULL
+		 ORDER BY lower(u.username)
+		 LIMIT 100`, orgID, teamID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "teams: member candidates", "org_id", orgID, "team_id", teamID, "error", err)
+		return nil
+	}
+	defer rows.Close()
+	out := []teamMemberCandidate{}
+	for rows.Next() {
+		var item teamMemberCandidate
+		if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName); err == nil {
 			out = append(out, item)
 		}
 	}
