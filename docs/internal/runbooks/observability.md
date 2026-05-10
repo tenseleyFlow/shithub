@@ -59,6 +59,57 @@ than one shithubd droplet emits. Sign-up flow:
 5. `ansible-playbook -i inventory/production deploy/ansible/site.yml -t monitoring`
    (or just rerun site.yml — the role is idempotent).
 
+### If you don't have ansible installed (manual fallback)
+
+The `monitoring-client` role's actions are simple enough to apply
+by hand over SSH. Use this if you're trying to bolt monitoring
+onto an existing droplet and don't want to risk the full play.
+
+```sh
+ssh root@shithub.sh '
+  # node_exporter
+  apt-get install -y prometheus-node-exporter
+  systemctl enable --now prometheus-node-exporter
+
+  # Grafana apt repo + alloy
+  mkdir -p /etc/apt/keyrings
+  curl -fsS https://apt.grafana.com/gpg.key -o /etc/apt/keyrings/grafana.gpg.key
+  chmod 0644 /etc/apt/keyrings/grafana.gpg.key
+  echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg.key] https://apt.grafana.com stable main" \
+    > /etc/apt/sources.list.d/grafana.list
+  apt-get update && apt-get install -y alloy
+
+  # Credentials env (mode 0640, root:alloy)
+  mkdir -p /etc/alloy && chown root:alloy /etc/alloy && chmod 0750 /etc/alloy
+  install -o root -g alloy -m 0640 /dev/stdin /etc/alloy/credentials.env <<EOF
+GRAFANA_CLOUD_PROM_URL=<your URL>
+GRAFANA_CLOUD_PROM_USER=<your numeric tenant id>
+GRAFANA_CLOUD_PROM_TOKEN=<your glc_… token>
+EOF
+
+  # systemd drop-in to source the credentials
+  mkdir -p /etc/systemd/system/alloy.service.d
+  cat > /etc/systemd/system/alloy.service.d/shithub.conf <<EOF
+[Service]
+EnvironmentFile=/etc/alloy/credentials.env
+EOF
+  systemctl daemon-reload
+'
+```
+
+Then copy the rendered `alloy-config.river.j2` (substitute the
+`{{ ansible_hostname }}` template var with the real hostname) to
+`/etc/alloy/config.alloy` (mode 0644 root:alloy) and:
+
+```sh
+ssh root@shithub.sh 'systemctl enable --now alloy'
+```
+
+The token is the only secret; do NOT pipe it through your shell
+history. The `install … /dev/stdin … <<EOF` form above keeps it
+out of `ps`/argv, but you'll still want to clear shell history
+after.
+
 Within a minute, metrics start landing. From the Cloud portal:
 
 - **Explore** tab → datasource = your Prometheus → query
@@ -131,6 +182,17 @@ Common failures:
 - **Free-tier limit hit** — Cloud portal shows "Active series" at
   cap. Drop high-cardinality labels via `metric_relabel_configs` in
   alloy-config.river.j2.
+- **`up{job="shithubd"} = 0` while `up{job="node"} = 1`** — alloy can
+  reach shithubd (`scrape_samples_scraped > 0`) but the parser fails
+  with `expected a valid start token, got "\x1f"`. Root cause: alloy
+  advertised `Accept-Encoding: gzip`, shithubd correctly returned
+  gzipped bytes with `Content-Encoding: gzip`, but alloy's
+  Prometheus scraper parsed the raw bytes pre-gunzip. Fix is already
+  in the template (`enable_compression = false` on the shithubd
+  scrape job). If you see this on a hand-rolled config, add that
+  attribute and `systemctl restart alloy`. Verify via
+  `curl http://127.0.0.1:12345/api/v0/web/components/prometheus.scrape.shithubd`
+  → look for `health: up`.
 
 ## Why Grafana Cloud over self-hosted Prometheus
 
