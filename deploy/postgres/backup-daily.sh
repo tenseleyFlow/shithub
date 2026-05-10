@@ -21,13 +21,18 @@ NAME="${DB}-${STAMP}.dump"
 
 mkdir -p "$LOCAL_DIR"
 
-pg_dump --format=custom --compress=9 --no-owner --no-privileges \
+# pg_dump as the postgres user via local-socket peer auth.
+# Cron runs this script as root; sudo handles the user switch.
+sudo -u postgres pg_dump --format=custom --compress=9 --no-owner --no-privileges \
         --file="$LOCAL_DIR/$NAME" "$DB"
 
 # Verify the dump is structurally sound before we ship it.
 pg_restore --list "$LOCAL_DIR/$NAME" >/dev/null
 
-rclone --config /root/.config/rclone/rclone.conf \
+# --s3-no-check-bucket: skip the GetBucketLocation pre-check that
+# requires a permission our scoped-RW Spaces key doesn't grant.
+# The actual PUT works fine on a key with bucket-level readwrite.
+rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
        copyto "$LOCAL_DIR/$NAME" "$BUCKET/daily/$(date -u +%Y/%m/%d)/$NAME"
 
 # Local retention: keep the last 7 dumps; bucket lifecycle handles
