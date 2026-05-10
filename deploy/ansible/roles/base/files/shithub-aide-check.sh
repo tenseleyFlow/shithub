@@ -21,7 +21,10 @@ mkdir -p "$(dirname "$LOG")"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-OUT="$(aide --check 2>&1)"
+# --config is mandatory on AIDE 0.18+ (Ubuntu 24); the binary won't
+# pick up /etc/aide/aide.conf implicitly. Match the path the package
+# ships and that aideinit / dailyaidecheck use.
+OUT="$(aide --config=/etc/aide/aide.conf --check 2>&1)"
 RC=$?
 
 case "$RC" in
