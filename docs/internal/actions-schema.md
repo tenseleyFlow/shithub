@@ -258,17 +258,30 @@ schema changes are breaking. The v1 schema is pinned and labelled
 `v1`. Any addition is fine; renames and removals require a major
 bump.
 
-Top-level keys vary by event:
+The schema is enforced by **typed constructors** in the
+`internal/actions/event` package — one per trigger. S41b's pipeline
+calls these to build payloads; the function signatures pin the
+field set so adding a key requires editing the constructor in a
+visible diff. This is the same closed-door discipline as the
+expression evaluator's namespace allowlist.
 
-| Trigger          | Event payload top-level keys                                   |
-| ---------------- | -------------------------------------------------------------- |
-| `push`           | `ref`, `before`, `after`, `head_commit{message,id,author}`     |
-| `pull_request`   | `action`, `number`, `pull_request{title,head{ref,sha},base{ref,sha},user{login}}` |
-| `schedule`       | (no payload — cron fired)                                      |
-| `workflow_dispatch` | `inputs{<name>: <stringified>}`                            |
+| Trigger             | Constructor             | Top-level keys                                                                    |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `push`              | `event.Push`            | `ref`, `before`, `after`, `head_commit{message,id,author}`                        |
+| `pull_request`      | `event.PullRequest`     | `action`, `number`, `pull_request{title,head{ref,sha},base{ref,sha},user{login}}` |
+| `schedule`          | `event.Schedule`        | (empty map — cron fired; cron expression is on the `workflow_runs` row)           |
+| `workflow_dispatch` | `event.WorkflowDispatch`| `inputs{<name>: <stringified>}`                                                   |
 
 Anything not in this table doesn't exist in v1. Accessing it returns
 null+tainted (the missing-path semantics above).
+
+**Adding a field**: edit the constructor in `internal/actions/event/`,
+add a row to this doc, and update the corresponding `*_FlowsThroughEvaluator`
+test in `event_test.go` so the new path is exercised end-to-end.
+Reviewer-required note in the commit message — same standard as a
+new evaluator function.
+
+**Renaming or removing**: that's a v1→v2 break. Don't.
 
 ## Operator surface
 
