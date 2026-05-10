@@ -204,13 +204,19 @@ code {
 .shithub-nav-local {
   padding: 0 1rem;
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.shithub-nav-local::-webkit-scrollbar {
+  display: none;
 }
 .shithub-nav-local .shithub-repo-subnav,
 .shithub-nav-local .shithub-org-nav {
   margin: 0;
   padding: 0;
   border-bottom: 0;
+  overflow: visible;
 }
 
 .shithub-offcanvas-open {
@@ -2209,7 +2215,12 @@ code {
   padding: 1rem 1rem 0;
   margin-top: 1.25rem;
   overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--border-default);
+  scrollbar-width: none;
+}
+.shithub-org-nav::-webkit-scrollbar {
+  display: none;
 }
 .shithub-org-nav-item {
   display: inline-flex;
@@ -3551,7 +3562,12 @@ button.shithub-repo-action {
   margin: 0;
   border-bottom: 1px solid var(--border-default);
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.shithub-repo-subnav::-webkit-scrollbar {
+  display: none;
 }
 .shithub-repo-subnav-tab {
   display: inline-flex;
@@ -4355,6 +4371,11 @@ button.shithub-repo-action {
   padding: 0 1rem;
   border-bottom: 1px solid var(--border-default);
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.shithub-readme-head::-webkit-scrollbar {
+  display: none;
 }
 .shithub-readme-tabs {
   display: flex;
