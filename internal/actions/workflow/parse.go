@@ -427,7 +427,7 @@ func parseEnv(n *yaml.Node, path string) (map[string]Value, []Diagnostic) {
 		k := n.Content[i]
 		v := n.Content[i+1]
 		if v.Kind != yaml.ScalarNode {
-			diags = append(diags, errAt(path+"."+k.Value, "env values must be scalars"))
+			diags = append(diags, errAt(joinPath(path, k.Value), "env values must be scalars"))
 			continue
 		}
 		// We tag env values literal-trusted here. The expression
@@ -661,6 +661,25 @@ func parseBool(n *yaml.Node, path string, diags *[]Diagnostic) bool {
 		return false
 	}
 	return b
+}
+
+// joinPath builds a dot-separated diagnostic path with bracket-quoting
+// for keys that aren't identifier-shaped. Identifier-shaped keys
+// appear as `parent.child`; anything else (keys containing dots,
+// spaces, quotes, brackets, or starting with a digit) appears as
+// `parent["weird key"]` so the path is unambiguous.
+//
+// Pre-L6, env-bag keys with dots produced ambiguous diagnostic paths
+// like `env.foo.bar.baz` for the entry `foo.bar` → `baz`. Authors
+// reading admin-actions-parse output had to deduce the boundary.
+//
+// Reuses identRe (defined at the top of this file by the L2 polish
+// bundle) so we have one canonical identifier-shape regex.
+func joinPath(parent, key string) string {
+	if identRe.MatchString(key) {
+		return parent + "." + key
+	}
+	return parent + "[" + strconv.Quote(key) + "]"
 }
 
 // triggerSetIsNonEmpty reports whether at least one trigger is declared.
