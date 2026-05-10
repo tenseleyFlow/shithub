@@ -51,6 +51,7 @@ The complete map (also enforced by the matrix test):
 | `repo:settings:general`               | `maintain`       |
 | `repo:settings:collaborators`         | `admin`          |
 | `repo:settings:branches`              | `maintain`       |
+| `repo:settings:actions`               | `admin`          |
 | `repo:archive`                        | `admin`          |
 | `repo:delete`                         | `admin`          |
 | `repo:transfer`                       | `admin`          |

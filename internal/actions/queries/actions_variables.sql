@@ -17,16 +17,26 @@ RETURNING id, repo_id, org_id, name, value, created_by_user_id,
           created_at, updated_at;
 
 -- name: ListRepoVariables :many
-SELECT id, name, value, created_at, updated_at
+SELECT id, name, value, created_by_user_id, created_at, updated_at
 FROM actions_variables
 WHERE repo_id = $1
 ORDER BY name ASC;
 
 -- name: ListOrgVariables :many
-SELECT id, name, value, created_at, updated_at
+SELECT id, name, value, created_by_user_id, created_at, updated_at
 FROM actions_variables
 WHERE org_id = $1
 ORDER BY name ASC;
+
+-- name: GetRepoVariable :one
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE repo_id = $1 AND name = $2;
+
+-- name: GetOrgVariable :one
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE org_id = $1 AND name = $2;
 
 -- name: DeleteRepoVariable :exec
 DELETE FROM actions_variables WHERE repo_id = $1 AND name = $2;

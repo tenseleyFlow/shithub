@@ -210,6 +210,12 @@ func Run(ctx context.Context, opts Options) error {
 				repoH.MountSettingsGeneral(r)
 			})
 		}
+		deps.RepoSettingsActionsMounter = func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireUser)
+				repoH.MountSettingsActions(r)
+			})
+		}
 		deps.RepoWebhooksMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireUser)

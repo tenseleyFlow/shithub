@@ -21,6 +21,12 @@
       <li{{ if eq .SettingsActive "webhooks" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks">Webhooks</a>
       </li>
+      <li{{ if eq .SettingsActive "actions-secrets" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">Actions secrets</a>
+      </li>
+      <li{{ if eq .SettingsActive "actions-variables" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/variables/actions">Actions variables</a>
+      </li>
       <li{{ if eq .SettingsActive "keys" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/keys">Deploy keys</a>
       </li>

@@ -5,6 +5,7 @@ package orgs_test
 import (
 	"bytes"
 	"context"
+	"html"
 	"image"
 	"image/color"
 	"image/png"
@@ -256,7 +257,7 @@ func TestOrgSettingsDeleteRequiresSlugConfirmation(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("wrong confirmation status=%d body=%s", resp.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "ERROR=Enter this organization's name to confirm deletion.") {
+	if !strings.Contains(html.UnescapeString(string(body)), "ERROR=Enter this organization's name to confirm deletion.") {
 		t.Fatalf("expected confirmation error, got %s", body)
 	}
 	org, err := q.GetOrgBySlugIncludingDeleted(ctx, pool, "tenseleyFlow")

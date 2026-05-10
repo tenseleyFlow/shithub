@@ -414,6 +414,8 @@ func settingsNoticeMessage(code string) string {
 	switch code {
 	case "saved":
 		return "Settings saved."
+	case "deleted":
+		return "Deleted."
 	case "":
 		return ""
 	default:

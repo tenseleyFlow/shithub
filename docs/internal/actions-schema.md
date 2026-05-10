@@ -437,6 +437,42 @@ defer to S41g where the lifecycle work touches that surface anyway.
 - `workflow_run` webhook events. S41h adds the webhook event family
   + atom feed.
 
+## Secrets + variables settings surface (S41c)
+
+S41c wires the previously schema-only `workflow_secrets` and
+`actions_variables` tables into repo/org settings.
+
+Repository routes are gated through
+`policy.ActionRepoSettingsActions` (`repo:settings:actions`, admin
+role minimum):
+
+- `GET /{owner}/{repo}/settings/secrets/actions`
+- `POST /{owner}/{repo}/settings/secrets/actions`
+- `POST /{owner}/{repo}/settings/secrets/actions/{name}/delete`
+- `GET /{owner}/{repo}/settings/variables/actions`
+- `POST /{owner}/{repo}/settings/variables/actions`
+- `POST /{owner}/{repo}/settings/variables/actions/{name}/delete`
+
+Organization routes follow the existing org-settings prefix and are
+owner-only:
+
+- `GET /organizations/{org}/settings/secrets/actions`
+- `POST /organizations/{org}/settings/secrets/actions`
+- `POST /organizations/{org}/settings/secrets/actions/{name}/delete`
+- `GET /organizations/{org}/settings/variables/actions`
+- `POST /organizations/{org}/settings/variables/actions`
+- `POST /organizations/{org}/settings/variables/actions/{name}/delete`
+
+Secrets are sealed through `internal/auth/secretbox` using the
+operator-managed `Auth.TOTPKeyB64` root key. Secret list pages render
+names/metadata only; the plaintext value is accepted once on create or
+rotation and never rendered back. Variables are non-secret plaintext
+configuration, so settings pages render their values. Both stores use
+the same name grammar as the database constraints:
+`^[A-Za-z_][A-Za-z0-9_]*$`, 1-100 characters. Variables additionally
+enforce the 4096-character value cap in Go before hitting the DB
+constraint.
+
 ## What S41a deliberately doesn't do
 
 - No trigger pipeline. `domain_events` aren't matched against `on:`

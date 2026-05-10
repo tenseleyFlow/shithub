@@ -437,7 +437,7 @@ func minRoleFor(action Action) Role {
 		return RoleMaintain
 
 	// Admin tier — destructive and ownership-changing actions.
-	case ActionRepoAdmin, ActionRepoSettingsCollaborators,
+	case ActionRepoAdmin, ActionRepoSettingsCollaborators, ActionRepoSettingsActions,
 		ActionRepoArchive, ActionRepoDelete, ActionRepoTransfer, ActionRepoVisibility,
 		ActionPullMerge:
 		return RoleAdmin

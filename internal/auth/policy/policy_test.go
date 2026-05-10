@@ -220,7 +220,7 @@ func mirrorMinRoleFor(a policy.Action) policy.Role {
 		return policy.RoleWrite
 	case policy.ActionRepoSettingsGeneral, policy.ActionRepoSettingsBranches:
 		return policy.RoleMaintain
-	case policy.ActionRepoAdmin, policy.ActionRepoSettingsCollaborators,
+	case policy.ActionRepoAdmin, policy.ActionRepoSettingsCollaborators, policy.ActionRepoSettingsActions,
 		policy.ActionRepoArchive, policy.ActionRepoDelete, policy.ActionRepoTransfer, policy.ActionRepoVisibility,
 		policy.ActionPullMerge:
 		return policy.RoleAdmin

@@ -39,19 +39,88 @@ func (q *Queries) DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRep
 	return err
 }
 
+const getOrgVariable = `-- name: GetOrgVariable :one
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE org_id = $1 AND name = $2
+`
+
+type GetOrgVariableParams struct {
+	OrgID pgtype.Int8
+	Name  string
+}
+
+type GetOrgVariableRow struct {
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error) {
+	row := db.QueryRow(ctx, getOrgVariable, arg.OrgID, arg.Name)
+	var i GetOrgVariableRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Value,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getRepoVariable = `-- name: GetRepoVariable :one
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE repo_id = $1 AND name = $2
+`
+
+type GetRepoVariableParams struct {
+	RepoID pgtype.Int8
+	Name   string
+}
+
+type GetRepoVariableRow struct {
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetRepoVariable(ctx context.Context, db DBTX, arg GetRepoVariableParams) (GetRepoVariableRow, error) {
+	row := db.QueryRow(ctx, getRepoVariable, arg.RepoID, arg.Name)
+	var i GetRepoVariableRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Value,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listOrgVariables = `-- name: ListOrgVariables :many
-SELECT id, name, value, created_at, updated_at
+SELECT id, name, value, created_by_user_id, created_at, updated_at
 FROM actions_variables
 WHERE org_id = $1
 ORDER BY name ASC
 `
 
 type ListOrgVariablesRow struct {
-	ID        int64
-	Name      string
-	Value     string
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 func (q *Queries) ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error) {
@@ -67,6 +136,7 @@ func (q *Queries) ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.In
 			&i.ID,
 			&i.Name,
 			&i.Value,
+			&i.CreatedByUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -81,18 +151,19 @@ func (q *Queries) ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.In
 }
 
 const listRepoVariables = `-- name: ListRepoVariables :many
-SELECT id, name, value, created_at, updated_at
+SELECT id, name, value, created_by_user_id, created_at, updated_at
 FROM actions_variables
 WHERE repo_id = $1
 ORDER BY name ASC
 `
 
 type ListRepoVariablesRow struct {
-	ID        int64
-	Name      string
-	Value     string
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 func (q *Queries) ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error) {
@@ -108,6 +179,7 @@ func (q *Queries) ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.
 			&i.ID,
 			&i.Name,
 			&i.Value,
+			&i.CreatedByUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

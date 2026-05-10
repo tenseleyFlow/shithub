@@ -4,13 +4,16 @@
 //
 //	GET  /organizations/new            create form
 //	POST /organizations                create submit
-//	GET  /{org}/people                 members + pending invites + invite form
-//	POST /{org}/people/invite          invite by username or email
-//	POST /{org}/people/{user}/role     change role
-//	POST /{org}/people/{user}/remove   remove member
-//	GET  /invitations/{token}          accept/decline view
-//	POST /invitations/{token}/accept   accept
-//	POST /invitations/{token}/decline  decline
+//	GET  /{org}/people                                      members + pending invites + invite form
+//	POST /{org}/people/invite                               invite by username or email
+//	POST /{org}/people/{user}/role                          change role
+//	POST /{org}/people/{user}/remove                        remove member
+//	GET  /organizations/{org}/settings/profile              profile settings
+//	GET  /organizations/{org}/settings/{secrets,variables}/actions
+//	POST /organizations/{org}/settings/{secrets,variables}/actions
+//	GET  /invitations/{token}                               accept/decline view
+//	POST /invitations/{token}/accept                        accept
+//	POST /invitations/{token}/decline                       decline
 //
 // Profile rendering for /{org} is dispatched from the existing
 // /{username} catch-all in internal/web/handlers/profile via the
@@ -29,7 +32,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -47,6 +52,8 @@ type Deps struct {
 	SiteName    string
 	BaseURL     string
 	ObjectStore storage.ObjectStore
+	SecretBox   *secretbox.Box
+	Audit       *audit.Recorder
 }
 
 // Handlers groups the org surface handlers.
@@ -62,13 +69,17 @@ func New(d Deps) (*Handlers, error) {
 	if d.Pool == nil {
 		return nil, errors.New("orgs handlers: nil Pool")
 	}
+	if d.Audit == nil {
+		d.Audit = audit.NewRecorder()
+	}
 	return &Handlers{d: d}, nil
 }
 
-// MountCreate registers /organizations/new + POST /organizations.
-// Caller wraps these in RequireUser since both require a logged-in
-// creator. The /organizations prefix is on the auth-reserved list so
-// it never shadows a user/org slug.
+// MountCreate registers /organizations/new, POST /organizations, and
+// organization settings routes under /organizations/{org}/settings/*.
+// Caller wraps these in RequireUser since they require a logged-in
+// actor. The /organizations prefix is on the auth-reserved list so it
+// never shadows a user/org slug.
 func (h *Handlers) MountCreate(r chi.Router) {
 	r.Get("/organizations/new", h.newForm)
 	r.Post("/organizations", h.createSubmit)
@@ -77,6 +88,12 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/profile/avatar", h.settingsAvatarUpload)
 	r.Post("/organizations/{org}/settings/profile/avatar/remove", h.settingsAvatarRemove)
 	r.Post("/organizations/{org}/settings/delete", h.settingsDelete)
+	r.Get("/organizations/{org}/settings/secrets/actions", h.settingsActionsSecrets)
+	r.Post("/organizations/{org}/settings/secrets/actions", h.settingsActionsSecretSet)
+	r.Post("/organizations/{org}/settings/secrets/actions/{name}/delete", h.settingsActionsSecretDelete)
+	r.Get("/organizations/{org}/settings/variables/actions", h.settingsActionsVariables)
+	r.Post("/organizations/{org}/settings/variables/actions", h.settingsActionsVariableSet)
+	r.Post("/organizations/{org}/settings/variables/actions/{name}/delete", h.settingsActionsVariableDelete)
 }
 
 // MountOrgRoutes registers the per-org surface under /{org}/people
