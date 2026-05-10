@@ -1,0 +1,70 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# AIDE — file-integrity monitoring. Builds a baseline hash database
+# of system files at install time and re-checks nightly. Catches
+# the "someone with root SSH'd in and modified /usr/local/bin/shithubd
+# or planted a systemd unit" class of post-compromise persistence.
+#
+# Alerting: writes to /var/log/shithub/aide.log + tagged systemd
+# journal (`journalctl -t shithub-aide`). Email is deliberately
+# deferred — see comment in shithub-aide-check.sh.
+#
+# Operator workflow when alerts fire (see runbooks/aide.md):
+#   1. journalctl -t shithub-aide -n 200 --no-pager
+#   2. Confirm the diff matches an authorized change (deploy, apt
+#      upgrade, manual edit). If not: incident response.
+#   3. Re-baseline: sudo aideinit && \
+#      mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+
+- name: AIDE — install
+  apt:
+    name:
+      - aide
+      - aide-common
+    state: present
+
+- name: AIDE — drop shithub exclusions
+  copy:
+    src: aide-shithub.conf
+    dest: /etc/aide/aide.conf.d/99_shithub_exclude
+    mode: "0644"
+  notify: rebuild aide database
+
+- name: AIDE — install nightly check wrapper
+  copy:
+    src: shithub-aide-check.sh
+    dest: /usr/local/bin/shithub-aide-check
+    mode: "0755"
+
+# Disable the upstream /etc/cron.daily/aide so we run only our wrapper.
+# Upstream's script mails root locally — useless without an MTA.
+# Replace (not delete) so apt's post-install scripts can't restore it
+# silently on the next aide-common upgrade.
+- name: AIDE — neutralize upstream daily cron
+  copy:
+    dest: /etc/cron.daily/aide
+    content: |
+      #!/bin/sh
+      # Disabled by Ansible; the real check is at /usr/local/bin/shithub-aide-check
+      # invoked by a separate cron entry. See deploy/ansible/roles/base/tasks/aide.yml.
+      exit 0
+    mode: "0755"
+
+- name: AIDE — initialize baseline DB if missing
+  # Use creates: so this is a one-shot. Re-baselining is an explicit
+  # operator action (runbook), not an Ansible side-effect.
+  command:
+    cmd: /usr/sbin/aideinit -y -f
+    creates: /var/lib/aide/aide.db.gz
+
+- name: cron — nightly aide check at 03:30 UTC
+  # Slightly after the 03:17 backup so the backup's transient files
+  # (in /var/backups/shithub) have settled. /var/backups isn't in
+  # our exclude list so it WILL flag — operator confirms via the
+  # daily backup log that the new file matches the expected dump.
+  cron:
+    name: shithub-aide-check
+    job: /usr/local/bin/shithub-aide-check
+    minute: "30"
+    hour: "3"
