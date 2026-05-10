@@ -5,6 +5,7 @@ package repos_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
@@ -262,6 +263,65 @@ func TestCreate_OrgOwned(t *testing.T) {
 	// Disk path uses the org slug, not a user-namespace prefix.
 	if !strings.Contains(res.DiskPath, "acme") {
 		t.Fatalf("DiskPath %q should contain org slug 'acme'", res.DiskPath)
+	}
+}
+
+// TestCreate_ThrottlesNonAdmin saturates the per-actor cap directly via
+// the limiter and confirms a non-admin Create call returns the typed
+// throttle error. Doing it this way avoids spinning up
+// CreateRateLimitMax+1 real repositories.
+func TestCreate_ThrottlesNonAdmin(t *testing.T) {
+	t.Parallel()
+	_, deps, uid, uname, _ := setupCreateEnv(t)
+	saturateCreateLimiter(t, deps, uid)
+
+	_, err := repos.Create(context.Background(), deps, repos.Params{
+		OwnerUserID:   uid,
+		OwnerUsername: uname,
+		Name:          "should-throttle",
+		Visibility:    "public",
+	})
+	if !throttle.IsThrottled(err) {
+		t.Fatalf("Create: err = %v, want throttle error", err)
+	}
+}
+
+// TestCreate_SiteAdminBypassesThrottle is the bookend: same saturated
+// counter, but with ActorIsSiteAdmin=true the create succeeds.
+func TestCreate_SiteAdminBypassesThrottle(t *testing.T) {
+	t.Parallel()
+	_, deps, uid, uname, _ := setupCreateEnv(t)
+	saturateCreateLimiter(t, deps, uid)
+
+	res, err := repos.Create(context.Background(), deps, repos.Params{
+		OwnerUserID:      uid,
+		OwnerUsername:    uname,
+		ActorIsSiteAdmin: true,
+		Name:             "admin-bypass",
+		Visibility:       "public",
+	})
+	if err != nil {
+		t.Fatalf("Create with admin bypass: %v", err)
+	}
+	if res.Repo.Name != "admin-bypass" {
+		t.Fatalf("created repo name = %q, want admin-bypass", res.Repo.Name)
+	}
+}
+
+// saturateCreateLimiter pushes the per-actor counter for "repo_create"
+// up to the cap so the next non-admin Hit returns ErrThrottled.
+func saturateCreateLimiter(t *testing.T, deps repos.Deps, uid int64) {
+	t.Helper()
+	lim := throttle.Limit{
+		Scope:      "repo_create",
+		Identifier: fmt.Sprintf("user:%d", uid),
+		Max:        repos.CreateRateLimitMax,
+		Window:     repos.CreateRateLimitWindow,
+	}
+	for i := 0; i < repos.CreateRateLimitMax; i++ {
+		if err := deps.Limiter.Hit(context.Background(), deps.Pool, lim); err != nil {
+			t.Fatalf("priming limiter hit %d: %v", i, err)
+		}
 	}
 }
 
