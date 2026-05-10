@@ -1,5 +1,7 @@
 {{ define "page" -}}
-<section class="shithub-social">
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <div class="shithub-social">
   <header class="shithub-code-head">
     <h1>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
@@ -30,5 +32,6 @@
     {{ if .HasNext }}<a href="?page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
   </nav>
   {{ end }}
+  </div>
 </section>
 {{- end }}
