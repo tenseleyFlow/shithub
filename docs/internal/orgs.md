@@ -23,6 +23,7 @@ already present from 0017 with the XOR CHECK).
 GET  /organizations/new            create form (auth required)
 POST /organizations                create submit
 GET  /{slug}                       /{user-or-org} — dispatched via principals.Resolve
+POST /{slug}/pins                  owner-only org profile pin customization
 GET  /{org}/people                 members + (owner-only) invite form
 POST /{org}/people/invite          invite by username OR email
 POST /{org}/people/{userID}/role   change role (owner-only)
@@ -44,8 +45,9 @@ The overview data is built in `internal/web/handlers/profile`:
 * org underline nav with Overview active, repository and member counts,
   links to the shipped people/teams surfaces, and disabled parity tabs
   for deferred GitHub org sections.
-* pinned repo cards derived from the viewer-visible org repos, sorted
-  by stars and recent update time until a first-class pin table ships.
+* pinned repo cards backed by `profile_pin_sets` / `profile_pins`
+  after an owner customizes them. Until then, the overview falls back
+  to public org repos sorted by stars and recent update time.
 * recent visible repositories, sorted by `updated_at`, with visibility
   badges, language, license, star/fork counts, topics, update time,
   and a read-only weekly commit-activity sparkline for the default branch.
@@ -57,6 +59,12 @@ Owner/member viewers who can create repositories see org homepage
 honors that hint after matching it against the viewer's allowed owner
 picker entries, so unauthorized org hints fall back to the viewer's
 personal namespace.
+
+Organization owners see a "Customize pins" modal on the overview. The
+picker mirrors GitHub's public-profile rule: it offers only public
+org-owned repos, has a live text filter, caps selections at six, and
+persists the ordered set transactionally. Saving no selected repos is a
+real customized state and suppresses the automatic fallback.
 
 Repo visibility is filtered through `policy.IsVisibleTo` using an actor
 constructed from `middleware.CurrentUser`, including suspension,
