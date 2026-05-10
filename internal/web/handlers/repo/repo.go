@@ -367,6 +367,7 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		"HTTPSCloneURL": h.cloneHTTPS(owner, row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(owner, row.Name),
+		"RepoActions":   h.repoActions(r, row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), row.ID, row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",

@@ -168,6 +168,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
 		"RepoTopics":    topics,
+		"RepoActions":   h.repoActions(r, cc.row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",

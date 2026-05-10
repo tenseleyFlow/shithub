@@ -149,6 +149,23 @@ func withViewer(req *http.Request, viewer middleware.CurrentUser) *http.Request 
 	return req.WithContext(middleware.WithCurrentUserForTest(req.Context(), viewer))
 }
 
+func TestSafeLocalPath(t *testing.T) {
+	t.Parallel()
+	tests := map[string]bool{
+		"/alice/repo":              true,
+		"/alice/repo/issues/1?x=1": true,
+		"":                         false,
+		"alice/repo":               false,
+		"//evil.example/path":      false,
+		"https://evil.example":     false,
+	}
+	for path, want := range tests {
+		if got := safeLocalPath(path); got != want {
+			t.Errorf("safeLocalPath(%q) = %v; want %v", path, got, want)
+		}
+	}
+}
+
 // callLoad invokes loadRepoAndAuthorize via a test handler so we can
 // exercise the chi URL-param plumbing the way the real router does.
 // Returns (status, ok) — `ok` is what loadRepoAndAuthorize returned.
