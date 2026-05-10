@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Wrapper for sshd's AuthorizedKeysCommand. shithubd ssh-authkeys
+# needs SHITHUB_DATABASE_URL to look up the offered fingerprint, but
+# sshd does not source EnvironmentFile= for AKC commands. Source
+# /etc/shithub/web.env then exec shithubd.
+#
+# Runs as the AuthorizedKeysCommandUser configured in sshd_config
+# (currently `shithub`, the same user that owns web.env). Fail-closed:
+# any error (config missing, shithubd missing, etc.) returns nothing
+# to sshd, which means "deny" — better than a stack trace leaking.
+
+set -e
+set -a
+. /etc/shithub/web.env
+set +a
+exec /usr/local/bin/shithubd ssh-authkeys "$1"
