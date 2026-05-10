@@ -62,13 +62,33 @@ next nightly run will flag it. Re-baseline once the change is
 confirmed-good:
 
 ```sh
-sudo aideinit -y -f
-sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+# 1. Generate a new baseline (10–15 min on shithub-prod). Use
+#    aide --init directly — Ubuntu's aideinit wrapper prompts
+#    interactively to confirm the post-init copy and won't be
+#    auto-answered by stdin redirection.
+sudo aide --config=/etc/aide/aide.conf --init
+
+# 2. Keep the previous baseline as a dated backup so you can
+#    revert tonight's check behavior in 1 second if the new
+#    baseline turns out to capture unwanted state.
+sudo mv /var/lib/aide/aide.db /var/lib/aide/aide.db.bak-$(date -u +%Y%m%d)
+
+# 3. Promote. The exact filename suffix depends on the install:
+#    Ubuntu 24's aide-common produces uncompressed aide.db.new
+#    (no .gz). Adjust if your install differs (check ls
+#    /var/lib/aide/ before this step).
+sudo mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+sudo chown root:root /var/lib/aide/aide.db
+sudo chmod 0600 /var/lib/aide/aide.db
+
 sudo rm -f /var/lib/aide/.config-changed
 ```
 
-The `-y` is "answer yes to all prompts," `-f` is "overwrite an
-existing new database." Run takes 1–3 minutes on a 4 GB droplet.
+Avoid `aideinit` directly: it prompts twice (`Overwrite existing
+aide.db.new [Yn]?` and `Overwrite /var/lib/aide/aide.db [yN]?`)
+and the second prompt's default is `N`, so any non-interactive
+invocation (cron, nohup, ssh without `-t`) silently bails after
+generating the new database without promoting it.
 
 ## Re-baselining after an Ansible config change
 
@@ -86,8 +106,13 @@ ansible re-run) and don't want a flood of alerts:
 # Disable for the next 24h
 sudo systemctl stop cron     # blunt; you may prefer to mv just the cron entry
 # ... make changes ...
-sudo aideinit -y -f && \
-sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+# Re-baseline (see the "Re-baselining" section above for why we
+# call aide --init directly instead of aideinit).
+sudo aide --config=/etc/aide/aide.conf --init
+sudo mv /var/lib/aide/aide.db /var/lib/aide/aide.db.bak-$(date -u +%Y%m%d)
+sudo mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+sudo chown root:root /var/lib/aide/aide.db
+sudo chmod 0600 /var/lib/aide/aide.db
 sudo systemctl start cron
 ```
 
