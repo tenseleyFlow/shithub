@@ -5,7 +5,7 @@ S11 ships the create-a-repo flow end-to-end: a logged-in user clicks **New**, fi
 ## What's wired
 
 - **Migration:** `0017_repos.sql` adds the `repos` table (with `repo_visibility` enum, owner XOR check, per-owner unique-by-name partial indexes, soft-delete column).
-- **Source remotes:** `0051_repo_source_remotes.sql` adds one optional public fetch URL per repo. Creation and settings can save this URL, fetch heads/tags, and use it later for submodule gitlink backfill.
+- **Source remotes:** `0052_repo_source_remotes.sql` adds one optional public fetch URL per repo. Creation and settings can save this URL, fetch heads/tags, and use it later for submodule gitlink backfill.
 - **sqlc package:** `internal/repos/sqlc` (`reposdb`) — Create, Get-by-owner-and-name, Exists, List-by-owner, Count, SoftDelete, UpdateDiskUsed.
 - `internal/repos/validate.go` — name shape (≤100 chars, `[a-z0-9._-]`, non-separator edges, no dot-dot, no leading dot) + reserved-name list.
 - `internal/repos/templates/` — embeds 10 SPDX licenses + 10 .gitignore templates + a minimal README generator. Sourced from gitea's `options/license` and `options/gitignore` (originally github.com/github/gitignore, MIT/CC0).
