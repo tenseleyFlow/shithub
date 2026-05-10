@@ -102,6 +102,19 @@ func CountCommits(ctx context.Context, gitDir, ref string) (int, error) {
 	return count, nil
 }
 
+// CommitExists reports whether sha resolves to a commit in this repository.
+func CommitExists(ctx context.Context, gitDir, sha string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-e", sha+"^{commit}")
+	if _, err := cmd.Output(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && isMissingGitObjectError(ee.Stderr) {
+			return false, nil
+		}
+		return false, wrapExecErr(err)
+	}
+	return true, nil
+}
+
 // WeeklyCommitActivity counts commits by UTC week, oldest bucket first.
 // It is intentionally small and read-only so list surfaces can render
 // GitHub-style activity sparklines without parsing full commit rows.
@@ -225,7 +238,7 @@ func GetCommit(ctx context.Context, gitDir, sha string) (CommitDetail, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError
-		if errors.As(err, &ee) && bytes.Contains(ee.Stderr, []byte("unknown revision")) {
+		if errors.As(err, &ee) && isMissingGitObjectError(ee.Stderr) {
 			return CommitDetail{}, ErrCommitNotFound
 		}
 		return CommitDetail{}, wrapExecErr(err)
@@ -273,6 +286,12 @@ func GetCommit(ctx context.Context, gitDir, sha string) (CommitDetail, error) {
 // ErrCommitNotFound is returned by GetCommit when the SHA doesn't
 // resolve to a commit on this repo.
 var ErrCommitNotFound = errors.New("git: commit not found")
+
+func isMissingGitObjectError(stderr []byte) bool {
+	return bytes.Contains(stderr, []byte("unknown revision")) ||
+		bytes.Contains(stderr, []byte("Not a valid object name")) ||
+		bytes.Contains(stderr, []byte("bad object"))
+}
 
 // DiffStat returns the per-file change list for a SHA. We run two
 // commands: --name-status for the letter and rename pairs, --numstat

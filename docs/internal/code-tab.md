@@ -67,8 +67,12 @@ directories first, then files alphabetically.
 `commit` entries are git submodule pointers. When `.gitmodules` exists
 on the rendered ref, the Code tab parses it once, matches entries by
 submodule path, and links GitHub or configured shithub clone remotes to
-the local `/{owner}/{repo}/tree/{gitlink-oid}` route. Unknown, external,
-or malformed remotes stay as plain `name @ shortsha` rows.
+the local `/{owner}/{repo}/tree/{gitlink-oid}` route when the target
+repo has that commit. If the target repo exists locally but does not
+have the pinned commit object, the row links to the target repo's
+default Code tab so independently-created mirrors don't produce dead
+links. Unknown, external, absent, or malformed remotes stay as plain
+`name @ shortsha` rows.
 
 The S17 ship excludes the htmx-driven "last commit per entry" column
 that the spec describes — an extra round-trip we can add later without
