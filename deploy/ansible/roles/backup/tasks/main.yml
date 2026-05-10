@@ -13,6 +13,24 @@
     - { src: postgres/backup-daily.sh,    dest: /usr/local/bin/shithub-backup-daily }
     - { src: spaces/sync-cross-region.sh, dest: /usr/local/bin/shithub-spaces-sync }
 
+# Restore drill needs run.sh + smoke-queries.sql to live next to each
+# other (run.sh reads the .sql via $(dirname "$0")). Put both in a
+# share dir; the cron job invokes the absolute path.
+- name: Restore drill — share dir
+  file:
+    path: /usr/local/share/shithub/restore-drill
+    state: directory
+    mode: "0755"
+
+- name: Restore drill — install
+  copy:
+    src: "{{ playbook_dir }}/../restore-drill/{{ item.src }}"
+    dest: "/usr/local/share/shithub/restore-drill/{{ item.src }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: run.sh,             mode: "0755" }
+    - { src: smoke-queries.sql,  mode: "0644" }
+
 - name: rclone config dir
   file:
     path: /root/.config/rclone
@@ -37,3 +55,17 @@
     name: shithub-spaces-sync
     job: /usr/local/bin/shithub-spaces-sync >> /var/log/shithub-spaces-sync.log 2>&1
     minute: "23"
+
+# Weekly restore drill. The runbook still calls for a *manual* drill
+# every quarter (the operator inspects the result), but exercising
+# the recovery path weekly catches backup-pipeline regressions
+# (corrupt dumps, missing schema migrations) within days instead of
+# months. The script logs to /var/log/shithub/restore-drill.log so
+# the operator can `tail` it whenever.
+- name: cron — weekly restore drill
+  cron:
+    name: shithub-restore-drill
+    job: /usr/local/share/shithub/restore-drill/run.sh
+    weekday: "0"
+    hour: "4"
+    minute: "30"
