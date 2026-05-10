@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -272,14 +273,23 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 			authorName = u.Username
 		}
 	}
+	mergedByName := ""
+	if pr.MergedByUserID.Valid {
+		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, pr.MergedByUserID.Int64); err == nil {
+			mergedByName = u.Username
+		}
+	}
+	stats := h.pullTabStats(r.Context(), pr.IID)
 	data := map[string]any{
-		"Title":      "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"PR":         pr,
-		"AuthorName": authorName,
-		"Tab":        tab,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
+		"Title":        "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
+		"Owner":        owner.Username,
+		"Repo":         row,
+		"PR":           pr,
+		"AuthorName":   authorName,
+		"MergedByName": mergedByName,
+		"PullStats":    stats,
+		"Tab":          tab,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := policy.UserActor(viewer.ID, viewer.Username, viewer.IsSuspended, false)
@@ -298,6 +308,22 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/pull_view", data)
+}
+
+type pullTabStats struct {
+	Commits int
+	Files   int
+}
+
+func (h *Handlers) pullTabStats(ctx context.Context, prID int64) pullTabStats {
+	var out pullTabStats
+	if commits, err := h.pq.ListPullRequestCommits(ctx, h.d.Pool, prID); err == nil {
+		out.Commits = len(commits)
+	}
+	if files, err := h.pq.ListPullRequestFiles(ctx, h.d.Pool, prID); err == nil {
+		out.Files = len(files)
+	}
+	return out
 }
 
 // pullView renders the Conversation tab.

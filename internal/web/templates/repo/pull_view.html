@@ -5,111 +5,218 @@
       <span>{{ .PR.ITitle }}</span>
       <span class="shithub-issue-num">#{{ .PR.INumber }}</span>
     </h1>
-    <div class="shithub-issue-meta">
+    <div class="shithub-pull-summary">
       {{ if .PR.MergedAt.Valid }}
-        <span class="shithub-pill shithub-pull-merged">⏵ Merged</span>
+        <span class="shithub-pull-state-label is-merged">{{ octicon "git-merge" }} Merged</span>
+        <span>
+          {{ if .MergedByName }}<a href="/{{ .MergedByName }}">{{ .MergedByName }}</a>{{ else }}Someone{{ end }}
+          merged {{ .PullStats.Commits }} {{ pluralize .PullStats.Commits "commit" "commits" }} into
+          <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.BaseRef }}">{{ .PR.BaseRef }}</a>
+          from <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.HeadRef }}">{{ .PR.HeadRef }}</a>
+        </span>
       {{ else if eq (printf "%s" .PR.IState) "open" }}
-        <span class="shithub-pill shithub-issues-state-open">{{ if .PR.Draft }}◔ Draft{{ else }}● Open{{ end }}</span>
+        <span class="shithub-pull-state-label {{ if .PR.Draft }}is-draft{{ else }}is-open{{ end }}">{{ octicon "git-pull-request" }} {{ if .PR.Draft }}Draft{{ else }}Open{{ end }}</span>
+        <span>
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          wants to merge {{ .PullStats.Commits }} {{ pluralize .PullStats.Commits "commit" "commits" }} into
+          <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.BaseRef }}">{{ .PR.BaseRef }}</a>
+          from <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.HeadRef }}">{{ .PR.HeadRef }}</a>
+        </span>
       {{ else }}
-        <span class="shithub-pill shithub-issues-state-closed">✗ Closed</span>
+        <span class="shithub-pull-state-label is-closed">{{ octicon "x" }} Closed</span>
+        <span>
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          closed this pull request without merging.
+        </span>
       {{ end }}
-      {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-      wants to merge <code>{{ .PR.HeadRef }}</code> into <code>{{ .PR.BaseRef }}</code>
     </div>
   </header>
 
-  <nav class="shithub-pull-tabs">
+  <nav class="shithub-pull-tabs" aria-label="Pull request">
     <a class="shithub-pull-tab {{ if eq .Tab "conversation" }}shithub-pull-tab-active{{ end }}"
-       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}">Conversation</a>
+       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}">{{ octicon "comment-discussion" }} Conversation</a>
     <a class="shithub-pull-tab {{ if eq .Tab "commits" }}shithub-pull-tab-active{{ end }}"
-       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/commits">Commits</a>
-    <a class="shithub-pull-tab {{ if eq .Tab "files" }}shithub-pull-tab-active{{ end }}"
-       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/files">Files changed</a>
+       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/commits">{{ octicon "git-commit" }} Commits <span class="shithub-tab-count">{{ .PullStats.Commits }}</span></a>
     <a class="shithub-pull-tab {{ if eq .Tab "checks" }}shithub-pull-tab-active{{ end }}"
-       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/checks">Checks</a>
+       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/checks">{{ octicon "checklist" }} Checks</a>
+    <a class="shithub-pull-tab {{ if eq .Tab "files" }}shithub-pull-tab-active{{ end }}"
+       href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/files">{{ octicon "file-diff" }} Files changed <span class="shithub-tab-count">{{ .PullStats.Files }}</span></a>
   </nav>
 
   {{ if eq .Tab "conversation" }}
-    <div class="shithub-pull-grid">
-      <article class="shithub-issue-thread">
-        <div class="shithub-comment">
-          <div class="shithub-comment-head">
-            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-            <time datetime="{{ .PR.ICreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .PR.ICreatedAt.Time }}</time>
+    <div class="shithub-pull-conversation-layout">
+      <div class="shithub-pull-conversation-main">
+        <article class="shithub-pull-timeline" aria-label="Pull request timeline">
+          <div class="shithub-pull-timeline-item">
+            <div class="shithub-pull-timeline-marker">{{ octicon "comment-discussion" }}</div>
+            <div class="shithub-comment shithub-pull-comment">
+              <div class="shithub-comment-head">
+                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                <span class="shithub-muted">commented</span>
+                <time datetime="{{ .PR.ICreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .PR.ICreatedAt.Time }}</time>
+              </div>
+              <div class="shithub-comment-body markdown-body">
+                {{ if .PR.IBodyHtmlCached.Valid }}{{ safeHTML .PR.IBodyHtmlCached.String }}{{ else }}<p>{{ .PR.IBody }}</p>{{ end }}
+              </div>
+            </div>
           </div>
-          <div class="shithub-comment-body markdown-body">
-            {{ if .PR.IBodyHtmlCached.Valid }}{{ safeHTML .PR.IBodyHtmlCached.String }}{{ else }}<p>{{ .PR.IBody }}</p>{{ end }}
-          </div>
-        </div>
         {{ range .Comments }}
-        <div class="shithub-comment">
-          <div class="shithub-comment-head">
-            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-            commented
-            <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
+          <div class="shithub-pull-timeline-item">
+            <div class="shithub-pull-timeline-marker">{{ octicon "comment" }}</div>
+            <div class="shithub-comment shithub-pull-comment">
+              <div class="shithub-comment-head">
+                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                <span class="shithub-muted">commented</span>
+                <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
+              </div>
+              <div class="shithub-comment-body markdown-body">
+                {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
+              </div>
+            </div>
           </div>
-          <div class="shithub-comment-body markdown-body">
-            {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
-          </div>
-        </div>
         {{ end }}
         {{ range .Events }}
-        <div class="shithub-event">
-          <span class="shithub-event-kind">{{ .Kind }}</span>
-          <time datetime="{{ .CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt.Time }}</time>
-        </div>
+          <div class="shithub-pull-timeline-event">
+            <span class="shithub-pull-timeline-dot">{{ octicon "dot-fill" }}</span>
+            <span class="shithub-event-kind">{{ .Kind }}</span>
+            <time datetime="{{ .CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt.Time }}</time>
+          </div>
         {{ end }}
-      </article>
+        </article>
 
-      <aside class="shithub-pull-merge">
+        <section class="shithub-pull-merge-box shithub-pull-merge-state-{{ printf "%s" .PR.MergeableState }}">
+          {{ if .PR.MergedAt.Valid }}
+            <div class="shithub-pull-merge-box-head">
+              <span class="shithub-pull-merge-icon is-merged">{{ octicon "git-merge" }}</span>
+              <div>
+                <h2>Pull request successfully merged and closed</h2>
+                <p>Merged using <code>{{ printf "%s" .PR.MergeMethod.PrMergeMethod }}</code>.</p>
+              </div>
+            </div>
+          {{ else if eq (printf "%s" .PR.IState) "closed" }}
+            <div class="shithub-pull-merge-box-head">
+              <span class="shithub-pull-merge-icon is-closed">{{ octicon "x" }}</span>
+              <div>
+                <h2>Closed without merge</h2>
+                <p>This pull request is closed.</p>
+              </div>
+            </div>
+          {{ else }}
+            <div class="shithub-pull-merge-box-head">
+              {{ if eq (printf "%s" .PR.MergeableState) "clean" }}
+                <span class="shithub-pull-merge-icon is-clean">{{ octicon "checklist" }}</span>
+                <div>
+                  <h2>This branch has no conflicts with the base branch</h2>
+                  <p>Merging can be performed automatically.</p>
+                </div>
+              {{ else if eq (printf "%s" .PR.MergeableState) "dirty" }}
+                <span class="shithub-pull-merge-icon is-dirty">{{ octicon "x" }}</span>
+                <div>
+                  <h2>This branch has conflicts that must be resolved</h2>
+                  <p>Resolve conflicts locally, then push the fixed branch.</p>
+                </div>
+              {{ else if eq (printf "%s" .PR.MergeableState) "behind" }}
+                <span class="shithub-pull-merge-icon is-behind">{{ octicon "git-commit" }}</span>
+                <div>
+                  <h2>There are no commits to merge</h2>
+                  <p>The head branch has no commits ahead of the base branch.</p>
+                </div>
+              {{ else if eq (printf "%s" .PR.MergeableState) "blocked" }}
+                <span class="shithub-pull-merge-icon is-blocked">{{ octicon "alert" }}</span>
+                <div>
+                  <h2>Merging is blocked</h2>
+                  <p>Required reviews or status checks have not passed yet.</p>
+                </div>
+              {{ else }}
+                <span class="shithub-pull-merge-icon is-unknown">{{ octicon "dot-fill" }}</span>
+                <div>
+                  <h2>Checking mergeability</h2>
+                  <p>Merge status is being computed.</p>
+                </div>
+              {{ end }}
+            </div>
+            {{ if or .CanMergePull .CanSetPullState .CanReadyPull }}
+            <div class="shithub-pull-merge-actions">
+              {{ if .CanMergePull }}
+              {{ if eq (printf "%s" .PR.MergeableState) "clean" }}
+                <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/merge" class="shithub-pull-merge-form">
+                  <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                  <select name="method" aria-label="Merge method">
+                    {{ if .Repo.AllowMergeCommit }}<option value="merge" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "merge" }}selected{{ end }}>Create a merge commit</option>{{ end }}
+                    {{ if .Repo.AllowSquashMerge }}<option value="squash" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "squash" }}selected{{ end }}>Squash and merge</option>{{ end }}
+                    {{ if .Repo.AllowRebaseMerge }}<option value="rebase" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "rebase" }}selected{{ end }}>Rebase and merge</option>{{ end }}
+                  </select>
+                  <button type="submit" class="shithub-button shithub-button-primary">Merge pull request</button>
+                </form>
+              {{ end }}
+              {{ end }}
+              {{ if .CanSetPullState }}
+              <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/state" class="shithub-pull-state-form">
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <button type="submit" name="state" value="closed" class="shithub-button">Close pull request</button>
+              </form>
+              {{ end }}
+              {{ if and .CanReadyPull .PR.Draft }}
+                <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/ready">
+                  <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                  <button type="submit" class="shithub-button">Ready for review</button>
+                </form>
+              {{ end }}
+            </div>
+            {{ end }}
+          {{ end }}
+        </section>
+      </div>
+
+      <aside class="shithub-pull-sidebar" aria-label="Pull request metadata">
+        <section class="shithub-pull-sidebar-section">
+          <h3>Reviewers</h3>
+          {{ if .ReviewRequests }}
+          <ul class="shithub-pull-sidebar-list">
+          {{ range .ReviewRequests }}
+            {{ if not .R.DismissedAt.Valid }}
+            <li><a href="/{{ .Username }}">@{{ .Username }}</a> <span>{{ if .R.SatisfiedByReviewID.Valid }}reviewed{{ else }}pending{{ end }}</span></li>
+            {{ end }}
+          {{ end }}
+          </ul>
+          {{ else }}
+          <p>No reviews</p>
+          {{ end }}
+        </section>
+
         {{ if .Reviews }}
-        <section class="shithub-pull-reviews">
-          <h3>Reviews</h3>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Review activity</h3>
           <ul class="shithub-pull-reviews-list">
-            {{ range .Reviews }}
+          {{ range .Reviews }}
             <li class="shithub-pull-review-{{ printf "%s" .R.State }}{{ if .R.DismissedAt.Valid }} shithub-pull-review-dismissed{{ end }}">
               <span class="shithub-pull-review-state">
-                {{ if eq (printf "%s" .R.State) "approve" }}✓ approved{{ else if eq (printf "%s" .R.State) "request_changes" }}✗ changes requested{{ else }}● commented{{ end }}
+                {{ if eq (printf "%s" .R.State) "approve" }}approved{{ else if eq (printf "%s" .R.State) "request_changes" }}changes requested{{ else }}commented{{ end }}
               </span>
               {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-              <time datetime="{{ .R.SubmittedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .R.SubmittedAt.Time }}</time>
-              {{ if .R.DismissedAt.Valid }}<small>dismissed</small>{{ end }}
             </li>
-            {{ end }}
-          </ul>
-        </section>
-        {{ end }}
-
-        {{ if .ReviewRequests }}
-        <section class="shithub-pull-reviewers">
-          <h3>Reviewers</h3>
-          <ul class="shithub-pull-reviewers-list">
-            {{ range .ReviewRequests }}
-              {{ if not .R.DismissedAt.Valid }}
-              <li>
-                <a href="/{{ .Username }}">@{{ .Username }}</a>
-                {{ if .R.SatisfiedByReviewID.Valid }}<small>reviewed</small>{{ else }}<small>pending</small>{{ end }}
-              </li>
-              {{ end }}
-            {{ end }}
+          {{ end }}
           </ul>
         </section>
         {{ end }}
 
         {{ if .CanReviewPull }}
+        <section class="shithub-pull-sidebar-section">
         <details class="shithub-pull-request-reviewer">
-          <summary class="shithub-button">Request review</summary>
+          <summary class="shithub-link-button">Request review</summary>
           <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviewers">
             <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
             <input type="text" name="username" placeholder="username" required>
             <button type="submit" class="shithub-button">Request</button>
           </form>
         </details>
+        </section>
 
         {{ if not .PR.MergedAt.Valid }}
         {{ if eq (printf "%s" .PR.IState) "open" }}
+        <section class="shithub-pull-sidebar-section">
         <details class="shithub-pull-submit-review">
-          <summary class="shithub-button">Submit review</summary>
+          <summary class="shithub-link-button">Submit review</summary>
           <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviews" class="shithub-pull-review-form">
             <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
             <textarea name="body" rows="4" placeholder="Leave a review comment (optional)"></textarea>
@@ -123,53 +230,39 @@
             <button type="submit" class="shithub-button shithub-button-primary">Submit</button>
           </form>
         </details>
+        </section>
         {{ end }}
         {{ end }}
         {{ end }}
 
-        {{ if .PR.MergedAt.Valid }}
-          <p>Merged via <code>{{ printf "%s" .PR.MergeMethod.PrMergeMethod }}</code>.</p>
-        {{ else if eq (printf "%s" .PR.IState) "closed" }}
-          <p>This PR is closed without being merged.</p>
-        {{ else }}
-          <h3>Mergeability</h3>
-          <p class="shithub-pull-state-{{ printf "%s" .PR.MergeableState }}">
-            {{ printf "%s" .PR.MergeableState }}
-          </p>
-        {{ if or .CanMergePull .CanSetPullState .CanReadyPull }}
-            {{ if .CanMergePull }}
-            {{ if eq (printf "%s" .PR.MergeableState) "clean" }}
-              <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/merge" class="shithub-pull-merge-form">
-                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-                <select name="method">
-                  {{ if .Repo.AllowMergeCommit }}<option value="merge" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "merge" }}selected{{ end }}>Merge commit</option>{{ end }}
-                  {{ if .Repo.AllowSquashMerge }}<option value="squash" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "squash" }}selected{{ end }}>Squash and merge</option>{{ end }}
-                  {{ if .Repo.AllowRebaseMerge }}<option value="rebase" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "rebase" }}selected{{ end }}>Rebase and merge</option>{{ end }}
-                </select>
-                <button type="submit" class="shithub-button shithub-button-primary">Merge pull request</button>
-              </form>
-            {{ else if eq (printf "%s" .PR.MergeableState) "dirty" }}
-              <p class="shithub-error">This branch has conflicts that must be resolved manually.</p>
-            {{ else if eq (printf "%s" .PR.MergeableState) "behind" }}
-              <p class="shithub-muted">Head has no commits ahead of base.</p>
-            {{ else }}
-              <p class="shithub-muted">Mergeability is being computed…</p>
-            {{ end }}
-            {{ end }}
-            {{ if .CanSetPullState }}
-            <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/state" class="shithub-pull-state-form">
-              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-              <button type="submit" name="state" value="closed" class="shithub-button">Close pull request</button>
-            </form>
-            {{ end }}
-            {{ if and .CanReadyPull .PR.Draft }}
-              <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/ready">
-                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-                <button type="submit" class="shithub-button">Ready for review</button>
-              </form>
-            {{ end }}
-          {{ end }}
-        {{ end }}
+        <section class="shithub-pull-sidebar-section">
+          <h3>Assignees</h3>
+          <p>No one assigned</p>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Labels</h3>
+          <p>None yet</p>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Projects</h3>
+          <p>None yet</p>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Milestone</h3>
+          <p>No milestone</p>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Development</h3>
+          <p>No linked issues or branches</p>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Notifications</h3>
+          <button type="button" class="shithub-button shithub-sidebar-button" disabled>{{ octicon "bell" }} Subscribe</button>
+        </section>
+        <section class="shithub-pull-sidebar-section">
+          <h3>Participants</h3>
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">@{{ .AuthorName }}</a>{{ else }}<p>None yet</p>{{ end }}
+        </section>
       </aside>
     </div>
   {{ else if eq .Tab "commits" }}

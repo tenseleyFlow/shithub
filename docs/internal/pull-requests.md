@@ -150,6 +150,9 @@ noreply emails are post-MVP.
 
 - Tabbed view at `/pulls/{number}` switches between Conversation,
   Commits, Files, Checks via the `Tab` field on the template data.
+- Conversation follows GitHub's PageHeader + tab strip shape: state
+  pill, branch summary, tab count badges, left timeline, right metadata
+  rail, and a mergeability box below the timeline.
 - Files tab uses the existing S19 diff renderer fed from
   `compareSourceMergeBase` (three-dot diff, base...head).
 - The Checks tab is a placeholder — real check runs land in S24.
