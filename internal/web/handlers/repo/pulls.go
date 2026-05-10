@@ -51,6 +51,13 @@ type pullCheckSuiteView struct {
 	Runs  []pullCheckRunView
 }
 
+type pullFileView struct {
+	F      pullsdb.PullRequestFile
+	Anchor string
+	Dir    string
+	Name   string
+}
+
 // MountPulls registers /{owner}/{repo}/pulls* routes. Reads are
 // public (subject to policy.Can(ActionPullRead)); writes require auth.
 // The merge route runs synchronously inside the request: pulls.Merge
@@ -553,6 +560,17 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	files, _ := pullsdb.New().ListPullRequestFiles(r.Context(), h.d.Pool, pr.IID)
+	fileViews := make([]pullFileView, 0, len(files))
+	for _, f := range files {
+		label := pullFileLabel(f)
+		dir, name := splitPullFilePath(f.Path)
+		fileViews = append(fileViews, pullFileView{
+			F:      f,
+			Anchor: pullFileAnchor(label),
+			Dir:    dir,
+			Name:   name,
+		})
+	}
 	diffHTML := ""
 	if pr.BaseOid != "" && pr.HeadOid != "" {
 		patch, perr := compareSourceMergeBase(r, gitDir, pr.BaseOid, pr.HeadOid)
@@ -587,10 +605,39 @@ func (h *Handlers) pullFiles(w http.ResponseWriter, r *http.Request) {
 		threadsByFile[f.Path] = out
 	}
 	h.renderPullPage(w, r, "files", map[string]any{
-		"Files":         files,
+		"Files":         fileViews,
 		"DiffHTML":      diffHTML,
 		"ThreadsByFile": threadsByFile,
 	})
+}
+
+func pullFileLabel(f pullsdb.PullRequestFile) string {
+	if f.OldPath.Valid && f.OldPath.String != "" && f.OldPath.String != f.Path {
+		return f.OldPath.String + " → " + f.Path
+	}
+	return f.Path
+}
+
+func splitPullFilePath(p string) (string, string) {
+	idx := strings.LastIndex(p, "/")
+	if idx < 0 {
+		return "", p
+	}
+	return p[:idx], p[idx+1:]
+}
+
+func pullFileAnchor(p string) string {
+	var b strings.Builder
+	b.WriteString("diff-")
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 // pullChecks renders the Checks tab. Loads suites + runs grouped by

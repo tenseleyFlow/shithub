@@ -480,67 +480,127 @@
         {{ end }}
       </ul>
     {{ else if eq .Tab "files" }}
-      {{ if .DiffHTML }}
-        <div class="shithub-diff">{{ safeHTML .DiffHTML }}</div>
-      {{ else }}
-        <p class="shithub-muted">No diff available.</p>
-      {{ end }}
-
-      {{ if .ThreadsByFile }}
-      <section class="shithub-pull-threads">
-        <h3>Inline comments</h3>
-        {{ range $path, $threads := .ThreadsByFile }}
-          {{ if $threads }}
-          <details class="shithub-pull-thread-file" open>
-            <summary><code>{{ $path }}</code> · {{ len $threads }}</summary>
-            {{ range $threads }}
-              <div class="shithub-pull-thread{{ if not .C.CurrentPosition.Valid }} shithub-pull-thread-outdated{{ end }}{{ if .C.ResolvedAt.Valid }} shithub-pull-thread-resolved{{ end }}">
-                <div class="shithub-comment-head">
-                  {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-                  line {{ .C.OriginalLine }}
-                  <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
-                  {{ if not .C.CurrentPosition.Valid }}<span class="shithub-pill">outdated</span>{{ end }}
-                  {{ if .C.ResolvedAt.Valid }}<span class="shithub-pill">resolved</span>{{ end }}
-                </div>
-                <div class="shithub-comment-body markdown-body">
-                  {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
-                </div>
-                {{ if $.CanReviewPull }}
-                <div class="shithub-pull-thread-actions">
-                  <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/reply">
-                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-                    <textarea name="body" rows="2" placeholder="Reply..."></textarea>
-                    <button type="submit" class="shithub-button">Reply</button>
-                  </form>
-                  <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/{{ if .C.ResolvedAt.Valid }}reopen{{ else }}resolve{{ end }}">
-                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-                    <button type="submit" class="shithub-button">{{ if .C.ResolvedAt.Valid }}Reopen{{ else }}Resolve{{ end }}</button>
-                  </form>
-                </div>
-                {{ end }}
-              </div>
+      <section class="shithub-pull-files">
+        <div class="shithub-pull-files-toolbar">
+          <div class="shithub-pull-files-toolbar-left">
+            <button type="button" class="shithub-button shithub-button-compact">{{ octicon "diff" }} All commits</button>
+            <span class="shithub-muted">{{ .PullStats.Files }} file{{ if ne .PullStats.Files 1 }}s{{ end }} changed</span>
+          </div>
+          <div class="shithub-pull-files-toolbar-right">
+            <span class="shithub-muted">0 / {{ .PullStats.Files }} viewed</span>
+            {{ if .CanReviewPull }}
+            <details class="shithub-pull-submit-review shithub-pull-submit-review-menu">
+              <summary class="shithub-button shithub-button-primary">Submit review</summary>
+              <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviews" class="shithub-popover shithub-pull-review-popover">
+                <strong>Finish your review</strong>
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <textarea name="body" rows="4" placeholder="Leave a review comment (optional)"></textarea>
+                <select name="state">
+                  <option value="comment">Comment</option>
+                  {{ if not (and .PR.IAuthorUserID.Valid (eq .PR.IAuthorUserID.Int64 .Viewer.ID)) }}
+                  <option value="approve">Approve</option>
+                  <option value="request_changes">Request changes</option>
+                  {{ end }}
+                </select>
+                <button type="submit" class="shithub-button shithub-button-primary">Submit review</button>
+              </form>
+            </details>
             {{ end }}
-          </details>
-          {{ end }}
-        {{ end }}
+            <button type="button" class="shithub-icon-button" aria-label="Files changed settings">{{ octicon "gear" }}</button>
+          </div>
+        </div>
 
-        {{ if .CanReviewPull }}
-        <details class="shithub-pull-add-comment">
-          <summary class="shithub-button">Add inline comment</summary>
-          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/review-comments">
-            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-            <input type="text" name="file_path" placeholder="path" required>
-            <input type="number" name="line" placeholder="line" required>
-            <input type="number" name="position" placeholder="position" required>
-            <input type="hidden" name="commit_sha" value="{{ .PR.HeadOid }}">
-            <input type="hidden" name="side" value="right">
-            <textarea name="body" rows="3" required></textarea>
-            <button type="submit" class="shithub-button">Add comment</button>
-          </form>
-        </details>
-        {{ end }}
+        <div class="shithub-pull-files-layout">
+          <aside class="shithub-pull-file-nav" aria-label="Changed files">
+            <label class="shithub-pull-file-filter">
+              {{ octicon "search" }}
+              <input type="search" placeholder="Filter files..." aria-label="Filter files">
+            </label>
+            <ul>
+              {{ range .Files }}
+              <li>
+                <a href="#{{ .Anchor }}">
+                  {{ if eq (printf "%s" .F.Status) "added" }}<span class="shithub-pull-file-status shithub-pull-file-status-added">A</span>
+                  {{ else if eq (printf "%s" .F.Status) "deleted" }}<span class="shithub-pull-file-status shithub-pull-file-status-deleted">D</span>
+                  {{ else if eq (printf "%s" .F.Status) "renamed" }}<span class="shithub-pull-file-status shithub-pull-file-status-renamed">R</span>
+                  {{ else }}<span class="shithub-pull-file-status shithub-pull-file-status-modified">M</span>{{ end }}
+                  <span>
+                    {{ if .Dir }}<small>{{ .Dir }}/</small>{{ end }}{{ .Name }}
+                    <small class="shithub-pull-file-lines">+{{ .F.Additions }} −{{ .F.Deletions }}</small>
+                  </span>
+                </a>
+              </li>
+              {{ else }}
+              <li class="shithub-muted">No files changed.</li>
+              {{ end }}
+            </ul>
+          </aside>
+
+          <div class="shithub-pull-files-main">
+            {{ if .DiffHTML }}
+              <div class="shithub-diff">{{ safeHTML .DiffHTML }}</div>
+            {{ else }}
+              <p class="shithub-muted">No diff available.</p>
+            {{ end }}
+
+            {{ if .ThreadsByFile }}
+            <section class="shithub-pull-threads">
+              <h3>Inline comments</h3>
+              {{ range $path, $threads := .ThreadsByFile }}
+                {{ if $threads }}
+                <details class="shithub-pull-thread-file" open>
+                  <summary><code>{{ $path }}</code> · {{ len $threads }}</summary>
+                  {{ range $threads }}
+                    <div class="shithub-pull-thread{{ if not .C.CurrentPosition.Valid }} shithub-pull-thread-outdated{{ end }}{{ if .C.ResolvedAt.Valid }} shithub-pull-thread-resolved{{ end }}">
+                      <div class="shithub-comment-head">
+                        {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                        line {{ .C.OriginalLine }}
+                        <time datetime="{{ .C.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .C.CreatedAt.Time }}</time>
+                        {{ if not .C.CurrentPosition.Valid }}<span class="shithub-pill">outdated</span>{{ end }}
+                        {{ if .C.ResolvedAt.Valid }}<span class="shithub-pill">resolved</span>{{ end }}
+                      </div>
+                      <div class="shithub-comment-body markdown-body">
+                        {{ if .C.BodyHtmlCached.Valid }}{{ safeHTML .C.BodyHtmlCached.String }}{{ else }}<p>{{ .C.Body }}</p>{{ end }}
+                      </div>
+                      {{ if $.CanReviewPull }}
+                      <div class="shithub-pull-thread-actions">
+                        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/reply">
+                          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                          <textarea name="body" rows="2" placeholder="Reply..."></textarea>
+                          <button type="submit" class="shithub-button">Reply</button>
+                        </form>
+                        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ $.PR.INumber }}/review-comments/{{ .C.ID }}/{{ if .C.ResolvedAt.Valid }}reopen{{ else }}resolve{{ end }}">
+                          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                          <button type="submit" class="shithub-button">{{ if .C.ResolvedAt.Valid }}Reopen{{ else }}Resolve{{ end }}</button>
+                        </form>
+                      </div>
+                      {{ end }}
+                    </div>
+                  {{ end }}
+                </details>
+                {{ end }}
+              {{ end }}
+
+              {{ if .CanReviewPull }}
+              <details class="shithub-pull-add-comment">
+                <summary class="shithub-button">Add inline comment</summary>
+                <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/review-comments">
+                  <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                  <input type="text" name="file_path" placeholder="path" required>
+                  <input type="number" name="line" placeholder="line" required>
+                  <input type="number" name="position" placeholder="position" required>
+                  <input type="hidden" name="commit_sha" value="{{ .PR.HeadOid }}">
+                  <input type="hidden" name="side" value="right">
+                  <textarea name="body" rows="3" required></textarea>
+                  <button type="submit" class="shithub-button">Add comment</button>
+                </form>
+              </details>
+              {{ end }}
+            </section>
+            {{ end }}
+          </div>
+        </div>
       </section>
-      {{ end }}
     {{ else if eq .Tab "checks" }}
       {{ if .CheckGroups }}
       <section class="shithub-pull-checks">
