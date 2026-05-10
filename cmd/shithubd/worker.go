@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	"github.com/tenseleyFlow/shithub/internal/worker/jobs"
@@ -148,6 +149,14 @@ var workerCmd = &cobra.Command{
 				Pool: pool, Logger: logger, Retention: 30 * 24 * time.Hour,
 			}))
 		}
+
+		// Actions trigger pipeline (S41b). Discovers .shithub/workflows/
+		// at the head sha, parses each, matches against the triggering
+		// event, and enqueues workflow_runs for the matches. Runs sit
+		// in 'queued' status — no runner picks them up until S41c+.
+		p.Register(trigger.KindWorkflowTrigger, trigger.Handler(trigger.JobDeps{
+			Deps: trigger.Deps{Pool: pool, Logger: logger}, RepoFS: rfs,
+		}))
 
 		return p.Run(ctx)
 	},
