@@ -52,6 +52,29 @@ func TestNew_RegistersSubdirPages(t *testing.T) {
 	}
 }
 
+func TestRenderFragmentExecutesPageWithoutLayout(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}<html>{{ template "page" . }}</html>{{ end }}`,
+		)},
+		"fragment.html": &fstest.MapFile{Data: []byte(
+			`{{ define "page" }}fragment only{{ end }}`,
+		)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := r.RenderFragment(&buf, "fragment", nil); err != nil {
+		t.Fatalf("render fragment: %v", err)
+	}
+	if got := buf.String(); got != "fragment only" {
+		t.Fatalf("RenderFragment body = %q, want fragment only", got)
+	}
+}
+
 // Regression test for the inbound deferral from S30 dogfood: a partial
 // at `profile/_tabs.html` that defines `{{ define "tabs" }}` was
 // silently registered as an unparsed page. A page that called

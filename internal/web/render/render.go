@@ -201,6 +201,28 @@ func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	return err
 }
 
+// RenderFragment executes only a page template's "page" definition. Use it
+// for HTML fragments returned to JavaScript or htmx; full browser pages should
+// continue to call Render/RenderPage so nav, footer, and document chrome stay
+// consistent.
+func (r *Renderer) RenderFragment(w io.Writer, name string, data any) error {
+	t, ok := r.pages[name]
+	if !ok {
+		return fmt.Errorf("render: unknown page %q", name)
+	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "page", data); err != nil {
+		return fmt.Errorf("execute fragment %s: %w", name, err)
+	}
+	if rw, ok := w.(http.ResponseWriter); ok {
+		if rw.Header().Get("Content-Type") == "" {
+			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		}
+	}
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
 // RenderPage is the request-aware Render: when data is a map[string]any, it
 // injects "Viewer" (from middleware.CurrentUserFromContext) and "CSRFToken"
 // (the per-request token) if the caller hasn't set them. The nav partial's

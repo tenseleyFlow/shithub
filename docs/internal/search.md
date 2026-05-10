@@ -137,15 +137,16 @@ pathological-length queries; longer inputs are silently truncated.
 
 ## Routes
 
-| Method | Path             | Notes                                    |
-|--------|------------------|------------------------------------------|
-| GET    | `/search`        | Full results page with type tabs         |
-| GET    | `/search/quick`  | htmx fragment endpoint for top-bar drop  |
+| Method | Path             | Notes                                      |
+|--------|------------------|--------------------------------------------|
+| GET    | `/search`        | Full results page with GitHub-style filters |
+| GET    | `/search/quick`  | HTML fragment endpoint for top-bar drop     |
 
 The top-bar nav embeds a search form pointing at `/search`; the
-htmx-driven dropdown wiring is intentionally deferred (the
-endpoint exists; the JS to invoke it on keystroke comes when we
-add htmx-the-library to the static asset bundle).
+same input now calls `/search/quick` as the user types and renders
+the returned fragment under the nav search box. Full-page type URLs
+emit GitHub-style `type=repositories` and `type=pullrequests` while
+still accepting the legacy `type=repos` and `type=pulls` aliases.
 
 ## What we deferred from the spec
 
@@ -161,9 +162,6 @@ add htmx-the-library to the static asset bundle).
   S33 webhooks sprint pulls in the rest of the API surface so we
   do them together (consistency on auth + body cap + scope shapes).
   **Forward-deferred to S33 / S34 API consolidation.**
-* **Quick-dropdown htmx wiring**: the endpoint returns the right
-  HTML; the static HTML form posts to `/search` directly. The
-  dropdown lights up when we land htmx in the static asset bundle.
 * **`path:` operator**: parser falls through; querying `path:foo`
   treats it as free text today. Documented above.
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package search wires the S28 web search surface. The full results
-// page lives at GET /search; the htmx quick dropdown lives at GET
+// page lives at GET /search; the nav quick dropdown lives at GET
 // /search/quick.
 package search
 
@@ -64,13 +64,7 @@ func (h *Handlers) actor(r *http.Request) policy.Actor {
 // results renders the full /search page with type tabs.
 func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 	rawQ := r.URL.Query().Get("q")
-	tab := r.URL.Query().Get("type")
-	if tab == "" {
-		tab = "repos"
-	}
-	if !validSearchTab(tab) {
-		tab = "repos"
-	}
+	tab := normalizeSearchTab(r.URL.Query().Get("type"))
 	page := pageFromRequest(r)
 
 	parsed := srch.ParseQuery(rawQ)
@@ -85,6 +79,7 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 		"Page":              page,
 		"Parsed":            parsed,
 		"PageSize":          srch.PageSize,
+		"SearchProTip":      searchProTip(tab),
 	}
 
 	if !parsed.HasContent() {
@@ -96,7 +91,7 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * srch.PageSize
 	switch tab {
-	case "repos":
+	case "repositories":
 		rows, total, err := srch.SearchRepos(r.Context(), deps, actor, parsed, srch.PageSize, offset)
 		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
 			h.d.Logger.ErrorContext(r.Context(), "search repos", "error", err)
@@ -112,7 +107,7 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 		data["Issues"] = rows
 		data["Total"] = total
 		data["HasNext"] = int64(page*srch.PageSize) < total
-	case "pulls":
+	case "pullrequests":
 		rows, total, err := srch.SearchIssues(r.Context(), deps, actor, parsed, "pr", srch.PageSize, offset)
 		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
 			h.d.Logger.ErrorContext(r.Context(), "search pulls", "error", err)
@@ -144,18 +139,33 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 	}
 	data["HasPrev"] = page > 1
 	data["SearchTabs"] = h.searchTabs(r, actor, parsed, rawQ, tab)
+	data["ResultHeading"] = searchResultHeading(tab, data["Total"])
+	if page > 1 {
+		data["PrevHref"] = searchHref(rawQ, tab, page-1)
+	}
+	if next, ok := data["HasNext"].(bool); ok && next {
+		data["NextHref"] = searchHref(rawQ, tab, page+1)
+	}
 
 	if err := h.d.Render.RenderPage(w, r, "search/results", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "search render", "error", err)
 	}
 }
 
-func validSearchTab(tab string) bool {
+func normalizeSearchTab(tab string) string {
 	switch tab {
-	case "repos", "issues", "pulls", "users", "code":
-		return true
+	case "", "repos", "repositories":
+		return "repositories"
+	case "code":
+		return "code"
+	case "issues":
+		return "issues"
+	case "pulls", "pullrequests":
+		return "pullrequests"
+	case "users":
+		return "users"
 	default:
-		return false
+		return "repositories"
 	}
 }
 
@@ -170,11 +180,11 @@ type searchTab struct {
 
 func (h *Handlers) searchTabs(r *http.Request, actor policy.Actor, parsed srch.ParsedQuery, rawQ, active string) []searchTab {
 	tabs := []searchTab{
-		{Key: "repos", Label: "Repositories", Icon: "repo"},
 		{Key: "code", Label: "Code", Icon: "code"},
+		{Key: "repositories", Label: "Repositories", Icon: "repo"},
 		{Key: "issues", Label: "Issues", Icon: "issue-opened"},
-		{Key: "pulls", Label: "Pull requests", Icon: "git-pull-request"},
-		{Key: "users", Label: "Users", Icon: "person"},
+		{Key: "pullrequests", Label: "Pull requests", Icon: "git-pull-request"},
+		{Key: "users", Label: "Users", Icon: "people"},
 	}
 	for i := range tabs {
 		tabs[i].Selected = tabs[i].Key == active
@@ -189,13 +199,13 @@ func (h *Handlers) searchTabs(r *http.Request, actor policy.Actor, parsed srch.P
 		var total int64
 		var err error
 		switch tabs[i].Key {
-		case "repos":
+		case "repositories":
 			_, total, err = srch.SearchRepos(r.Context(), deps, actor, parsed, 0, 0)
 		case "code":
 			_, total, err = srch.SearchCode(r.Context(), deps, actor, parsed, 0, 0)
 		case "issues":
 			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "issue", 0, 0)
-		case "pulls":
+		case "pullrequests":
 			_, total, err = srch.SearchIssues(r.Context(), deps, actor, parsed, "pr", 0, 0)
 		case "users":
 			_, total, err = srch.SearchUsers(r.Context(), deps, parsed, 0, 0)
@@ -219,8 +229,58 @@ func searchHref(q, tab string, page int) string {
 	return "/search?" + v.Encode()
 }
 
-// quick is the htmx dropdown endpoint. Returns one fragment with
-// the top N results across all four types stacked vertically.
+func searchResultHeading(tab string, total any) string {
+	count, _ := total.(int64)
+	switch tab {
+	case "code":
+		return plural(count, "code result", "code results")
+	case "issues":
+		return plural(count, "issue result", "issue results")
+	case "pullrequests":
+		return plural(count, "pull request result", "pull request results")
+	case "users":
+		return plural(count, "user result", "user results")
+	default:
+		return plural(count, "repository result", "repository results")
+	}
+}
+
+func plural(count int64, one, many string) string {
+	if count == 1 {
+		return "1 " + one
+	}
+	return int64String(count) + " " + many
+}
+
+func int64String(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}
+
+func searchProTip(tab string) string {
+	switch tab {
+	case "issues", "pullrequests":
+		return "Restrict your search to the title by using the in:title qualifier."
+	case "code":
+		return "Use repo:owner/name to limit code search to a single repository."
+	case "users":
+		return "Search by username or display name to find people faster."
+	default:
+		return "Press / to activate the search input again and adjust your query."
+	}
+}
+
+// quick is the nav dropdown endpoint. Returns one fragment with
+// the top N results across the implemented quick-search types.
 func (h *Handlers) quick(w http.ResponseWriter, r *http.Request) {
 	rawQ := r.URL.Query().Get("q")
 	parsed := srch.ParseQuery(rawQ)
@@ -236,12 +296,13 @@ func (h *Handlers) quick(w http.ResponseWriter, r *http.Request) {
 	users, _, _ := srch.SearchUsers(r.Context(), deps, parsed, srch.QuickResultsLimit, 0)
 
 	data := map[string]any{
-		"Query":  rawQ,
-		"Repos":  repos,
-		"Issues": issues,
-		"Users":  users,
+		"Query":      rawQ,
+		"SearchHref": searchHref(rawQ, "repositories", 1),
+		"Repos":      repos,
+		"Issues":     issues,
+		"Users":      users,
 	}
-	if err := h.d.Render.RenderPage(w, r, "search/_quick_dropdown", data); err != nil {
+	if err := h.d.Render.RenderFragment(w, "search/_quick_dropdown", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "quick render", "error", err)
 	}
 }
