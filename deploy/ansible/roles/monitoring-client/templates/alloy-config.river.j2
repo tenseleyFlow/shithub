@@ -42,11 +42,20 @@ prometheus.scrape "node_exporter" {
 }
 
 // ── shithubd /metrics ───────────────────────────────────────────
+// enable_compression = false: shithubd's HTTP middleware auto-gzips
+// when the client advertises Accept-Encoding: gzip and correctly sets
+// Content-Encoding: gzip on the response. Alloy 1.16's Prometheus
+// scraper mis-handles that path: it parses the raw 0x1f gzip magic
+// byte as text and the scrape fails with up=0. Disabling Accept-
+// Encoding negotiation forces shithubd to return plain text. The
+// /metrics payload is small enough that wire-size cost is irrelevant.
+// Revisit once Alloy fixes the gzip-aware text parser upstream.
 prometheus.scrape "shithubd" {
   targets = [
     { __address__ = "127.0.0.1:8080", job = "shithubd", __metrics_path__ = "/metrics" },
   ]
-  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
-  scrape_interval = "15s"
-  scrape_timeout  = "10s"
+  forward_to         = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval    = "15s"
+  scrape_timeout     = "10s"
+  enable_compression = false
 }
