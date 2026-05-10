@@ -273,6 +273,160 @@
     });
     refreshPins();
   })();
+
+  (function () {
+    var copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path></svg>';
+    var checkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>';
+
+    function fallbackCopy(text) {
+      var textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-1000px";
+      textarea.style.left = "-1000px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(textarea);
+      return ok;
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(function () {
+          return true;
+        }).catch(function () {
+          return fallbackCopy(text);
+        });
+      }
+      return Promise.resolve(fallbackCopy(text));
+    }
+
+    document.querySelectorAll(".markdown-body pre").forEach(function (pre) {
+      if (pre.closest(".shithub-markdown-codeblock")) return;
+      var parent = pre.parentNode;
+      if (!parent) return;
+
+      var wrapper = document.createElement("div");
+      wrapper.className = "shithub-markdown-codeblock";
+      parent.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "shithub-markdown-code-copy";
+      button.setAttribute("aria-label", "Copy code");
+      button.setAttribute("title", "Copy");
+      button.innerHTML = copyIcon;
+      wrapper.appendChild(button);
+
+      button.addEventListener("click", function () {
+        var target = pre.querySelector("code") || pre;
+        copyText(target.textContent || "").then(function (ok) {
+          button.classList.toggle("is-copied", ok);
+          button.innerHTML = ok ? checkIcon : copyIcon;
+          button.setAttribute("title", ok ? "Copied" : "Copy failed");
+          window.setTimeout(function () {
+            button.classList.remove("is-copied");
+            button.innerHTML = copyIcon;
+            button.setAttribute("title", "Copy");
+          }, 1400);
+        });
+      });
+    });
+  })();
+
+  (function () {
+    function slugify(text) {
+      return text.toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9 _-]+/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "") || "heading";
+    }
+
+    document.querySelectorAll("[data-readme-outline]").forEach(function (root) {
+      var readme = root.closest(".shithub-readme");
+      var body = readme && readme.querySelector(".shithub-readme-body");
+      var list = root.querySelector("[data-readme-outline-list]");
+      var filter = root.querySelector("[data-readme-outline-filter]");
+      var empty = root.querySelector("[data-readme-outline-empty]");
+      var summary = root.querySelector("summary");
+      if (!body || !list) return;
+
+      var used = {};
+      body.querySelectorAll("[id]").forEach(function (element) {
+        if (element.id) used[element.id] = true;
+      });
+
+      var headings = Array.prototype.slice.call(body.querySelectorAll("h1, h2, h3, h4, h5, h6")).filter(function (heading) {
+        return (heading.textContent || "").trim() !== "";
+      });
+      if (headings.length === 0) return;
+
+      headings.forEach(function (heading) {
+        var text = (heading.textContent || "").trim().replace(/\s+/g, " ");
+        if (!heading.id) {
+          var base = slugify(text);
+          var id = base;
+          var index = 1;
+          while (used[id]) {
+            id = base + "-" + index;
+            index += 1;
+          }
+          heading.id = id;
+          used[id] = true;
+        }
+
+        var level = parseInt(heading.tagName.slice(1), 10) || 1;
+        var link = document.createElement("a");
+        link.href = "#" + heading.id;
+        link.className = "shithub-readme-outline-item is-depth-" + Math.min(level, 6);
+        link.textContent = text;
+        link.setAttribute("data-readme-outline-text", text.toLowerCase());
+        list.appendChild(link);
+      });
+
+      var links = Array.prototype.slice.call(list.querySelectorAll("a"));
+      function applyFilter() {
+        var query = filter ? filter.value.trim().toLowerCase() : "";
+        var shown = 0;
+        links.forEach(function (link) {
+          var matches = query === "" || (link.getAttribute("data-readme-outline-text") || "").indexOf(query) !== -1;
+          link.hidden = !matches;
+          if (matches) shown += 1;
+        });
+        if (empty) empty.hidden = shown !== 0;
+      }
+
+      root.hidden = false;
+      if (filter) filter.addEventListener("input", applyFilter);
+      root.addEventListener("toggle", function () {
+        if (root.open && filter) {
+          window.setTimeout(function () {
+            filter.focus();
+            filter.select();
+          }, 0);
+        }
+      });
+      list.addEventListener("click", function (event) {
+        if (event.target.closest("a")) root.open = false;
+      });
+      root.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && root.open) {
+          root.open = false;
+          if (summary) summary.focus();
+        }
+      });
+      document.addEventListener("click", function (event) {
+        if (root.open && !root.contains(event.target)) root.open = false;
+      });
+      applyFilter();
+    });
+  })();
 </script>
 </body>
 </html>
