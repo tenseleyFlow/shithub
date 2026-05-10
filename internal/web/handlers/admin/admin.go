@@ -15,6 +15,7 @@ import (
 
 	admindb "github.com/tenseleyFlow/shithub/internal/admin/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -25,6 +26,11 @@ type Deps struct {
 	Render *render.Renderer
 	Pool   *pgxpool.Pool
 	Audit  *audit.Recorder
+	// Email + Branding power the admin "Reset password" send. Required:
+	// without them userResetPassword mints a token and never delivers
+	// it (SR2 C3 — pre-fix the audit row falsely claimed "sent").
+	Email    email.Sender
+	Branding email.Branding
 	// SiteName is rendered into pages; matches Auth.SiteName from config.
 	SiteName string
 	// Version is the running shithubd version, surfaced on /admin/system.

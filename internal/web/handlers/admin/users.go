@@ -183,13 +183,32 @@ func (h *Handlers) userResetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create reset row failed", http.StatusInternalServerError)
 		return
 	}
-	// Email send is best-effort (the token is in the DB regardless;
-	// admin can resend by clicking again). When configured, this hits
-	// the same sender as the public flow.
-	_ = email.Branding{}
-	_ = tokEnc // surfaced via the email path; left as TODO when no sender wired
-	h.recordAdminAction(r, audit.ActionAdminUserPasswordReset, audit.TargetUser, user.ID,
-		map[string]any{"email": string(em.Email)})
+
+	// Send the message (best-effort: the token row is committed; the
+	// admin can resend by clicking again). The audit row records
+	// whether the send succeeded, so a stuck mailbox shows up in
+	// /admin/audit instead of being invisible (SR2 C3 fix).
+	emailSent := false
+	emailErr := ""
+	if h.d.Email != nil {
+		msg, err := email.ResetMessage(h.d.Branding, string(em.Email), tokEnc)
+		if err != nil {
+			emailErr = err.Error()
+			h.d.Logger.WarnContext(r.Context(), "admin reset: build message", "error", err)
+		} else if err := h.d.Email.Send(r.Context(), msg); err != nil {
+			emailErr = err.Error()
+			h.d.Logger.WarnContext(r.Context(), "admin reset: send", "error", err)
+		} else {
+			emailSent = true
+		}
+	} else {
+		emailErr = "no sender wired"
+	}
+	auditMeta := map[string]any{"email": string(em.Email), "email_sent": emailSent}
+	if emailErr != "" {
+		auditMeta["email_error"] = emailErr
+	}
+	h.recordAdminAction(r, audit.ActionAdminUserPasswordReset, audit.TargetUser, user.ID, auditMeta)
 	http.Redirect(w, r, "/admin/users/"+strconv.FormatInt(user.ID, 10)+"?notice=saved", http.StatusSeeOther)
 }
 
