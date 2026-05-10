@@ -117,6 +117,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"OGImage":          avatarURL,
 		"Org":              org,
 		"AvatarURL":        avatarURL,
+		"ActiveOrgNav":     "overview",
 		"WebsiteSafe":      safeWebsite(org.Website),
 		"Repos":            repoRows,
 		"PinnedRepos":      pinnedRepos,

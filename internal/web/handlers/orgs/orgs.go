@@ -208,6 +208,7 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		"CSRFToken":       middleware.CSRFTokenForRequest(r),
 		"Org":             org,
 		"AvatarURL":       "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":    "people",
 		"Members":         filteredMembers,
 		"MemberCount":     len(members),
 		"Pending":         pending,
