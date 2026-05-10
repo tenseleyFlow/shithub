@@ -75,7 +75,9 @@ conventions. Every domain sprint (S05 onwards) follows these.
   convenience but are immutable post-deploy. Corrections come as new
   migrations.
 - One change per migration. Filename: `NNNN_short_purpose.sql` where `NNNN`
-  is monotonically increasing.
+  is monotonically increasing and globally unique. `scripts/lint-migration-versions.sh`
+  enforces this in CI because goose panics on duplicate numeric versions before
+  it can run any migration.
 - Goose markers:
 
   ```

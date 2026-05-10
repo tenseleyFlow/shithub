@@ -5,7 +5,7 @@ operator validation before the real `shithubd-runner` binary lands.
 
 Prereqs:
 
-- Database migrations are current through `0052_runner_jwt_used.sql`.
+- Database migrations are current through `0053_runner_jwt_used.sql`.
 - `SHITHUB_TOTP_KEY` or `auth.totp_key_b64` is set on the web process.
 - Object storage is configured if testing artifact upload.
 - A repo has a workflow under `.shithub/workflows/*.yml` with

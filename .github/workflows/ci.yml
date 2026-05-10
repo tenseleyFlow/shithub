@@ -42,6 +42,9 @@ jobs:
         # accumulated during S00–S40 refactors (audit 2026-05-10 M1).
         run: scripts/lint-unused.sh
 
+      - name: Lint - migration versions
+        run: scripts/lint-migration-versions.sh
+
       - name: Test
         run: go test -trimpath ./...
 
