@@ -22,6 +22,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -190,6 +191,8 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	filteredMembers := filterOrgMembers(members, query)
 	var pending []orgsdb.ListPendingInvitationsForOrgRow
 	isOwner := false
 	if !viewer.IsAnonymous() {
@@ -199,13 +202,35 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
-		"Title":     org.Slug + " · people",
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Org":       org,
-		"Members":   members,
-		"Pending":   pending,
-		"IsOwner":   isOwner,
+		"Title":           org.Slug + " · people",
+		"CSRFToken":       middleware.CSRFTokenForRequest(r),
+		"Org":             org,
+		"AvatarURL":       "/avatars/" + url.PathEscape(org.Slug),
+		"Members":         filteredMembers,
+		"MemberCount":     len(members),
+		"Pending":         pending,
+		"PendingCount":    len(pending),
+		"Query":           query,
+		"HasQuery":        query != "",
+		"IsOwner":         isOwner,
+		"CanManagePeople": isOwner,
 	})
+}
+
+func filterOrgMembers(members []orgsdb.ListOrgMembersRow, query string) []orgsdb.ListOrgMembersRow {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return members
+	}
+	out := make([]orgsdb.ListOrgMembersRow, 0, len(members))
+	for _, member := range members {
+		if strings.Contains(strings.ToLower(member.Username), query) ||
+			strings.Contains(strings.ToLower(member.DisplayName), query) ||
+			strings.Contains(strings.ToLower(string(member.Role)), query) {
+			out = append(out, member)
+		}
+	}
+	return out
 }
 
 func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
