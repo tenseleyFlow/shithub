@@ -38,6 +38,7 @@ func setupProfileEnv(t *testing.T) *profileEnv {
 		"hello.html":             {Data: []byte(`{{ define "page" }}home{{ end }}`)},
 		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}}{{ end }}`)},
 		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
+		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ end }}`)},
 		"errors/404.html":        {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":        {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
@@ -88,6 +89,49 @@ func (e *profileEnv) insertUser(t *testing.T, username, display, bio string) use
 		}
 	}
 	return user
+}
+
+func (e *profileEnv) insertOrg(t *testing.T, slug, display, desc string, creator usersdb.User) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var orgID int64
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO orgs (slug, display_name, description, created_by_user_id)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id`,
+		slug, display, desc, creator.ID).Scan(&orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := e.pool.Exec(ctx,
+		`INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')`,
+		orgID, creator.ID); err != nil {
+		t.Fatalf("insert org member: %v", err)
+	}
+	return orgID
+}
+
+func (e *profileEnv) insertOrgRepo(t *testing.T, orgID int64, name, desc, visibility, language string, stars, forks int64, topics ...string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var repoID int64
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO repos (
+		    owner_org_id, name, description, visibility, default_branch,
+		    primary_language, star_count, fork_count, updated_at
+		  )
+		  VALUES ($1, $2, $3, $4, 'trunk', $5, $6, $7, now())
+		  RETURNING id`,
+		orgID, name, desc, visibility, language, stars, forks).Scan(&repoID); err != nil {
+		t.Fatalf("insert org repo: %v", err)
+	}
+	for _, topic := range topics {
+		if _, err := e.pool.Exec(ctx,
+			`INSERT INTO repo_topics (repo_id, topic) VALUES ($1, $2)`,
+			repoID, topic); err != nil {
+			t.Fatalf("insert topic: %v", err)
+		}
+	}
+	return repoID
 }
 
 func (e *profileEnv) insertRedirect(t *testing.T, oldname string, userID int64) {
@@ -188,6 +232,44 @@ func TestProfile_UsernameRedirect(t *testing.T) {
 	}
 	if resp.Header.Get("Location") != "/alice" {
 		t.Fatalf("Location = %q", resp.Header.Get("Location"))
+	}
+}
+
+func TestProfile_DispatchesOrgOverviewWithVisibleAggregates(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	creator := env.insertUser(t, "alice", "Alice", "")
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", creator)
+	env.insertOrgRepo(t, orgID, "shithub", "GitHub clone", "public", "Go", 3, 1, "git", "forge")
+	env.insertOrgRepo(t, orgID, "private-roadmap", "hidden", "private", "Rust", 2, 0, "secret")
+
+	resp, err := newNonRedirClient(t).Get(env.srv.URL + "/tenseleyflow")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	got := string(body)
+	for _, want := range []string{
+		"ORG=tenseleyflow",
+		"REPOS=1",
+		"PINS=1",
+		"MEMBERS=1",
+		"PEOPLE=1",
+		"NAMES=shithub;",
+		"LANGS=Go=1;",
+		"TOPICS=forge=1;git=1;",
+		"VIEWAS=Public",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in body: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "private-roadmap") || strings.Contains(got, "Rust") {
+		t.Fatalf("anonymous org overview leaked private repo data: %s", got)
 	}
 }
 

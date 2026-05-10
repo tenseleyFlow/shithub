@@ -1,33 +1,175 @@
 {{ define "page" -}}
 <section class="shithub-org-profile">
-  <header class="shithub-org-profile-head">
-    <h1>{{ .Org.DisplayName }}</h1>
-    <p class="shithub-meta">@{{ .Org.Slug }}</p>
-    {{ if .Org.Description }}<p>{{ .Org.Description }}</p>{{ end }}
-    <nav class="shithub-org-tabs">
-      <a href="/{{ .Org.Slug }}/people">People ({{ .MemberCount }})</a>
-      <a href="/{{ .Org.Slug }}/teams">Teams</a>
-      {{ if .IsOwner }}<a href="/{{ .Org.Slug }}/settings/profile">Settings</a>{{ end }}
-    </nav>
+  <header class="shithub-org-hero">
+    <div class="shithub-org-hero-inner">
+      <img class="shithub-org-avatar" src="{{ .AvatarURL }}" alt="" width="96" height="96">
+      <div class="shithub-org-identity">
+        <h1>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</h1>
+        <p class="shithub-org-handle">@{{ .Org.Slug }}</p>
+        {{ if .Org.Description }}<p class="shithub-org-bio">{{ .Org.Description }}</p>{{ end }}
+        <ul class="shithub-org-meta" aria-label="Organization metadata">
+          {{ if .Org.Location }}<li>{{ octicon "location" }} <span>{{ .Org.Location }}</span></li>{{ end }}
+          {{ if .WebsiteSafe }}<li>{{ octicon "link" }} <a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .Org.Website }}</a></li>{{ end }}
+        </ul>
+      </div>
+      <div class="shithub-org-hero-actions">
+        {{ if .IsOwner }}<button type="button" class="shithub-button" disabled>Settings</button>{{ else }}<button type="button" class="shithub-button" disabled>Follow</button>{{ end }}
+      </div>
+    </div>
   </header>
+
+  <nav class="shithub-org-nav" aria-label="Organization">
+    <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item is-active">{{ octicon "home" }} Overview</a>
+    <a href="#org-repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories <span class="shithub-tab-count">{{ .RepoCount }}</span></a>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
+    <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item">{{ octicon "people" }} Teams</a>
+    <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item">{{ octicon "person" }} People <span class="shithub-tab-count">{{ .MemberCount }}</span></a>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
+    <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
+    {{ if .IsOwner }}<span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "gear" }} Settings</span>{{ end }}
+  </nav>
+
   {{ if .Org.SuspendedAt.Valid }}
-  <p class="shithub-flash shithub-flash-error">This organization is suspended. Pushes are blocked; reads continue.</p>
+  <p class="shithub-flash shithub-flash-error" role="alert">This organization is suspended. Pushes are blocked; reads continue.</p>
   {{ end }}
-  <section class="shithub-org-repos">
-    <h2>Repositories</h2>
-    {{ if .Repos }}
-      <ul class="shithub-search-list">
-      {{ range .Repos }}
-        <li>
-          <a href="/{{ $.Org.Slug }}/{{ .Name }}"><strong>{{ $.Org.Slug }}/{{ .Name }}</strong></a>
-          {{ if eq (printf "%s" .Visibility) "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
-          {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
-        </li>
+
+  <div class="shithub-org-layout">
+    <main class="shithub-org-main">
+      {{ if .PinnedRepos }}
+      <section class="shithub-org-pinned" aria-labelledby="org-pinned-heading">
+        <div class="shithub-org-section-head">
+          <h2 id="org-pinned-heading">Pinned</h2>
+          {{ if .IsOwner }}<span class="shithub-muted">Customize pins</span>{{ end }}
+        </div>
+        <ol class="shithub-org-pinned-grid">
+        {{ range .PinnedRepos }}
+          <li class="shithub-org-pin-card">
+            <div class="shithub-org-pin-title">
+              <span class="shithub-org-pin-icon">{{ octicon "repo" }}</span>
+              <a href="/{{ $.Org.Slug }}/{{ .Name }}">{{ .Name }}</a>
+              {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+            </div>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ else }}<p class="shithub-muted">No description provided.</p>{{ end }}
+            <div class="shithub-org-repo-meta">
+              {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+              <span>{{ octicon "star" }} {{ .StarCount }}</span>
+              <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
+            </div>
+          </li>
+        {{ end }}
+        </ol>
+      </section>
       {{ end }}
-      </ul>
-    {{ else }}
-      <p class="shithub-empty">No repositories yet.</p>
-    {{ end }}
-  </section>
+
+      <section class="shithub-org-repos" id="org-repositories" aria-labelledby="org-repositories-heading">
+        <div class="shithub-org-repo-head">
+          <h2 id="org-repositories-heading">{{ octicon "repo" }} Repositories</h2>
+          <form action="/search" method="get" role="search" class="shithub-org-repo-search">
+            <input type="search" name="q" placeholder="Find a repository..." aria-label="Find a repository">
+            <input type="hidden" name="type" value="repos">
+          </form>
+          <div class="shithub-org-repo-actions">
+            <details class="shithub-filter-menu">
+              <summary>Type {{ octicon "triangle-down" }}</summary>
+              <div><a href="#org-repositories">All</a><a href="#org-repositories">Public</a><a href="#org-repositories">Private</a></div>
+            </details>
+            <details class="shithub-filter-menu">
+              <summary>Language {{ octicon "triangle-down" }}</summary>
+              <div><a href="#org-repositories">All</a>{{ range .TopLanguages }}<a href="#org-repositories">{{ .Name }}</a>{{ end }}</div>
+            </details>
+            <details class="shithub-filter-menu">
+              <summary>Sort {{ octicon "triangle-down" }}</summary>
+              <div><a href="#org-repositories">Last updated</a><a href="#org-repositories">Name</a><a href="#org-repositories">Stars</a></div>
+            </details>
+            {{ if .CanCreateRepo }}<a href="/new" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
+          </div>
+        </div>
+
+        {{ if .Repos }}
+        <ul class="shithub-org-repo-list">
+        {{ range .Repos }}
+          <li class="shithub-org-repo-row">
+            <div class="shithub-org-repo-row-main">
+              <h3>
+                <a href="/{{ $.Org.Slug }}/{{ .Name }}">{{ .Name }}</a>
+                {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+                {{ if .IsArchived }}<span class="shithub-pill shithub-pill-archived">Archived</span>{{ end }}
+              </h3>
+              {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+              {{ if .Topics }}
+              <div class="shithub-org-row-topics">
+                {{ range .Topics }}<a href="/search?q=topic:{{ . }}&amp;type=repos" class="shithub-topic">{{ . }}</a>{{ end }}
+              </div>
+              {{ end }}
+              <div class="shithub-org-repo-meta">
+                {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+                {{ if .LicenseKey }}<span>{{ octicon "law" }} {{ .LicenseKey }}</span>{{ end }}
+                <span>{{ octicon "star" }} {{ .StarCount }}</span>
+                <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
+                <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">Updated {{ relativeTime .UpdatedAt }}</time>
+              </div>
+            </div>
+            <span class="shithub-org-repo-spark" aria-hidden="true"></span>
+          </li>
+        {{ end }}
+        </ul>
+        {{ else }}
+        <div class="shithub-org-empty">
+          <h3>No repositories yet.</h3>
+          {{ if .CanCreateRepo }}<a href="/new" class="shithub-button shithub-button-primary">Create a repository</a>{{ end }}
+        </div>
+        {{ end }}
+      </section>
+    </main>
+
+    <aside class="shithub-org-sidebar" aria-label="Organization sidebar">
+      <section class="shithub-org-sidebox">
+        <span class="shithub-button shithub-org-viewas" aria-label="View mode">{{ octicon "eye" }} View as: {{ .ViewAs }}</span>
+        <p>You are viewing the public profile, README, and visible repositories for this organization.</p>
+      </section>
+
+      <section class="shithub-org-sidebox">
+        <h2>Discussions</h2>
+        <p>Set up discussions to engage with your community.</p>
+      </section>
+
+      <section class="shithub-org-sidebox">
+        <h2>People</h2>
+        {{ if .People }}
+        <div class="shithub-org-people-strip">
+          {{ range .People }}<a href="/{{ .Username }}" title="{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}"><img src="{{ .AvatarURL }}" alt="" width="32" height="32"></a>{{ end }}
+        </div>
+        {{ else }}
+        <p class="shithub-muted">This organization has no public members.</p>
+        {{ end }}
+        <p><strong>{{ .MemberCount }}</strong> member{{ if ne .MemberCount 1 }}s{{ end }}</p>
+      </section>
+
+      <section class="shithub-org-sidebox">
+        <h2>Top languages</h2>
+        {{ if .TopLanguages }}
+        <ul class="shithub-org-language-list">
+          {{ range .TopLanguages }}
+          <li><span><span class="shithub-language-dot" style="background-color: {{ .Color }};"></span>{{ .Name }}</span><span>{{ .Percent }}%</span></li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="shithub-muted">No languages detected.</p>
+        {{ end }}
+      </section>
+
+      <section class="shithub-org-sidebox">
+        <h2>Most used topics</h2>
+        {{ if .TopTopics }}
+        <div class="shithub-org-topic-list">
+          {{ range .TopTopics }}<a href="/search?q=topic:{{ .Name }}&amp;type=repos" class="shithub-topic">{{ .Name }}</a>{{ end }}
+        </div>
+        {{ else }}
+        <p class="shithub-muted">No topics yet.</p>
+        {{ end }}
+      </section>
+    </aside>
+  </div>
 </section>
 {{- end }}
