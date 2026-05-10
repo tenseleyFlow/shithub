@@ -41,8 +41,10 @@ if [ -z "$matches" ]; then
   exit 0
 fi
 
-# Strip allowlisted files.
-for allowed in "${ALLOWED_FILES[@]}"; do
+# Strip allowlisted files. ${arr[@]:-} guards against bash 3.2's
+# unbound-empty-array behavior under set -u (macOS default shell).
+for allowed in "${ALLOWED_FILES[@]:-}"; do
+  [ -z "$allowed" ] && continue
   matches=$(echo "$matches" | grep -v "^${allowed}:" || true)
 done
 

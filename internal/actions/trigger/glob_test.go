@@ -45,7 +45,7 @@ func TestGlobMatch_DoubleStar(t *testing.T) {
 		s       string
 		want    bool
 	}{
-		{"feature/**", "feature", true},          // zero trailing segments
+		{"feature/**", "feature", true}, // zero trailing segments
 		{"feature/**", "feature/foo", true},
 		{"feature/**", "feature/foo/bar", true},
 		{"feature/**", "main", false},
@@ -53,7 +53,7 @@ func TestGlobMatch_DoubleStar(t *testing.T) {
 		{"**/*.go", "pkg/sub/x.go", true},
 		{"**/*.go", "pkg/sub/x.txt", false},
 		{"docs/**/*.md", "docs/internal/x.md", true},
-		{"docs/**/*.md", "docs/x.md", true},      // ** matches zero segments
+		{"docs/**/*.md", "docs/x.md", true}, // ** matches zero segments
 		{"docs/**/*.md", "src/x.md", false},
 		{"**", "literally/any/path", true},
 	}

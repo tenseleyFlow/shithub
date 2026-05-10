@@ -24,10 +24,10 @@ var globCache sync.Map
 //   - `*`           matches any sequence of non-`/` characters.
 //   - `**`          matches any sequence including `/`.
 //   - `/**` at end  matches zero or more trailing segments
-//                   (so `feature/**` matches both `feature` and
-//                   `feature/foo/bar`).
+//     (so `feature/**` matches both `feature` and
+//     `feature/foo/bar`).
 //   - `!pattern`    excludes. Evaluated in declaration order;
-//                   last-match wins. (Mirrors minimatch.)
+//     last-match wins. (Mirrors minimatch.)
 //
 // Empty pattern list returns true — "no filter" means "match all" per
 // GHA convention.

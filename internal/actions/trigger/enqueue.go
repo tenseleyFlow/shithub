@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -363,11 +362,4 @@ func marshalPermissions(p workflow.Permissions) ([]byte, error) {
 		out["per"] = per
 	}
 	return json.Marshal(out)
-}
-
-// startedAtNow is a small helper used by tests + future re-run callers
-// to set started_at on insert (S41c+ scenarios). Not currently used by
-// Enqueue — runs start in queued state.
-var _ = func() pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: time.Now(), Valid: true}
 }

@@ -42,7 +42,8 @@ type dispatchRequest struct {
 const dispatchMaxBody = 64 * 1024
 
 // repoActionsDispatch implements
-//   POST /{owner}/{repo}/actions/workflows/{file}/dispatches
+//
+//	POST /{owner}/{repo}/actions/workflows/{file}/dispatches
 //
 // 204 on success; the trigger pipeline runs synchronously here
 // because the workflow file is already known (no discovery needed),

@@ -12,17 +12,17 @@ import (
 // The four event kinds:
 //
 //   - push              → on.push present, branch/tag classification
-//                         passes the appropriate sub-filter, paths
-//                         filter (when set) hits at least one
-//                         changed path
+//     passes the appropriate sub-filter, paths
+//     filter (when set) hits at least one
+//     changed path
 //   - pull_request      → on.pull_request present, action is in the
-//                         configured types: list (default ["opened",
-//                         "synchronize", "reopened"]), base branch
-//                         passes branches: filter, paths filter hits
+//     configured types: list (default ["opened",
+//     "synchronize", "reopened"]), base branch
+//     passes branches: filter, paths filter hits
 //   - schedule          → on.schedule has any entry whose cron string
-//                         equals event.Cron (the sweep tells us which
-//                         cron fired; we just verify the workflow
-//                         declared it)
+//     equals event.Cron (the sweep tells us which
+//     cron fired; we just verify the workflow
+//     declared it)
 //   - workflow_dispatch → on.workflow_dispatch present
 //
 // Anything else returns false silently — strict-allowlist v1 posture.
