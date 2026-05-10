@@ -127,14 +127,16 @@ func (h *Handlers) stargazersList(w http.ResponseWriter, r *http.Request) {
 	}
 	count, _ := q.CountStargazersForRepo(r.Context(), h.d.Pool, row.ID)
 	common := map[string]any{
-		"Title":      "Stargazers · " + row.Name,
-		"Owner":      owner,
-		"Repo":       row,
-		"Stargazers": rows,
-		"Total":      count,
-		"Page":       page,
-		"HasNext":    int64(page*socialPageSize) < count,
-		"HasPrev":    page > 1,
+		"Title":       "Stargazers · " + row.Name,
+		"Owner":       owner,
+		"Repo":        row,
+		"Stargazers":  rows,
+		"Total":       count,
+		"Page":        page,
+		"HasNext":     int64(page*socialPageSize) < count,
+		"HasPrev":     page > 1,
+		"RepoCounts":  h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings": h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 	}
 	if err := h.d.Render.RenderPage(w, r, "repo/stargazers", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "stargazers render", "error", err)
@@ -162,14 +164,16 @@ func (h *Handlers) watchersList(w http.ResponseWriter, r *http.Request) {
 	}
 	count, _ := q.CountWatchersForRepo(r.Context(), h.d.Pool, row.ID)
 	common := map[string]any{
-		"Title":    "Watchers · " + row.Name,
-		"Owner":    owner,
-		"Repo":     row,
-		"Watchers": rows,
-		"Total":    count,
-		"Page":     page,
-		"HasNext":  int64(page*socialPageSize) < count,
-		"HasPrev":  page > 1,
+		"Title":       "Watchers · " + row.Name,
+		"Owner":       owner,
+		"Repo":        row,
+		"Watchers":    rows,
+		"Total":       count,
+		"Page":        page,
+		"HasNext":     int64(page*socialPageSize) < count,
+		"HasPrev":     page > 1,
+		"RepoCounts":  h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings": h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 	}
 	if err := h.d.Render.RenderPage(w, r, "repo/watchers", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "watchers render", "error", err)

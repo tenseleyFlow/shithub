@@ -1,27 +1,33 @@
 {{ define "page" -}}
-<section class="shithub-social">
-  <header class="shithub-code-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Watchers
-    </h1>
-    <p class="shithub-meta">{{ .Total }} {{ if eq .Total 1 }}watcher{{ else }}watchers{{ end }}</p>
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <div class="shithub-social">
+  <header class="shithub-social-subhead">
+    <h1>Watchers</h1>
   </header>
 
   {{ if .Watchers }}
   <ul class="shithub-social-list">
     {{ range .Watchers }}
     <li>
-      <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
-      <small>@{{ .Username }}</small>
-      <span class="shithub-pill">{{ .Level }}</span>
-      <small><time datetime="{{ .UpdatedAt.Time.Format "2006-01-02T15:04:05Z" }}">since {{ relativeTime .UpdatedAt.Time }}</time></small>
+      <a href="/{{ .Username }}" class="shithub-social-avatar"><img src="/avatars/{{ .Username }}" alt="" width="40" height="40"></a>
+      <div class="shithub-social-person">
+        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
+        <span>@{{ .Username }}</span>
+      </div>
+      <div class="shithub-social-meta">
+        <span class="shithub-pill">{{ .Level }}</span>
+        <time datetime="{{ .UpdatedAt.Time.Format "2006-01-02T15:04:05Z" }}">Watching since {{ relativeTime .UpdatedAt.Time }}</time>
+      </div>
     </li>
     {{ end }}
   </ul>
   {{ else }}
-  <p class="shithub-empty">No watchers yet.</p>
+  <div class="shithub-social-blank">
+    {{ octicon "eye" }}
+    <h2>No one's watching this repository yet.</h2>
+    <p>You could be the first.</p>
+  </div>
   {{ end }}
 
   {{ if or .HasPrev .HasNext }}
@@ -30,5 +36,6 @@
     {{ if .HasNext }}<a href="?page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
   </nav>
   {{ end }}
+  </div>
 </section>
 {{- end }}
