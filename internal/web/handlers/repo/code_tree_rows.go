@@ -19,13 +19,30 @@ type codeTreeEntryRow struct {
 }
 
 func (h *Handlers) codeTreeEntryRows(ctx context.Context, cc *codeContext, entries []repogit.TreeEntry) []codeTreeEntryRow {
+	submodules := map[string]repogit.Submodule{}
+	if hasSubmoduleEntries(entries) {
+		var err error
+		submodules, err = repogit.Submodules(ctx, cc.gitDir, cc.ref)
+		if err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "code: submodules", "error", err)
+			submodules = map[string]repogit.Submodule{}
+		}
+	}
+
 	rows := make([]codeTreeEntryRow, 0, len(entries))
 	for _, e := range entries {
 		fullPath := joinPath(cc.subpath, e.Name)
+		entryURL := treeEntryURL(cc.owner, cc.row.Name, cc.ref, e.Kind, fullPath)
+		if e.Kind == repogit.EntrySubmod {
+			entryURL = ""
+			if sm, ok := submodules[fullPath]; ok {
+				entryURL = h.submoduleTreeURL(cc, sm.URL, e.OID)
+			}
+		}
 		row := codeTreeEntryRow{
 			Entry:    e,
 			FullPath: fullPath,
-			URL:      treeEntryURL(cc.owner, cc.row.Name, cc.ref, e.Kind, fullPath),
+			URL:      entryURL,
 		}
 		if commits, err := repogit.Log(ctx, cc.gitDir, repogit.LogOptions{
 			Ref:      cc.ref,
@@ -40,6 +57,15 @@ func (h *Handlers) codeTreeEntryRows(ctx context.Context, cc *codeContext, entri
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func hasSubmoduleEntries(entries []repogit.TreeEntry) bool {
+	for _, e := range entries {
+		if e.Kind == repogit.EntrySubmod {
+			return true
+		}
+	}
+	return false
 }
 
 func treeEntryURL(owner, repoName, ref string, kind repogit.TreeEntryKind, fullPath string) string {

@@ -64,6 +64,12 @@ backslashes — defense in depth on top of git's own validation.
 `TreeEntry` values (`tree | blob | commit | symlink`). Sort is
 directories first, then files alphabetically.
 
+`commit` entries are git submodule pointers. When `.gitmodules` exists
+on the rendered ref, the Code tab parses it once, matches entries by
+submodule path, and links GitHub or configured shithub clone remotes to
+the local `/{owner}/{repo}/tree/{gitlink-oid}` route. Unknown, external,
+or malformed remotes stay as plain `name @ shortsha` rows.
+
 The S17 ship excludes the htmx-driven "last commit per entry" column
 that the spec describes — an extra round-trip we can add later without
 a schema change. The current page renders the listing immediately.

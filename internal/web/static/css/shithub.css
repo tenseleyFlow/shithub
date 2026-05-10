@@ -4137,7 +4137,8 @@ button.shithub-repo-action {
   text-align: right;
   white-space: nowrap;
 }
-.shithub-tree-symlink, .shithub-tree-submodule { color: var(--fg-muted); font-style: italic; font-size: 0.8rem; }
+.shithub-tree-symlink { color: var(--fg-muted); font-style: italic; font-size: 0.8rem; }
+.shithub-tree-submodule { color: var(--fg-muted); font-size: 0.9em; font-weight: 400; }
 @media (max-width: 760px) {
   .shithub-code-actions {
     flex: 1 1 100%;
