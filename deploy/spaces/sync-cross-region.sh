@@ -8,6 +8,10 @@
 #
 # rclone copy is incremental (size + mtime), so this is cheap on
 # steady-state and only moves new objects.
+#
+# --s3-no-check-bucket: skip the GetBucketLocation pre-check that
+# requires a permission our scoped-RW Spaces keys don't grant. The
+# actual copy works fine on a key with bucket-level readwrite.
 
 set -euo pipefail
 
@@ -24,11 +28,11 @@ ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 {
   echo "[$(ts)] sync start"
 
-  rclone --config /root/.config/rclone/rclone.conf \
+  rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
          copy --transfers 8 --checkers 16 --fast-list \
          "$PRIMARY" "$DR"
 
-  rclone --config /root/.config/rclone/rclone.conf \
+  rclone --config /root/.config/rclone/rclone.conf --s3-no-check-bucket \
          copy --transfers 8 --checkers 16 --fast-list \
          "$WAL_PRIMARY" "$WAL_DR"
 
