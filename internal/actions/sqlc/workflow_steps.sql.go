@@ -16,7 +16,7 @@ SELECT id, job_id, step_index, step_id, step_name, if_expr,
        run_command, uses_alias, working_directory, step_env,
        continue_on_error, status, conclusion, log_object_key,
        log_byte_count, started_at, completed_at, version,
-       created_at, updated_at
+       created_at, updated_at, step_with
 FROM workflow_steps
 WHERE id = $1
 `
@@ -45,6 +45,7 @@ func (q *Queries) GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (W
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StepWith,
 	)
 	return i, err
 }
@@ -53,15 +54,16 @@ const insertWorkflowStep = `-- name: InsertWorkflowStep :one
 
 INSERT INTO workflow_steps (
     job_id, step_index, step_id, step_name, if_expr,
-    run_command, uses_alias, working_directory, step_env, continue_on_error
+    run_command, uses_alias, working_directory, step_env, continue_on_error,
+    step_with
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
 RETURNING id, job_id, step_index, step_id, step_name, if_expr,
           run_command, uses_alias, working_directory, step_env,
           continue_on_error, status, conclusion, log_object_key,
           log_byte_count, started_at, completed_at, version,
-          created_at, updated_at
+          created_at, updated_at, step_with
 `
 
 type InsertWorkflowStepParams struct {
@@ -75,6 +77,7 @@ type InsertWorkflowStepParams struct {
 	WorkingDirectory string
 	StepEnv          []byte
 	ContinueOnError  bool
+	StepWith         []byte
 }
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -90,6 +93,7 @@ func (q *Queries) InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWor
 		arg.WorkingDirectory,
 		arg.StepEnv,
 		arg.ContinueOnError,
+		arg.StepWith,
 	)
 	var i WorkflowStep
 	err := row.Scan(
@@ -113,6 +117,7 @@ func (q *Queries) InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWor
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StepWith,
 	)
 	return i, err
 }
