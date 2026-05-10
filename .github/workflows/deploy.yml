@@ -46,12 +46,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build shithubd for linux/amd64
+      # Delegate to `make build` so the version-injection ldflags
+      # (Version/Commit/BuiltAt → internal/version) are the same set
+      # the local Makefile uses. The previous inline `go build` here
+      # passed only `-s -w`, which left the homepage stamps showing
+      # "dev (unknown, built unknown)" on every deployed binary.
+      # The runner is linux/amd64 so no cross-compile is needed.
+      # Output goes to ./shithubd (overriding BIN) so the next step's
+      # `< shithubd` redirect picks it up.
+      - name: Build shithubd
         env:
           CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: amd64
-        run: go build -trimpath -ldflags "-s -w" -o shithubd ./cmd/shithubd
+        run: make build BIN=shithubd
 
       - name: Configure SSH
         env:
