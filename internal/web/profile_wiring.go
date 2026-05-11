@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	profileh "github.com/tenseleyFlow/shithub/internal/web/handlers/profile"
@@ -61,5 +63,7 @@ func buildProfileHandlers(
 		Pool:        pool,
 		RepoFS:      repoFS,
 		ObjectStore: objectStore,
+		Limiter:     throttle.NewLimiter(),
+		Audit:       audit.NewRecorder(),
 	})
 }

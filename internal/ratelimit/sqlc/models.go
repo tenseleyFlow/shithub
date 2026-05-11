@@ -1095,6 +1095,91 @@ func (ns NullTransferStatus) Value() (driver.Value, error) {
 	return string(ns.TransferStatus), nil
 }
 
+type TrendingKind string
+
+const (
+	TrendingKindRepos TrendingKind = "repos"
+	TrendingKindUsers TrendingKind = "users"
+)
+
+func (e *TrendingKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TrendingKind(s)
+	case string:
+		*e = TrendingKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TrendingKind: %T", src)
+	}
+	return nil
+}
+
+type NullTrendingKind struct {
+	TrendingKind TrendingKind
+	Valid        bool // Valid is true if TrendingKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTrendingKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.TrendingKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TrendingKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTrendingKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TrendingKind), nil
+}
+
+type TrendingScope string
+
+const (
+	TrendingScopeDay   TrendingScope = "day"
+	TrendingScopeWeek  TrendingScope = "week"
+	TrendingScopeMonth TrendingScope = "month"
+)
+
+func (e *TrendingScope) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TrendingScope(s)
+	case string:
+		*e = TrendingScope(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TrendingScope: %T", src)
+	}
+	return nil
+}
+
+type NullTrendingScope struct {
+	TrendingScope TrendingScope
+	Valid         bool // Valid is true if TrendingScope is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTrendingScope) Scan(value interface{}) error {
+	if value == nil {
+		ns.TrendingScope, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TrendingScope.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTrendingScope) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TrendingScope), nil
+}
+
 type WatchLevel string
 
 const (
@@ -1605,6 +1690,14 @@ type EmailVerification struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Follow struct {
+	ID             int64
+	FollowerUserID int64
+	FolloweeUserID pgtype.Int8
+	FolloweeOrgID  pgtype.Int8
+	FollowedAt     pgtype.Timestamptz
+}
+
 type Issue struct {
 	ID                int64
 	RepoID            int64
@@ -2096,6 +2189,14 @@ type TransactionalEmailLog struct {
 	ErrorSummary    pgtype.Text
 	SentAt          pgtype.Timestamptz
 	DeliveredAt     pgtype.Timestamptz
+}
+
+type TrendingSnapshot struct {
+	ID         int64
+	Scope      TrendingScope
+	Kind       TrendingKind
+	CapturedAt pgtype.Timestamptz
+	Payload    []byte
 }
 
 type User struct {

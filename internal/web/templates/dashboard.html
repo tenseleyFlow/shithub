@@ -1,0 +1,80 @@
+{{ define "page" -}}
+<section class="shithub-dashboard-page">
+  <div class="shithub-dashboard-shell">
+    <aside class="shithub-dashboard-left" aria-label="Your repositories">
+      <div class="shithub-dashboard-sidehead">
+        <h2>Top repositories</h2>
+        <a href="/new" class="shithub-button shithub-button-primary shithub-button-small">{{ octicon "repo" }} New</a>
+      </div>
+      <label class="sr-only" for="dashboard-repo-filter">Find a repository</label>
+      <input id="dashboard-repo-filter" class="shithub-dashboard-filter" type="search" placeholder="Find a repository..." autocomplete="off">
+      {{ if .TopRepos }}
+      <ol class="shithub-dashboard-repo-list">
+        {{ range .TopRepos }}
+        <li>
+          <a href="/{{ $.Viewer.Username }}/{{ .Name }}"><img src="/avatars/{{ $.Viewer.Username }}" alt="" width="18" height="18"> {{ $.Viewer.Username }}/{{ .Name }}</a>
+        </li>
+        {{ end }}
+      </ol>
+      {{ else }}
+      <p class="shithub-dashboard-empty">No repositories yet.</p>
+      {{ end }}
+    </aside>
+
+    <main class="shithub-dashboard-main">
+      <h1>Home</h1>
+      <div class="shithub-feed-toolbar">
+        <h2>Feed</h2>
+        <a class="shithub-button shithub-button-small" href="/explore">{{ octicon "pulse" }} Explore</a>
+      </div>
+      {{ if .Feed }}
+      <ol class="shithub-feed-list">
+        {{ range .Feed }}{{ template "feed-row" . }}{{ end }}
+      </ol>
+      {{ else }}
+      <div class="shithub-feed-empty">
+        <h2>{{ octicon "people" }} Follow people and organizations to build your feed</h2>
+        <p>Stars, forks, pushes, issues, pull requests, and follows from your network will appear here.</p>
+        <a href="/explore" class="shithub-button">Explore activity</a>
+      </div>
+      {{ end }}
+      {{ if .FeedHasNext }}
+      <nav class="shithub-feed-pagination" aria-label="Feed pagination">
+        <a class="shithub-button" href="{{ .FeedNextURL }}">More</a>
+      </nav>
+      {{ end }}
+    </main>
+
+    <aside class="shithub-dashboard-right" aria-label="Discover">
+      <section class="shithub-side-panel">
+        <h2>{{ octicon "pulse" }} Trending repositories</h2>
+        {{ if .TrendingRepos }}
+        <ol class="shithub-trending-mini-list">
+          {{ range .TrendingRepos }}
+          <li>
+            <a href="/{{ .Owner }}/{{ .Name }}">{{ .Owner }}/{{ .Name }}</a>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+            <span>{{ octicon "star" }} {{ .StarCount }}</span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}<p class="shithub-dashboard-empty">No public activity yet.</p>{{ end }}
+      </section>
+
+      <section class="shithub-side-panel">
+        <h2>{{ octicon "people" }} Trending developers</h2>
+        {{ if .TrendingUsers }}
+        <ol class="shithub-trending-user-list">
+          {{ range .TrendingUsers }}
+          <li>
+            <a href="/{{ .Username }}"><img src="/avatars/{{ .Username }}" alt="" width="24" height="24"> {{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+            <span>@{{ .Username }}</span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}<p class="shithub-dashboard-empty">No developers trending yet.</p>{{ end }}
+      </section>
+    </aside>
+  </div>
+</section>
+{{- end }}

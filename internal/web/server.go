@@ -145,6 +145,7 @@ func Run(ctx context.Context, opts Options) error {
 		StaticFS:     StaticFS(),
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
+		Pool:         pool,
 		CookieSecure: cfg.Session.Secure,
 	}
 	if pool != nil {

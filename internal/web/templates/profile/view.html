@@ -21,15 +21,21 @@
 
       {{ if .IsSelf }}
         <a href="/settings/profile" class="shithub-button shithub-button-block">Edit profile</a>
+      {{ else if .Viewer.ID }}
+        <form method="post" action="{{ if .IsFollowing }}{{ .UnfollowAction }}{{ else }}{{ .FollowAction }}{{ end }}" class="shithub-follow-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
+          <button type="submit" class="shithub-button shithub-button-block">{{ if .IsFollowing }}Unfollow{{ else }}Follow{{ end }}</button>
+        </form>
       {{ else }}
-        <button type="button" class="shithub-button shithub-button-block" disabled>Follow</button>
+        <a href="/login?next={{ urlquery .ReturnTo }}" class="shithub-button shithub-button-block">Follow</a>
       {{ end }}
 
       <p class="shithub-profile-follow-counts">
         {{ octicon "people" }}
-        <span><strong>0</strong> followers</span>
+        <a href="/{{ .User.Username }}?tab=followers"><strong>{{ .FollowersCount }}</strong> followers</a>
         <span class="shithub-profile-dot" aria-hidden="true">·</span>
-        <span><strong>0</strong> following</span>
+        <a href="/{{ .User.Username }}?tab=following"><strong>{{ .FollowingCount }}</strong> following</a>
       </p>
 
       <ul class="shithub-profile-vcard">

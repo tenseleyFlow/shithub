@@ -27,7 +27,7 @@ The core forge loop works end-to-end against the codebase you're reading:
 - **Git** — bare repos on disk; HTTPS smart-HTTP push/pull (SSH service is planned but not shipped yet); pre/post-receive hook integration for size accounting and event emission.
 - **Code browsing** — tree, blob (chroma syntax highlighting with light/dark themes), raw, blame, commit history, individual commit views, branch/tag listings, compare views, file finder.
 - **Issues & PRs** — full CRUD on issues + comments + labels + milestones + assignees; pull requests with diff rendering, file-by-file review, line comments, reviews (approve/request-changes/comment), required-reviewer enforcement, status-check gates, three merge methods (merge / squash / rebase), conflict detection.
-- **Social** — stars, watches with notification level, forks (clone-on-create), `/explore`, stargazer/watcher lists.
+- **Social** — stars, watches with notification level, forks (clone-on-create), follows for users/orgs, Home/Explore feeds, trending repositories/developers, stargazer/watcher/follower lists.
 - **Search** — code search (path + content, tantivy-equivalent indexing in Postgres), repo search, user search, quick-search.
 - **Notifications** — per-user inbox, email fan-out, watch-level routing, one-click HMAC-signed unsubscribe links, auto-subscribe on participation.
 - **Organizations & teams** — create, member roles (member/owner), invitations, one-level team nesting, team grants on repos with max-of-sources policy aggregation.
@@ -42,7 +42,6 @@ Pulled directly from the sprint plan we're working through:
 - **Actions / CI** — there is no CI runner. Status checks are wired into PR gates so a future runner can publish into them.
 - **Packages, Pages, Projects, Releases, Gists** — none of these surfaces exist yet.
 - **GraphQL API** — only the internal HTTP surface exists. There is no public REST or GraphQL API.
-- **Activity feed** — domain events are recorded but the activity-feed view isn't built.
 - **Admin / site-admin surface** — there is no `/admin` UI. Operator tooling is via `shithubd` subcommands and SQL.
 - **Visual polish** — most pages render correctly but do not look like GitHub yet. Spacing, typography, header/footer chrome, color tokens, octicon coverage, empty-state illustrations, focus states — all still drifting from Primer. Closing this gap is ongoing; expect rough edges page-to-page.
 - **Mobile / responsive** — the current CSS is desktop-first. Small viewports work but aren't tuned.

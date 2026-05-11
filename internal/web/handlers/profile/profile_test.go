@@ -59,14 +59,15 @@ func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repo
 	pool := dbtest.NewTestDB(t)
 
 	tmplFS := fstest.MapFS{
-		"_layout.html":           {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
-		"hello.html":             {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
-		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
-		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
-		"orgs/repositories.html": {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
-		"errors/404.html":        {Data: []byte(`{{ define "page" }}404{{ end }}`)},
-		"errors/500.html":        {Data: []byte(`{{ define "page" }}500{{ end }}`)},
+		"_layout.html":             {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
+		"hello.html":               {Data: []byte(`{{ define "page" }}home{{ end }}`)},
+		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"profile/follows_tab.html": {Data: []byte(`{{ define "page" }}FOLLOWTAB={{.ActiveTab}} USER={{.User.Username}} TOTAL={{len .Items}} ITEMS={{range .Items}}{{.Kind}}:{{.Username}};{{end}}{{ end }}`)},
+		"profile/suspended.html":   {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
+		"orgs/profile.html":        {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowerCount}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"orgs/repositories.html":   {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
+		"errors/404.html":          {Data: []byte(`{{ define "page" }}404{{ end }}`)},
+		"errors/500.html":          {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
 	rr, err := render.New(tmplFS, render.Options{})
 	if err != nil {
@@ -315,6 +316,28 @@ func (e *profileEnv) postPins(t *testing.T, path string, user usersdb.User, repo
 	return resp
 }
 
+func (e *profileEnv) postFormAs(t *testing.T, path string, user usersdb.User, form url.Values) *http.Response {
+	t.Helper()
+	if form == nil {
+		form = url.Values{}
+	}
+	req, err := http.NewRequest(http.MethodPost, e.srv.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if user.ID != 0 {
+		req.Header.Set("X-Test-User-ID", strconv.FormatInt(user.ID, 10))
+		req.Header.Set("X-Test-Username", user.Username)
+	}
+	resp, err := newNonRedirClient(t).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
 // =============================== tests ==================================
 
 func TestProfile_RendersForExistingUser(t *testing.T) {
@@ -334,6 +357,93 @@ func TestProfile_RendersForExistingUser(t *testing.T) {
 	for _, want := range []string{"USER=alice", "DISPLAY=Alice Anderson", "BIO=Hi."} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+}
+
+func TestProfile_FollowUserRoutesUpdateCountsAndState(t *testing.T) {
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+	bob := env.insertUser(t, "bob", "Bob", "")
+
+	resp := env.postFormAs(t, "/alice/follow", bob, url.Values{"return_to": []string{"/alice?tab=followers"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("follow status %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/alice?tab=followers" {
+		t.Fatalf("follow redirect = %q", loc)
+	}
+	var count int
+	if err := env.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM follows WHERE follower_user_id = $1 AND followee_user_id = $2`,
+		bob.ID, alice.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count follow: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("follow count = %d, want 1", count)
+	}
+	body := env.getAs(t, "/alice", bob)
+	for _, want := range []string{"FOLLOWING=1", "FOLLOWERS=1", "FOLLOWINGCOUNT=0"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in body: %s", want, body)
+		}
+	}
+	followers := env.getAs(t, "/alice?tab=followers", alice)
+	if !strings.Contains(followers, "ITEMS=user:bob;") {
+		t.Fatalf("followers tab missing bob: %s", followers)
+	}
+
+	resp = env.postFormAs(t, "/alice/unfollow", bob, nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("unfollow status %d, want 303", resp.StatusCode)
+	}
+	if err := env.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM follows WHERE follower_user_id = $1 AND followee_user_id = $2`,
+		bob.ID, alice.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count unfollow: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("follow count after unfollow = %d, want 0", count)
+	}
+}
+
+func TestProfile_FollowSelfRejected(t *testing.T) {
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+
+	resp := env.postFormAs(t, "/alice/follow", alice, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("follow self status %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestProfile_FollowOrgRoutesUpdateCountsAndState(t *testing.T) {
+	env := setupProfileEnv(t)
+	owner := env.insertUser(t, "owner", "Owner", "")
+	bob := env.insertUser(t, "bob", "Bob", "")
+	env.insertOrg(t, "acme", "Acme", "", owner)
+
+	resp := env.postFormAs(t, "/acme/follow", bob, nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("follow org status %d, want 303", resp.StatusCode)
+	}
+	var count int
+	if err := env.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM follows f JOIN orgs o ON o.id = f.followee_org_id
+		 WHERE f.follower_user_id = $1 AND o.slug = 'acme'`,
+		bob.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count org follow: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("org follow count = %d, want 1", count)
+	}
+	body := env.getAs(t, "/acme", bob)
+	for _, want := range []string{"ORG=acme", "FOLLOWING=1", "FOLLOWERS=1"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in org body: %s", want, body)
 		}
 	}
 }
