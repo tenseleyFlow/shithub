@@ -151,6 +151,7 @@ func insertFinalizeFixture(t *testing.T, pool *pgxpool.Pool) (actionsdb.Workflow
 		JobKey:         "build",
 		JobName:        "build",
 		RunsOn:         "ubuntu-latest",
+		NeedsJobs:      []string{},
 		TimeoutMinutes: 360,
 		Permissions:    []byte(`{}`),
 		JobEnv:         []byte(`{}`),
