@@ -159,19 +159,31 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 
 	avatarURL := fmt.Sprintf("/avatars/%s", url.PathEscape(user.Username))
 	tabs := h.tabCounts(r.Context(), user.ID, viewer)
+	visibleRepos := h.visibleUserRepos(r.Context(), user.ID, viewer)
 	pinnedRepos, pinCandidates := h.userPinData(r.Context(), user)
+	readme, hasReadme := h.profileReadme(r.Context(), user, viewer)
+	displayName := user.DisplayName
+	if displayName == "" {
+		displayName = user.Username
+	}
 	data := map[string]any{
-		"Title":            user.DisplayName,
+		"Title":            displayName,
 		"User":             user,
+		"DisplayName":      displayName,
 		"IsSelf":           isSelf,
 		"AvatarURL":        avatarURL,
-		"OGTitle":          user.DisplayName + " (@" + user.Username + ")",
+		"OGTitle":          displayName + " (@" + user.Username + ")",
 		"OGDescription":    ogDescription(user),
 		"OGImage":          avatarURL,
 		"JoinedFormatted":  user.CreatedAt.Time.Format("January 2, 2006"),
 		"WebsiteSafe":      safeWebsite(user.Website),
 		"Tabs":             tabs,
 		"ActiveTab":        "overview",
+		"VisibleRepoCount": len(visibleRepos),
+		"Orgs":             h.profileOrganizations(r.Context(), user.ID),
+		"ProfileReadme":    readme,
+		"HasProfileReadme": hasReadme,
+		"Contributions":    h.contributionCalendar(r.Context(), user, visibleRepos),
 		"PinnedRepos":      pinnedRepos,
 		"PinCandidates":    pinCandidates,
 		"PinsRemaining":    profilePinsRemaining(pinCandidates),
