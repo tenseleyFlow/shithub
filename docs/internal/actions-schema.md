@@ -294,9 +294,12 @@ load-bearing for S41e's threat model.
 Runner log chunks pass through `internal/runner/scrub` before they are
 posted to the API. It masks exact secret values and preserves enough
 tail bytes between chunks to catch a secret split across chunk
-boundaries. S41e follow-up work wires resolved workflow secrets into
-the runner/API mask set and adds server-side defense in depth before
-persisting chunks.
+boundaries. S41e wires resolved workflow secrets into the runner claim
+payload and mask set, then applies the same exact-value scrub again in
+the runner API before persisting chunks. The server path also carries a
+possible secret-prefix tail from the prior persisted chunk, so a runner
+that bypasses client-side scrubbing cannot leak a secret by splitting
+it across adjacent log POSTs.
 
 ## `shithub.event` payload schema (v1)
 

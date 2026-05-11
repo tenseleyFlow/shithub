@@ -59,6 +59,7 @@ shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
 shithub_runner_container_user=65534:65534
 shithub_runner_pids_limit=512
+shithub_runner_dns_servers=172.30.0.1
 ```
 
 The role writes non-secret config to
@@ -66,6 +67,12 @@ The role writes non-secret config to
 `/etc/shithubd-runner/runner.env` with mode `0600`.
 Keep `shithub_runner_workspace_root` under `/var/lib/shithubd-runner`;
 the systemd unit grants runner writes only to that subtree.
+
+`shithub_runner_network_allowlist` defaults to GitHub source/archive
+hosts plus Docker Hub registry hosts. Override it when a runner must
+fetch from an internal package registry. `shithub_runner_dns_servers`
+is empty by default; set it only after a DNS allowlist resolver exists
+on the runner network.
 
 ## Deploy
 
@@ -82,6 +89,8 @@ The role:
 - creates the `shithub-runner` system user and joins it to `docker`
 - uploads `/usr/local/bin/shithubd-runner`
 - renders `/etc/shithubd-runner/config.toml` and `runner.env`
+- renders `/etc/shithubd-runner/dnsmasq.conf` from the network
+  allowlist for operators who run a local DNS allowlist resolver
 - installs the pinned seccomp profile at
   `/etc/shithubd-runner/seccomp.json`
 - installs `deploy/systemd/shithubd-runner.service`
@@ -142,6 +151,28 @@ Expected state:
 - `mount` fails because the container does not have `CAP_SYS_ADMIN`
 - step logs and systemd journal include the configured image, network,
   CPU/memory limits, PID limit, container user, and seccomp profile
+
+## Network Allowlist
+
+The runner config carries two separate network controls:
+
+- `runner.network_allowlist`: the host patterns allowed by the
+  operator's DNS allowlist resolver.
+- `engine.dns_servers`: DNS servers passed to each step container with
+  Docker `--dns`.
+
+For a single-host deployment, create a dedicated Docker bridge for
+Actions jobs, run dnsmasq bound to that bridge, render
+`/etc/shithubd-runner/dnsmasq.conf`, and set
+`shithub_runner_dns_servers` to the bridge address of that resolver.
+The rendered dnsmasq config has no default upstream resolver; names not
+matching the allowlist fail DNS resolution.
+
+DNS filtering is not a complete egress boundary by itself. Block
+direct-IP egress from the Actions bridge with host firewall rules, and
+allow only DNS to the resolver plus established outbound connections
+opened by that resolver. Keep the runner on a separate host from web
+and database services.
 
 ## Rollback
 
