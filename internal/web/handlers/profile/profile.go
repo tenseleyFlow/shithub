@@ -183,7 +183,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"Orgs":             h.profileOrganizations(r.Context(), user.ID),
 		"ProfileReadme":    readme,
 		"HasProfileReadme": hasReadme,
-		"Contributions":    h.contributionCalendar(r.Context(), user, visibleRepos),
+		"Contributions":    h.contributionCalendar(r.Context(), user, viewer, r.URL.Query()),
 		"PinnedRepos":      pinnedRepos,
 		"PinCandidates":    pinCandidates,
 		"PinsRemaining":    profilePinsRemaining(pinCandidates),

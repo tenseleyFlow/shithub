@@ -100,6 +100,20 @@ FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
 
+-- name: ListPublicContributionRepos :many
+SELECT sqlc.embed(r), COALESCE(u.username, o.slug)::text AS owner_slug
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+  AND r.visibility = 'public'
+  AND (
+    (r.owner_user_id IS NOT NULL AND u.deleted_at IS NULL AND u.suspended_at IS NULL)
+    OR (r.owner_org_id IS NOT NULL AND o.deleted_at IS NULL)
+  )
+ORDER BY r.updated_at DESC, r.id DESC
+LIMIT $1;
+
 -- name: UpdateRepoGeneralSettings :exec
 -- S32: General-tab settings persist via this single query so each
 -- form post is one round-trip. The merge-method toggles are kept
@@ -278,4 +292,3 @@ WHERE r.fork_of_repo_id = $1
 -- without waiting. Replaces the inline UPDATE in admin/repos.go
 -- (SR2 M2).
 UPDATE repos SET deleted_at = now() - interval '1 year' WHERE id = $1;
-

@@ -93,6 +93,7 @@ type Querier interface {
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
 	ListProfilePinsForSet(ctx context.Context, db DBTX, setID int64) ([]ListProfilePinsForSetRow, error)
+	ListPublicContributionRepos(ctx context.Context, db DBTX, limit int32) ([]ListPublicContributionReposRow, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
 	// The repo:hard_delete enqueuer queries this to find rows ready for
 	// destruction. The 7-day grace is hard-coded here; if we add a config

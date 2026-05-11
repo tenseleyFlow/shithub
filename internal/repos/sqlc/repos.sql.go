@@ -653,6 +653,76 @@ func (q *Queries) ListProfilePinsForSet(ctx context.Context, db DBTX, setID int6
 	return items, nil
 }
 
+const listPublicContributionRepos = `-- name: ListPublicContributionRepos :many
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, COALESCE(u.username, o.slug)::text AS owner_slug
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+  AND r.visibility = 'public'
+  AND (
+    (r.owner_user_id IS NOT NULL AND u.deleted_at IS NULL AND u.suspended_at IS NULL)
+    OR (r.owner_org_id IS NOT NULL AND o.deleted_at IS NULL)
+  )
+ORDER BY r.updated_at DESC, r.id DESC
+LIMIT $1
+`
+
+type ListPublicContributionReposRow struct {
+	Repo      Repo
+	OwnerSlug string
+}
+
+func (q *Queries) ListPublicContributionRepos(ctx context.Context, db DBTX, limit int32) ([]ListPublicContributionReposRow, error) {
+	rows, err := db.Query(ctx, listPublicContributionRepos, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicContributionReposRow{}
+	for rows.Next() {
+		var i ListPublicContributionReposRow
+		if err := rows.Scan(
+			&i.Repo.ID,
+			&i.Repo.OwnerUserID,
+			&i.Repo.OwnerOrgID,
+			&i.Repo.Name,
+			&i.Repo.Description,
+			&i.Repo.Visibility,
+			&i.Repo.DefaultBranch,
+			&i.Repo.IsArchived,
+			&i.Repo.ArchivedAt,
+			&i.Repo.DeletedAt,
+			&i.Repo.DiskUsedBytes,
+			&i.Repo.ForkOfRepoID,
+			&i.Repo.LicenseKey,
+			&i.Repo.PrimaryLanguage,
+			&i.Repo.HasIssues,
+			&i.Repo.HasPulls,
+			&i.Repo.CreatedAt,
+			&i.Repo.UpdatedAt,
+			&i.Repo.DefaultBranchOid,
+			&i.Repo.AllowSquashMerge,
+			&i.Repo.AllowRebaseMerge,
+			&i.Repo.AllowMergeCommit,
+			&i.Repo.DefaultMergeMethod,
+			&i.Repo.StarCount,
+			&i.Repo.WatcherCount,
+			&i.Repo.ForkCount,
+			&i.Repo.InitStatus,
+			&i.Repo.LastIndexedOid,
+			&i.OwnerSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRepoTopics = `-- name: ListRepoTopics :many
 
 SELECT topic FROM repo_topics WHERE repo_id = $1 ORDER BY topic ASC
