@@ -129,6 +129,9 @@ var workerCmd = &cobra.Command{
 			BaseURL:        cfg.Auth.BaseURL,
 			UnsubscribeKey: notifUnsubscribeKey(cfg, logger),
 		}))
+		p.Register(worker.KindTrendingCompute, jobs.TrendingCompute(jobs.TrendingComputeDeps{
+			Pool: pool, Logger: logger,
+		}))
 
 		// Webhook delivery (S33). The fan-out drains domain_events
 		// past its own cursor; deliver runs per-row HTTP POSTs;

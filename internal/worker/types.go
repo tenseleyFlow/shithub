@@ -73,6 +73,12 @@ const (
 	KindNotifyFanout Kind = "notify:fanout"
 )
 
+// S42 social feed kinds. trending:compute refreshes the denormalized
+// day/week/month Explore rankings.
+const (
+	KindTrendingCompute Kind = "trending:compute"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the
