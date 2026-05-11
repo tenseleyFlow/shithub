@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,8 +71,15 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 		t.Fatalf("Conclusion: %q", out.Conclusion)
 	}
 	want := []string{
-		"run", "--rm", "--network=none", "--memory=2g", "--cpus=2", "--workdir=/workspace/subdir",
-		"-v", rec.args[7],
+		"run", "--rm", "--network=none", "--memory=2g", "--cpus=2",
+		"--pids-limit=512", "--read-only",
+		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g",
+		"--cap-drop=ALL", "--cap-add=DAC_OVERRIDE", "--cap-add=SETGID", "--cap-add=SETUID",
+		"--security-opt=no-new-privileges", "--security-opt=seccomp=/etc/shithubd-runner/seccomp.json",
+		"--ulimit", "nofile=4096:4096", "--ulimit", "nproc=512:512",
+		"--user", "65534:65534",
+		"--workdir=/workspace/subdir",
+		"--mount", rec.args[23],
 		"-e", "A=job", "-e", "B=step",
 		"runner-image", "bash", "-c", "echo hi",
 	}
@@ -80,6 +88,9 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rec.args, want) {
 		t.Fatalf("args:\ngot  %#v\nwant %#v", rec.args, want)
+	}
+	if !strings.HasPrefix(rec.args[23], "type=bind,src=") || !strings.HasSuffix(rec.args[23], ",dst=/workspace,rw") {
+		t.Fatalf("workspace mount arg: %q", rec.args[23])
 	}
 }
 
@@ -112,6 +123,42 @@ func TestDockerExecute_RendersTaintedExpressionsThroughInputEnv(t *testing.T) {
 	}
 	if !containsArg(rec.args, "SHITHUB_INPUT_0="+malicious) {
 		t.Fatalf("input binding missing from args: %#v", rec.args)
+	}
+}
+
+func TestDockerExecute_RootRequiresExplicitPermission(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		permissions string
+		wantUser    string
+	}{
+		{name: "default", permissions: `{}`, wantUser: "65534:65534"},
+		{name: "write-all-does-not-root", permissions: `{"mode":"write-all"}`, wantUser: "65534:65534"},
+		{name: "explicit-root", permissions: `{"per":{"shithub-runner-root":"write"}}`, wantUser: "0:0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := &recordingRunner{}
+			d := NewDocker(DockerConfig{
+				DefaultImage: "runner-image",
+				Network:      "bridge",
+				Memory:       "2g",
+				CPUs:         "2",
+				Runner:       rec,
+			})
+			if _, err := d.Execute(t.Context(), Job{
+				ID:           1,
+				Permissions:  []byte(tc.permissions),
+				WorkspaceDir: t.TempDir(),
+				Steps:        []Step{{Run: "id -u"}},
+			}); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := argAfter(rec.args, "--user"); got != tc.wantUser {
+				t.Fatalf("--user: got %q want %q in %#v", got, tc.wantUser, rec.args)
+			}
+		})
 	}
 }
 
@@ -293,4 +340,13 @@ func containsArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func argAfter(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }

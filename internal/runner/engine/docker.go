@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,19 @@ import (
 var (
 	ErrUnsupportedUses = errors.New("runner engine: unsupported uses step")
 	ErrUnsupported     = errors.New("runner engine: unsupported operation")
+)
+
+const (
+	defaultSeccompProfile = "/etc/shithubd-runner/seccomp.json"
+	defaultContainerUser  = "65534:65534"
+	defaultPidsLimit      = 512
+	defaultNofileLimit    = "4096:4096"
+	defaultNprocLimit     = "512:512"
+
+	// rootPermissionKey is an intentionally shithub-specific escape hatch.
+	// It requires an explicit per-job permissions entry rather than treating
+	// broad write-all permissions as permission to run the container as root.
+	rootPermissionKey = "shithub-runner-root"
 )
 
 type CommandRunner interface {
@@ -46,6 +61,9 @@ type DockerConfig struct {
 	Network          string
 	Memory           string
 	CPUs             string
+	SeccompProfile   string
+	User             string
+	PidsLimit        int
 	LogChunkBytes    int
 	LogFlushInterval time.Duration
 	StepLogLimit     int64
@@ -53,6 +71,7 @@ type DockerConfig struct {
 	Stderr           io.Writer
 	Runner           CommandRunner
 	MaskValues       []string
+	Logger           *slog.Logger
 }
 
 type Docker struct {
@@ -83,6 +102,18 @@ func NewDocker(cfg DockerConfig) *Docker {
 	}
 	if cfg.Runner == nil {
 		cfg.Runner = ExecRunner{}
+	}
+	if cfg.SeccompProfile == "" {
+		cfg.SeccompProfile = defaultSeccompProfile
+	}
+	if cfg.User == "" {
+		cfg.User = defaultContainerUser
+	}
+	if cfg.PidsLimit <= 0 {
+		cfg.PidsLimit = defaultPidsLimit
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &Docker{cfg: cfg, streams: make(map[int64]chan LogChunk), eventSubs: make(map[int64]chan Event)}
 }
@@ -151,36 +182,50 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	if strings.TrimSpace(step.Run) == "" {
 		return nil
 	}
-	args, err := d.dockerArgs(job, step)
+	invocation, err := d.dockerInvocation(job, step)
 	if err != nil {
 		return err
 	}
+	d.logStep(ctx, "runner step starting", job, step, invocation, "")
 	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
 	out := io.MultiWriter(d.cfg.Stdout, writer)
 	errOut := io.MultiWriter(d.cfg.Stderr, writer)
-	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, args, out, errOut); err != nil {
+	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, invocation.args, out, errOut); err != nil {
+		d.logStep(ctx, "runner step completed", job, step, invocation, conclusionForError(err))
 		if closeErr := writer.Close(); closeErr != nil {
 			return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), errors.Join(err, closeErr))
 		}
 		return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), err)
 	}
+	d.logStep(ctx, "runner step completed", job, step, invocation, ConclusionSuccess)
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("runner engine: flush step %q logs: %w", stepLabel(step), err)
 	}
 	return nil
 }
 
-func (d *Docker) dockerArgs(job Job, step Step) ([]string, error) {
+type dockerInvocation struct {
+	args           []string
+	image          string
+	network        string
+	memory         string
+	cpus           string
+	user           string
+	seccompProfile string
+	pidsLimit      int
+}
+
+func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) {
 	workdir, err := containerWorkdir(step.WorkingDirectory)
 	if err != nil {
-		return nil, err
+		return dockerInvocation{}, err
 	}
 	image := strings.TrimSpace(job.Image)
 	if image == "" {
 		image = d.cfg.DefaultImage
 	}
 	if image == "" {
-		return nil, errors.New("runner engine: image is required")
+		return dockerInvocation{}, errors.New("runner engine: image is required")
 	}
 	rendered, err := runnerexec.RenderStep(runnerexec.StepInput{
 		Run:     step.Run,
@@ -189,7 +234,11 @@ func (d *Docker) dockerArgs(job Job, step Step) ([]string, error) {
 		Context: expressionContext(job),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("runner engine: render step %q: %w", stepLabel(step), err)
+		return dockerInvocation{}, fmt.Errorf("runner engine: render step %q: %w", stepLabel(step), err)
+	}
+	user := d.cfg.User
+	if permissionsRequestRoot(job.Permissions) {
+		user = "0:0"
 	}
 	args := []string{
 		"run",
@@ -197,18 +246,58 @@ func (d *Docker) dockerArgs(job Job, step Step) ([]string, error) {
 		"--network=" + d.cfg.Network,
 		"--memory=" + d.cfg.Memory,
 		"--cpus=" + d.cfg.CPUs,
+		"--pids-limit=" + strconv.Itoa(d.cfg.PidsLimit),
+		"--read-only",
+		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g",
+		"--cap-drop=ALL",
+		"--cap-add=DAC_OVERRIDE",
+		"--cap-add=SETGID",
+		"--cap-add=SETUID",
+		"--security-opt=no-new-privileges",
+		"--security-opt=seccomp=" + d.cfg.SeccompProfile,
+		"--ulimit", "nofile=" + defaultNofileLimit,
+		"--ulimit", "nproc=" + defaultNprocLimit,
+		"--user", user,
 		"--workdir=" + workdir,
-		"-v", job.WorkspaceDir + ":/workspace",
+		"--mount", "type=bind,src=" + job.WorkspaceDir + ",dst=/workspace,rw",
 	}
 	env, err := validateEnv(rendered.Env)
 	if err != nil {
-		return nil, err
+		return dockerInvocation{}, err
 	}
 	for _, key := range sortedKeys(env) {
 		args = append(args, "-e", key+"="+env[key])
 	}
 	args = append(args, image, "bash", "-c", rendered.Run)
-	return args, nil
+	return dockerInvocation{
+		args:           args,
+		image:          image,
+		network:        d.cfg.Network,
+		memory:         d.cfg.Memory,
+		cpus:           d.cfg.CPUs,
+		user:           user,
+		seccompProfile: d.cfg.SeccompProfile,
+		pidsLimit:      d.cfg.PidsLimit,
+	}, nil
+}
+
+func (d *Docker) logStep(ctx context.Context, msg string, job Job, step Step, invocation dockerInvocation, conclusion string) {
+	attrs := []any{
+		"run_id", job.RunID,
+		"job_id", job.ID,
+		"step_id", step.ID,
+		"image", invocation.image,
+		"network", invocation.network,
+		"cpu_limit", invocation.cpus,
+		"memory_limit", invocation.memory,
+		"pids_limit", invocation.pidsLimit,
+		"container_user", invocation.user,
+		"seccomp_profile", invocation.seccompProfile,
+	}
+	if conclusion != "" {
+		attrs = append(attrs, "conclusion", conclusion)
+	}
+	d.cfg.Logger.InfoContext(ctx, msg, attrs...)
 }
 
 func expressionContext(job Job) expr.Context {
@@ -225,6 +314,23 @@ func expressionContext(job Job) expr.Context {
 		},
 		Untrusted: expr.DefaultUntrusted(),
 	}
+}
+
+func permissionsRequestRoot(raw json.RawMessage) bool {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return false
+	}
+	var shaped struct {
+		Per map[string]string `json:"per"`
+	}
+	if err := json.Unmarshal(raw, &shaped); err == nil && strings.EqualFold(shaped.Per[rootPermissionKey], "write") {
+		return true
+	}
+	var flat map[string]string
+	if err := json.Unmarshal(raw, &flat); err != nil {
+		return false
+	}
+	return strings.EqualFold(flat[rootPermissionKey], "write")
 }
 
 func (d *Docker) StreamLogs(_ context.Context, jobID int64) (<-chan LogChunk, error) {
