@@ -62,6 +62,75 @@ func TestAllow_DistinctKeysAreIndependent(t *testing.T) {
 	}
 }
 
+func TestAcquireLease_BlocksUntilRelease(t *testing.T) {
+	t.Parallel()
+	l := New(dbtest.NewTestDB(t))
+	ctx := context.Background()
+	p := Policy{Scope: "test:lease", Max: 2, Window: time.Hour}
+
+	lease1, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease1 err: %v", err)
+	}
+	if !d.Allowed || d.Remaining != 1 {
+		t.Fatalf("lease1 decision=%+v", d)
+	}
+	lease2, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease2 err: %v", err)
+	}
+	if !d.Allowed || d.Remaining != 0 {
+		t.Fatalf("lease2 decision=%+v", d)
+	}
+	lease3, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease3 err: %v", err)
+	}
+	if lease3 != nil || d.Allowed {
+		t.Fatalf("lease3=(%v,%+v), want blocked without lease", lease3, d)
+	}
+	if err := lease1.Release(ctx); err != nil {
+		t.Fatalf("release lease1: %v", err)
+	}
+	lease4, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease4 err: %v", err)
+	}
+	if lease4 == nil || !d.Allowed {
+		t.Fatalf("lease4=(%v,%+v), want allowed", lease4, d)
+	}
+	if err := lease1.Release(ctx); err != nil {
+		t.Fatalf("second release lease1: %v", err)
+	}
+	_ = lease2.Release(ctx)
+	_ = lease4.Release(ctx)
+}
+
+func TestAcquireLease_RollsStaleWindow(t *testing.T) {
+	t.Parallel()
+	l := New(dbtest.NewTestDB(t))
+	ctx := context.Background()
+	p := Policy{Scope: "test:lease:ttl", Max: 1, Window: time.Millisecond}
+
+	lease1, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease1 err: %v", err)
+	}
+	if !d.Allowed {
+		t.Fatalf("lease1 blocked: %+v", d)
+	}
+	time.Sleep(5 * time.Millisecond)
+	lease2, d, err := l.AcquireLease(ctx, p, "alice")
+	if err != nil {
+		t.Fatalf("lease2 err: %v", err)
+	}
+	if lease2 == nil || !d.Allowed {
+		t.Fatalf("stale lease did not roll forward: lease=%v decision=%+v", lease2, d)
+	}
+	_ = lease1.Release(ctx)
+	_ = lease2.Release(ctx)
+}
+
 func TestAllow_RejectsBadPolicy(t *testing.T) {
 	t.Parallel()
 	l := New(dbtest.NewTestDB(t))

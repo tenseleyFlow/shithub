@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
+	"github.com/tenseleyFlow/shithub/internal/actions/logstream"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
@@ -656,6 +657,11 @@ func (h *Handlers) applyStepStatus(
 		}
 		shouldNotify = true
 	}
+	if terminal {
+		if err := logstream.NotifyDone(ctx, tx, step.ID); err != nil {
+			return actionsdb.WorkflowStep{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return actionsdb.WorkflowStep{}, err
 	}
@@ -1022,7 +1028,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq int32, chunk []byte, values []string) error {
 	q := actionsdb.New()
 	if len(values) == 0 {
-		_, err := q.AppendStepLogChunk(ctx, h.d.Pool, actionsdb.AppendStepLogChunkParams{
+		row, err := q.AppendStepLogChunk(ctx, h.d.Pool, actionsdb.AppendStepLogChunkParams{
 			StepID: stepID,
 			Seq:    seq,
 			Chunk:  chunk,
@@ -1030,7 +1036,10 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return logstream.NotifyChunk(ctx, h.d.Pool, stepID, row.Seq)
 	}
 
 	tx, err := h.d.Pool.Begin(ctx)
@@ -1083,11 +1092,18 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		return err
 	}
 
-	if _, err := q.AppendStepLogChunk(ctx, tx, actionsdb.AppendStepLogChunkParams{
+	row, err := q.AppendStepLogChunk(ctx, tx, actionsdb.AppendStepLogChunkParams{
 		StepID: stepID,
 		Seq:    seq,
 		Chunk:  chunk,
-	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	})
+	switch {
+	case err == nil:
+		if err := logstream.NotifyChunk(ctx, tx, stepID, row.Seq); err != nil {
+			return err
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

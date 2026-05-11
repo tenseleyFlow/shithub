@@ -17,7 +17,24 @@
 }
 
 {{ shithub_domain }} {
-    encode gzip
+    @compressible {
+        not path_regexp actions_log_stream_for_compression ^/[^/]+/[^/]+/actions/runs/[0-9]+/jobs/[0-9]+/steps/[0-9]+/log/stream$
+    }
+    encode @compressible gzip
+
+    # Actions step-log SSE must flush each event immediately and must
+    # bypass gzip; buffering here makes logs appear in delayed chunks.
+    @actions_log_stream path_regexp actions_log_stream ^/[^/]+/[^/]+/actions/runs/[0-9]+/jobs/[0-9]+/steps/[0-9]+/log/stream$
+    handle @actions_log_stream {
+        reverse_proxy 127.0.0.1:8080 {
+            transport http {
+                read_timeout 30m
+                write_timeout 30m
+                response_header_timeout 30m
+            }
+            flush_interval -1
+        }
+    }
 
     # Long-timeout git smart-HTTP routes (S12). The fetch + push
     # subprotocols stream and benefit from the buffer being off.

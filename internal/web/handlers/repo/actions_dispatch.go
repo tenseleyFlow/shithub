@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -76,21 +78,9 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, dispatchMaxBody+1))
-	if err != nil {
-		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "read body: "+err.Error())
+	req, formPost, ok := h.parseDispatchRequest(w, r)
+	if !ok {
 		return
-	}
-	if len(body) > dispatchMaxBody {
-		h.d.Render.HTTPError(w, r, http.StatusRequestEntityTooLarge, "body exceeds 64 KiB")
-		return
-	}
-	var req dispatchRequest
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			h.d.Render.HTTPError(w, r, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-			return
-		}
 	}
 
 	ref := req.Ref
@@ -142,6 +132,11 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 			"workflow does not declare on.workflow_dispatch")
 		return
 	}
+	inputs, err := normalizeDispatchInputs(req.Inputs, wf.On.WorkflowDispatch.Inputs)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Each dispatch click produces a fresh trigger_event_id with a
 	// unique random suffix — the same workflow file at the same SHA
@@ -158,7 +153,7 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actorID := viewer.ID // 0 if anonymous, but RequireUser is in front of this route
 
-	payload := actionsevent.WorkflowDispatch(req.Inputs)
+	payload := actionsevent.WorkflowDispatch(inputs)
 	if _, err := trigger.Enqueue(r.Context(), trigger.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, trigger.EnqueueParams{
 		RepoID:         row.ID,
 		WorkflowFile:   file,
@@ -174,7 +169,127 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	if formPost {
+		redirectTo := "/" + owner.Username + "/" + row.Name + "/actions?workflow=" + url.QueryEscape(file) + "&event=workflow_dispatch"
+		http.Redirect(w, r, redirectTo, http.StatusSeeOther)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) parseDispatchRequest(w http.ResponseWriter, r *http.Request) (dispatchRequest, bool, bool) {
+	if mediaType := dispatchFormMediaType(r); mediaType != "" {
+		r.Body = http.MaxBytesReader(w, r.Body, dispatchMaxBody)
+		if err := r.ParseForm(); err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusBadRequest, "invalid form body: "+err.Error())
+			return dispatchRequest{}, true, false
+		}
+		return dispatchRequest{
+			Ref:    strings.TrimSpace(r.PostFormValue("ref")),
+			Inputs: dispatchInputsFromForm(r.PostForm),
+		}, true, true
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, dispatchMaxBody+1))
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "read body: "+err.Error())
+		return dispatchRequest{}, false, false
+	}
+	if len(body) > dispatchMaxBody {
+		h.d.Render.HTTPError(w, r, http.StatusRequestEntityTooLarge, "body exceeds 64 KiB")
+		return dispatchRequest{}, false, false
+	}
+	var req dispatchRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			return dispatchRequest{}, false, false
+		}
+	}
+	return req, false, true
+}
+
+func dispatchFormMediaType(r *http.Request) string {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		return ""
+	}
+	switch mediaType {
+	case "application/x-www-form-urlencoded":
+		return mediaType
+	default:
+		return ""
+	}
+}
+
+func dispatchInputsFromForm(values url.Values) map[string]string {
+	inputs := make(map[string]string)
+	for key, vals := range values {
+		name, ok := strings.CutPrefix(key, "inputs.")
+		if !ok || name == "" || len(vals) == 0 {
+			continue
+		}
+		inputs[name] = vals[len(vals)-1]
+	}
+	if len(inputs) == 0 {
+		return nil
+	}
+	return inputs
+}
+
+func normalizeDispatchInputs(raw map[string]string, specs []workflow.DispatchInput) (map[string]string, error) {
+	if raw == nil {
+		raw = map[string]string{}
+	}
+	known := make(map[string]workflow.DispatchInput, len(specs))
+	for _, spec := range specs {
+		known[spec.Name] = spec
+	}
+	for name := range raw {
+		if _, ok := known[name]; !ok {
+			return nil, fmt.Errorf("unknown workflow_dispatch input %q", name)
+		}
+	}
+
+	out := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		value, provided := raw[spec.Name]
+		if !provided || value == "" {
+			value = spec.Default
+		}
+		if spec.Type == "boolean" && !provided && value == "" {
+			value = "false"
+		}
+		if spec.Required && spec.Type != "boolean" && strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("workflow_dispatch input %q is required", spec.Name)
+		}
+		switch spec.Type {
+		case "boolean":
+			if value != "true" && value != "false" {
+				return nil, fmt.Errorf("workflow_dispatch input %q must be true or false", spec.Name)
+			}
+		case "choice":
+			if value != "" && !dispatchChoiceAllowed(value, spec.Options) {
+				return nil, fmt.Errorf("workflow_dispatch input %q must be one of the declared options", spec.Name)
+			}
+		}
+		if value != "" || spec.Type == "boolean" {
+			out[spec.Name] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func dispatchChoiceAllowed(value string, options []string) bool {
+	for _, option := range options {
+		if value == option {
+			return true
+		}
+	}
+	return false
 }
 
 // validWorkflowName guards against URL parameter shenanigans by

@@ -12,6 +12,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireRateLimitLease = `-- name: AcquireRateLimitLease :one
+INSERT INTO rate_limits (scope, key, hits, window_started_at)
+VALUES ($1, $2, 1, now())
+ON CONFLICT (scope, key)
+DO UPDATE SET
+    hits              = CASE
+                          WHEN rate_limits.window_started_at < now() - $3::interval
+                          THEN 1
+                          ELSE rate_limits.hits + 1
+                        END,
+    window_started_at = CASE
+                          WHEN rate_limits.window_started_at < now() - $3::interval
+                          THEN now()
+                          ELSE rate_limits.window_started_at
+                        END
+WHERE rate_limits.window_started_at < now() - $3::interval
+   OR rate_limits.hits < $4::integer
+RETURNING hits, window_started_at
+`
+
+type AcquireRateLimitLeaseParams struct {
+	Scope   string
+	Key     string
+	Ttl     pgtype.Interval
+	MaxHits int32
+}
+
+type AcquireRateLimitLeaseRow struct {
+	Hits            int32
+	WindowStartedAt pgtype.Timestamptz
+}
+
+// Concurrent-lease variant for long-lived streams. `hits` is the
+// currently-held lease count. The ttl rolls stale rows forward so a process
+// crash or severed TCP connection cannot consume capacity indefinitely.
+func (q *Queries) AcquireRateLimitLease(ctx context.Context, db DBTX, arg AcquireRateLimitLeaseParams) (AcquireRateLimitLeaseRow, error) {
+	row := db.QueryRow(ctx, acquireRateLimitLease,
+		arg.Scope,
+		arg.Key,
+		arg.Ttl,
+		arg.MaxHits,
+	)
+	var i AcquireRateLimitLeaseRow
+	err := row.Scan(&i.Hits, &i.WindowStartedAt)
+	return i, err
+}
+
 const bumpRateLimit = `-- name: BumpRateLimit :one
 
 INSERT INTO rate_limits (scope, key, hits, window_started_at)
@@ -145,6 +192,25 @@ WHERE window_started_at < now() - $1::interval
 
 func (q *Queries) PruneSignupIPThrottle(ctx context.Context, db DBTX, retention pgtype.Interval) (int64, error) {
 	result, err := db.Exec(ctx, pruneSignupIPThrottle, retention)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const releaseRateLimitLease = `-- name: ReleaseRateLimitLease :execrows
+UPDATE rate_limits
+SET hits = GREATEST(hits - 1, 0)
+WHERE scope = $1 AND key = $2
+`
+
+type ReleaseRateLimitLeaseParams struct {
+	Scope string
+	Key   string
+}
+
+func (q *Queries) ReleaseRateLimitLease(ctx context.Context, db DBTX, arg ReleaseRateLimitLeaseParams) (int64, error) {
+	result, err := db.Exec(ctx, releaseRateLimitLease, arg.Scope, arg.Key)
 	if err != nil {
 		return 0, err
 	}

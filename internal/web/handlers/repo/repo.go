@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -71,6 +72,7 @@ type Deps struct {
 	ObjectStore storage.ObjectStore
 	Audit       *audit.Recorder
 	Limiter     *throttle.Limiter
+	RateLimiter *ratelimit.Limiter
 	CloneURLs   CloneURLs
 	// SecretBox AEAD-wraps webhook secrets at rest (S33). nil disables
 	// the webhook surface (the handler renders a placeholder page).
@@ -109,6 +111,9 @@ func New(d Deps) (*Handlers, error) {
 	if d.Limiter == nil {
 		d.Limiter = throttle.NewLimiter()
 	}
+	if d.RateLimiter == nil {
+		d.RateLimiter = ratelimit.New(d.Pool)
+	}
 	return &Handlers{d: d, rq: reposdb.New(), uq: usersdb.New(), iq: issuesdb.New(), pq: pullsdb.New(), cq: checksdb.New()}, nil
 }
 
@@ -132,6 +137,7 @@ func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
 // two-segment route doesn't collide with the /{username} catch-all from S09;
 // caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", h.repoActionStepLogStream)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)

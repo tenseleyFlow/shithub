@@ -5,8 +5,10 @@ package repo
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,7 +18,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -129,6 +133,94 @@ func TestRepoTabActionsPaginatesTwentyRuns(t *testing.T) {
 	}
 	if !strings.Contains(body, "PAGE=21-21 of 21;") || !strings.Contains(body, "#1:") {
 		t.Fatalf("page 2 pagination/run missing: %s", body)
+	}
+}
+
+func TestRepoTabActionsRendersDispatchWorkflowsForWriters(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	f.seedWorkflowFile(t, "manual.yml", dispatchWorkflowFixture)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("owner status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"DISPATCH=Manual:/alice/public-repo/actions/workflows/manual.yml/dispatches:",
+		"env/choice/true//staging|prod|,",
+		"dry_run/boolean/false/true/,",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("owner body missing %q in %s", want, body)
+		}
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stranger status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "DISPATCH=") {
+		t.Fatalf("dispatch controls leaked to non-writer: %s", resp.Body.String())
+	}
+}
+
+func TestRepoActionsDispatchAcceptsFormInputs(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	f.seedWorkflowFile(t, "manual.yml", dispatchWorkflowFixture)
+
+	form := url.Values{}
+	form.Set("ref", "trunk")
+	form.Set("inputs.env", "prod")
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/workflows/manual.yml/dispatches", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions?workflow=.shithub%2Fworkflows%2Fmanual.yml&event=workflow_dispatch" {
+		t.Fatalf("Location=%q", loc)
+	}
+
+	var raw []byte
+	err := f.pool.QueryRow(context.Background(), `
+		SELECT event_payload
+		FROM workflow_runs
+		WHERE repo_id = $1 AND workflow_file = '.shithub/workflows/manual.yml'`,
+		f.publicRepo.ID,
+	).Scan(&raw)
+	if err != nil {
+		t.Fatalf("select workflow dispatch run: %v", err)
+	}
+	var payload map[string]map[string]string
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("payload json: %v", err)
+	}
+	if got := payload["inputs"]["env"]; got != "prod" {
+		t.Fatalf("env input=%q", got)
+	}
+	if got := payload["inputs"]["dry_run"]; got != "true" {
+		t.Fatalf("dry_run default=%q", got)
+	}
+}
+
+func TestNormalizeDispatchInputsRejectsUnknownAndInvalidChoice(t *testing.T) {
+	t.Parallel()
+	specs := dispatchWorkflowInputSpecs()
+	if _, err := normalizeDispatchInputs(map[string]string{"bogus": "x"}, specs); err == nil {
+		t.Fatal("unknown input accepted")
+	}
+	if _, err := normalizeDispatchInputs(map[string]string{"env": "qa"}, specs); err == nil {
+		t.Fatal("invalid choice accepted")
+	}
+	if _, err := normalizeDispatchInputs(nil, specs); err == nil {
+		t.Fatal("missing required input accepted")
 	}
 }
 
@@ -283,11 +375,78 @@ func TestRepoActionStepLogRendersSQLChunks(t *testing.T) {
 	body := resp.Body.String()
 	for _, want := range []string{
 		"STEPLOG=Build:Run tests:SQL chunks::false;",
+		"STREAM=/alice/public-repo/actions/runs/9/jobs/0/steps/0/log/stream?after=1;",
 		"LOG=hello\nworld\n;",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q in %s", want, body)
 		}
+	}
+}
+
+func TestRepoActionStepLogStreamResumesAndClosesForTerminalStep(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      11,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -5 * time.Minute,
+		StartedOffset: -4 * time.Minute,
+		DoneOffset:    -1 * time.Minute,
+	}, now)
+	jobID := f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:       runID,
+		JobIndex:    0,
+		JobKey:      "build",
+		JobName:     "Build",
+		RunsOn:      "ubuntu-latest",
+		Status:      actionsdb.WorkflowJobStatusCompleted,
+		Conclusion:  actionsdb.CheckConclusionSuccess,
+		StartedAt:   now.Add(-4 * time.Minute),
+		CompletedAt: now.Add(-1 * time.Minute),
+	})
+	stepID := f.insertWorkflowStep(t, workflowStepFixture{
+		JobID:       jobID,
+		StepIndex:   0,
+		StepName:    "Run",
+		RunCommand:  "printf done",
+		Status:      actionsdb.WorkflowStepStatusCompleted,
+		Conclusion:  actionsdb.CheckConclusionSuccess,
+		StartedAt:   now.Add(-3 * time.Minute),
+		CompletedAt: now.Add(-1 * time.Minute),
+	})
+	f.insertStepLogChunk(t, stepID, 0, "hello\n")
+	f.insertStepLogChunk(t, stepID, 1, "world\n")
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/11/jobs/0/steps/0/log/stream?after=0", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if ct := resp.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("content-type=%q", ct)
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"id: 1\n",
+		"event: chunk\n",
+		`"chunk_b64":"d29ybGQK"`,
+		"event: done\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("stream body missing %q in %s", want, body)
+		}
+	}
+	if strings.Contains(body, "aGVsbG8K") {
+		t.Fatalf("stream replayed chunk before Last-Event-ID: %s", body)
 	}
 }
 
@@ -365,11 +524,78 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
 		})
 	})
+	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", f.handlers.repoActionStepLogStream)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
+	mux.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", f.handlers.repoActionsDispatch)
 	mux.Get("/{owner}/{repo}/actions", f.handlers.repoTabActions)
 	return mux
+}
+
+const dispatchWorkflowFixture = `name: Manual
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      dry_run:
+        description: Dry run
+        type: boolean
+        default: "true"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`
+
+func dispatchWorkflowInputSpecs() []workflow.DispatchInput {
+	return []workflow.DispatchInput{
+		{
+			Name:     "env",
+			Type:     "choice",
+			Required: true,
+			Options:  []string{"staging", "prod"},
+		},
+		{
+			Name:    "dry_run",
+			Type:    "boolean",
+			Default: "true",
+		},
+	}
+}
+
+func (f *repoFixture) seedWorkflowFile(t *testing.T, name, body string) string {
+	t.Helper()
+	ctx := context.Background()
+	gitDir, err := f.handlers.d.RepoFS.RepoPath(f.owner.Username, f.publicRepo.Name)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := f.handlers.d.RepoFS.InitBare(ctx, gitDir); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+	commit, err := (repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Branch:      "trunk",
+		Message:     "Add workflow",
+		When:        time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC),
+		Files: []repogit.FileEntry{
+			{Path: ".shithub/workflows/" + name, Body: []byte(body)},
+		},
+	}).Build(ctx)
+	if err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+	return commit
 }
 
 type workflowRunFixture struct {
