@@ -94,6 +94,9 @@ WHERE user_id = $1 AND changed_at > $2;
 -- name: UpdateUserTheme :exec
 UPDATE users SET theme = $2 WHERE id = $1;
 
+-- name: UpdateUserPrivateContributions :exec
+UPDATE users SET include_private_contributions = $2 WHERE id = $1;
+
 -- name: BumpUserSessionEpoch :exec
 UPDATE users SET session_epoch = session_epoch + 1 WHERE id = $1;
 

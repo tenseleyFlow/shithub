@@ -1218,24 +1218,57 @@ code {
   right: 0;
   top: calc(100% + 0.45rem);
   width: min(360px, calc(100vw - 2rem));
-  padding: 1rem;
+  padding: 0.75rem 0;
   border: 1px solid var(--border-default);
   border-radius: 12px;
   background: var(--canvas-overlay, var(--canvas-default));
   color: var(--fg-default);
   box-shadow: 0 16px 32px rgba(1,4,9,0.45);
 }
-.shithub-profile-contrib-settings strong {
-  display: block;
-  margin-bottom: 0.35rem;
+.shithub-contrib-settings-menu form {
+  margin: 0;
 }
-.shithub-profile-contrib-settings p {
-  margin: 0 0 1rem;
+.shithub-contrib-setting-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--fg-default);
+  font: inherit;
+  text-align: left;
+}
+button.shithub-contrib-setting-item {
+  cursor: pointer;
+}
+button.shithub-contrib-setting-item:hover {
+  background: var(--canvas-subtle);
+}
+.shithub-contrib-setting-item.is-static {
+  cursor: default;
+}
+.shithub-contrib-setting-check {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.1rem;
+  color: var(--fg-default);
+}
+.shithub-contrib-setting-check svg {
+  width: 16px;
+  height: 16px;
+}
+.shithub-contrib-setting-item strong {
+  display: block;
+  margin: 0 0 0.45rem;
+  color: var(--fg-default);
+}
+.shithub-contrib-setting-item span span {
+  display: block;
   color: var(--fg-muted);
   line-height: 1.45;
-}
-.shithub-profile-contrib-settings p:last-child {
-  margin-bottom: 0;
 }
 .shithub-profile-contrib-layout {
   display: grid;
@@ -1317,7 +1350,7 @@ code {
   width: 0;
   height: 0;
   border: 5px solid transparent;
-  border-top-color: var(--fg-muted);
+  border-top-color: #6e7681;
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -1331,7 +1364,7 @@ code {
   max-width: min(260px, 80vw);
   padding: 0.35rem 0.55rem;
   border-radius: 6px;
-  background: var(--fg-muted);
+  background: #6e7681;
   color: #fff;
   box-shadow: 0 8px 18px rgba(1,4,9,0.35);
   font-size: 0.75rem;

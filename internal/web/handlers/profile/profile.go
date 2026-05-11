@@ -77,6 +77,7 @@ func (h *Handlers) MountAvatars(r chi.Router) {
 func (h *Handlers) MountProfile(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireUser)
+		r.Post("/{username}/contribution-settings", h.contributionSettingsUpdate)
 		r.Post("/{username}/pins", h.pinsUpdate)
 	})
 	r.Get("/{username}", h.serveProfile)
@@ -167,28 +168,30 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		displayName = user.Username
 	}
 	data := map[string]any{
-		"Title":            displayName,
-		"User":             user,
-		"DisplayName":      displayName,
-		"IsSelf":           isSelf,
-		"AvatarURL":        avatarURL,
-		"OGTitle":          displayName + " (@" + user.Username + ")",
-		"OGDescription":    ogDescription(user),
-		"OGImage":          avatarURL,
-		"JoinedFormatted":  user.CreatedAt.Time.Format("January 2, 2006"),
-		"WebsiteSafe":      safeWebsite(user.Website),
-		"Tabs":             tabs,
-		"ActiveTab":        "overview",
-		"VisibleRepoCount": len(visibleRepos),
-		"Orgs":             h.profileOrganizations(r.Context(), user.ID),
-		"ProfileReadme":    readme,
-		"HasProfileReadme": hasReadme,
-		"Contributions":    h.contributionCalendar(r.Context(), user, viewer, r.URL.Query()),
-		"PinnedRepos":      pinnedRepos,
-		"PinCandidates":    pinCandidates,
-		"PinsRemaining":    profilePinsRemaining(pinCandidates),
-		"CanCustomizePins": isSelf,
-		"PinsAction":       "/" + url.PathEscape(user.Username) + "/pins",
+		"Title":                      displayName,
+		"User":                       user,
+		"DisplayName":                displayName,
+		"IsSelf":                     isSelf,
+		"AvatarURL":                  avatarURL,
+		"OGTitle":                    displayName + " (@" + user.Username + ")",
+		"OGDescription":              ogDescription(user),
+		"OGImage":                    avatarURL,
+		"JoinedFormatted":            user.CreatedAt.Time.Format("January 2, 2006"),
+		"WebsiteSafe":                safeWebsite(user.Website),
+		"Tabs":                       tabs,
+		"ActiveTab":                  "overview",
+		"VisibleRepoCount":           len(visibleRepos),
+		"Orgs":                       h.profileOrganizations(r.Context(), user.ID),
+		"ProfileReadme":              readme,
+		"HasProfileReadme":           hasReadme,
+		"Contributions":              h.contributionCalendar(r.Context(), user, viewer, r.URL.Query()),
+		"PinnedRepos":                pinnedRepos,
+		"PinCandidates":              pinCandidates,
+		"PinsRemaining":              profilePinsRemaining(pinCandidates),
+		"CanCustomizePins":           isSelf,
+		"PinsAction":                 "/" + url.PathEscape(user.Username) + "/pins",
+		"ContributionSettingsAction": "/" + url.PathEscape(user.Username) + "/contribution-settings",
+		"ContributionSettingsReturn": r.URL.RequestURI(),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderPage(w, r, "profile/view", data); err != nil {

@@ -101,15 +101,32 @@
       <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
         <div class="shithub-profile-contrib-head">
           <h2 id="contrib-h">{{ .Contributions.Total }} contribution{{ pluralize .Contributions.Total "" "s" }} {{ .Contributions.Period }}</h2>
+          {{ if .IsSelf }}
           <details class="shithub-profile-contrib-settings">
             <summary>Contribution settings {{ octicon "triangle-down" }}</summary>
-            <div>
-              <strong>Private contributions</strong>
-              <p>Private contribution counts are shown only when those repositories are visible to you.</p>
-              <strong>Activity overview</strong>
-              <p>Activity is summarized from visible repositories on this shithub instance.</p>
+            <div class="shithub-contrib-settings-menu">
+              <form method="post" action="{{ .ContributionSettingsAction }}">
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <input type="hidden" name="return_to" value="{{ .ContributionSettingsReturn }}">
+                <input type="hidden" name="include_private_contributions" value="{{ if .Contributions.IncludePrivateContributions }}0{{ else }}1{{ end }}">
+                <button type="submit" class="shithub-contrib-setting-item" aria-pressed="{{ .Contributions.IncludePrivateContributions }}">
+                  <span class="shithub-contrib-setting-check" aria-hidden="true">{{ if .Contributions.IncludePrivateContributions }}{{ octicon "check" }}{{ end }}</span>
+                  <span>
+                    <strong>Private contributions</strong>
+                    <span>{{ if .Contributions.IncludePrivateContributions }}Turning off private contributions will show only public activity on your profile.{{ else }}Turning on private contributions will show private activity counts on your profile.{{ end }}</span>
+                  </span>
+                </button>
+              </form>
+              <div class="shithub-contrib-setting-item is-static">
+                <span class="shithub-contrib-setting-check" aria-hidden="true"></span>
+                <span>
+                  <strong>Activity overview</strong>
+                  <span>Turning on the activity overview will show an overview of your activity across organizations and repositories.</span>
+                </span>
+              </div>
             </div>
           </details>
+          {{ end }}
         </div>
 
         <div class="shithub-profile-contrib-layout">
@@ -125,7 +142,7 @@
                 {{ range .Contributions.Weeks }}
                 <div class="shithub-contrib-week">
                   {{ range .Days }}
-                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" title="{{ .Title }}" data-title="{{ .Title }}" data-date="{{ .Date }}" data-count="{{ .Count }}" aria-label="{{ .Title }}" tabindex="0"></span>
+                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" data-title="{{ .Title }}" data-date="{{ .Date }}" data-count="{{ .Count }}" aria-label="{{ .Title }}" tabindex="0"></span>
                   {{ end }}
                 </div>
                 {{ end }}

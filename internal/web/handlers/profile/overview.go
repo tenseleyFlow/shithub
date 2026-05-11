@@ -49,16 +49,17 @@ type profileReadme struct {
 }
 
 type contributionCalendar struct {
-	Total             int
-	Period            string
-	Weeks             []contributionWeek
-	Years             []contributionYear
-	CurrentYear       int
-	SelectedYear      int
-	MonthLabel        string
-	MonthCommitCount  int
-	MonthRepoCount    int
-	HasRepositoryData bool
+	Total                       int
+	Period                      string
+	Weeks                       []contributionWeek
+	Years                       []contributionYear
+	CurrentYear                 int
+	SelectedYear                int
+	MonthLabel                  string
+	MonthCommitCount            int
+	MonthRepoCount              int
+	HasRepositoryData           bool
+	IncludePrivateContributions bool
 }
 
 type contributionYear struct {
@@ -213,7 +214,7 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 	gridStart := windowStart.AddDate(0, 0, -int(windowStart.Weekday()))
 	windowEnd := windowEndDay.Add(24 * time.Hour)
 	activityMonth := time.Date(windowEndDay.Year(), windowEndDay.Month(), 1, 0, 0, 0, 0, time.UTC)
-	repos := h.profileContributionRepos(ctx, user, viewer)
+	repos := h.profileContributionRepos(ctx, user, viewer, user.IncludePrivateContributions)
 
 	counts := map[string]int{}
 	reposWithMonthActivity := map[int64]struct{}{}
@@ -284,20 +285,21 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 		weeks = append(weeks, week)
 	}
 	return contributionCalendar{
-		Total:             total,
-		Period:            period,
-		Weeks:             weeks,
-		Years:             contributionYears(user.Username, currentYear, selectedYear),
-		CurrentYear:       currentYear,
-		SelectedYear:      selectedYear,
-		MonthLabel:        activityMonth.Format("January 2006"),
-		MonthCommitCount:  monthCommitCount,
-		MonthRepoCount:    len(reposWithMonthActivity),
-		HasRepositoryData: h.d.RepoFS != nil && len(repos) > 0,
+		Total:                       total,
+		Period:                      period,
+		Weeks:                       weeks,
+		Years:                       contributionYears(user.Username, currentYear, selectedYear),
+		CurrentYear:                 currentYear,
+		SelectedYear:                selectedYear,
+		MonthLabel:                  activityMonth.Format("January 2006"),
+		MonthCommitCount:            monthCommitCount,
+		MonthRepoCount:              len(reposWithMonthActivity),
+		HasRepositoryData:           h.d.RepoFS != nil && len(repos) > 0,
+		IncludePrivateContributions: user.IncludePrivateContributions,
 	}
 }
 
-func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.User, viewer middleware.CurrentUser) []profileContributionRepo {
+func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.User, viewer middleware.CurrentUser, includePrivate bool) []profileContributionRepo {
 	actor := policy.AnonymousActor()
 	if !viewer.IsAnonymous() {
 		actor = viewer.PolicyActor()
@@ -306,15 +308,22 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 	queries := reposdb.New()
 	seen := map[int64]struct{}{}
 	out := make([]profileContributionRepo, 0, 64)
-	add := func(ownerSlug string, repo reposdb.Repo, allowIdentityFallback bool) {
+	add := func(ownerSlug string, repo reposdb.Repo, allowIdentityFallback, affiliated bool) {
 		if ownerSlug == "" {
 			return
 		}
 		if _, ok := seen[repo.ID]; ok {
 			return
 		}
-		if !policy.IsVisibleTo(ctx, deps, actor, policy.NewRepoRefFromRepo(repo)) {
-			return
+		repoRef := policy.NewRepoRefFromRepo(repo)
+		if repoRef.IsPrivate() {
+			if !includePrivate || !affiliated {
+				return
+			}
+		} else {
+			if !policy.IsVisibleTo(ctx, deps, actor, repoRef) {
+				return
+			}
 		}
 		seen[repo.ID] = struct{}{}
 		out = append(out, profileContributionRepo{
@@ -329,7 +338,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 		h.d.Logger.WarnContext(ctx, "profile overview: contribution user repos", "user_id", user.ID, "error", err)
 	} else {
 		for _, repo := range userRepos {
-			add(user.Username, repo, true)
+			add(user.Username, repo, true, true)
 		}
 	}
 
@@ -344,7 +353,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 				continue
 			}
 			for _, repo := range orgRepos {
-				add(org.Slug, repo, true)
+				add(org.Slug, repo, true, true)
 			}
 		}
 	}
@@ -355,7 +364,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 		return out
 	}
 	for _, row := range publicRepos {
-		add(row.OwnerSlug, row.Repo, false)
+		add(row.OwnerSlug, row.Repo, false, false)
 	}
 	return out
 }

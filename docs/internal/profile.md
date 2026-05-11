@@ -7,6 +7,7 @@ S09 shipped the public `/{username}` page and the `/avatars/{username}` route. L
 | Route | Source | Notes |
 |---|---|---|
 | `GET /{username}` | profile.serveProfile | Public profile. citext lookup; canonical-case 301; reserved short-circuit. |
+| `POST /{username}/contribution-settings` | profile.contributionSettingsUpdate | Auth required. Profile owner toggles private contribution counts. |
 | `POST /{username}/pins` | profile.pinsUpdate | Auth required. Profile owner saves up to six public owned repositories. |
 | `GET /avatars/{username}` | profile.serveAvatar | Streams uploaded avatar OR falls back to deterministic SVG identicon. |
 
@@ -96,13 +97,14 @@ The overview looks for a visible repository owned by the user whose name matches
 
 ## Contribution calendar
 
-The overview contribution calendar is computed from local Git history for repositories visible to the viewer:
+The overview contribution calendar is computed from local Git history:
 
 - The window is the last 365 days, rendered as a 53-week GitHub-style grid.
-- Only visible repositories are scanned, capped at 80 repos and 2,000 commits per repo for request-time safety.
+- Public repositories are scanned when visible to the viewer, capped at 500 repos and 5,000 commits per repo for request-time safety.
 - When the user has verified email addresses, commits are counted only if the author email matches one of them.
-- If no verified email exists, shithub falls back to visible user-owned repository commits as a best-effort local signal.
-- Private repository contributions appear only when the viewer can already see those repositories.
+- On affiliated repositories (user-owned repos and repos owned by organizations the user belongs to), shithub also accepts username, display-name, and GitHub noreply-address matches as a best-effort imported-history signal.
+- Arbitrary public repositories outside the user's affiliation remain verified-email-only to avoid spoofed username/display-name commits.
+- Private repositories are excluded by default. When the profile owner enables "Private contributions", private user-owned and member-org repositories contribute to the aggregate graph counts, but repository names and commit metadata are not exposed.
 
 ## Self-view enrichment
 
@@ -113,6 +115,10 @@ When the viewer's session matches the profile's user (`viewer.ID == user.ID`):
 - A "Customize pins" modal lists the user's public repositories with a
   live client-side filter and persists up to six selected repos through
   `profile_pin_sets` / `profile_pins` (migration 0040).
+- The "Contribution settings" menu toggles the owner's
+  `users.include_private_contributions` preference. The checked state
+  mirrors the persisted setting, and the graph is recomputed after the
+  POST redirect.
 - Cache-Control flips from `max-age=300` (anonymous) to `no-cache, private` so admin- or settings-driven changes appear immediately.
 
 Pinned repositories are intentionally public-only. Private repos are

@@ -134,6 +134,7 @@ type Querier interface {
 	UnsuspendUser(ctx context.Context, db DBTX, id int64) error
 	UpdateUserAvatarKey(ctx context.Context, db DBTX, arg UpdateUserAvatarKeyParams) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
+	UpdateUserPrivateContributions(ctx context.Context, db DBTX, arg UpdateUserPrivateContributionsParams) error
 	UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error
 	UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error
 	UpsertUserNotificationPref(ctx context.Context, db DBTX, arg UpsertUserNotificationPrefParams) error
