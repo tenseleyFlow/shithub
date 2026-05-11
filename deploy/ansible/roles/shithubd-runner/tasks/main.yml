@@ -93,6 +93,15 @@
   no_log: true
   notify: restart shithubd-runner
 
+- name: Runner seccomp profile
+  copy:
+    src: "{{ playbook_dir }}/../runner-config/seccomp.json"
+    dest: "{{ shithub_runner_seccomp_profile }}"
+    owner: root
+    group: shithub-runner
+    mode: "0640"
+  notify: restart shithubd-runner
+
 - name: Runner systemd unit
   copy:
     src: "{{ playbook_dir }}/../systemd/shithubd-runner.service"
