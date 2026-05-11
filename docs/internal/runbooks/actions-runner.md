@@ -139,6 +139,20 @@ curl -fsS "$BASE/api/v1/jobs/$JOB_ID/status" \
   -d '{"status":"completed","conclusion":"success"}'
 ```
 
+Cancel smoke: on a separate queued or running job, a repo-write PAT can
+request cancellation:
+
+```sh
+curl -fsS "$BASE/api/v1/jobs/$JOB_ID/cancel" \
+  -H "Authorization: Bearer $PAT_WITH_REPO_WRITE" \
+  -X POST
+```
+
+If the job is still queued, it becomes `cancelled` immediately. If it is
+running, the next runner cancel check returns `{"cancelled":true}`, the
+runner kills the active container, and the terminal job status becomes
+`cancelled`.
+
 Replay check: reusing the log token after the log call must fail with
 401 because its `jti` is already present in `runner_jwt_used`.
 
@@ -155,4 +169,5 @@ Expected results:
 - The parent `workflow_runs` row rolls up to completed/success when all
   jobs are terminal.
 - The PR Checks tab shows the matching check run as success.
-- `/metrics` includes runner registration, heartbeat, and JWT counters.
+- `/metrics` includes runner registration, heartbeat, JWT, and job
+  cancellation counters.

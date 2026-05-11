@@ -126,6 +126,10 @@ Completed jobs require a valid check conclusion. The handler updates
 `workflow_jobs`, rolls up `workflow_runs`, and best-effort updates the
 matching `check_runs` row created by the trigger pipeline.
 
+When a runner reports `status:"cancelled"`, any still-open steps in the
+job are marked cancelled too. This keeps a killed job from leaving queued
+step rows that the UI would otherwise treat as live.
+
 S41d PR2 runner execution supports containerized `run:` steps with
 per-step log streaming and server-side log finalization. `uses:` aliases
 such as `actions/checkout@v4` and artifact upload/download remain
@@ -143,6 +147,24 @@ Auth: job JWT. Body:
 Creates a `workflow_artifacts` row and returns a pre-signed S3 PUT URL.
 The object key is `actions/runs/<run_id>/artifacts/<name>`.
 
+`POST /api/v1/jobs/{id}/cancel`
+
+Auth: PAT with `repo:write`, and the actor must have write permission on
+the repository that owns the job's workflow run. Browser UI forms use
+CSRF-protected repo routes that call the same lifecycle orchestrator.
+
+Queued jobs are made terminal immediately:
+
+- `workflow_jobs.status = cancelled`
+- `workflow_jobs.conclusion = cancelled`
+- `workflow_jobs.cancel_requested = true`
+- open steps for that job are marked cancelled
+
+Running jobs keep `status = running` and get
+`cancel_requested = true`. The runner sees this through
+`cancel-check`, kills the active container, then reports terminal
+`cancelled`.
+
 `POST /api/v1/jobs/{id}/cancel-check`
 
 Auth: job JWT. Returns:
@@ -151,12 +173,16 @@ Auth: job JWT. Returns:
 {"cancelled":false,"next_token":"..."}
 ```
 
-The boolean mirrors `workflow_jobs.cancel_requested`; the actual cancel
-request UI lands later in S41g.
+The boolean mirrors `workflow_jobs.cancel_requested`. `shithubd-runner`
+polls this endpoint during job execution, serializing it through the
+same single-use JWT chain as logs and status updates. On `cancelled:
+true`, the Docker engine runs `docker kill <active-container>` and the
+runner posts terminal job status `cancelled`.
 
 ## Metrics
 
 - `shithub_actions_runner_registrations_total`
 - `shithub_actions_runner_heartbeats_total{result="claimed|no_job"}`
 - `shithub_actions_runner_jwt_total{result="issued|rejected|replay"}`
+- `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
