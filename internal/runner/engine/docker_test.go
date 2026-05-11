@@ -15,18 +15,20 @@ import (
 type recordingRunner struct {
 	name string
 	args []string
+	env  []string
 	err  error
 }
 
-func (r *recordingRunner) Run(_ context.Context, name string, args []string, _, _ io.Writer) error {
+func (r *recordingRunner) Run(_ context.Context, name string, args []string, env []string, _, _ io.Writer) error {
 	r.name = name
 	r.args = append([]string{}, args...)
+	r.env = append([]string{}, env...)
 	return r.err
 }
 
 type loggingRunner struct{}
 
-func (loggingRunner) Run(_ context.Context, _ string, _ []string, stdout, stderr io.Writer) error {
+func (loggingRunner) Run(_ context.Context, _ string, _ []string, _ []string, stdout, stderr io.Writer) error {
 	_, _ = stdout.Write([]byte("hello "))
 	_, _ = stderr.Write([]byte("world\n"))
 	return nil
@@ -34,7 +36,7 @@ func (loggingRunner) Run(_ context.Context, _ string, _ []string, stdout, stderr
 
 type secretLoggingRunner struct{}
 
-func (secretLoggingRunner) Run(_ context.Context, _ string, _ []string, stdout, _ io.Writer) error {
+func (secretLoggingRunner) Run(_ context.Context, _ string, _ []string, _ []string, stdout, _ io.Writer) error {
 	_, _ = stdout.Write([]byte("hun"))
 	_, _ = stdout.Write([]byte("ter2\n"))
 	return nil
@@ -80,7 +82,7 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 		"--user", "65534:65534",
 		"--workdir=/workspace/subdir",
 		"--mount", rec.args[23],
-		"-e", "A=job", "-e", "B=step",
+		"--env", "A", "--env", "B",
 		"runner-image", "bash", "-c", "echo hi",
 	}
 	if rec.name != "podman" {
@@ -91,6 +93,9 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	}
 	if !strings.HasPrefix(rec.args[23], "type=bind,src=") || !strings.HasSuffix(rec.args[23], ",dst=/workspace,rw") {
 		t.Fatalf("workspace mount arg: %q", rec.args[23])
+	}
+	if wantEnv := []string{"A=job", "B=step"}; !reflect.DeepEqual(rec.env, wantEnv) {
+		t.Fatalf("env:\ngot  %#v\nwant %#v", rec.env, wantEnv)
 	}
 }
 
@@ -121,8 +126,50 @@ func TestDockerExecute_RendersTaintedExpressionsThroughInputEnv(t *testing.T) {
 	if got := rec.args[len(rec.args)-1]; got != `echo "${SHITHUB_INPUT_0}"` {
 		t.Fatalf("rendered command: %q", got)
 	}
-	if !containsArg(rec.args, "SHITHUB_INPUT_0="+malicious) {
+	if !containsFlagValue(rec.args, "--env", "SHITHUB_INPUT_0") {
 		t.Fatalf("input binding missing from args: %#v", rec.args)
+	}
+	if containsSubstring(rec.args, malicious) {
+		t.Fatalf("tainted input leaked into argv: %#v", rec.args)
+	}
+	if !containsEnv(rec.env, "SHITHUB_INPUT_0="+malicious) {
+		t.Fatalf("input binding missing from process env: %#v", rec.env)
+	}
+}
+
+func TestDockerExecute_RendersSecretsThroughEnvWithoutArgvLeak(t *testing.T) {
+	t.Parallel()
+	rec := &recordingRunner{}
+	d := NewDocker(DockerConfig{
+		DefaultImage: "runner-image",
+		Network:      "bridge",
+		Memory:       "2g",
+		CPUs:         "2",
+		Runner:       rec,
+	})
+	const secret = "hunter2"
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           1,
+		RunID:        2,
+		Secrets:      map[string]string{"TOKEN": secret},
+		WorkspaceDir: t.TempDir(),
+		Steps: []Step{{
+			Run: `printf '%s\n' "${{ secrets.TOKEN }}"`,
+		}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := rec.args[len(rec.args)-1]; got != `printf '%s\n' "${SHITHUB_INPUT_0}"` {
+		t.Fatalf("rendered command: %q", got)
+	}
+	if !containsFlagValue(rec.args, "--env", "SHITHUB_INPUT_0") {
+		t.Fatalf("secret binding missing from args: %#v", rec.args)
+	}
+	if containsSubstring(rec.args, secret) {
+		t.Fatalf("secret leaked into argv: %#v", rec.args)
+	}
+	if !containsEnv(rec.env, "SHITHUB_INPUT_0="+secret) {
+		t.Fatalf("secret binding missing from process env: %#v", rec.env)
 	}
 }
 
@@ -135,7 +182,7 @@ func TestDockerExecute_RootRequiresExplicitPermission(t *testing.T) {
 	}{
 		{name: "default", permissions: `{}`, wantUser: "65534:65534"},
 		{name: "write-all-does-not-root", permissions: `{"mode":"write-all"}`, wantUser: "65534:65534"},
-		{name: "explicit-root", permissions: `{"per":{"shithub-runner-root":"write"}}`, wantUser: "0:0"},
+		{name: "explicit-root-disabled-by-default", permissions: `{"per":{"shithub-runner-root":"write"}}`, wantUser: "65534:65534"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -159,6 +206,30 @@ func TestDockerExecute_RootRequiresExplicitPermission(t *testing.T) {
 				t.Fatalf("--user: got %q want %q in %#v", got, tc.wantUser, rec.args)
 			}
 		})
+	}
+}
+
+func TestDockerExecute_AllowRootEnablesExplicitRootPermission(t *testing.T) {
+	t.Parallel()
+	rec := &recordingRunner{}
+	d := NewDocker(DockerConfig{
+		DefaultImage: "runner-image",
+		Network:      "bridge",
+		Memory:       "2g",
+		CPUs:         "2",
+		AllowRoot:    true,
+		Runner:       rec,
+	})
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           1,
+		Permissions:  []byte(`{"per":{"shithub-runner-root":"write"}}`),
+		WorkspaceDir: t.TempDir(),
+		Steps:        []Step{{Run: "id -u"}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := argAfter(rec.args, "--user"); got != "0:0" {
+		t.Fatalf("--user: got %q want %q in %#v", got, "0:0", rec.args)
 	}
 }
 
@@ -359,6 +430,33 @@ func TestContainerWorkdirRejectsEscapes(t *testing.T) {
 func containsArg(args []string, want string) bool {
 	for _, arg := range args {
 		if arg == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFlagValue(args []string, flag, value string) bool {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(args []string, substr string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnv(env []string, want string) bool {
+	for _, item := range env {
+		if item == want {
 			return true
 		}
 	}

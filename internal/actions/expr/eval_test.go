@@ -120,6 +120,35 @@ func TestEval_TaintNotFromTrustedSources(t *testing.T) {
 	}
 }
 
+func TestEval_SecretsAreSensitiveNotTainted(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	v, err := evalString(t, `secrets.MY_SECRET`, ctx)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if v.Tainted {
+		t.Fatal("secrets must not be tainted; they are operator-controlled")
+	}
+	if !v.Sensitive {
+		t.Fatal("secrets must be sensitive so runner argv never contains plaintext secret values")
+	}
+}
+
+func TestEval_EnvSensitivityPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	ctx.Env["TOKEN"] = "hunter2"
+	ctx.EnvSensitive = map[string]bool{"TOKEN": true}
+	v, err := evalString(t, `env.TOKEN`, ctx)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if !v.Sensitive {
+		t.Fatal("env values resolved from secrets must remain sensitive")
+	}
+}
+
 func TestEval_TaintPropagatesThroughBinary(t *testing.T) {
 	t.Parallel()
 	ctx := defaultContext()

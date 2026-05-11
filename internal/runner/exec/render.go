@@ -45,14 +45,16 @@ func (b *Bindings) Env() map[string]string {
 }
 
 type ResolvedText struct {
-	Text    string
-	Tainted bool
+	Text      string
+	Tainted   bool
+	Sensitive bool
 }
 
 type RenderedStep struct {
-	Run      string
-	Env      map[string]string
-	EnvTaint map[string]bool
+	Run          string
+	Env          map[string]string
+	EnvTaint     map[string]bool
+	EnvSensitive map[string]bool
 }
 
 type StepInput struct {
@@ -66,13 +68,13 @@ func RenderStep(in StepInput) (RenderedStep, error) {
 	ctx := cloneContext(&in.Context)
 	bindings := NewBindings("")
 
-	env, taint, err := resolveEnv(in.JobEnv, &ctx)
+	env, taint, sensitive, err := resolveEnv(in.JobEnv, &ctx)
 	if err != nil {
 		return RenderedStep{}, fmt.Errorf("render job env: %w", err)
 	}
-	mergeContextEnv(&ctx, env, taint)
+	mergeContextEnv(&ctx, env, taint, sensitive)
 
-	stepEnv, stepTaint, err := resolveEnv(in.StepEnv, &ctx)
+	stepEnv, stepTaint, stepSensitive, err := resolveEnv(in.StepEnv, &ctx)
 	if err != nil {
 		return RenderedStep{}, fmt.Errorf("render step env: %w", err)
 	}
@@ -83,8 +85,13 @@ func RenderStep(in StepInput) (RenderedStep, error) {
 		} else {
 			delete(taint, k)
 		}
+		if stepSensitive[k] {
+			sensitive[k] = true
+		} else {
+			delete(sensitive, k)
+		}
 	}
-	mergeContextEnv(&ctx, stepEnv, stepTaint)
+	mergeContextEnv(&ctx, stepEnv, stepTaint, stepSensitive)
 
 	run, err := RenderShell(in.Run, &ctx, bindings)
 	if err != nil {
@@ -93,7 +100,7 @@ func RenderStep(in StepInput) (RenderedStep, error) {
 	for k, v := range bindings.Env() {
 		env[k] = v
 	}
-	return RenderedStep{Run: run, Env: env, EnvTaint: taint}, nil
+	return RenderedStep{Run: run, Env: env, EnvTaint: taint, EnvSensitive: sensitive}, nil
 }
 
 func RenderShell(raw string, ctx *expr.Context, bindings *Bindings) (string, error) {
@@ -111,7 +118,7 @@ func RenderShell(raw string, ctx *expr.Context, bindings *Bindings) (string, err
 		if err != nil {
 			return err
 		}
-		if v.Tainted {
+		if v.Tainted || v.Sensitive {
 			out.WriteString("${")
 			out.WriteString(bindings.Add(v.String()))
 			out.WriteString("}")
@@ -128,6 +135,7 @@ func RenderShell(raw string, ctx *expr.Context, bindings *Bindings) (string, err
 func ResolveText(raw string, ctx *expr.Context) (ResolvedText, error) {
 	var out strings.Builder
 	tainted := false
+	sensitive := false
 	if err := walkExpressions(raw, func(literal, body string) error {
 		if body == "" {
 			out.WriteString(literal)
@@ -141,31 +149,38 @@ func ResolveText(raw string, ctx *expr.Context) (ResolvedText, error) {
 		if v.Tainted {
 			tainted = true
 		}
+		if v.Sensitive {
+			sensitive = true
+		}
 		out.WriteString(v.String())
 		return nil
 	}); err != nil {
 		return ResolvedText{}, err
 	}
-	return ResolvedText{Text: out.String(), Tainted: tainted}, nil
+	return ResolvedText{Text: out.String(), Tainted: tainted, Sensitive: sensitive}, nil
 }
 
-func resolveEnv(raw map[string]string, ctx *expr.Context) (map[string]string, map[string]bool, error) {
+func resolveEnv(raw map[string]string, ctx *expr.Context) (map[string]string, map[string]bool, map[string]bool, error) {
 	out := make(map[string]string, len(raw))
 	taint := make(map[string]bool, len(raw))
+	sensitive := make(map[string]bool, len(raw))
 	for _, key := range sortedKeys(raw) {
 		if strings.HasPrefix(key, defaultBindingPrefix) {
-			return nil, nil, fmt.Errorf("%s uses reserved runner input prefix %s", key, defaultBindingPrefix)
+			return nil, nil, nil, fmt.Errorf("%s uses reserved runner input prefix %s", key, defaultBindingPrefix)
 		}
 		v, err := ResolveText(raw[key], ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", key, err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", key, err)
 		}
 		out[key] = v.Text
 		if v.Tainted {
 			taint[key] = true
 		}
+		if v.Sensitive {
+			sensitive[key] = true
+		}
 	}
-	return out, taint, nil
+	return out, taint, sensitive, nil
 }
 
 func eval(body string, ctx *expr.Context) (expr.Value, error) {
@@ -211,17 +226,21 @@ func cloneContext(ctx *expr.Context) expr.Context {
 	out.Vars = cloneStringMap(ctx.Vars)
 	out.Env = cloneStringMap(ctx.Env)
 	out.EnvTaint = cloneBoolMap(ctx.EnvTaint)
+	out.EnvSensitive = cloneBoolMap(ctx.EnvSensitive)
 	out.Untrusted = cloneSet(ctx.Untrusted)
 	out.Shithub.Event = cloneAnyMap(ctx.Shithub.Event)
 	return out
 }
 
-func mergeContextEnv(ctx *expr.Context, env map[string]string, taint map[string]bool) {
+func mergeContextEnv(ctx *expr.Context, env map[string]string, taint map[string]bool, sensitive map[string]bool) {
 	if ctx.Env == nil {
 		ctx.Env = map[string]string{}
 	}
 	if ctx.EnvTaint == nil {
 		ctx.EnvTaint = map[string]bool{}
+	}
+	if ctx.EnvSensitive == nil {
+		ctx.EnvSensitive = map[string]bool{}
 	}
 	for k, v := range env {
 		ctx.Env[k] = v
@@ -229,6 +248,11 @@ func mergeContextEnv(ctx *expr.Context, env map[string]string, taint map[string]
 			ctx.EnvTaint[k] = true
 		} else {
 			delete(ctx.EnvTaint, k)
+		}
+		if sensitive[k] {
+			ctx.EnvSensitive[k] = true
+		} else {
+			delete(ctx.EnvSensitive, k)
 		}
 	}
 }

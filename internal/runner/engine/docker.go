@@ -43,13 +43,16 @@ const (
 )
 
 type CommandRunner interface {
-	Run(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error
+	Run(ctx context.Context, name string, args []string, env []string, stdout, stderr io.Writer) error
 }
 
 type ExecRunner struct{}
 
-func (ExecRunner) Run(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
+func (ExecRunner) Run(ctx context.Context, name string, args []string, env []string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
@@ -72,6 +75,7 @@ type DockerConfig struct {
 	Stderr           io.Writer
 	Runner           CommandRunner
 	MaskValues       []string
+	AllowRoot        bool
 	Logger           *slog.Logger
 }
 
@@ -191,7 +195,7 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
 	out := io.MultiWriter(d.cfg.Stdout, writer)
 	errOut := io.MultiWriter(d.cfg.Stderr, writer)
-	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, invocation.args, out, errOut); err != nil {
+	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, invocation.args, invocation.env, out, errOut); err != nil {
 		d.logStep(ctx, "runner step completed", job, step, invocation, conclusionForError(err))
 		if closeErr := writer.Close(); closeErr != nil {
 			return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), errors.Join(err, closeErr))
@@ -207,6 +211,7 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 
 type dockerInvocation struct {
 	args           []string
+	env            []string
 	image          string
 	network        string
 	memory         string
@@ -238,7 +243,7 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 		return dockerInvocation{}, fmt.Errorf("runner engine: render step %q: %w", stepLabel(step), err)
 	}
 	user := d.cfg.User
-	if permissionsRequestRoot(job.Permissions) {
+	if d.cfg.AllowRoot && permissionsRequestRoot(job.Permissions) {
 		user = "0:0"
 	}
 	args := []string{
@@ -272,12 +277,15 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 	if err != nil {
 		return dockerInvocation{}, err
 	}
+	processEnv := make([]string, 0, len(env))
 	for _, key := range sortedKeys(env) {
-		args = append(args, "-e", key+"="+env[key])
+		args = append(args, "--env", key)
+		processEnv = append(processEnv, key+"="+env[key])
 	}
 	args = append(args, image, "bash", "-c", rendered.Run)
 	return dockerInvocation{
 		args:           args,
+		env:            processEnv,
 		image:          image,
 		network:        d.cfg.Network,
 		memory:         d.cfg.Memory,
@@ -613,6 +621,9 @@ func validateEnv(env map[string]string) (map[string]string, error) {
 	for k, v := range env {
 		if !envNameRE.MatchString(k) {
 			return nil, fmt.Errorf("runner engine: invalid env name %q", k)
+		}
+		if strings.ContainsRune(v, '\x00') {
+			return nil, fmt.Errorf("runner engine: invalid env value for %q", k)
 		}
 		out[k] = v
 	}

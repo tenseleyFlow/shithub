@@ -15,13 +15,15 @@ import (
 //
 // Tainted=true means the value transitively depends on an
 // untrusted-source reference (anything in the shithub.event.*
-// namespace). The runner's exec layer (S41d) refuses to interpolate
-// Tainted values into shell strings.
+// namespace). Sensitive=true means the value transitively contains a
+// secret. The runner's exec layer (S41d/S41e) never interpolates either
+// class directly into shell strings.
 type Value struct {
-	Kind    Kind
-	S       string
-	B       bool
-	Tainted bool
+	Kind      Kind
+	S         string
+	B         bool
+	Tainted   bool
+	Sensitive bool
 }
 
 // Kind classifies a Value.
@@ -75,13 +77,14 @@ func (v Value) Truthy() bool {
 // — we may extend in v2 if other namespaces grow user-controlled
 // fields.
 type Context struct {
-	Secrets   map[string]string
-	Vars      map[string]string
-	Env       map[string]string
-	EnvTaint  map[string]bool
-	Shithub   ShithubContext
-	Untrusted map[string]struct{} // namespace prefixes
-	JobStatus JobStatus           // for success()/failure()/always()/cancelled()
+	Secrets      map[string]string
+	Vars         map[string]string
+	Env          map[string]string
+	EnvTaint     map[string]bool
+	EnvSensitive map[string]bool
+	Shithub      ShithubContext
+	Untrusted    map[string]struct{} // namespace prefixes
+	JobStatus    JobStatus           // for success()/failure()/always()/cancelled()
 }
 
 // ShithubContext is the typed `shithub.*` slot. Event is a free-form
@@ -130,7 +133,7 @@ func Eval(e Expr, ctx *Context) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return Value{Kind: KindBool, B: !x.Truthy(), Tainted: x.Tainted}, nil
+		return Value{Kind: KindBool, B: !x.Truthy(), Tainted: x.Tainted, Sensitive: x.Sensitive}, nil
 	case Binary:
 		return evalBinary(n, ctx)
 	}
@@ -172,11 +175,11 @@ func evalRef(r Ref, ctx *Context) (Value, error) {
 		if !ok {
 			return Value{}, fmt.Errorf("expr: secret %q not bound", path[1])
 		}
-		// Secrets are NEVER tainted — they're operator-controlled.
-		// The runner's log scrubber (S41e) replaces their values in
-		// log output, but the shell-injection guard cares about
-		// untrusted-source taint, not secret-vs-not.
-		return Value{Kind: KindString, S: v}, nil
+		// Secrets are never tainted because they're operator-controlled,
+		// but they are sensitive. The runner render layer binds them
+		// through env references rather than embedding plaintext in
+		// `bash -c` argv.
+		return Value{Kind: KindString, S: v, Sensitive: true}, nil
 	case "vars":
 		if len(path) != 2 {
 			return Value{}, fmt.Errorf("expr: vars.<name> requires exactly one member")
@@ -195,7 +198,7 @@ func evalRef(r Ref, ctx *Context) (Value, error) {
 		if !ok {
 			return Value{Kind: KindString, S: ""}, nil
 		}
-		return Value{Kind: KindString, S: v, Tainted: ctx.EnvTaint[path[1]]}, nil
+		return Value{Kind: KindString, S: v, Tainted: ctx.EnvTaint[path[1]], Sensitive: ctx.EnvSensitive[path[1]]}, nil
 	case "shithub":
 		return evalShithub(path[1:], ctx, tainted)
 	}
@@ -313,7 +316,7 @@ func strFnArity2(c Call, ctx *Context, name string, fn func(string, string) bool
 		return Value{}, err
 	}
 	tainted := a.Tainted || b.Tainted
-	return Value{Kind: KindBool, B: fn(a.String(), b.String()), Tainted: tainted}, nil
+	return Value{Kind: KindBool, B: fn(a.String(), b.String()), Tainted: tainted, Sensitive: a.Sensitive || b.Sensitive}, nil
 }
 
 func evalBinary(n Binary, ctx *Context) (Value, error) {
@@ -330,7 +333,7 @@ func evalBinary(n Binary, ctx *Context) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return Value{Kind: r.Kind, S: r.S, B: r.B, Tainted: l.Tainted || r.Tainted}, nil
+		return Value{Kind: r.Kind, S: r.S, B: r.B, Tainted: l.Tainted || r.Tainted, Sensitive: l.Sensitive || r.Sensitive}, nil
 	case "||":
 		if l.Truthy() {
 			return l, nil
@@ -339,7 +342,7 @@ func evalBinary(n Binary, ctx *Context) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return Value{Kind: r.Kind, S: r.S, B: r.B, Tainted: l.Tainted || r.Tainted}, nil
+		return Value{Kind: r.Kind, S: r.S, B: r.B, Tainted: l.Tainted || r.Tainted, Sensitive: l.Sensitive || r.Sensitive}, nil
 	}
 	r, err := Eval(n.R, ctx)
 	if err != nil {
@@ -348,9 +351,9 @@ func evalBinary(n Binary, ctx *Context) (Value, error) {
 	tainted := l.Tainted || r.Tainted
 	switch n.Op {
 	case "==":
-		return Value{Kind: KindBool, B: valuesEqual(l, r), Tainted: tainted}, nil
+		return Value{Kind: KindBool, B: valuesEqual(l, r), Tainted: tainted, Sensitive: l.Sensitive || r.Sensitive}, nil
 	case "!=":
-		return Value{Kind: KindBool, B: !valuesEqual(l, r), Tainted: tainted}, nil
+		return Value{Kind: KindBool, B: !valuesEqual(l, r), Tainted: tainted, Sensitive: l.Sensitive || r.Sensitive}, nil
 	}
 	return Value{}, fmt.Errorf("expr: unknown binary operator %q", n.Op)
 }

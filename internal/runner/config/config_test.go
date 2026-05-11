@@ -25,8 +25,14 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if cfg.Engine.Kind != "docker" {
 		t.Fatalf("Engine.Kind: %q", cfg.Engine.Kind)
 	}
+	if cfg.Engine.Network != "shithub-actions" {
+		t.Fatalf("Engine.Network: %q", cfg.Engine.Network)
+	}
 	if cfg.Engine.SeccompProfile != "/etc/shithubd-runner/seccomp.json" {
 		t.Fatalf("Engine.SeccompProfile: %q", cfg.Engine.SeccompProfile)
+	}
+	if want := []string{"172.30.0.1"}; !reflect.DeepEqual(cfg.Engine.DNSServers, want) {
+		t.Fatalf("DNSServers: got %#v want %#v", cfg.Engine.DNSServers, want)
 	}
 	if cfg.Engine.User != "65534:65534" {
 		t.Fatalf("Engine.User: %q", cfg.Engine.User)

@@ -29,6 +29,8 @@ const (
 	DefaultPath            = "/etc/shithubd-runner/config.toml"
 	EnvPrefix              = "SHITHUB_RUNNER_"
 	defaultImage           = "ghcr.io/shithub/runner-nix:1.0"
+	defaultNetwork         = "shithub-actions"
+	defaultDNSServer       = "172.30.0.1"
 	defaultSeccompProfile  = "/etc/shithubd-runner/seccomp.json"
 	defaultContainerUser   = "65534:65534"
 	defaultContainerPIDMax = 512
@@ -108,12 +110,13 @@ func Defaults() Config {
 		Engine: EngineConfig{
 			Kind:           "docker",
 			DefaultImage:   defaultImage,
-			Network:        "bridge",
+			Network:        defaultNetwork,
 			Memory:         "2g",
 			CPUs:           "2",
 			SeccompProfile: defaultSeccompProfile,
 			User:           defaultContainerUser,
 			PidsLimit:      defaultContainerPIDMax,
+			DNSServers:     []string{defaultDNSServer},
 		},
 		Log: LogConfig{
 			Level:  "info",
