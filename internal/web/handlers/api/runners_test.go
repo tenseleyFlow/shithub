@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
@@ -30,6 +31,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
+	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
 )
 
 const runnerAPIFixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
@@ -224,6 +226,84 @@ func TestRunnerArtifactUploadReturnsSignedURL(t *testing.T) {
 	}
 	if len(artifacts) != 1 || artifacts[0].Name != "test-results.tgz" || artifacts[0].ByteCount != 123 {
 		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestRunnerStepStatusEnqueuesFinalizeWorker(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()), storage.NewMemoryStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID    int64 `json:"id"`
+			Steps []struct {
+				ID  int64  `json:"id"`
+				Run string `json:"run"`
+			} `json:"steps"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	if len(claim.Job.Steps) < 2 {
+		t.Fatalf("claim steps: %+v", claim.Job.Steps)
+	}
+	stepID := claim.Job.Steps[1].ID
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/steps/%d/status", claim.Job.ID, stepID),
+		strings.NewReader(`{"status":"completed","conclusion":"success"}`))
+	req.Header.Set("Authorization", "Bearer "+claim.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("step status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var statusResp struct {
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		NextToken  string `json:"next_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusResp.Status != "completed" || statusResp.Conclusion != "success" || statusResp.NextToken == "" {
+		t.Fatalf("unexpected step status response: %+v", statusResp)
+	}
+	step, err := actionsdb.New().GetWorkflowStepByID(ctx, pool, stepID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStepByID: %v", err)
+	}
+	if step.Status != actionsdb.WorkflowStepStatusCompleted ||
+		!step.Conclusion.Valid || step.Conclusion.CheckConclusion != actionsdb.CheckConclusionSuccess {
+		t.Fatalf("step was not completed: %+v", step)
+	}
+	job, err := workerdb.New().ClaimJob(ctx, pool, workerdb.ClaimJobParams{
+		Kind:     string(finalize.KindWorkflowFinalizeStep),
+		LockedBy: pgtype.Text{String: "test", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("ClaimJob finalize: %v", err)
+	}
+	var payload finalize.Payload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		t.Fatalf("decode worker payload: %v", err)
+	}
+	if payload.StepID != stepID {
+		t.Fatalf("worker payload: %+v, want step_id %d", payload, stepID)
 	}
 }
 

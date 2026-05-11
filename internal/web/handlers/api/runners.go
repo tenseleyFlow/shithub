@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
@@ -27,6 +28,7 @@ import (
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 var runnerHeartbeatLimit = ratelimit.Policy{
@@ -38,6 +40,7 @@ var runnerHeartbeatLimit = ratelimit.Policy{
 func (h *Handlers) mountRunners(r chi.Router) {
 	r.Post("/api/v1/runners/heartbeat", h.runnerHeartbeat)
 	r.Post("/api/v1/jobs/{id}/logs", h.runnerJobLogs)
+	r.Post("/api/v1/jobs/{id}/steps/{step_id}/status", h.runnerStepStatus)
 	r.Post("/api/v1/jobs/{id}/status", h.runnerJobStatus)
 	r.Post("/api/v1/jobs/{id}/artifacts/upload", h.runnerJobArtifactUpload)
 	r.Post("/api/v1/jobs/{id}/cancel-check", h.runnerJobCancelCheck)
@@ -413,6 +416,43 @@ func (h *Handlers) runnerJobStatus(w http.ResponseWriter, r *http.Request) {
 	h.writeNextTokenResponse(w, r, http.StatusOK, auth, bodyMap)
 }
 
+func (h *Handlers) runnerStepStatus(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.authenticateRunnerJob(w, r)
+	if !ok {
+		return
+	}
+	stepID, err := strconv.ParseInt(chi.URLParam(r, "step_id"), 10, 64)
+	if err != nil || stepID <= 0 {
+		writeAPIError(w, http.StatusNotFound, "step not found")
+		return
+	}
+	q := actionsdb.New()
+	step, err := q.GetWorkflowStepByID(r.Context(), h.d.Pool, stepID)
+	if err != nil || step.JobID != auth.Job.ID {
+		writeAPIError(w, http.StatusNotFound, "step not found")
+		return
+	}
+	var body runnerStatusRequest
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	update, terminal, err := normalizeStepStatusUpdate(step, body)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := h.applyStepStatus(r.Context(), step, update, terminal)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "step status update failed")
+		return
+	}
+	h.writeNextTokenResponse(w, r, http.StatusOK, auth, map[string]any{
+		"status":     string(updated.Status),
+		"conclusion": nullableConclusion(updated.Conclusion),
+	})
+}
+
 type normalizedJobStatusUpdate struct {
 	Status      actionsdb.WorkflowJobStatus
 	Conclusion  actionsdb.NullCheckConclusion
@@ -486,6 +526,134 @@ func validWorkflowJobTransition(from, to actionsdb.WorkflowJobStatus) bool {
 	default:
 		return false
 	}
+}
+
+type normalizedStepStatusUpdate struct {
+	Status      actionsdb.WorkflowStepStatus
+	Conclusion  actionsdb.NullCheckConclusion
+	StartedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+}
+
+func normalizeStepStatusUpdate(step actionsdb.WorkflowStep, body runnerStatusRequest) (normalizedStepStatusUpdate, bool, error) {
+	now := time.Now().UTC()
+	status := actionsdb.WorkflowStepStatus(strings.TrimSpace(body.Status))
+	if status == "" {
+		return normalizedStepStatusUpdate{}, false, errors.New("status is required")
+	}
+	if !validWorkflowStepTransition(step.Status, status) {
+		return normalizedStepStatusUpdate{}, false, fmt.Errorf("invalid status transition %s -> %s", step.Status, status)
+	}
+	startedAt := step.StartedAt
+	if body.StartedAt != "" {
+		t, err := parseTimeOptional(body.StartedAt)
+		if err != nil {
+			return normalizedStepStatusUpdate{}, false, fmt.Errorf("started_at: %w", err)
+		}
+		startedAt = pgtype.Timestamptz{Time: t, Valid: !t.IsZero()}
+	}
+	if !startedAt.Valid && (status == actionsdb.WorkflowStepStatusRunning ||
+		status == actionsdb.WorkflowStepStatusCompleted ||
+		status == actionsdb.WorkflowStepStatusCancelled) {
+		startedAt = pgtype.Timestamptz{Time: now, Valid: true}
+	}
+	completedAt := step.CompletedAt
+	terminal := status == actionsdb.WorkflowStepStatusCompleted ||
+		status == actionsdb.WorkflowStepStatusCancelled ||
+		status == actionsdb.WorkflowStepStatusSkipped
+	if body.CompletedAt != "" {
+		t, err := parseTimeOptional(body.CompletedAt)
+		if err != nil {
+			return normalizedStepStatusUpdate{}, false, fmt.Errorf("completed_at: %w", err)
+		}
+		completedAt = pgtype.Timestamptz{Time: t, Valid: !t.IsZero()}
+	}
+	if terminal && !completedAt.Valid {
+		completedAt = pgtype.Timestamptz{Time: now, Valid: true}
+	}
+	conclusion := actionsdb.NullCheckConclusion{}
+	if terminal {
+		c := strings.TrimSpace(body.Conclusion)
+		if c == "" && status == actionsdb.WorkflowStepStatusCancelled {
+			c = "cancelled"
+		}
+		if c == "" && status == actionsdb.WorkflowStepStatusSkipped {
+			c = "skipped"
+		}
+		if !validRunnerConclusion(c) {
+			return normalizedStepStatusUpdate{}, false, errors.New("invalid or missing conclusion")
+		}
+		conclusion = actionsdb.NullCheckConclusion{CheckConclusion: actionsdb.CheckConclusion(c), Valid: true}
+	} else if strings.TrimSpace(body.Conclusion) != "" {
+		return normalizedStepStatusUpdate{}, false, errors.New("conclusion is only valid for terminal statuses")
+	}
+	return normalizedStepStatusUpdate{
+		Status:      status,
+		Conclusion:  conclusion,
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+	}, terminal, nil
+}
+
+func validWorkflowStepTransition(from, to actionsdb.WorkflowStepStatus) bool {
+	switch to {
+	case actionsdb.WorkflowStepStatusRunning:
+		return from == actionsdb.WorkflowStepStatusQueued || from == actionsdb.WorkflowStepStatusRunning
+	case actionsdb.WorkflowStepStatusCompleted:
+		return from == actionsdb.WorkflowStepStatusQueued || from == actionsdb.WorkflowStepStatusRunning || from == actionsdb.WorkflowStepStatusCompleted
+	case actionsdb.WorkflowStepStatusCancelled:
+		return from == actionsdb.WorkflowStepStatusQueued || from == actionsdb.WorkflowStepStatusRunning || from == actionsdb.WorkflowStepStatusCancelled
+	case actionsdb.WorkflowStepStatusSkipped:
+		return from == actionsdb.WorkflowStepStatusQueued || from == actionsdb.WorkflowStepStatusRunning || from == actionsdb.WorkflowStepStatusSkipped
+	default:
+		return false
+	}
+}
+
+func (h *Handlers) applyStepStatus(
+	ctx context.Context,
+	step actionsdb.WorkflowStep,
+	update normalizedStepStatusUpdate,
+	terminal bool,
+) (actionsdb.WorkflowStep, error) {
+	q := actionsdb.New()
+	tx, err := h.d.Pool.Begin(ctx)
+	if err != nil {
+		return actionsdb.WorkflowStep{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	updated, err := q.UpdateWorkflowStepStatus(ctx, tx, actionsdb.UpdateWorkflowStepStatusParams{
+		ID:          step.ID,
+		Status:      update.Status,
+		Conclusion:  update.Conclusion,
+		StartedAt:   update.StartedAt,
+		CompletedAt: update.CompletedAt,
+	})
+	if err != nil {
+		return actionsdb.WorkflowStep{}, err
+	}
+	shouldNotify := false
+	if terminal && h.d.ObjectStore != nil {
+		if _, err := worker.Enqueue(ctx, tx, finalize.KindWorkflowFinalizeStep, finalize.Payload{StepID: step.ID}, worker.EnqueueOptions{}); err != nil {
+			return actionsdb.WorkflowStep{}, err
+		}
+		shouldNotify = true
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return actionsdb.WorkflowStep{}, err
+	}
+	committed = true
+	if shouldNotify {
+		if err := worker.Notify(ctx, h.d.Pool); err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "runner step finalizer notify failed", "step_id", step.ID, "error", err)
+		}
+	}
+	return updated, nil
 }
 
 func (h *Handlers) applyJobStatus(
