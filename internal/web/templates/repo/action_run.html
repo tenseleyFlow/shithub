@@ -17,6 +17,12 @@
     </div>
     <div class="shithub-actions-run-head-actions">
       {{ template "action-run-status" . }}
+      {{ if .Run.CanCancel }}
+        <form method="POST" action="{{ .Run.CancelHref }}" class="shithub-actions-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">{{ octicon "stop" }} Cancel workflow</button>
+        </form>
+      {{ end }}
       <a class="shithub-button" href="{{ .Run.CodeHref }}">{{ octicon "code" }} Code</a>
     </div>
   </header>
@@ -103,6 +109,18 @@
                 <small>{{ .StateText }} · {{ .Duration }}{{ if .RunsOn }} · runs-on {{ .RunsOn }}{{ end }}{{ if .NeedsText }} · needs {{ .NeedsText }}{{ end }}</small>
               </span>
             </summary>
+            {{ if or .CanCancel .CancelRequested }}
+              <div class="shithub-actions-job-actions">
+                {{ if .CanCancel }}
+                  <form method="POST" action="{{ .CancelHref }}" class="shithub-actions-inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-button shithub-button-danger">{{ octicon "stop" }} Cancel job</button>
+                  </form>
+                {{ else if .CancelRequested }}
+                  <span class="shithub-actions-cancel-requested">{{ octicon "stopwatch" }} Cancel requested</span>
+                {{ end }}
+              </div>
+            {{ end }}
             <ol class="shithub-actions-step-list">
               {{ range .Steps }}
                 <li>

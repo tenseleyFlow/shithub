@@ -125,10 +125,10 @@ func (h *Handlers) MountNew(r chi.Router) {
 }
 
 // MountRepoActionsAPI registers POST/state-changing routes under
-// /{owner}/{repo}/actions/. Caller wraps with RequireUser. Currently
-// just the workflow_dispatch endpoint (S41b); S41f will add re-run +
-// cancel.
+// /{owner}/{repo}/actions/. Caller wraps with RequireUser.
 func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
+	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", h.repoActionRunCancel)
+	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/cancel", h.repoActionJobCancel)
 	r.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", h.repoActionsDispatch)
 }
 

@@ -95,6 +95,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		// inside the helper since reads need repo:read but writes need
 		// repo:write.
 		h.mountChecks(r)
+		// S41g Actions lifecycle controls.
+		h.mountActionsLifecycle(r)
 		// S26 stars: PUT/DELETE need user:write, GET needs user:read.
 		h.mountStars(r)
 	})

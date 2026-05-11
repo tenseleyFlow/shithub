@@ -26,6 +26,7 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -446,6 +447,57 @@ func TestRunnerStepStatusEnqueuesFinalizeWorker(t *testing.T) {
 	}
 }
 
+func TestWorkflowJobCancelAPIRequestsCancellation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	jobs, err := actionsdb.New().ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs: %+v", jobs)
+	}
+	rawPAT := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/cancel", jobs[0].ID), nil)
+	req.Header.Set("Authorization", "Bearer "+rawPAT)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("cancel status: got %d, want 202; body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		ChangedJobs  int  `json:"changed_jobs"`
+		RunCompleted bool `json:"run_completed"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.ChangedJobs != 1 || !body.RunCompleted {
+		t.Fatalf("response: %+v", body)
+	}
+	job, err := actionsdb.New().GetWorkflowJobByID(ctx, pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if job.Status != actionsdb.WorkflowJobStatusCancelled || !job.CancelRequested ||
+		!job.Conclusion.Valid || job.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("job: %+v", job)
+	}
+	run, err := actionsdb.New().GetWorkflowRunByID(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if run.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!run.Conclusion.Valid || run.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("run: %+v", run)
+	}
+}
+
 func postRunnerLogChunk(t *testing.T, router http.Handler, jobID int64, token string, seq int32, chunk []byte) string {
 	t.Helper()
 	body := fmt.Sprintf(`{"seq":%d,"chunk":%q}`, seq, base64.StdEncoding.EncodeToString(chunk))
@@ -610,6 +662,24 @@ func registerRunnerForTest(t *testing.T, pool *pgxpool.Pool, labels []string, ca
 		t.Fatalf("InsertRunnerToken: %v", err)
 	}
 	return token, runner.ID
+}
+
+func mintRunnerAPIPAT(t *testing.T, pool *pgxpool.Pool, userID int64, scopes ...string) string {
+	t.Helper()
+	raw, hash, prefix, err := pat.Mint()
+	if err != nil {
+		t.Fatalf("pat.Mint: %v", err)
+	}
+	if _, err := usersdb.New().InsertUserToken(context.Background(), pool, usersdb.InsertUserTokenParams{
+		UserID:      userID,
+		Name:        "api test",
+		TokenHash:   hash,
+		TokenPrefix: prefix,
+		Scopes:      scopes,
+	}); err != nil {
+		t.Fatalf("InsertUserToken: %v", err)
+	}
+	return raw
 }
 
 func containsString(items []string, want string) bool {

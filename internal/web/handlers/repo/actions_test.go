@@ -303,6 +303,118 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 	}
 }
 
+func TestRepoActionRunRendersCancelControlsForWritersOnly(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      12,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusRunning,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -5 * time.Minute,
+		StartedOffset: -4 * time.Minute,
+	}, now)
+	f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:    runID,
+		JobIndex: 0,
+		JobKey:   "build",
+		JobName:  "Build",
+		RunsOn:   "ubuntu-latest",
+		Status:   actionsdb.WorkflowJobStatusQueued,
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/12", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("owner status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"CANCEL_RUN=/alice/public-repo/actions/runs/12/cancel;",
+		"CANCEL_JOB=/alice/public-repo/actions/runs/12/jobs/0/cancel;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("owner body missing %q in %s", want, body)
+		}
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/12", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stranger status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "CANCEL_") {
+		t.Fatalf("cancel controls leaked to non-writer: %s", resp.Body.String())
+	}
+}
+
+func TestRepoActionRunCancelCancelsQueuedRun(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      13,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -5 * time.Minute,
+	}, now)
+	jobID := f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:    runID,
+		JobIndex: 0,
+		JobKey:   "build",
+		JobName:  "Build",
+		RunsOn:   "ubuntu-latest",
+		Status:   actionsdb.WorkflowJobStatusQueued,
+	})
+	stepID := f.insertWorkflowStep(t, workflowStepFixture{
+		JobID:      jobID,
+		StepIndex:  0,
+		RunCommand: "go test ./...",
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/runs/13/cancel", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions/runs/13" {
+		t.Fatalf("Location=%q", loc)
+	}
+	job, err := actionsdb.New().GetWorkflowJobByID(context.Background(), f.pool, jobID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if job.Status != actionsdb.WorkflowJobStatusCancelled || !job.CancelRequested {
+		t.Fatalf("job: %+v", job)
+	}
+	step, err := actionsdb.New().GetWorkflowStepByID(context.Background(), f.pool, stepID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStepByID: %v", err)
+	}
+	if step.Status != actionsdb.WorkflowStepStatusCancelled {
+		t.Fatalf("step: %+v", step)
+	}
+	run, err := actionsdb.New().GetWorkflowRunByID(context.Background(), f.pool, runID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if run.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!run.Conclusion.Valid || run.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("run: %+v", run)
+	}
+}
+
 func TestRepoActionRunStatusRendersPollingFragment(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -528,6 +640,8 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
+	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
+	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/cancel", f.handlers.repoActionJobCancel)
 	mux.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", f.handlers.repoActionsDispatch)
 	mux.Get("/{owner}/{repo}/actions", f.handlers.repoTabActions)
 	return mux
