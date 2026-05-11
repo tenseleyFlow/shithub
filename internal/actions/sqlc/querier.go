@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
+	CancelOpenWorkflowStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]WorkflowStep, error)
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
@@ -90,6 +91,8 @@ type Querier interface {
 	// Cast to bigint so sqlc generates int64 (the column type) rather
 	// than int32 (the type the +1 literal would default to).
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
+	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
+	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error

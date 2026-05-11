@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -42,6 +43,37 @@ func (secretLoggingRunner) Run(_ context.Context, _ string, _ []string, _ []stri
 	return nil
 }
 
+type cancellableRunner struct {
+	started  chan struct{}
+	killed   chan struct{}
+	killArgs []string
+	mu       sync.Mutex
+}
+
+func newCancellableRunner() *cancellableRunner {
+	return &cancellableRunner{
+		started: make(chan struct{}),
+		killed:  make(chan struct{}),
+	}
+}
+
+func (r *cancellableRunner) Run(ctx context.Context, _ string, args []string, _ []string, _, _ io.Writer) error {
+	if len(args) > 0 && args[0] == "kill" {
+		r.mu.Lock()
+		r.killArgs = append([]string{}, args...)
+		r.mu.Unlock()
+		close(r.killed)
+		return nil
+	}
+	close(r.started)
+	select {
+	case <-r.killed:
+		return context.Canceled
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	t.Parallel()
 	rec := &recordingRunner{}
@@ -73,7 +105,8 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 		t.Fatalf("Conclusion: %q", out.Conclusion)
 	}
 	want := []string{
-		"run", "--rm", "--network=none", "--memory=2g", "--cpus=2",
+		"run", "--rm", "--name", "shithub-job-1-step-0",
+		"--network=none", "--memory=2g", "--cpus=2",
 		"--pids-limit=512", "--read-only",
 		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g",
 		"--cap-drop=ALL", "--cap-add=DAC_OVERRIDE", "--cap-add=SETGID", "--cap-add=SETUID",
@@ -81,7 +114,7 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 		"--ulimit", "nofile=4096:4096", "--ulimit", "nproc=512:512",
 		"--user", "65534:65534",
 		"--workdir=/workspace/subdir",
-		"--mount", rec.args[23],
+		"--mount", rec.args[25],
 		"--env", "A", "--env", "B",
 		"runner-image", "bash", "-c", "echo hi",
 	}
@@ -91,8 +124,8 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	if !reflect.DeepEqual(rec.args, want) {
 		t.Fatalf("args:\ngot  %#v\nwant %#v", rec.args, want)
 	}
-	if !strings.HasPrefix(rec.args[23], "type=bind,src=") || !strings.HasSuffix(rec.args[23], ",dst=/workspace,rw") {
-		t.Fatalf("workspace mount arg: %q", rec.args[23])
+	if !strings.HasPrefix(rec.args[25], "type=bind,src=") || !strings.HasSuffix(rec.args[25], ",dst=/workspace,rw") {
+		t.Fatalf("workspace mount arg: %q", rec.args[25])
 	}
 	if wantEnv := []string{"A=job", "B=step"}; !reflect.DeepEqual(rec.env, wantEnv) {
 		t.Fatalf("env:\ngot  %#v\nwant %#v", rec.env, wantEnv)
@@ -357,6 +390,49 @@ func TestDockerExecute_StreamsOrderedEvents(t *testing.T) {
 	}
 	if got[1].Step == nil || got[1].Step.StepID != 123 || got[1].Step.Conclusion != ConclusionSuccess {
 		t.Fatalf("second event: %#v", got[1])
+	}
+}
+
+func TestDockerCancelKillsActiveContainer(t *testing.T) {
+	t.Parallel()
+	rec := newCancellableRunner()
+	d := NewDocker(DockerConfig{
+		DefaultImage: "runner-image",
+		Network:      "bridge",
+		Memory:       "2g",
+		CPUs:         "2",
+		Runner:       rec,
+	})
+	type executeResult struct {
+		out Outcome
+		err error
+	}
+	done := make(chan executeResult, 1)
+	go func() {
+		out, err := d.Execute(t.Context(), Job{
+			ID:           99,
+			WorkspaceDir: t.TempDir(),
+			Steps:        []Step{{ID: 123, Run: "sleep 600"}},
+		})
+		done <- executeResult{out: out, err: err}
+	}()
+	<-rec.started
+	if err := d.Cancel(t.Context(), 99); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	res := <-done
+	if !errors.Is(res.err, context.Canceled) {
+		t.Fatalf("Execute error: %v", res.err)
+	}
+	if res.out.Conclusion != ConclusionCancelled {
+		t.Fatalf("Conclusion: %q", res.out.Conclusion)
+	}
+	rec.mu.Lock()
+	killArgs := append([]string{}, rec.killArgs...)
+	rec.mu.Unlock()
+	want := []string{"kill", "shithub-job-99-step-123"}
+	if !reflect.DeepEqual(killArgs, want) {
+		t.Fatalf("kill args: got %#v want %#v", killArgs, want)
 	}
 }
 

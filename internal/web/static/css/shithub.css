@@ -5299,6 +5299,9 @@ button.shithub-repo-action {
   gap: 0.5rem;
   flex-shrink: 0;
 }
+.shithub-actions-inline-form {
+  margin: 0;
+}
 .shithub-actions-run-status {
   pointer-events: none;
 }
@@ -5461,6 +5464,18 @@ button.shithub-repo-action {
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.shithub-actions-job-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem 0.75rem;
+}
+.shithub-actions-cancel-requested {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
 }
 .shithub-actions-step-list {
   margin: 0;

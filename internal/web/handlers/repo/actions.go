@@ -107,6 +107,8 @@ type actionsRunDetailView struct {
 	Duration       string
 	IsTerminal     bool
 	StatusHref     string
+	CancelHref     string
+	CanCancel      bool
 	ActionsHref    string
 	CodeHref       string
 	ArtifactCount  int
@@ -130,8 +132,14 @@ type actionsJobDetailView struct {
 	StateIcon  string
 	Duration   string
 	Anchor     string
-	Depth      int
-	Steps      []actionsStepDetailView
+	CancelHref string
+	CanCancel  bool
+	// CancelRequested is true after a running job has been asked to stop but
+	// before its runner has reported the terminal cancelled state.
+	CancelRequested bool
+	IsCancellable   bool
+	Depth           int
+	Steps           []actionsStepDetailView
 }
 
 type actionsStepDetailView struct {
@@ -609,6 +617,7 @@ func (h *Handlers) repoActionRun(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	h.applyActionsCancelControls(r, row, &view)
 
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = view.Title + " #" + strconv.FormatInt(view.RunIndex, 10) + " · " + row.Name
@@ -755,6 +764,7 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 		Duration:       workflowRunDuration(run.Status, run.StartedAt, run.CompletedAt, run.CreatedAt, updatedAt, now),
 		IsTerminal:     workflowRunTerminal(run.Status),
 		StatusHref:     runPath + "/status",
+		CancelHref:     runPath + "/cancel",
 		ActionsHref:    basePath,
 		CodeHref:       "/" + owner + "/" + repoName + "/tree/" + codeTarget(run.HeadRef, run.HeadSha),
 		ArtifactCount:  len(artifacts),
@@ -804,6 +814,11 @@ func actionsJobDetailViewFromRow(row actionsdb.ListJobsForRunRow, owner, repoNam
 		StateIcon:  stateIcon,
 		Duration:   actionItemDuration(string(row.Status), string(actionsdb.WorkflowJobStatusQueued), row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt, now),
 		Anchor:     "job-" + strconv.FormatInt(int64(row.JobIndex), 10),
+		CancelHref: "/" + owner + "/" + repoName + "/actions/runs/" + strconv.FormatInt(runIndex, 10) +
+			"/jobs/" + strconv.FormatInt(int64(row.JobIndex), 10) + "/cancel",
+		CancelRequested: row.CancelRequested,
+		IsCancellable: row.Status == actionsdb.WorkflowJobStatusQueued ||
+			row.Status == actionsdb.WorkflowJobStatusRunning,
 	}
 }
 

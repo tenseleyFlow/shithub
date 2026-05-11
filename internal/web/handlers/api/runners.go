@@ -21,13 +21,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
+	actionslifecycle "github.com/tenseleyFlow/shithub/internal/actions/lifecycle"
 	"github.com/tenseleyFlow/shithub/internal/actions/logstream"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
-	"github.com/tenseleyFlow/shithub/internal/checks"
-	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -700,6 +699,24 @@ func (h *Handlers) applyJobStatus(
 	if err != nil {
 		return actionsdb.WorkflowJob{}, false, "", err
 	}
+	notifyWorker := false
+	if updated.Status == actionsdb.WorkflowJobStatusCancelled {
+		steps, err := q.CancelOpenWorkflowStepsForJob(ctx, tx, updated.ID)
+		if err != nil {
+			return actionsdb.WorkflowJob{}, false, "", err
+		}
+		for _, step := range steps {
+			if err := logstream.NotifyDone(ctx, tx, step.ID); err != nil {
+				return actionsdb.WorkflowJob{}, false, "", err
+			}
+			if h.d.ObjectStore != nil {
+				if _, err := worker.Enqueue(ctx, tx, finalize.KindWorkflowFinalizeStep, finalize.Payload{StepID: step.ID}, worker.EnqueueOptions{}); err != nil {
+					return actionsdb.WorkflowJob{}, false, "", err
+				}
+				notifyWorker = true
+			}
+		}
+	}
 	jobs, err := q.ListJobsForRun(ctx, tx, updated.RunID)
 	if err != nil {
 		return actionsdb.WorkflowJob{}, false, "", err
@@ -719,6 +736,11 @@ func (h *Handlers) applyJobStatus(
 		return actionsdb.WorkflowJob{}, false, "", err
 	}
 	committed = true
+	if notifyWorker {
+		if err := worker.Notify(ctx, h.d.Pool); err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "runner cancelled-step finalizer notify failed", "job_id", updated.ID, "error", err)
+		}
+	}
 	return updated, complete, runConclusion, nil
 }
 
@@ -754,47 +776,7 @@ func deriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.
 }
 
 func (h *Handlers) updateCheckRunForJob(ctx context.Context, job actionsdb.WorkflowJob) error {
-	run, err := actionsdb.New().GetWorkflowRunByID(ctx, h.d.Pool, job.RunID)
-	if err != nil {
-		return err
-	}
-	name := job.JobName
-	if name == "" {
-		name = job.JobKey
-	}
-	checkRun, err := checksdb.New().GetCheckRunByExternalID(ctx, h.d.Pool, checksdb.GetCheckRunByExternalIDParams{
-		RepoID:     run.RepoID,
-		HeadSha:    run.HeadSha,
-		Name:       name,
-		ExternalID: pgtype.Text{String: fmt.Sprintf("workflow_run:%d:job:%s", job.RunID, job.JobKey), Valid: true},
-	})
-	if err != nil {
-		return err
-	}
-	params := checks.UpdateParams{
-		RunID:        checkRun.ID,
-		HasStatus:    true,
-		HasStartedAt: true,
-		StartedAt:    timeFromPg(job.StartedAt),
-	}
-	switch job.Status {
-	case actionsdb.WorkflowJobStatusRunning:
-		params.Status = "in_progress"
-	case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusCancelled:
-		params.Status = "completed"
-		params.HasConclusion = true
-		if job.Conclusion.Valid {
-			params.Conclusion = string(job.Conclusion.CheckConclusion)
-		} else if job.Status == actionsdb.WorkflowJobStatusCancelled {
-			params.Conclusion = "cancelled"
-		}
-		params.HasCompletedAt = true
-		params.CompletedAt = timeFromPg(job.CompletedAt)
-	default:
-		return nil
-	}
-	_, err = checks.Update(ctx, checks.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, params)
-	return err
+	return actionslifecycle.SyncCheckRunForJob(ctx, actionslifecycle.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, job)
 }
 
 type runnerArtifactUploadRequest struct {
@@ -1309,11 +1291,4 @@ func nullableConclusion(c actionsdb.NullCheckConclusion) any {
 		return nil
 	}
 	return string(c.CheckConclusion)
-}
-
-func timeFromPg(t pgtype.Timestamptz) time.Time {
-	if !t.Valid {
-		return time.Time{}
-	}
-	return t.Time
 }

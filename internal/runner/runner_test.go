@@ -18,6 +18,8 @@ type fakeAPI struct {
 	statuses     []api.StatusRequest
 	stepStatuses []api.StatusRequest
 	logs         []api.LogRequest
+	cancelChecks int
+	cancelled    bool
 	tokens       []string
 	next         int
 }
@@ -47,16 +49,23 @@ func (f *fakeAPI) AppendLog(_ context.Context, _ int64, token string, req api.Lo
 	return api.LogResponse{NextToken: f.nextToken()}, nil
 }
 
+func (f *fakeAPI) CancelCheck(_ context.Context, _ int64, token string) (api.CancelCheckResponse, error) {
+	f.tokens = append(f.tokens, token)
+	f.cancelChecks++
+	return api.CancelCheckResponse{Cancelled: f.cancelled, NextToken: f.nextToken()}, nil
+}
+
 func (f *fakeAPI) nextToken() string {
 	f.next++
 	return "next-token-" + strconv.Itoa(f.next)
 }
 
 type fakeEngine struct {
-	job  engine.Job
-	out  engine.Outcome
-	logs []engine.LogChunk
-	err  error
+	job       engine.Job
+	out       engine.Outcome
+	logs      []engine.LogChunk
+	err       error
+	cancelled bool
 }
 
 func (f *fakeEngine) Execute(_ context.Context, job engine.Job) (engine.Outcome, error) {
@@ -73,7 +82,10 @@ func (f *fakeEngine) StreamLogs(_ context.Context, _ int64) (<-chan engine.LogCh
 	return ch, nil
 }
 
-func (f *fakeEngine) Cancel(_ context.Context, _ int64) error { return nil }
+func (f *fakeEngine) Cancel(_ context.Context, _ int64) error {
+	f.cancelled = true
+	return nil
+}
 
 type fakeEventEngine struct {
 	fakeEngine
@@ -93,6 +105,42 @@ func (f *fakeEventEngine) Execute(ctx context.Context, job engine.Job) (engine.O
 	}
 	close(f.ch)
 	return out, err
+}
+
+type cancelBlockingEngine struct {
+	job       engine.Job
+	logs      chan engine.LogChunk
+	started   chan struct{}
+	cancelled bool
+}
+
+func newCancelBlockingEngine() *cancelBlockingEngine {
+	return &cancelBlockingEngine{
+		logs:    make(chan engine.LogChunk),
+		started: make(chan struct{}),
+	}
+}
+
+func (f *cancelBlockingEngine) Execute(ctx context.Context, job engine.Job) (engine.Outcome, error) {
+	f.job = job
+	close(f.started)
+	<-ctx.Done()
+	close(f.logs)
+	now := time.Date(2026, 5, 10, 21, 0, 1, 0, time.UTC)
+	return engine.Outcome{
+		Conclusion:  engine.ConclusionCancelled,
+		StartedAt:   now.Add(-time.Second),
+		CompletedAt: now,
+	}, ctx.Err()
+}
+
+func (f *cancelBlockingEngine) StreamLogs(_ context.Context, _ int64) (<-chan engine.LogChunk, error) {
+	return f.logs, nil
+}
+
+func (f *cancelBlockingEngine) Cancel(_ context.Context, _ int64) error {
+	f.cancelled = true
+	return nil
 }
 
 type fakeWorkspaces struct {
@@ -297,6 +345,50 @@ func TestRunOnce_EngineFailureStillCompletesJob(t *testing.T) {
 	}
 	if fapi.statuses[1].Conclusion != engine.ConclusionFailure {
 		t.Fatalf("completion: %#v", fapi.statuses[1])
+	}
+}
+
+func TestRunOnce_CancelCheckStopsEngineAndMarksJobCancelled(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 5, 10, 21, 0, 0, 0, time.UTC)
+	fapi := &fakeAPI{
+		claim:     &api.Claim{Token: "job-token", Job: api.Job{ID: 10, RunID: 20}},
+		cancelled: true,
+	}
+	fengine := newCancelBlockingEngine()
+	r := New(Options{
+		API:                fapi,
+		Engine:             fengine,
+		Workspaces:         &fakeWorkspaces{dir: "/tmp/workspace"},
+		Clock:              func() time.Time { return now },
+		CancelPollInterval: time.Nanosecond,
+		Sleep: func(ctx context.Context, _ time.Duration) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return nil
+			}
+		},
+	})
+	claimed, err := r.RunOnce(t.Context())
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if !claimed {
+		t.Fatal("claimed = false")
+	}
+	if !fengine.cancelled {
+		t.Fatal("engine Cancel was not called")
+	}
+	if fapi.cancelChecks == 0 {
+		t.Fatal("cancel-check was not called")
+	}
+	if len(fapi.statuses) != 2 ||
+		fapi.statuses[0].Status != "running" ||
+		fapi.statuses[1].Status != "cancelled" ||
+		fapi.statuses[1].Conclusion != engine.ConclusionCancelled {
+		t.Fatalf("statuses: %#v", fapi.statuses)
 	}
 }
 

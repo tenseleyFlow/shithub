@@ -35,6 +35,64 @@ RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           job_env, status, conclusion, cancel_requested,
           started_at, completed_at, version, created_at, updated_at;
 
+-- name: RequestWorkflowJobCancel :one
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = CASE
+        WHEN status = 'queued' THEN 'cancelled'::workflow_job_status
+        ELSE status
+    END,
+    conclusion = CASE
+        WHEN status = 'queued' THEN 'cancelled'::check_conclusion
+        ELSE conclusion
+    END,
+    started_at = CASE
+        WHEN status = 'queued' THEN COALESCE(started_at, now())
+        ELSE started_at
+    END,
+    completed_at = CASE
+        WHEN status = 'queued' THEN COALESCE(completed_at, now())
+        ELSE completed_at
+    END,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND status IN ('queued', 'running')
+  AND (status = 'queued' OR cancel_requested = false)
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at;
+
+-- name: RequestWorkflowRunCancel :many
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = CASE
+        WHEN status = 'queued' THEN 'cancelled'::workflow_job_status
+        ELSE status
+    END,
+    conclusion = CASE
+        WHEN status = 'queued' THEN 'cancelled'::check_conclusion
+        ELSE conclusion
+    END,
+    started_at = CASE
+        WHEN status = 'queued' THEN COALESCE(started_at, now())
+        ELSE started_at
+    END,
+    completed_at = CASE
+        WHEN status = 'queued' THEN COALESCE(completed_at, now())
+        ELSE completed_at
+    END,
+    version = version + 1,
+    updated_at = now()
+WHERE run_id = $1
+  AND status IN ('queued', 'running')
+  AND (status = 'queued' OR cancel_requested = false)
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at;
+
 -- name: CountRunningJobsForRunner :one
 SELECT COUNT(*)::integer
 FROM workflow_jobs
@@ -45,6 +103,7 @@ WITH candidate AS (
     SELECT j.id
     FROM workflow_jobs j
     WHERE j.status = 'queued'
+      AND j.cancel_requested = false
       AND j.runner_id IS NULL
       AND (j.runs_on = '' OR j.runs_on = ANY(sqlc.arg(labels)::text[]))
       AND NOT EXISTS (
@@ -85,7 +144,7 @@ JOIN workflow_runs r ON r.id = c.run_id;
 
 -- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
-       conclusion, needs_jobs, started_at, completed_at, created_at, updated_at
+       conclusion, cancel_requested, needs_jobs, started_at, completed_at, created_at, updated_at
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC;
