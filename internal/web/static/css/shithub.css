@@ -1071,6 +1071,17 @@ code {
 .shithub-profile-follow-counts strong {
   color: var(--fg-default);
 }
+.shithub-profile-follow-counts a {
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+.shithub-profile-follow-counts a:hover {
+  color: var(--accent-fg, #4493f8);
+  text-decoration: none;
+}
+.shithub-follow-form {
+  margin: 0;
+}
 .shithub-profile-dot {
   color: var(--fg-muted);
 }
@@ -1473,6 +1484,11 @@ code {
     grid-template-columns: 1fr;
     padding: 1.25rem 1rem 2rem;
     gap: 1.5rem;
+  }
+  .shithub-profile-tab-container {
+    grid-template-columns: 1fr;
+    padding: 1.25rem 1rem 2rem;
+    gap: 1.25rem;
   }
   .shithub-user-profile-sidebar {
     display: grid;
@@ -2746,6 +2762,78 @@ code {
   border: 1px solid var(--border-default);
   font-size: 0.75rem;
   color: var(--fg-muted);
+}
+
+.shithub-profile-tab-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 2rem;
+}
+.shithub-profile-tab-sidebar {
+  color: var(--fg-muted);
+}
+.shithub-profile-tab-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+}
+.shithub-profile-tab-sidebar h1 {
+  margin: 0.75rem 0 0.15rem;
+  font-size: 1.25rem;
+  color: var(--fg-default);
+}
+.shithub-profile-tab-sidebar p {
+  margin: 0;
+}
+.shithub-follow-list-head {
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 0.75rem;
+}
+.shithub-follow-list-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.shithub-follow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shithub-follow-list-row {
+  display: flex;
+  gap: 0.9rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-follow-avatar img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: block;
+  border: 1px solid var(--border-default);
+}
+.shithub-follow-list-body {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+.shithub-follow-list-name {
+  font-weight: 600;
+  color: var(--fg-default);
+}
+.shithub-follow-list-handle {
+  color: var(--fg-muted);
+}
+.shithub-follow-empty {
+  margin-top: 1rem;
+}
+.shithub-follow-empty h3 {
+  margin: 0;
+  font-size: 1rem;
 }
 
 /* Repositories tab list. */

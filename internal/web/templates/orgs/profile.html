@@ -13,7 +13,17 @@
         </ul>
       </div>
       <div class="shithub-org-hero-actions">
-        {{ if .IsOwner }}<a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-button">Settings</a>{{ else }}<button type="button" class="shithub-button" disabled>Follow</button>{{ end }}
+        {{ if .IsOwner }}
+          <a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-button">Settings</a>
+        {{ else if .Viewer.ID }}
+          <form method="post" action="{{ if .IsFollowing }}{{ .UnfollowAction }}{{ else }}{{ .FollowAction }}{{ end }}" class="shithub-follow-form">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
+            <button type="submit" class="shithub-button">{{ if .IsFollowing }}Unfollow{{ else }}Follow{{ end }}</button>
+          </form>
+        {{ else }}
+          <a href="/login?next={{ urlquery .ReturnTo }}" class="shithub-button">Follow</a>
+        {{ end }}
       </div>
     </div>
   </header>
@@ -140,6 +150,7 @@
         <p class="shithub-muted">This organization has no public members.</p>
         {{ end }}
         <p><strong>{{ .MemberCount }}</strong> member{{ if ne .MemberCount 1 }}s{{ end }}</p>
+        <p><strong>{{ .FollowerCount }}</strong> follower{{ if ne .FollowerCount 1 }}s{{ end }}</p>
       </section>
 
       <section class="shithub-org-sidebox">
