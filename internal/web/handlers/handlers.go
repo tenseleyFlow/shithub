@@ -258,6 +258,15 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger}.ServeHTTP)
 		r.Get("/explore", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeExplore)
 		r.Get("/trending", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeTrending)
+		globalNavH := globalNavHandler{render: rr, logger: deps.Logger, pool: deps.Pool}
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireUser)
+			r.Get("/issues", globalNavH.RedirectIssues)
+			r.Get("/issues/new", globalNavH.ServeNewIssue)
+			r.Get("/issues/{view}", globalNavH.ServeIssues)
+			r.Get("/pulls", globalNavH.ServePulls)
+			r.Get("/repos", globalNavH.ServeRepos)
+		})
 		// /internal/panic is a dev affordance: GET it to trigger the
 		// panic-recovery path so an operator can confirm the styled 500
 		// page renders. S35 will gate this behind a dev flag.

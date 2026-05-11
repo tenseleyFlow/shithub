@@ -1,0 +1,64 @@
+{{ define "page" -}}
+<section class="shithub-global-page">
+  <div class="shithub-global-centered">
+    <main class="shithub-global-main">
+      <header class="shithub-global-head shithub-global-head-compact">
+        <h1>{{ .Heading }}</h1>
+      </header>
+
+      <div class="shithub-global-toolbar-row">
+        <nav class="shithub-global-top-tabs" aria-label="Pull request views">
+          {{ range .Views }}
+          <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>{{ .Label }}</a>
+          {{ end }}
+        </nav>
+        <form action="/pulls" method="get" class="shithub-global-query shithub-global-query-inline">
+          {{ range .Views }}{{ if .Selected }}{{ if ne .Key "created" }}<input type="hidden" name="view" value="{{ .Key }}">{{ end }}{{ end }}{{ end }}
+          <label class="sr-only" for="global-pulls-query">Search pull requests</label>
+          <input id="global-pulls-query" type="text" name="q" value="{{ .Query }}" autocomplete="off">
+          <button type="submit" aria-label="Search pull requests">{{ octicon "search" }}</button>
+        </form>
+      </div>
+
+      <section class="shithub-global-panel" aria-label="Pull requests">
+        <div class="shithub-global-panel-head">
+          <nav class="shithub-global-state-tabs" aria-label="Pull request state">
+            {{ range .StateTabs }}
+            <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>{{ octicon .Icon }} {{ .Count }} {{ .Label }}</a>
+            {{ end }}
+          </nav>
+          <div class="shithub-global-filter-set" aria-label="Pull request filters">
+            <button type="button" disabled>Visibility {{ octicon "triangle-down" }}</button>
+            <button type="button" disabled>Organization {{ octicon "triangle-down" }}</button>
+            <button type="button" disabled>Sort {{ octicon "triangle-down" }}</button>
+          </div>
+        </div>
+
+        {{ if .Pulls }}
+        <ol class="shithub-global-thread-list">
+          {{ range .Pulls }}
+          <li class="shithub-global-thread-row">
+            <span class="shithub-global-thread-state shithub-global-thread-state-pr">{{ octicon "git-pull-request" }}</span>
+            <div class="shithub-global-thread-main">
+              <a class="shithub-global-thread-title" href="{{ .URL }}"><span>{{ .Owner }}/{{ .RepoName }}</span> {{ .Title }}</a>
+              <p>#{{ .Number }} opened by {{ if .AuthorName }}{{ .AuthorName }}{{ else }}ghost{{ end }} · Updated {{ relativeTime .UpdatedAt }}</p>
+            </div>
+            {{ if gt .CommentCount 0 }}
+            <a class="shithub-global-thread-comments" href="{{ .URL }}">{{ octicon "comment" }} {{ .CommentCount }}</a>
+            {{ end }}
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <div class="shithub-global-empty">
+          <h2>{{ .EmptyTitle }}</h2>
+          <p>Try another pull request view or search term.</p>
+        </div>
+        {{ end }}
+      </section>
+
+      <p class="shithub-global-protip">{{ octicon "light-bulb" }} <strong>ProTip!</strong> Mention someone in a pull request with @{{ .Viewer.Username }}.</p>
+    </main>
+  </div>
+</section>
+{{- end }}

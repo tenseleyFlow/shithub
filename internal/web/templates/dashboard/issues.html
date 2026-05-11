@@ -1,0 +1,70 @@
+{{ define "page" -}}
+<section class="shithub-global-page">
+  <div class="shithub-global-shell">
+    <aside class="shithub-global-sidebar" aria-label="Issue views">
+      <nav class="shithub-global-side-nav">
+        {{ range .Views }}
+        <a href="{{ .Href }}" class="shithub-global-side-link{{ if .Selected }} is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>
+          {{ octicon .Icon }} <span>{{ .Label }}</span>
+        </a>
+        {{ end }}
+      </nav>
+      <div class="shithub-global-side-section">
+        <h2>Views</h2>
+        <button type="button" class="shithub-global-side-add" disabled aria-label="Create saved view">{{ octicon "plus" }}</button>
+        <p>No saved views</p>
+      </div>
+    </aside>
+
+    <main class="shithub-global-main">
+      <header class="shithub-global-head">
+        <h1>{{ .Heading }}</h1>
+        <a href="{{ .NewHref }}" class="shithub-button shithub-button-primary">New issue</a>
+      </header>
+
+      <form action="" method="get" class="shithub-global-query">
+        <label class="sr-only" for="global-issues-query">Search issues</label>
+        <input id="global-issues-query" type="text" name="q" value="{{ .Query }}" autocomplete="off">
+        <button type="submit" aria-label="Search issues">{{ octicon "search" }}</button>
+      </form>
+
+      <section class="shithub-global-panel" aria-label="Issues">
+        <div class="shithub-global-panel-head">
+          <strong>{{ .ResultCount }} results</strong>
+          <nav class="shithub-global-state-tabs" aria-label="Issue state">
+            {{ range .StateTabs }}
+            <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>{{ octicon .Icon }} {{ .Count }} {{ .Label }}</a>
+            {{ end }}
+          </nav>
+          <details class="shithub-global-sort">
+            <summary>{{ octicon "list-unordered" }} Updated</summary>
+            <div role="menu"><span role="menuitem">Newest updated</span></div>
+          </details>
+        </div>
+
+        {{ if .Issues }}
+        <ol class="shithub-global-thread-list">
+          {{ range .Issues }}
+          <li class="shithub-global-thread-row">
+            <span class="shithub-global-thread-state shithub-global-thread-state-{{ .State }}">{{ if eq .State "closed" }}{{ octicon "issue-closed" }}{{ else }}{{ octicon "issue-opened" }}{{ end }}</span>
+            <div class="shithub-global-thread-main">
+              <a class="shithub-global-thread-title" href="{{ .URL }}">{{ .Title }}</a>
+              <p><a href="{{ .RepoURL }}">{{ .Owner }}/{{ .RepoName }}</a>#{{ .Number }} opened by {{ if .AuthorName }}{{ .AuthorName }}{{ else }}ghost{{ end }} · Updated {{ relativeTime .UpdatedAt }}</p>
+            </div>
+            {{ if gt .CommentCount 0 }}
+            <a class="shithub-global-thread-comments" href="{{ .URL }}">{{ octicon "comment" }} {{ .CommentCount }}</a>
+            {{ end }}
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <div class="shithub-global-empty">
+          <h2>{{ .EmptyTitle }}</h2>
+          <p>{{ .EmptyMessage }}</p>
+        </div>
+        {{ end }}
+      </section>
+    </main>
+  </div>
+</section>
+{{- end }}
