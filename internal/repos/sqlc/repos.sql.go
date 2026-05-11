@@ -448,6 +448,116 @@ func (q *Queries) GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int6
 	return i, err
 }
 
+const getSoftDeletedRepoByOwnerOrgAndName = `-- name: GetSoftDeletedRepoByOwnerOrgAndName :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
+ORDER BY deleted_at DESC, id DESC
+LIMIT 1
+`
+
+type GetSoftDeletedRepoByOwnerOrgAndNameParams struct {
+	OwnerOrgID pgtype.Int8
+	Name       string
+}
+
+func (q *Queries) GetSoftDeletedRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerOrgAndNameParams) (Repo, error) {
+	row := db.QueryRow(ctx, getSoftDeletedRepoByOwnerOrgAndName, arg.OwnerOrgID, arg.Name)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.OwnerOrgID,
+		&i.Name,
+		&i.Description,
+		&i.Visibility,
+		&i.DefaultBranch,
+		&i.IsArchived,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.DiskUsedBytes,
+		&i.ForkOfRepoID,
+		&i.LicenseKey,
+		&i.PrimaryLanguage,
+		&i.HasIssues,
+		&i.HasPulls,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultBranchOid,
+		&i.AllowSquashMerge,
+		&i.AllowRebaseMerge,
+		&i.AllowMergeCommit,
+		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
+		&i.LastIndexedOid,
+	)
+	return i, err
+}
+
+const getSoftDeletedRepoByOwnerUserAndName = `-- name: GetSoftDeletedRepoByOwnerUserAndName :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
+ORDER BY deleted_at DESC, id DESC
+LIMIT 1
+`
+
+type GetSoftDeletedRepoByOwnerUserAndNameParams struct {
+	OwnerUserID pgtype.Int8
+	Name        string
+}
+
+func (q *Queries) GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerUserAndNameParams) (Repo, error) {
+	row := db.QueryRow(ctx, getSoftDeletedRepoByOwnerUserAndName, arg.OwnerUserID, arg.Name)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.OwnerOrgID,
+		&i.Name,
+		&i.Description,
+		&i.Visibility,
+		&i.DefaultBranch,
+		&i.IsArchived,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.DiskUsedBytes,
+		&i.ForkOfRepoID,
+		&i.LicenseKey,
+		&i.PrimaryLanguage,
+		&i.HasIssues,
+		&i.HasPulls,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultBranchOid,
+		&i.AllowSquashMerge,
+		&i.AllowRebaseMerge,
+		&i.AllowMergeCommit,
+		&i.DefaultMergeMethod,
+		&i.StarCount,
+		&i.WatcherCount,
+		&i.ForkCount,
+		&i.InitStatus,
+		&i.LastIndexedOid,
+	)
+	return i, err
+}
+
 const insertProfilePin = `-- name: InsertProfilePin :exec
 INSERT INTO profile_pins (set_id, repo_id, position)
 VALUES ($1, $2, $3)
@@ -917,6 +1027,19 @@ func (q *Queries) ListReposNeedingReindex(ctx context.Context, db DBTX, limit in
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockRepoOwnerName = `-- name: LockRepoOwnerName :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+// Serializes DB + filesystem operations for one logical owner/name
+// pair. Create, soft-delete, restore, and hard-delete all touch the
+// canonical bare path; a transaction-scoped advisory lock keeps those
+// cross-resource moves from racing.
+func (q *Queries) LockRepoOwnerName(ctx context.Context, db DBTX, hashtextextended string) error {
+	_, err := db.Exec(ctx, lockRepoOwnerName, hashtextextended)
+	return err
 }
 
 const replaceRepoTopics = `-- name: ReplaceRepoTopics :exec

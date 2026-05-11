@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -192,6 +193,13 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	}()
 
 	q := reposdb.New()
+	lockKey, err := createRepoNameLockKey(p)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := q.LockRepoOwnerName(ctx, tx, lockKey); err != nil {
+		return Result{}, fmt.Errorf("repos: lock owner/name: %w", err)
+	}
 	row, err := q.CreateRepo(ctx, tx, reposdb.CreateRepoParams{
 		OwnerUserID:     pgtype.Int8{Int64: p.OwnerUserID, Valid: p.OwnerUserID != 0},
 		OwnerOrgID:      pgtype.Int8{Int64: p.OwnerOrgID, Valid: p.OwnerOrgID != 0},
@@ -213,8 +221,21 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	// reverses the row; we also best-effort RemoveAll the directory in
 	// case it got partially created.
 	if err := deps.RepoFS.InitBare(ctx, diskPath); err != nil {
-		_ = os.RemoveAll(diskPath)
-		return Result{}, fmt.Errorf("repos: init bare: %w", err)
+		if errors.Is(err, storage.ErrAlreadyExists) {
+			displaced, displaceErr := displaceDeletedRepoPath(ctx, deps, q, tx, p, ownerSlug, diskPath)
+			if displaceErr != nil {
+				return Result{}, fmt.Errorf("repos: reclaim deleted repo path: %w", displaceErr)
+			}
+			if displaced {
+				err = deps.RepoFS.InitBare(ctx, diskPath)
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, storage.ErrAlreadyExists) {
+				_ = os.RemoveAll(diskPath)
+			}
+			return Result{}, fmt.Errorf("repos: init bare: %w", err)
+		}
 	}
 
 	// Install push-pipeline hooks. Skipped when ShithubdPath is empty
@@ -360,6 +381,60 @@ func resolveAuthor(ctx context.Context, pool *pgxpool.Pool, userID int64) (name,
 		display = user.Username
 	}
 	return display, string(em.Email), nil
+}
+
+func createRepoNameLockKey(p Params) (string, error) {
+	name := strings.ToLower(p.Name)
+	switch {
+	case p.OwnerUserID != 0 && p.OwnerOrgID == 0:
+		return fmt.Sprintf("repo-name:user:%d:%s", p.OwnerUserID, name), nil
+	case p.OwnerOrgID != 0 && p.OwnerUserID == 0:
+		return fmt.Sprintf("repo-name:org:%d:%s", p.OwnerOrgID, name), nil
+	default:
+		return "", errors.New("repos: owner is XOR — set OwnerUserID OR OwnerOrgID, not both")
+	}
+}
+
+func displaceDeletedRepoPath(
+	ctx context.Context,
+	deps Deps,
+	q *reposdb.Queries,
+	db reposdb.DBTX,
+	p Params,
+	ownerSlug string,
+	diskPath string,
+) (bool, error) {
+	deleted, err := softDeletedRepoForCreate(ctx, q, db, p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	deletedPath, err := deps.RepoFS.DeletedRepoPath(ownerSlug, p.Name, deleted.ID)
+	if err != nil {
+		return false, err
+	}
+	if err := deps.RepoFS.Move(diskPath, deletedPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func softDeletedRepoForCreate(ctx context.Context, q *reposdb.Queries, db reposdb.DBTX, p Params) (reposdb.Repo, error) {
+	if p.OwnerUserID != 0 {
+		return q.GetSoftDeletedRepoByOwnerUserAndName(ctx, db, reposdb.GetSoftDeletedRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: p.OwnerUserID, Valid: true},
+			Name:        p.Name,
+		})
+	}
+	return q.GetSoftDeletedRepoByOwnerOrgAndName(ctx, db, reposdb.GetSoftDeletedRepoByOwnerOrgAndNameParams{
+		OwnerOrgID: pgtype.Int8{Int64: p.OwnerOrgID, Valid: true},
+		Name:       p.Name,
+	})
 }
 
 // isUniqueViolation matches Postgres SQLSTATE 23505. Used to surface

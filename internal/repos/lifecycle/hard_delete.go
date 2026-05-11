@@ -5,13 +5,11 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
-	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
 // HardDelete is the worker-driven cascade that runs after the soft-
@@ -26,7 +24,9 @@ import (
 //  3. DELETE FROM repos — FK cascades handle push_events,
 //     webhook_events_pending, repo_collaborators, transfer requests,
 //     and any redirect rows pointing at this id.
-//  4. RemoveAll the bare repo on disk.
+//  4. Remove the bare repo tombstone on disk. For legacy soft-deleted
+//     rows that still occupy the canonical path, remove that path only
+//     when no new active repo has reused the owner/name.
 //  5. Audit-log the hard-delete with a snapshot of the removed row in
 //     the meta payload so the audit row is self-contained even after
 //     the repo_id is gone.
@@ -37,10 +37,23 @@ import (
 // id encoded in some way; pass 0 to record "system" in audit.
 func HardDelete(ctx context.Context, deps Deps, actorUserID, repoID int64) error {
 	rq := reposdb.New()
-	uq := usersdb.New()
-	repo, err := rq.GetRepoByID(ctx, deps.Pool, repoID)
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	repo, err := rq.GetRepoByID(ctx, tx, repoID)
 	if err != nil {
 		return fmt.Errorf("load repo: %w", err)
+	}
+	if err := lockRepoName(ctx, rq, tx, repo); err != nil {
+		return err
 	}
 	if !repo.DeletedAt.Valid {
 		return ErrNotDeleted
@@ -61,23 +74,17 @@ func HardDelete(ctx context.Context, deps Deps, actorUserID, repoID int64) error
 	if repo.OwnerUserID.Valid {
 		snapshot["owner_user_id"] = repo.OwnerUserID.Int64
 	}
-	ownerName := ""
-	if repo.OwnerUserID.Valid {
-		if u, err := uq.GetUserByID(ctx, deps.Pool, repo.OwnerUserID.Int64); err == nil {
-			ownerName = u.Username
-		}
+	if repo.OwnerOrgID.Valid {
+		snapshot["owner_org_id"] = repo.OwnerOrgID.Int64
 	}
-
-	tx, err := deps.Pool.Begin(ctx)
+	if ownerSlug, err := ownerSlugForRepo(ctx, deps, repo); err == nil {
+		snapshot["owner"] = ownerSlug
+	}
+	paths, pathErr := diskPathsForRepo(ctx, deps, repo)
+	activeNameExists, err := activeRepoNameExists(ctx, rq, tx, repo)
 	if err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return fmt.Errorf("hard-delete name check: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback(ctx)
-		}
-	}()
 
 	// 1. Orphan child forks.
 	if _, err := rq.OrphanForksOf(ctx, tx, pgtype.Int8{Int64: repoID, Valid: true}); err != nil {
@@ -93,22 +100,24 @@ func HardDelete(ctx context.Context, deps Deps, actorUserID, repoID int64) error
 	if err := rq.HardDeleteRepo(ctx, tx, repoID); err != nil {
 		return fmt.Errorf("delete repo: %w", err)
 	}
+
+	// 4. Remove the bare repo while the owner/name advisory lock is
+	// still held. That matters for legacy soft-deleted rows whose data
+	// is still at the canonical path: a concurrent recreate cannot race
+	// this cleanup and have its new bare repo removed.
+	if pathErr == nil {
+		if err := removeDeletedRepoPath(deps, paths, activeNameExists); err != nil && deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "hard delete: fs delete failed",
+				"repo_id", repoID, "path", paths.deleted, "canonical_path", paths.canonical, "error", err)
+		}
+	} else if deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "hard delete: compute fs path failed", "repo_id", repoID, "error", pathErr)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 	committed = true
-
-	// 4. Remove the bare repo on disk. Best-effort: log and continue
-	//    so a missing path doesn't leave a "deleted but DB row gone"
-	//    inconsistency that's impossible to recover from.
-	if ownerName != "" {
-		if path, err := deps.RepoFS.RepoPath(ownerName, repo.Name); err == nil {
-			if err := os.RemoveAll(path); err != nil && deps.Logger != nil {
-				deps.Logger.WarnContext(ctx, "hard delete: fs RemoveAll failed",
-					"repo_id", repoID, "path", path, "error", err)
-			}
-		}
-	}
 
 	// 5. Audit. Use a fresh pool conn since the repo_id no longer
 	//    exists; the meta blob carries the snapshot.
@@ -117,4 +126,18 @@ func HardDelete(ctx context.Context, deps Deps, actorUserID, repoID int64) error
 			audit.ActionRepoHardDeleted, audit.TargetRepo, repoID, snapshot)
 	}
 	return nil
+}
+
+func removeDeletedRepoPath(deps Deps, paths repoDiskPaths, activeNameExists bool) error {
+	deletedExists, err := deps.RepoFS.Exists(paths.deleted)
+	if err != nil {
+		return err
+	}
+	if deletedExists {
+		return deps.RepoFS.Delete(paths.deleted)
+	}
+	if activeNameExists {
+		return nil
+	}
+	return deps.RepoFS.Delete(paths.canonical)
 }

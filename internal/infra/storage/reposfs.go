@@ -119,6 +119,25 @@ func (r *RepoFS) RepoPath(owner, name string) (string, error) {
 	return p, nil
 }
 
+// DeletedRepoPath returns the internal tombstone path used while a
+// soft-deleted repo is inside its restore grace window. Keeping
+// tombstones outside the canonical <owner>/<name>.git path lets a new
+// active repo reuse the name without losing the old row's restore data.
+func (r *RepoFS) DeletedRepoPath(owner, name string, repoID int64) (string, error) {
+	if repoID <= 0 {
+		return "", fmt.Errorf("%w: repo id required", ErrInvalidPath)
+	}
+	canonical, err := r.RepoPath(owner, name)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(filepath.Dir(canonical), ".deleted", fmt.Sprintf("%d.git", repoID))
+	if err := r.containedInRoot(p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
 // containedInRoot returns ErrEscapesRoot when p does not resolve under r.root.
 // Defense-in-depth: validateName already rejects ".." and absolute paths,
 // but a future caller might compose paths differently.
