@@ -75,6 +75,37 @@ func TestRenderFragmentExecutesPageWithoutLayout(t *testing.T) {
 	}
 }
 
+func TestFlagHelperSupportsOptionalLayoutToggles(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}<html>{{ if flag . "UseHTMX" }}HTMX{{ end }}{{ template "page" . }}</html>{{ end }}`,
+		)},
+		"page.html": &fstest.MapFile{Data: []byte(`{{ define "page" }}body{{ end }}`)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var buf bytes.Buffer
+	type typedPageData struct {
+		Title string
+	}
+	if err := r.Render(&buf, "page", typedPageData{Title: "typed"}); err != nil {
+		t.Fatalf("render typed data without flag: %v", err)
+	}
+	if strings.Contains(buf.String(), "HTMX") {
+		t.Fatalf("absent typed flag rendered HTMX: %q", buf.String())
+	}
+	buf.Reset()
+	if err := r.Render(&buf, "page", map[string]any{"UseHTMX": true}); err != nil {
+		t.Fatalf("render map data with flag: %v", err)
+	}
+	if !strings.Contains(buf.String(), "HTMX") {
+		t.Fatalf("map flag did not render HTMX: %q", buf.String())
+	}
+}
+
 // Regression test for the inbound deferral from S30 dogfood: a partial
 // at `profile/_tabs.html` that defines `{{ define "tabs" }}` was
 // silently registered as an unparsed page. A page that called
