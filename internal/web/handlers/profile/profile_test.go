@@ -364,20 +364,23 @@ func TestProfile_OverviewDataUsesVisibleReposAndOrganizations(t *testing.T) {
 	}
 }
 
-func TestProfile_ContributionsCountVerifiedEmailAcrossUserAndOrgRepos(t *testing.T) {
+func TestProfile_ContributionsCountVerifiedAndAffiliatedImportedIdentities(t *testing.T) {
 	t.Parallel()
 	env := setupProfileEnvWithRepoFS(t)
 	alice := env.insertUser(t, "alice", "Alice Anderson", "Hi.")
-	env.insertVerifiedEmail(t, alice.ID, "alice@example.com")
+	env.insertVerifiedEmail(t, alice.ID, "alice@outlook.com")
 	env.insertUserRepo(t, alice.ID, "owned", "user repo", "public", "Go", 0, 0)
 	orgID := env.insertOrg(t, "acme", "Acme", "", alice)
-	env.insertOrgRepo(t, orgID, "team", "org repo", "public", "Rust", 0, 0)
+	env.insertOrgRepo(t, orgID, "team", "org repo with imported author email", "public", "Rust", 0, 0)
 	env.insertOrgRepo(t, orgID, "other", "different author", "public", "Rust", 0, 0)
+	bob := env.insertUser(t, "bob", "Bob", "")
+	env.insertUserRepo(t, bob.ID, "spoof", "public repo with same author name", "public", "Go", 0, 0)
 
 	now := time.Now().UTC()
-	env.writeInitialCommit(t, "alice", "owned", "Alice Anderson", "alice@example.com", now.AddDate(0, 0, -7))
-	env.writeInitialCommit(t, "acme", "team", "A. Alice", "alice@example.com", now.AddDate(0, 0, -14))
+	env.writeInitialCommit(t, "alice", "owned", "Alice Anderson", "alice@outlook.com", now.AddDate(0, 0, -7))
+	env.writeInitialCommit(t, "acme", "team", "alice", "alice@unverified.example", now.AddDate(0, 0, -14))
 	env.writeInitialCommit(t, "acme", "other", "Bob", "bob@example.com", now.AddDate(0, 0, -5))
+	env.writeInitialCommit(t, "bob", "spoof", "alice", "alice@spoof.example", now.AddDate(0, 0, -3))
 
 	body := env.getAs(t, "/alice", usersdb.User{})
 	for _, want := range []string{
