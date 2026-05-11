@@ -2,7 +2,7 @@
 {{ template "repo-header" . }}
 <section class="shithub-actions-page">
   <aside class="shithub-actions-sidebar" aria-label="Actions navigation">
-    <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-actions-nav-item is-active" aria-current="page">
+    <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-actions-nav-item{{ if not .Filters.Workflow }} is-active{{ end }}"{{ if not .Filters.Workflow }} aria-current="page"{{ end }}>
       {{ octicon "play" }} <span>All workflows</span>
       <span class="shithub-actions-nav-count">{{ .RunCount }}</span>
     </a>
@@ -10,7 +10,7 @@
       <h2>Workflows</h2>
       {{ if .Workflows }}
         {{ range .Workflows }}
-          <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/actions?workflow={{ .Name }}" class="shithub-actions-nav-item">
+          <a href="{{ .Href }}" class="shithub-actions-nav-item{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }}>
             {{ octicon "workflow" }} <span>{{ .Name }}</span>
             <span class="shithub-actions-nav-count">{{ .Count }}</span>
           </a>
@@ -24,40 +24,60 @@
   <div class="shithub-actions-main">
     <header class="shithub-actions-head">
       <div>
-        <h1>All workflows</h1>
-        <p>Showing runs from check suites reported for this repository.</p>
+        <h1>{{ if .ActiveWorkflowName }}{{ .ActiveWorkflowName }}{{ else }}All workflows{{ end }}</h1>
+        <p>{{ .Pagination.ResultText }}</p>
       </div>
-      <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">{{ octicon "gear" }} Status checks</a>
+      <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">{{ octicon "gear" }} Actions settings</a>
     </header>
 
-    <div class="shithub-actions-filters" aria-label="Workflow run filters">
-      <div class="shithub-actions-search">
-        {{ octicon "search" }}
-        <input type="search" placeholder="Filter workflow runs" aria-label="Filter workflow runs" disabled>
-      </div>
-      <span class="shithub-actions-filter-button">Event {{ octicon "triangle-down" }}</span>
-      <span class="shithub-actions-filter-button">Status {{ octicon "triangle-down" }}</span>
-      <span class="shithub-actions-filter-button">Branch {{ octicon "triangle-down" }}</span>
-    </div>
+    <form class="shithub-actions-filters" method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/actions" aria-label="Workflow run filters">
+      {{ if .Filters.Workflow }}<input type="hidden" name="workflow" value="{{ .Filters.Workflow }}">{{ end }}
+      <label class="shithub-actions-search">
+        {{ octicon "git-branch" }}
+        <span class="sr-only">Branch</span>
+        <input type="search" name="branch" value="{{ .Filters.Branch }}" placeholder="Branch">
+      </label>
+      <label class="shithub-actions-select">
+        <span class="sr-only">Event</span>
+        <select name="event" aria-label="Event">
+          {{ range .EventOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
+        </select>
+      </label>
+      <label class="shithub-actions-select">
+        <span class="sr-only">Status</span>
+        <select name="status" aria-label="Status">
+          {{ range .StatusOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
+        </select>
+      </label>
+      <label class="shithub-actions-select">
+        <span class="sr-only">Conclusion</span>
+        <select name="conclusion" aria-label="Conclusion">
+          {{ range .ConclusionOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
+        </select>
+      </label>
+      <label class="shithub-actions-search shithub-actions-actor-filter">
+        {{ octicon "person" }}
+        <span class="sr-only">Actor</span>
+        <input type="search" name="actor" value="{{ .Filters.Actor }}" placeholder="Actor">
+      </label>
+      <button type="submit" class="shithub-button">{{ octicon "search" }} Filter</button>
+      {{ if .Filters.HasAny }}<a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/actions">Clear</a>{{ end }}
+    </form>
 
-    {{ if .Suites }}
+    {{ if .Runs }}
       <div class="shithub-actions-runs" aria-label="Workflow runs">
-        {{ range .Suites }}
+        {{ range .Runs }}
           <article class="shithub-actions-run-row">
             <div class="shithub-actions-run-primary">
-              <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/actions/runs/{{ .ID }}" class="shithub-actions-run-title" aria-label="{{ .StateText }}: {{ .Title }}">
+              <a href="{{ .Href }}" class="shithub-actions-run-title" aria-label="{{ .StateText }}: {{ .Title }}">
                 <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
                 <span>{{ .Title }}</span>
               </a>
               <p>
-                <strong>{{ .AppSlug }}</strong>
-                #{{ .ID }}:
-                {{ if .PullNumber }}
-                  Pull request <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .PullNumber }}">#{{ .PullNumber }}</a>
-                  {{ if .PullAuthorUsername }}opened by <a href="/{{ .PullAuthorUsername }}">{{ .PullAuthorUsername }}</a>{{ end }}
-                {{ else }}
-                  check suite for <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .HeadSha }}"><code>{{ .HeadShaShort }}</code></a>
-                {{ end }}
+                <strong>#{{ .RunIndex }}</strong>
+                triggered via {{ .EventLabel }}
+                {{ if .ActorUsername }}by <a href="/{{ .ActorUsername }}">{{ .ActorUsername }}</a>{{ end }}
+                for <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .HeadSha }}"><code>{{ .HeadShaShort }}</code></a>
               </p>
             </div>
             <div class="shithub-actions-run-branch">
@@ -71,11 +91,18 @@
           </article>
         {{ end }}
       </div>
+      <nav class="shithub-actions-pagination" aria-label="Workflow run pagination">
+        <span>{{ .Pagination.ResultText }}</span>
+        <div>
+          {{ if .Pagination.HasPrev }}<a class="shithub-button" href="{{ .Pagination.PrevHref }}">Previous</a>{{ else }}<span class="shithub-button shithub-button-disabled" aria-disabled="true">Previous</span>{{ end }}
+          {{ if .Pagination.HasNext }}<a class="shithub-button" href="{{ .Pagination.NextHref }}">Next</a>{{ else }}<span class="shithub-button shithub-button-disabled" aria-disabled="true">Next</span>{{ end }}
+        </div>
+      </nav>
     {{ else }}
       <section class="shithub-actions-empty">
         <div class="shithub-actions-empty-icon">{{ octicon "play" }}</div>
-        <h2>There are no workflow runs yet</h2>
-        <p>Check runs posted via the shithub checks API will appear here and on pull requests.</p>
+        <h2>{{ if .Filters.HasAny }}No workflow runs match these filters{{ else }}There are no workflow runs yet{{ end }}</h2>
+        <p>{{ if .Filters.HasAny }}Clear or adjust the filters to see other runs.{{ else }}Runs from `.shithub/workflows/*.yml` will appear here after a trigger enqueues them.{{ end }}</p>
       </section>
     {{ end }}
   </div>

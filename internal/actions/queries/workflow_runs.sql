@@ -96,10 +96,46 @@ FROM workflow_runs
 WHERE repo_id = $1;
 
 -- name: ListWorkflowRunsForRepo :many
-SELECT id, repo_id, run_index, workflow_file, workflow_name,
-       head_sha, head_ref, event, status, conclusion,
-       actor_user_id, started_at, completed_at, created_at
-FROM workflow_runs
-WHERE repo_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.status, r.conclusion,
+       r.actor_user_id, COALESCE(u.username::text, '')::text AS actor_username,
+       r.started_at, r.completed_at, r.created_at, r.updated_at
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = sqlc.arg(repo_id)::bigint
+  AND (sqlc.narg(workflow_file)::text IS NULL OR r.workflow_file = sqlc.narg(workflow_file)::text)
+  AND (sqlc.narg(head_ref)::text IS NULL OR r.head_ref = sqlc.narg(head_ref)::text)
+  AND (sqlc.narg(event)::workflow_run_event IS NULL OR r.event = sqlc.narg(event)::workflow_run_event)
+  AND (sqlc.narg(status)::workflow_run_status IS NULL OR r.status = sqlc.narg(status)::workflow_run_status)
+  AND (sqlc.narg(conclusion)::check_conclusion IS NULL OR r.conclusion = sqlc.narg(conclusion)::check_conclusion)
+  AND (sqlc.narg(actor_username)::text IS NULL OR u.username = sqlc.narg(actor_username)::citext)
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
+
+-- name: CountWorkflowRunsForRepo :one
+SELECT COUNT(*)::bigint
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = sqlc.arg(repo_id)::bigint
+  AND (sqlc.narg(workflow_file)::text IS NULL OR r.workflow_file = sqlc.narg(workflow_file)::text)
+  AND (sqlc.narg(head_ref)::text IS NULL OR r.head_ref = sqlc.narg(head_ref)::text)
+  AND (sqlc.narg(event)::workflow_run_event IS NULL OR r.event = sqlc.narg(event)::workflow_run_event)
+  AND (sqlc.narg(status)::workflow_run_status IS NULL OR r.status = sqlc.narg(status)::workflow_run_status)
+  AND (sqlc.narg(conclusion)::check_conclusion IS NULL OR r.conclusion = sqlc.narg(conclusion)::check_conclusion)
+  AND (sqlc.narg(actor_username)::text IS NULL OR u.username = sqlc.narg(actor_username)::citext);
+
+-- name: ListWorkflowRunWorkflowsForRepo :many
+WITH ranked AS (
+    SELECT workflow_file,
+           workflow_name,
+           (COUNT(*) OVER (PARTITION BY workflow_file))::bigint AS run_count,
+           ROW_NUMBER() OVER (PARTITION BY workflow_file ORDER BY created_at DESC, id DESC) AS rn
+    FROM workflow_runs
+    WHERE repo_id = $1
+)
+SELECT workflow_file,
+       COALESCE(NULLIF(workflow_name, ''), workflow_file) AS workflow_name,
+       run_count
+FROM ranked
+WHERE rn = 1
+ORDER BY lower(COALESCE(NULLIF(workflow_name, ''), workflow_file)), workflow_file;

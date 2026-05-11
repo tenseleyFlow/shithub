@@ -16,6 +16,7 @@ type Querier interface {
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
+	CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error)
 	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
 	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
@@ -70,6 +71,7 @@ type Querier interface {
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
+	ListWorkflowRunWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListWorkflowRunWorkflowsForRepoRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
 	LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
 	// Companion to EnqueueWorkflowRun for the conflict path: when an
