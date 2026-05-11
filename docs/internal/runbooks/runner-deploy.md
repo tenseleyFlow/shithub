@@ -9,7 +9,8 @@ for an already-installed runner lives in [actions-runner.md](./actions-runner.md
 - The app database is migrated through S41d and the web API has
   `auth.totp_key_b64` configured so job JWTs can be minted.
 - Docker is installed on the runner host and the `docker` group exists.
-  S41e narrows the sandbox; S41d runner hosts must be treated as trusted.
+  The runner process needs Docker socket access; treat the host itself
+  as trusted even though individual step containers are sandboxed.
 - `bin/shithubd-runner` exists locally. `make build` builds both
   `bin/shithubd` and `bin/shithubd-runner` with the same version ldflags.
 - The default image has been loaded or published. Build it with:
@@ -55,6 +56,9 @@ shithub_runner_token=REPLACE_ME
 shithub_runner_labels=self-hosted,linux,ubuntu-latest
 shithub_runner_capacity=1
 shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
+shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
+shithub_runner_container_user=65534:65534
+shithub_runner_pids_limit=512
 ```
 
 The role writes non-secret config to
@@ -78,6 +82,8 @@ The role:
 - creates the `shithub-runner` system user and joins it to `docker`
 - uploads `/usr/local/bin/shithubd-runner`
 - renders `/etc/shithubd-runner/config.toml` and `runner.env`
+- installs the pinned seccomp profile at
+  `/etc/shithubd-runner/seccomp.json`
 - installs `deploy/systemd/shithubd-runner.service`
 - pulls the configured runner image
 - enables and starts `shithubd-runner`
@@ -113,6 +119,29 @@ Expected state:
 
 Repeat with `exit 1`; the check should complete with conclusion
 `failure`.
+
+Sandbox smoke checks:
+
+```yaml
+name: sandbox-smoke
+on: push
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: id -u
+      - run: test "$(id -u)" = "65534"
+      - run: if mkdir /etc/shithub-smoke 2>/dev/null; then exit 1; fi
+      - run: if mount -t tmpfs tmpfs /mnt 2>/dev/null; then exit 1; fi
+```
+
+Expected state:
+
+- the UID check prints `65534`
+- writing under `/etc` fails because the root filesystem is read-only
+- `mount` fails because the container does not have `CAP_SYS_ADMIN`
+- step logs and systemd journal include the configured image, network,
+  CPU/memory limits, PID limit, container user, and seccomp profile
 
 ## Rollback
 

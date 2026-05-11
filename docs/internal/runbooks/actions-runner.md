@@ -71,6 +71,9 @@ default_image = "ghcr.io/shithub/runner-nix:1.0"
 network = "bridge"
 memory = "2g"
 cpus = "2"
+seccomp_profile = "/etc/shithubd-runner/seccomp.json"
+user = "65534:65534"
+pids_limit = 512
 ```
 
 The config path defaults to `/etc/shithubd-runner/config.toml`.
