@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 	"testing"
+	"time"
 )
 
 type recordingRunner struct {
@@ -20,6 +21,14 @@ func (r *recordingRunner) Run(_ context.Context, name string, args []string, _, 
 	r.name = name
 	r.args = append([]string{}, args...)
 	return r.err
+}
+
+type loggingRunner struct{}
+
+func (loggingRunner) Run(_ context.Context, _ string, _ []string, stdout, stderr io.Writer) error {
+	_, _ = stdout.Write([]byte("hello "))
+	_, _ = stderr.Write([]byte("world\n"))
+	return nil
 }
 
 func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
@@ -63,6 +72,79 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rec.args, want) {
 		t.Fatalf("args:\ngot  %#v\nwant %#v", rec.args, want)
+	}
+}
+
+func TestDockerExecute_StreamsStepLogs(t *testing.T) {
+	t.Parallel()
+	d := NewDocker(DockerConfig{
+		DefaultImage:  "runner-image",
+		Network:       "bridge",
+		Memory:        "2g",
+		CPUs:          "2",
+		LogChunkBytes: 4,
+		Runner:        loggingRunner{},
+	})
+	logs, err := d.StreamLogs(t.Context(), 99)
+	if err != nil {
+		t.Fatalf("StreamLogs: %v", err)
+	}
+	out, err := d.Execute(t.Context(), Job{
+		ID:           99,
+		WorkspaceDir: t.TempDir(),
+		Steps:        []Step{{ID: 123, Run: "echo hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(out.StepOutcomes) != 1 || out.StepOutcomes[0].StepID != 123 {
+		t.Fatalf("StepOutcomes: %#v", out.StepOutcomes)
+	}
+	var got []LogChunk
+	for chunk := range logs {
+		got = append(got, chunk)
+	}
+	if len(got) == 0 {
+		t.Fatal("no log chunks streamed")
+	}
+	if got[0].JobID != 99 || got[0].StepID != 123 || got[0].Seq != 0 {
+		t.Fatalf("first chunk: %#v", got[0])
+	}
+}
+
+func TestDockerExecute_StreamsOrderedEvents(t *testing.T) {
+	t.Parallel()
+	d := NewDocker(DockerConfig{
+		DefaultImage:     "runner-image",
+		Network:          "bridge",
+		Memory:           "2g",
+		CPUs:             "2",
+		LogFlushInterval: time.Hour,
+		Runner:           loggingRunner{},
+	})
+	events, err := d.StreamEvents(t.Context(), 99)
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           99,
+		WorkspaceDir: t.TempDir(),
+		Steps:        []Step{{ID: 123, Run: "echo hi"}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var got []Event
+	for event := range events {
+		got = append(got, event)
+	}
+	if len(got) != 2 {
+		t.Fatalf("events: %#v", got)
+	}
+	if got[0].Log == nil || string(got[0].Log.Chunk) != "hello world\n" {
+		t.Fatalf("first event: %#v", got[0])
+	}
+	if got[1].Step == nil || got[1].Step.StepID != 123 || got[1].Step.Conclusion != ConclusionSuccess {
+		t.Fatalf("second event: %#v", got[1])
 	}
 }
 

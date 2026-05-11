@@ -291,3 +291,111 @@ func (q *Queries) ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]
 	}
 	return items, nil
 }
+
+const updateWorkflowStepLogObject = `-- name: UpdateWorkflowStepLogObject :one
+UPDATE workflow_steps
+SET log_object_key = $1::text,
+    log_byte_count = $2::bigint,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $3::bigint
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with
+`
+
+type UpdateWorkflowStepLogObjectParams struct {
+	LogObjectKey pgtype.Text
+	LogByteCount int64
+	ID           int64
+}
+
+func (q *Queries) UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error) {
+	row := db.QueryRow(ctx, updateWorkflowStepLogObject, arg.LogObjectKey, arg.LogByteCount, arg.ID)
+	var i WorkflowStep
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.StepIndex,
+		&i.StepID,
+		&i.StepName,
+		&i.IfExpr,
+		&i.RunCommand,
+		&i.UsesAlias,
+		&i.WorkingDirectory,
+		&i.StepEnv,
+		&i.ContinueOnError,
+		&i.Status,
+		&i.Conclusion,
+		&i.LogObjectKey,
+		&i.LogByteCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.StepWith,
+	)
+	return i, err
+}
+
+const updateWorkflowStepStatus = `-- name: UpdateWorkflowStepStatus :one
+UPDATE workflow_steps
+SET status = $2,
+    conclusion = $3::check_conclusion,
+    started_at = $4::timestamptz,
+    completed_at = $5::timestamptz,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with
+`
+
+type UpdateWorkflowStepStatusParams struct {
+	ID          int64
+	Status      WorkflowStepStatus
+	Conclusion  NullCheckConclusion
+	StartedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error) {
+	row := db.QueryRow(ctx, updateWorkflowStepStatus,
+		arg.ID,
+		arg.Status,
+		arg.Conclusion,
+		arg.StartedAt,
+		arg.CompletedAt,
+	)
+	var i WorkflowStep
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.StepIndex,
+		&i.StepID,
+		&i.StepName,
+		&i.IfExpr,
+		&i.RunCommand,
+		&i.UsesAlias,
+		&i.WorkingDirectory,
+		&i.StepEnv,
+		&i.ContinueOnError,
+		&i.Status,
+		&i.Conclusion,
+		&i.LogObjectKey,
+		&i.LogByteCount,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.StepWith,
+	)
+	return i, err
+}

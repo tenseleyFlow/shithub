@@ -22,6 +22,12 @@ type Engine interface {
 	Cancel(ctx context.Context, jobID int64) error
 }
 
+// EventStreamer is an optional engine capability for preserving runner API
+// ordering between final log chunks and step completion updates.
+type EventStreamer interface {
+	StreamEvents(ctx context.Context, jobID int64) (<-chan Event, error)
+}
+
 type Job struct {
 	ID             int64
 	RunID          int64
@@ -60,6 +66,15 @@ type Step struct {
 }
 
 type Outcome struct {
+	Conclusion   string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	StepOutcomes []StepOutcome
+}
+
+type StepOutcome struct {
+	StepID      int64
+	Status      string
 	Conclusion  string
 	StartedAt   time.Time
 	CompletedAt time.Time
@@ -70,4 +85,9 @@ type LogChunk struct {
 	StepID int64
 	Seq    int32
 	Chunk  []byte
+}
+
+type Event struct {
+	Log  *LogChunk
+	Step *StepOutcome
 }

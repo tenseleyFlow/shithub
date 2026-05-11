@@ -171,15 +171,15 @@ func filterOrgRepositories(repos []orgProfileRepo, query, typeFilter, languageFi
 func orgRepositoryMatchesType(repo orgProfileRepo, typeFilter string) bool {
 	switch typeFilter {
 	case "public":
-		return repo.Visibility == "public"
+		return repo.Public
 	case "private":
-		return repo.Visibility == "private"
+		return repo.Private
 	case "source":
-		return !repo.IsFork && !repo.IsArchived
+		return repo.Source
 	case "fork":
 		return repo.IsFork
 	case "archived":
-		return repo.IsArchived
+		return repo.Archived
 	default:
 		return true
 	}
@@ -292,19 +292,19 @@ func orgRepositoryURL(baseURL, query, typeFilter, languageFilter, sortKey string
 func orgRepositoryTypeFilters(baseURL string, repos []orgProfileRepo, query, selected, language, sortKey string) []orgRepositoryFilterOption {
 	counts := map[string]int{"all": len(repos)}
 	for _, repo := range repos {
-		if repo.Visibility == "public" {
+		if repo.Public {
 			counts["public"]++
 		}
-		if repo.Visibility == "private" {
+		if repo.Private {
 			counts["private"]++
 		}
-		if !repo.IsFork && !repo.IsArchived {
+		if repo.Source {
 			counts["source"]++
 		}
 		if repo.IsFork {
 			counts["fork"]++
 		}
-		if repo.IsArchived {
+		if repo.Archived {
 			counts["archived"]++
 		}
 	}

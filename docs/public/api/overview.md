@@ -1,7 +1,9 @@
 # API overview
 
-shithub exposes a small REST API at `/api/v1/`. It's
-PAT-authenticated, JSON-bodied, and CSRF-exempt.
+shithub exposes a small REST API at `/api/v1/`. The user-facing API is
+PAT-authenticated, JSON-bodied, and CSRF-exempt. The Actions runner API
+under the same prefix uses runner registration tokens plus per-job JWTs
+instead of PATs.
 
 > **Status.** The API is intentionally narrow today. Endpoints
 > currently shipped: `GET /api/v1/user`, the
@@ -15,7 +17,9 @@ PAT-authenticated, JSON-bodied, and CSRF-exempt.
 
 Every API request requires a personal access token. See
 [Personal access tokens](../user/personal-access-tokens.md) for
-how to create one.
+how to create one. Runner endpoints documented in
+[Actions runner API](actions-runner.md) are the exception; they reject
+PATs and require runner credentials.
 
 ```
 Authorization: Bearer shp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

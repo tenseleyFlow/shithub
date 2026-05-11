@@ -102,6 +102,35 @@ func TestUpdateStatus_UsesJobTokenAndParsesNextToken(t *testing.T) {
 	}
 }
 
+func TestUpdateStepStatus_UsesStepPathAndToken(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/10/steps/20/status" {
+			t.Fatalf("path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer job-token" {
+			t.Fatalf("Authorization: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","conclusion":"success","next_token":"next","next_token_expires_at":"2026-05-10T21:15:00Z"}`))
+	}))
+	defer srv.Close()
+	client, err := New(Config{BaseURL: srv.URL, RunnerToken: "runner-token", HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := client.UpdateStepStatus(t.Context(), 10, 20, "job-token", StatusRequest{
+		Status:     "completed",
+		Conclusion: "success",
+	})
+	if err != nil {
+		t.Fatalf("UpdateStepStatus: %v", err)
+	}
+	if resp.NextToken != "next" {
+		t.Fatalf("NextToken: %q", resp.NextToken)
+	}
+}
+
 func TestAppendLog_Base64EncodesChunk(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

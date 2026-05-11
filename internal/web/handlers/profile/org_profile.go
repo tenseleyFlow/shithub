@@ -36,6 +36,10 @@ type orgProfileRepo struct {
 	Visibility           string
 	IsArchived           bool
 	IsFork               bool
+	Public               bool
+	Private              bool
+	Source               bool
+	Archived             bool
 	PrimaryLanguage      string
 	PrimaryLanguageColor template.CSS
 	LicenseKey           string
@@ -166,16 +170,21 @@ func (h *Handlers) orgProfileRepos(ctx context.Context, orgID int64, viewer midd
 
 	out := make([]orgProfileRepo, 0, len(rows))
 	for _, row := range rows {
-		if !policy.IsVisibleTo(ctx, deps, actor, policy.NewRepoRefFromRepo(row)) {
+		repoRef := policy.NewRepoRefFromRepo(row)
+		if !policy.IsVisibleTo(ctx, deps, actor, repoRef) {
 			continue
 		}
 		item := orgProfileRepo{
 			ID:              row.ID,
 			Name:            string(row.Name),
 			Description:     row.Description,
-			Visibility:      string(row.Visibility),
-			IsArchived:      row.IsArchived,
+			Visibility:      repoRef.Visibility,
+			IsArchived:      repoRef.IsArchived,
 			IsFork:          row.ForkOfRepoID.Valid,
+			Public:          repoRef.IsPublic(),
+			Private:         repoRef.IsPrivate(),
+			Source:          !row.ForkOfRepoID.Valid && !repoRef.IsArchived,
+			Archived:        repoRef.IsArchived,
 			LicenseKey:      pgTextStringOrEmpty(row.LicenseKey),
 			StarCount:       row.StarCount,
 			ForkCount:       row.ForkCount,

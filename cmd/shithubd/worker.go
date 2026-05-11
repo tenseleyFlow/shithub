@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
@@ -79,6 +80,10 @@ var workerCmd = &cobra.Command{
 		defer pool.Close()
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		objectStore, err := buildWorkerObjectStore(cfg.Storage.S3, logger)
+		if err != nil {
+			return fmt.Errorf("object storage: %w", err)
+		}
 
 		p := worker.NewPool(pool, worker.PoolConfig{
 			Workers:    count,
@@ -157,6 +162,13 @@ var workerCmd = &cobra.Command{
 		p.Register(trigger.KindWorkflowTrigger, trigger.Handler(trigger.JobDeps{
 			Deps: trigger.Deps{Pool: pool, Logger: logger}, RepoFS: rfs,
 		}))
+		if objectStore != nil {
+			p.Register(finalize.KindWorkflowFinalizeStep, finalize.Handler(finalize.Deps{
+				Pool: pool, ObjectStore: objectStore, Logger: logger,
+			}))
+		} else {
+			logger.Info("actions: object storage not configured; workflow step log finalization disabled")
+		}
 
 		return p.Run(ctx)
 	},
@@ -165,6 +177,24 @@ var workerCmd = &cobra.Command{
 func init() {
 	workerCmd.Flags().Int("workers", 0, "Number of worker goroutines (default 4)")
 	rootCmd.AddCommand(workerCmd)
+}
+
+func buildWorkerObjectStore(s config.S3StorageConfig, logger *slog.Logger) (storage.ObjectStore, error) {
+	if s.Bucket == "" {
+		return nil, nil
+	}
+	if logger != nil {
+		logger.Info("storage: configuring object store for worker", "bucket", s.Bucket)
+	}
+	return storage.NewS3Store(storage.S3Config{
+		Endpoint:        s.Endpoint,
+		Region:          s.Region,
+		AccessKeyID:     s.AccessKeyID,
+		SecretAccessKey: s.SecretAccessKey,
+		Bucket:          s.Bucket,
+		UseSSL:          s.UseSSL,
+		ForcePathStyle:  s.ForcePathStyle,
+	})
 }
 
 // pickNotifEmailSender mirrors pickAdminEmailSender / pickEmailSender
