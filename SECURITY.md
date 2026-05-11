@@ -76,6 +76,57 @@ Reporters who responsibly disclosed accepted findings:
 
 *(Empty for now — first credit goes to the first reporter.)*
 
+## Actions runner sandbox
+
+Workflow authors with repository write access are treated as untrusted
+code execution users. `shithubd-runner` executes each `run:` step in a
+fresh Docker or Podman container with these defaults:
+
+- read-only container root filesystem
+- writable, executable `/tmp` tmpfs capped at 1 GiB
+- writable `/workspace` bind mount for step-to-step job state
+- `--cap-drop=ALL` with only `DAC_OVERRIDE`, `SETGID`, and `SETUID`
+  added back
+- `--security-opt=no-new-privileges`
+- pinned seccomp profile at `/etc/shithubd-runner/seccomp.json`
+- `--user 65534:65534`
+- PID, file-descriptor, process, CPU, memory, and log-size caps
+
+The writable `/workspace` mount is deliberate. The v1 engine starts one
+container per step, so checkout/build outputs need a host-backed job
+workspace to survive into later steps. The root filesystem remains
+read-only; writeable job state is confined to the per-job workspace that
+the runner sweeps after completion.
+
+`DAC_OVERRIDE` is the load-bearing concession that lets the non-root
+container user write to the bind-mounted workspace owned by the runner
+host user. It is not a general privilege grant: `CAP_SYS_ADMIN` is not
+present, no-new-privileges is set, and the default seccomp profile still
+filters dangerous syscalls.
+
+Root containers are opt-in per job through an explicit shithub-only
+permissions key:
+
+```yaml
+permissions:
+  shithub-runner-root: write
+```
+
+Broad `write-all` permissions do not imply root. This escape hatch is
+for trusted maintenance workflows that need package-manager behavior
+inside the container. Prefer a prebuilt runner image instead.
+
+The runner host remains trusted infrastructure because Docker socket
+access is equivalent to host-root in ordinary Docker deployments. Do
+not run `shithubd-runner` on the web/database host.
+
+Runner job JWTs are signed from an HKDF subkey derived from
+`auth.totp_key_b64` with label `actions-runner-jwt-v1`. To rotate the
+runner JWT root, rotate `auth.totp_key_b64`, restart web and worker
+processes, then restart runners so fresh claims use the new signer.
+Existing in-flight job JWTs are short-lived and single-use; let them
+expire or cancel the affected jobs before completing the rotation.
+
 ## Our threat model
 
 Published at

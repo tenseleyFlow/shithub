@@ -17,5 +17,8 @@ shithub_runner_default_image: ghcr.io/shithub/runner-nix:1.0
 shithub_runner_network: bridge
 shithub_runner_memory: 2g
 shithub_runner_cpus: "2"
+shithub_runner_seccomp_profile: /etc/shithubd-runner/seccomp.json
+shithub_runner_container_user: "65534:65534"
+shithub_runner_pids_limit: 512
 shithub_runner_log_level: info
 shithub_runner_log_format: text

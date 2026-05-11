@@ -25,9 +25,12 @@ import (
 )
 
 const (
-	DefaultPath  = "/etc/shithubd-runner/config.toml"
-	EnvPrefix    = "SHITHUB_RUNNER_"
-	defaultImage = "ghcr.io/shithub/runner-nix:1.0"
+	DefaultPath            = "/etc/shithubd-runner/config.toml"
+	EnvPrefix              = "SHITHUB_RUNNER_"
+	defaultImage           = "ghcr.io/shithub/runner-nix:1.0"
+	defaultSeccompProfile  = "/etc/shithubd-runner/seccomp.json"
+	defaultContainerUser   = "65534:65534"
+	defaultContainerPIDMax = 512
 )
 
 // LoadOptions controls config resolution. Zero value uses the default path,
@@ -60,11 +63,14 @@ type RunnerConfig struct {
 }
 
 type EngineConfig struct {
-	Kind         string `toml:"kind"`
-	DefaultImage string `toml:"default_image"`
-	Network      string `toml:"network"`
-	Memory       string `toml:"memory"`
-	CPUs         string `toml:"cpus"`
+	Kind           string `toml:"kind"`
+	DefaultImage   string `toml:"default_image"`
+	Network        string `toml:"network"`
+	Memory         string `toml:"memory"`
+	CPUs           string `toml:"cpus"`
+	SeccompProfile string `toml:"seccomp_profile"`
+	User           string `toml:"user"`
+	PidsLimit      int    `toml:"pids_limit"`
 }
 
 type LogConfig struct {
@@ -85,11 +91,14 @@ func Defaults() Config {
 			WorkspaceTTL:  24 * time.Hour,
 		},
 		Engine: EngineConfig{
-			Kind:         "docker",
-			DefaultImage: defaultImage,
-			Network:      "bridge",
-			Memory:       "2g",
-			CPUs:         "2",
+			Kind:           "docker",
+			DefaultImage:   defaultImage,
+			Network:        "bridge",
+			Memory:         "2g",
+			CPUs:           "2",
+			SeccompProfile: defaultSeccompProfile,
+			User:           defaultContainerUser,
+			PidsLimit:      defaultContainerPIDMax,
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -236,6 +245,17 @@ func Validate(c *Config) error {
 	}
 	if strings.TrimSpace(c.Engine.CPUs) == "" {
 		return errors.New("runner config: engine.cpus is required")
+	}
+	c.Engine.SeccompProfile = strings.TrimSpace(c.Engine.SeccompProfile)
+	if c.Engine.SeccompProfile == "" {
+		return errors.New("runner config: engine.seccomp_profile is required")
+	}
+	c.Engine.User = strings.TrimSpace(c.Engine.User)
+	if c.Engine.User == "" {
+		return errors.New("runner config: engine.user is required")
+	}
+	if c.Engine.PidsLimit <= 0 {
+		return fmt.Errorf("runner config: engine.pids_limit must be positive, got %d", c.Engine.PidsLimit)
 	}
 
 	switch strings.ToLower(c.Log.Level) {

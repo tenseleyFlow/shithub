@@ -25,6 +25,15 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if cfg.Engine.Kind != "docker" {
 		t.Fatalf("Engine.Kind: %q", cfg.Engine.Kind)
 	}
+	if cfg.Engine.SeccompProfile != "/etc/shithubd-runner/seccomp.json" {
+		t.Fatalf("Engine.SeccompProfile: %q", cfg.Engine.SeccompProfile)
+	}
+	if cfg.Engine.User != "65534:65534" {
+		t.Fatalf("Engine.User: %q", cfg.Engine.User)
+	}
+	if cfg.Engine.PidsLimit != 512 {
+		t.Fatalf("Engine.PidsLimit: %d", cfg.Engine.PidsLimit)
+	}
 	if cfg.Runner.PollInterval != 5*time.Second {
 		t.Fatalf("PollInterval: %v", cfg.Runner.PollInterval)
 	}
@@ -52,6 +61,9 @@ default_image = "file-image"
 network = "none"
 memory = "1g"
 cpus = "1"
+seccomp_profile = "/file/seccomp.json"
+user = "1000:1000"
+pids_limit = 64
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -61,13 +73,16 @@ cpus = "1"
 		ConfigPath: path,
 		Environ: []string{
 			"SHITHUB_RUNNER_TOKEN=alias-token",
+			"SHITHUB_RUNNER_ENGINE__PIDS_LIMIT=256",
 			"SHITHUB_RUNNER_RUNNER__CAPACITY=3",
 			"SHITHUB_RUNNER_RUNNER__LABELS=self-hosted,linux,x64",
 		},
 		Overrides: map[string]string{
-			"server.base_url":      "https://flag.example/path/",
-			"runner.capacity":      "4",
-			"runner.poll_interval": "2s",
+			"server.base_url":        "https://flag.example/path/",
+			"runner.capacity":        "4",
+			"runner.poll_interval":   "2s",
+			"engine.seccomp_profile": "/flag/seccomp.json",
+			"engine.user":            "123:456",
 		},
 	})
 	if err != nil {
@@ -87,6 +102,15 @@ cpus = "1"
 	}
 	if want := []string{"self-hosted", "linux", "x64"}; !reflect.DeepEqual(cfg.Runner.Labels, want) {
 		t.Fatalf("Labels: got %#v want %#v", cfg.Runner.Labels, want)
+	}
+	if cfg.Engine.SeccompProfile != "/flag/seccomp.json" {
+		t.Fatalf("SeccompProfile: %q", cfg.Engine.SeccompProfile)
+	}
+	if cfg.Engine.User != "123:456" {
+		t.Fatalf("User: %q", cfg.Engine.User)
+	}
+	if cfg.Engine.PidsLimit != 256 {
+		t.Fatalf("PidsLimit: %d", cfg.Engine.PidsLimit)
 	}
 }
 
@@ -113,6 +137,16 @@ func TestValidate_RejectsBadEngineKind(t *testing.T) {
 	cfg := Defaults()
 	cfg.Runner.Token = "tok"
 	cfg.Engine.Kind = "runc"
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+}
+
+func TestValidate_RejectsBadPidsLimit(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Runner.Token = "tok"
+	cfg.Engine.PidsLimit = 0
 	if err := Validate(&cfg); err == nil {
 		t.Fatal("Validate returned nil error")
 	}

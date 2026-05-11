@@ -20,6 +20,9 @@ default_image = "{{ shithub_runner_default_image }}"
 network = "{{ shithub_runner_network }}"
 memory = "{{ shithub_runner_memory }}"
 cpus = "{{ shithub_runner_cpus }}"
+seccomp_profile = "{{ shithub_runner_seccomp_profile }}"
+user = "{{ shithub_runner_container_user }}"
+pids_limit = {{ shithub_runner_pids_limit }}
 
 [log]
 level = "{{ shithub_runner_log_level }}"

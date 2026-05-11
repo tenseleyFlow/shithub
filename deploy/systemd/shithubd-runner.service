@@ -14,8 +14,9 @@ Restart=on-failure
 RestartSec=2
 LimitNOFILE=65535
 
-# Docker access is intentionally broad in S41d. S41e narrows network and
-# secret exposure; until then this unit is only for trusted runner hosts.
+# Docker socket access still makes the host trusted infrastructure.
+# Container-level hardening lives in internal/runner/engine/docker.go
+# and the pinned seccomp profile installed under /etc/shithubd-runner.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
