@@ -41,6 +41,11 @@ then inserts `jti` into `runner_jwt_used`. A replay returns 401. To
 support multi-step runner flows, successful non-terminal job endpoints
 return `next_token` and `next_token_expires_at`.
 
+`shithubd-runner` consumes the same token chain: it claims with the
+registration token, marks the job `running` with the first job JWT, then
+uses the returned `next_token` for the terminal status update. Reusing
+any consumed job JWT is a replay and must fail with 401.
+
 ## Endpoints
 
 `POST /api/v1/runners/heartbeat`
@@ -81,6 +86,11 @@ Valid transitions are `queued|running -> running|completed|cancelled`.
 Completed jobs require a valid check conclusion. The handler updates
 `workflow_jobs`, rolls up `workflow_runs`, and best-effort updates the
 matching `check_runs` row created by the trigger pipeline.
+
+S41d PR1 runner execution supports containerized `run:` steps. `uses:`
+aliases such as `actions/checkout@v4` and artifact upload/download are
+reserved for the later S41d slices that add checkout metadata, log
+streaming, and artifact transfer.
 
 `POST /api/v1/jobs/{id}/artifacts/upload`
 

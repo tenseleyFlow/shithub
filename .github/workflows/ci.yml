@@ -49,4 +49,4 @@ jobs:
         run: go test -trimpath ./...
 
       - name: Build
-        run: go build -trimpath ./cmd/shithubd
+        run: make build

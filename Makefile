@@ -14,6 +14,7 @@ LDFLAGS := -X github.com/tenseleyFlow/shithub/internal/version.Version=$(VERSION
 
 GOFLAGS := -trimpath
 BIN     := bin/shithubd
+RUNNER_BIN := bin/shithubd-runner
 
 # Tools installed via 'go install' live in GOBIN (or GOPATH/bin). Reference
 # them by absolute path so make recipes don't depend on PATH ordering.
@@ -39,9 +40,10 @@ dev-run: ## Run the binary directly (no air); sources .env.
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 	go run ./cmd/shithubd web
 
-build: ## Build the shithubd binary into bin/.
-	@mkdir -p bin
+build: ## Build shithubd and shithubd-runner into bin/.
+	@mkdir -p $(dir $(BIN)) $(dir $(RUNNER_BIN))
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/shithubd
+	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(RUNNER_BIN) ./cmd/shithubd-runner
 
 test: ## Run unit tests.
 	go test $(GOFLAGS) ./...
