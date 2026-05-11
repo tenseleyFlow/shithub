@@ -99,7 +99,6 @@
           <div class="shithub-editor-helpbar">
             Use <kbd>Control + Shift + m</kbd> to toggle the <kbd>tab</kbd> key moving focus. Alternatively, use <kbd>esc</kbd> then <kbd>tab</kbd> to move to the next interactive element on the page.
           </div>
-          <div class="shithub-editor-attach">Attach files by dragging & dropping, selecting or pasting them.</div>
         </div>
         <div class="shithub-editor-pane shithub-editor-preview" data-editor-pane="preview" hidden>
           <div class="markdown-body shithub-editor-preview-body" data-editor-preview data-preview-url="{{ .PreviewURL }}" data-preview-ref="{{ .Ref }}">
@@ -154,6 +153,8 @@
   let indentSize = 2;
   let softWrap = true;
   let previewDirty = true;
+  let tabMovesFocus = false;
+  let nextTabMovesFocus = false;
   let submitting = false;
 
   function updateGutter() {
@@ -210,6 +211,8 @@
     body.set("content", textarea.value);
     body.set("ref", preview.dataset.previewRef || "");
     body.set("path", pathInput ? pathInput.value : "");
+    if (pathInput) body.set("original_path", pathInput.dataset.original || pathInput.value || "");
+    if (showDiff && showDiff.checked) body.set("show_diff", "1");
     preview.innerHTML = "<p class=\"shithub-editor-preview-empty\">Rendering preview...</p>";
     const res = await fetch(preview.dataset.previewUrl, {
       method: "POST",
@@ -254,6 +257,7 @@
     updateCommitState();
     textarea.addEventListener("input", function () {
       updateGutter();
+      nextTabMovesFocus = false;
       previewDirty = true;
       updateCommitState();
     });
@@ -261,7 +265,24 @@
       if (gutter) gutter.scrollTop = textarea.scrollTop;
     });
     textarea.addEventListener("keydown", function (event) {
-      if (event.key !== "Tab") return;
+      if ((event.key === "m" || event.key === "M") && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        tabMovesFocus = !tabMovesFocus;
+        nextTabMovesFocus = false;
+        return;
+      }
+      if (event.key === "Escape") {
+        nextTabMovesFocus = true;
+        return;
+      }
+      if (event.key !== "Tab") {
+        nextTabMovesFocus = false;
+        return;
+      }
+      if (tabMovesFocus || nextTabMovesFocus) {
+        nextTabMovesFocus = false;
+        return;
+      }
       event.preventDefault();
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -328,7 +349,8 @@
 
   if (showDiff) {
     showDiff.addEventListener("change", function () {
-      if (preview) preview.classList.toggle("is-showing-diff", showDiff.checked);
+      previewDirty = true;
+      if (root.classList.contains("is-previewing")) renderPreview();
     });
   }
 

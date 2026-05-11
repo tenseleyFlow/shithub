@@ -1,3 +1,13 @@
 {{ define "page" -}}
-<div class="markdown-body shithub-editor-preview-body">{{ .MarkdownHTML }}</div>
+<div class="markdown-body shithub-editor-preview-body{{ if .DiffMode }} is-diff{{ end }}">
+  {{ if .DiffMode }}
+    {{ range .DiffBlocks }}
+      <div class="shithub-editor-preview-diff-block is-{{ .Kind }}">{{ .HTML }}</div>
+    {{ else }}
+      <p class="shithub-editor-preview-empty">No preview changes.</p>
+    {{ end }}
+  {{ else }}
+    {{ .MarkdownHTML }}
+  {{ end }}
+</div>
 {{- end }}
