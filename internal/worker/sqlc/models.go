@@ -2200,29 +2200,30 @@ type TrendingSnapshot struct {
 }
 
 type User struct {
-	ID                int64
-	Username          string
-	DisplayName       string
-	PrimaryEmailID    pgtype.Int8
-	PasswordHash      string
-	PasswordAlgo      string
-	PasswordUpdatedAt pgtype.Timestamptz
-	EmailVerified     bool
-	LastLoginAt       pgtype.Timestamptz
-	SuspendedAt       pgtype.Timestamptz
-	SuspendedReason   pgtype.Text
-	DeletedAt         pgtype.Timestamptz
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-	Bio               string
-	Location          string
-	Website           string
-	Company           string
-	Pronouns          string
-	AvatarObjectKey   pgtype.Text
-	Theme             string
-	SessionEpoch      int32
-	IsSiteAdmin       bool
+	ID                          int64
+	Username                    string
+	DisplayName                 string
+	PrimaryEmailID              pgtype.Int8
+	PasswordHash                string
+	PasswordAlgo                string
+	PasswordUpdatedAt           pgtype.Timestamptz
+	EmailVerified               bool
+	LastLoginAt                 pgtype.Timestamptz
+	SuspendedAt                 pgtype.Timestamptz
+	SuspendedReason             pgtype.Text
+	DeletedAt                   pgtype.Timestamptz
+	CreatedAt                   pgtype.Timestamptz
+	UpdatedAt                   pgtype.Timestamptz
+	Bio                         string
+	Location                    string
+	Website                     string
+	Company                     string
+	Pronouns                    string
+	AvatarObjectKey             pgtype.Text
+	Theme                       string
+	SessionEpoch                int32
+	IsSiteAdmin                 bool
+	IncludePrivateContributions bool
 }
 
 type UserEmail struct {

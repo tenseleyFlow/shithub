@@ -53,7 +53,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (username, display_name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin
+RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions
 `
 
 type CreateUserParams struct {
@@ -90,12 +90,13 @@ func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams)
 		&i.Theme,
 		&i.SessionEpoch,
 		&i.IsSiteAdmin,
+		&i.IncludePrivateContributions,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions
 FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -127,12 +128,13 @@ func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (User, err
 		&i.Theme,
 		&i.SessionEpoch,
 		&i.IsSiteAdmin,
+		&i.IncludePrivateContributions,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions
 FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
@@ -164,12 +166,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username strin
 		&i.Theme,
 		&i.SessionEpoch,
 		&i.IsSiteAdmin,
+		&i.IncludePrivateContributions,
 	)
 	return i, err
 }
 
 const getUserByUsernameIncludingDeleted = `-- name: GetUserByUsernameIncludingDeleted :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin FROM users WHERE username = $1
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error) {
@@ -199,12 +202,13 @@ func (q *Queries) GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX
 		&i.Theme,
 		&i.SessionEpoch,
 		&i.IsSiteAdmin,
+		&i.IncludePrivateContributions,
 	)
 	return i, err
 }
 
 const getUserIncludingDeleted = `-- name: GetUserIncludingDeleted :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin FROM users WHERE id = $1
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions FROM users WHERE id = $1
 `
 
 // Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
@@ -235,6 +239,7 @@ func (q *Queries) GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64
 		&i.Theme,
 		&i.SessionEpoch,
 		&i.IsSiteAdmin,
+		&i.IncludePrivateContributions,
 	)
 	return i, err
 }
@@ -396,6 +401,20 @@ type UpdateUserPasswordParams struct {
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error {
 	_, err := db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash, arg.PasswordAlgo)
+	return err
+}
+
+const updateUserPrivateContributions = `-- name: UpdateUserPrivateContributions :exec
+UPDATE users SET include_private_contributions = $2 WHERE id = $1
+`
+
+type UpdateUserPrivateContributionsParams struct {
+	ID                          int64
+	IncludePrivateContributions bool
+}
+
+func (q *Queries) UpdateUserPrivateContributions(ctx context.Context, db DBTX, arg UpdateUserPrivateContributionsParams) error {
+	_, err := db.Exec(ctx, updateUserPrivateContributions, arg.ID, arg.IncludePrivateContributions)
 	return err
 }
 

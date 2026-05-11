@@ -61,7 +61,7 @@ func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repo
 	tmplFS := fstest.MapFS{
 		"_layout.html":             {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":               {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
 		"profile/follows_tab.html": {Data: []byte(`{{ define "page" }}FOLLOWTAB={{.ActiveTab}} USER={{.User.Username}} TOTAL={{len .Items}} ITEMS={{range .Items}}{{.Kind}}:{{.Username}};{{end}}{{ end }}`)},
 		"profile/suspended.html":   {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":        {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowerCount}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
@@ -316,6 +316,19 @@ func (e *profileEnv) postPins(t *testing.T, path string, user usersdb.User, repo
 	return resp
 }
 
+func (e *profileEnv) postContributionSettings(t *testing.T, path string, user usersdb.User, includePrivate bool, returnTo string) *http.Response {
+	t.Helper()
+	include := "0"
+	if includePrivate {
+		include = "1"
+	}
+	form := url.Values{
+		"include_private_contributions": {include},
+		"return_to":                     {returnTo},
+	}
+	return e.postFormAs(t, path, user, form)
+}
+
 func (e *profileEnv) postFormAs(t *testing.T, path string, user usersdb.User, form url.Values) *http.Response {
 	t.Helper()
 	if form == nil {
@@ -526,6 +539,73 @@ func TestProfile_ContributionsSelectedYearHasStableLinks(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
+	}
+}
+
+func TestProfile_PrivateContributionsRequireOwnerOptIn(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnvWithRepoFS(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "")
+	env.insertVerifiedEmail(t, alice.ID, "alice@example.com")
+	env.insertUserRepo(t, alice.ID, "public-work", "visible work", "public", "Go", 0, 0)
+	env.insertUserRepo(t, alice.ID, "private-work", "private work", "private", "Go", 0, 0)
+
+	now := time.Now().UTC()
+	env.writeInitialCommit(t, "alice", "public-work", "Alice Anderson", "alice@example.com", now.AddDate(0, 0, -2))
+	env.writeInitialCommit(t, "alice", "private-work", "Alice Anderson", "alice@example.com", now.AddDate(0, 0, -1))
+
+	body := env.getAs(t, "/alice", alice)
+	for _, want := range []string{
+		"CONTRIB=1",
+		"PRIVATE=false",
+		"CUSTOMIZE=1 ACTION=/alice/contribution-settings RETURN=/alice",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "private-work") {
+		t.Fatalf("self profile leaked private repo name through contribution settings: %s", body)
+	}
+
+	currentYear := time.Now().UTC().Year()
+	returnTo := fmt.Sprintf("/alice?year=%d", currentYear)
+	resp := env.postContributionSettings(t, "/alice/contribution-settings", alice, true, returnTo)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != returnTo {
+		t.Fatalf("Location = %q, want %q", loc, returnTo)
+	}
+
+	body = env.getAs(t, "/alice", usersdb.User{})
+	for _, want := range []string{
+		"CONTRIB=2",
+		"PRIVATE=true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "private-work") {
+		t.Fatalf("anonymous profile leaked private repo name after private contribution opt-in: %s", body)
+	}
+}
+
+func TestProfile_ContributionSettingsRequireProfileOwner(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+	bob := env.insertUser(t, "bob", "Bob", "")
+
+	resp := env.postContributionSettings(t, "/alice/contribution-settings", bob, true, "/alice")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", resp.StatusCode)
+	}
+
+	body := env.getAs(t, "/alice", alice)
+	if !strings.Contains(body, "PRIVATE=false") {
+		t.Fatalf("unexpected settings change by non-owner: %s", body)
 	}
 }
 
