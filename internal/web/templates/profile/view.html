@@ -100,7 +100,7 @@
 
       <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
         <div class="shithub-profile-contrib-head">
-          <h2 id="contrib-h">{{ .Contributions.Total }} contribution{{ pluralize .Contributions.Total "" "s" }} in the last year</h2>
+          <h2 id="contrib-h">{{ .Contributions.Total }} contribution{{ pluralize .Contributions.Total "" "s" }} {{ .Contributions.Period }}</h2>
           <details class="shithub-profile-contrib-settings">
             <summary>Contribution settings {{ octicon "triangle-down" }}</summary>
             <div>
@@ -113,7 +113,7 @@
         </div>
 
         <div class="shithub-profile-contrib-layout">
-          <div class="shithub-profile-calendar" role="img" aria-label="{{ .Contributions.Total }} contributions in the last year">
+          <div class="shithub-profile-calendar" role="img" aria-label="{{ .Contributions.Total }} contributions {{ .Contributions.Period }}">
             <div class="shithub-contrib-months" aria-hidden="true">
               {{ range .Contributions.Weeks }}<span>{{ .MonthLabel }}</span>{{ end }}
             </div>
@@ -125,7 +125,7 @@
                 {{ range .Contributions.Weeks }}
                 <div class="shithub-contrib-week">
                   {{ range .Days }}
-                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" title="{{ .Title }}" aria-label="{{ .Title }}"></span>
+                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" title="{{ .Title }}" data-title="{{ .Title }}" data-date="{{ .Date }}" data-count="{{ .Count }}" aria-label="{{ .Title }}" tabindex="0"></span>
                   {{ end }}
                 </div>
                 {{ end }}
@@ -138,7 +138,13 @@
           </div>
           <ol class="shithub-profile-years" aria-label="Contribution years">
             {{ range .Contributions.Years }}
-            <li><span class="{{ if eq . $.Contributions.CurrentYear }}is-active{{ end }}">{{ . }}</span></li>
+            <li>
+              {{ if .Active }}
+              <span class="is-active" aria-current="page">{{ .Year }}</span>
+              {{ else }}
+              <a href="{{ .Href }}">{{ .Year }}</a>
+              {{ end }}
+            </li>
             {{ end }}
           </ol>
         </div>
@@ -153,7 +159,7 @@
             {{ if .Contributions.MonthCommitCount }}
             <strong>Created {{ .Contributions.MonthCommitCount }} commit{{ pluralize .Contributions.MonthCommitCount "" "s" }} in {{ .Contributions.MonthRepoCount }} repositor{{ pluralize .Contributions.MonthRepoCount "y" "ies" }}</strong>
             {{ else }}
-            <strong>No public activity yet this month</strong>
+            <strong>No activity in {{ .Contributions.MonthLabel }}</strong>
             {{ end }}
           </div>
         </div>

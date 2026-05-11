@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -159,44 +160,52 @@ func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string
 		return nil
 	}
 	type aggregate struct {
-		name  string
-		email string
-		count int
+		contributor repoAboutContributor
 	}
 	byAuthor := map[string]*aggregate{}
+	resolver := identity.New(h.d.Pool)
 	for _, c := range commits {
-		key := strings.ToLower(strings.TrimSpace(c.AuthorEmail))
-		if key == "" {
-			key = strings.ToLower(strings.TrimSpace(c.AuthorName))
+		resolved := resolver.Resolve(ctx, c.AuthorEmail)
+		key := ""
+		contributor := repoAboutContributor{}
+		if resolved.User {
+			key = "user:" + strconv.FormatInt(resolved.UserID, 10)
+			contributor.User = true
+			contributor.Username = resolved.Username
+			contributor.DisplayName = resolved.DisplayName
+			contributor.AvatarURL = resolved.AvatarURL
+			contributor.Label = resolved.DisplayName
+			if contributor.Label == "" {
+				contributor.Label = resolved.Username
+			}
+		} else {
+			email := strings.ToLower(strings.TrimSpace(c.AuthorEmail))
+			name := strings.ToLower(strings.TrimSpace(c.AuthorName))
+			if email != "" {
+				key = "email:" + email
+			} else if name != "" {
+				key = "name:" + name
+			}
+			contributor.Label = strings.TrimSpace(c.AuthorName)
+			if contributor.Label == "" {
+				contributor.Label = strings.TrimSpace(c.AuthorEmail)
+			}
+			contributor.IdenticonSeed = resolved.IdenticonSeed
 		}
 		if key == "" {
 			continue
 		}
 		agg, ok := byAuthor[key]
 		if !ok {
-			agg = &aggregate{name: c.AuthorName, email: c.AuthorEmail}
+			agg = &aggregate{contributor: contributor}
 			byAuthor[key] = agg
 		}
-		agg.count++
+		agg.contributor.Count++
 	}
 
-	resolver := identity.New(h.d.Pool)
 	contributors := make([]repoAboutContributor, 0, len(byAuthor))
 	for _, agg := range byAuthor {
-		resolved := resolver.Resolve(ctx, agg.email)
-		c := repoAboutContributor{Count: agg.count, Label: agg.name}
-		if resolved.User {
-			c.User = true
-			c.Username = resolved.Username
-			c.DisplayName = resolved.DisplayName
-			c.AvatarURL = resolved.AvatarURL
-			c.Label = resolved.DisplayName
-			if c.Label == "" {
-				c.Label = resolved.Username
-			}
-		} else {
-			c.IdenticonSeed = resolved.IdenticonSeed
-		}
+		c := agg.contributor
 		if c.Label == "" {
 			c.Label = "Unknown author"
 		}

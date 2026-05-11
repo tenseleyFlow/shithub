@@ -29,8 +29,8 @@ import (
 
 const (
 	profileContribWeeks      = 53
-	profileContribRepoLimit  = 80
-	profileContribMaxPerRepo = 2000
+	profileContribRepoLimit  = 500
+	profileContribMaxPerRepo = 5000
 	profileReadmeMaxBytes    = 1 * 1024 * 1024
 )
 
@@ -50,13 +50,21 @@ type profileReadme struct {
 
 type contributionCalendar struct {
 	Total             int
+	Period            string
 	Weeks             []contributionWeek
-	Years             []int
+	Years             []contributionYear
 	CurrentYear       int
+	SelectedYear      int
 	MonthLabel        string
 	MonthCommitCount  int
 	MonthRepoCount    int
 	HasRepositoryData bool
+}
+
+type contributionYear struct {
+	Year   int
+	Href   string
+	Active bool
 }
 
 type contributionWeek struct {
@@ -71,6 +79,11 @@ type contributionDay struct {
 	Level      int
 	IsFuture   bool
 	IsInWindow bool
+}
+
+type profileContributionRepo struct {
+	Repo      reposdb.Repo
+	OwnerSlug string
 }
 
 func (h *Handlers) visibleUserRepos(ctx context.Context, userID int64, viewer middleware.CurrentUser) []reposdb.Repo {
@@ -183,27 +196,38 @@ func (h *Handlers) profileReadme(ctx context.Context, user usersdb.User, viewer 
 	return profileReadme{}, false
 }
 
-func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, repos []reposdb.Repo) contributionCalendar {
+func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, viewer middleware.CurrentUser, query url.Values) contributionCalendar {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	currentYear := today.Year()
+	selectedYear := selectedContributionYear(query, currentYear)
 	windowStart := today.AddDate(-1, 0, 1)
+	windowEndDay := today
+	period := "in the last year"
+	if selectedYear != currentYear {
+		windowStart = time.Date(selectedYear, time.January, 1, 0, 0, 0, 0, time.UTC)
+		windowEndDay = time.Date(selectedYear, time.December, 31, 0, 0, 0, 0, time.UTC)
+		period = "in " + strconv.Itoa(selectedYear)
+	}
 	gridStart := windowStart.AddDate(0, 0, -int(windowStart.Weekday()))
-	windowEnd := today.Add(24 * time.Hour)
+	windowEnd := windowEndDay.Add(24 * time.Hour)
+	activityMonth := time.Date(windowEndDay.Year(), windowEndDay.Month(), 1, 0, 0, 0, 0, time.UTC)
+	repos := h.profileContributionRepos(ctx, user, viewer)
 
 	counts := map[string]int{}
 	reposWithMonthActivity := map[int64]struct{}{}
 	if h.d.RepoFS != nil && len(repos) > 0 {
 		emails := h.verifiedEmails(ctx, user.ID)
-		for i, repo := range repos {
+		for i, source := range repos {
 			if i >= profileContribRepoLimit {
 				break
 			}
-			gitDir, err := h.d.RepoFS.RepoPath(user.Username, repo.Name)
+			gitDir, err := h.d.RepoFS.RepoPath(source.OwnerSlug, source.Repo.Name)
 			if err != nil {
 				continue
 			}
 			commits, err := repogit.Log(ctx, gitDir, repogit.LogOptions{
-				Ref:      repo.DefaultBranch,
+				Ref:      source.Repo.DefaultBranch,
 				MaxCount: profileContribMaxPerRepo,
 				Since:    windowStart,
 				Until:    windowEnd,
@@ -212,19 +236,17 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 				continue
 			}
 			for _, commit := range commits {
-				if len(emails) > 0 {
-					if _, ok := emails[strings.ToLower(strings.TrimSpace(commit.AuthorEmail))]; !ok {
-						continue
-					}
+				if !commitMatchesProfileUser(commit, emails, user) {
+					continue
 				}
 				day := time.Date(commit.AuthorWhen.UTC().Year(), commit.AuthorWhen.UTC().Month(), commit.AuthorWhen.UTC().Day(), 0, 0, 0, 0, time.UTC)
-				if day.Before(windowStart) || day.After(today) {
+				if day.Before(windowStart) || day.After(windowEndDay) {
 					continue
 				}
 				key := day.Format("2006-01-02")
 				counts[key]++
-				if day.Year() == today.Year() && day.Month() == today.Month() {
-					reposWithMonthActivity[repo.ID] = struct{}{}
+				if day.Year() == activityMonth.Year() && day.Month() == activityMonth.Month() {
+					reposWithMonthActivity[source.Repo.ID] = struct{}{}
 				}
 			}
 		}
@@ -239,10 +261,10 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 			day := gridStart.AddDate(0, 0, w*7+d)
 			key := day.Format("2006-01-02")
 			count := counts[key]
-			inWindow := !day.Before(windowStart) && !day.After(today)
+			inWindow := !day.Before(windowStart) && !day.After(windowEndDay)
 			if inWindow {
 				total += count
-				if day.Year() == today.Year() && day.Month() == today.Month() {
+				if day.Year() == activityMonth.Year() && day.Month() == activityMonth.Month() {
 					monthCommitCount += count
 				}
 			}
@@ -260,17 +282,124 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 		}
 		weeks = append(weeks, week)
 	}
-	years := []int{today.Year(), today.Year() - 1, today.Year() - 2, today.Year() - 3}
 	return contributionCalendar{
 		Total:             total,
+		Period:            period,
 		Weeks:             weeks,
-		Years:             years,
-		CurrentYear:       today.Year(),
-		MonthLabel:        today.Format("January 2006"),
+		Years:             contributionYears(user.Username, currentYear, selectedYear),
+		CurrentYear:       currentYear,
+		SelectedYear:      selectedYear,
+		MonthLabel:        activityMonth.Format("January 2006"),
 		MonthCommitCount:  monthCommitCount,
 		MonthRepoCount:    len(reposWithMonthActivity),
 		HasRepositoryData: h.d.RepoFS != nil && len(repos) > 0,
 	}
+}
+
+func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.User, viewer middleware.CurrentUser) []profileContributionRepo {
+	actor := policy.AnonymousActor()
+	if !viewer.IsAnonymous() {
+		actor = viewer.PolicyActor()
+	}
+	deps := policy.Deps{Pool: h.d.Pool}
+	queries := reposdb.New()
+	seen := map[int64]struct{}{}
+	out := make([]profileContributionRepo, 0, 64)
+	add := func(ownerSlug string, repo reposdb.Repo) {
+		if ownerSlug == "" {
+			return
+		}
+		if _, ok := seen[repo.ID]; ok {
+			return
+		}
+		if !policy.IsVisibleTo(ctx, deps, actor, policy.NewRepoRefFromRepo(repo)) {
+			return
+		}
+		seen[repo.ID] = struct{}{}
+		out = append(out, profileContributionRepo{Repo: repo, OwnerSlug: ownerSlug})
+	}
+
+	userRepos, err := queries.ListReposForOwnerUser(ctx, h.d.Pool, pgtype.Int8{Int64: user.ID, Valid: true})
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "profile overview: contribution user repos", "user_id", user.ID, "error", err)
+	} else {
+		for _, repo := range userRepos {
+			add(user.Username, repo)
+		}
+	}
+
+	orgRows, err := orgsdb.New().ListOrgsForUser(ctx, h.d.Pool, user.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "profile overview: contribution orgs", "user_id", user.ID, "error", err)
+	} else {
+		for _, org := range orgRows {
+			orgRepos, err := queries.ListReposForOwnerOrg(ctx, h.d.Pool, pgtype.Int8{Int64: org.OrgID, Valid: true})
+			if err != nil {
+				h.d.Logger.WarnContext(ctx, "profile overview: contribution org repos", "org_id", org.OrgID, "error", err)
+				continue
+			}
+			for _, repo := range orgRepos {
+				add(org.Slug, repo)
+			}
+		}
+	}
+
+	publicRepos, err := queries.ListPublicContributionRepos(ctx, h.d.Pool, int32(profileContribRepoLimit))
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "profile overview: contribution public repos", "user_id", user.ID, "error", err)
+		return out
+	}
+	for _, row := range publicRepos {
+		add(row.OwnerSlug, row.Repo)
+	}
+	return out
+}
+
+func selectedContributionYear(query url.Values, currentYear int) int {
+	for _, key := range []string{"year", "from"} {
+		raw := strings.TrimSpace(query.Get(key))
+		if len(raw) >= 4 {
+			raw = raw[:4]
+		}
+		year, err := strconv.Atoi(raw)
+		if err == nil && year >= currentYear-100 && year <= currentYear {
+			return year
+		}
+	}
+	return currentYear
+}
+
+func contributionYears(username string, currentYear, selectedYear int) []contributionYear {
+	years := make([]contributionYear, 0, 4)
+	base := "/" + url.PathEscape(username)
+	for i := 0; i < 4; i++ {
+		year := currentYear - i
+		href := base
+		if year != currentYear {
+			href += "?year=" + strconv.Itoa(year)
+		}
+		years = append(years, contributionYear{
+			Year:   year,
+			Href:   href,
+			Active: year == selectedYear,
+		})
+	}
+	return years
+}
+
+func commitMatchesProfileUser(commit repogit.Commit, verifiedEmails map[string]struct{}, user usersdb.User) bool {
+	if len(verifiedEmails) > 0 {
+		_, ok := verifiedEmails[strings.ToLower(strings.TrimSpace(commit.AuthorEmail))]
+		return ok
+	}
+	name := strings.ToLower(strings.TrimSpace(commit.AuthorName))
+	if name == "" {
+		return false
+	}
+	if name == strings.ToLower(user.Username) {
+		return true
+	}
+	return user.DisplayName != "" && name == strings.ToLower(strings.TrimSpace(user.DisplayName))
 }
 
 func (h *Handlers) verifiedEmails(ctx context.Context, userID int64) map[string]struct{} {
@@ -303,13 +432,29 @@ func contributionLevel(count int) int {
 }
 
 func contributionDayTitle(count int, day time.Time) string {
+	date := day.Format("January ") + ordinalDay(day.Day()) + "."
 	if count == 0 {
-		return "No contributions on " + day.Format("January 2") + "."
+		return "No contributions on " + date
 	}
 	if count == 1 {
-		return "1 contribution on " + day.Format("January 2") + "."
+		return "1 contribution on " + date
 	}
-	return strconv.Itoa(count) + " contributions on " + day.Format("January 2") + "."
+	return strconv.Itoa(count) + " contributions on " + date
+}
+
+func ordinalDay(day int) string {
+	suffix := "th"
+	if day%100 < 11 || day%100 > 13 {
+		switch day % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return strconv.Itoa(day) + suffix
 }
 
 func profileCodeRouteBase(owner, repoName, route, ref, dir string) string {

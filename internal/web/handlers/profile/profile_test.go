@@ -15,12 +15,14 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	profileh "github.com/tenseleyFlow/shithub/internal/web/handlers/profile"
@@ -29,9 +31,10 @@ import (
 )
 
 type profileEnv struct {
-	srv  *httptest.Server
-	pool *pgxpool.Pool
-	q    *usersdb.Queries
+	srv    *httptest.Server
+	pool   *pgxpool.Pool
+	q      *usersdb.Queries
+	repoFS *storage.RepoFS
 }
 
 func setupProfileEnv(t *testing.T) *profileEnv {
@@ -39,13 +42,26 @@ func setupProfileEnv(t *testing.T) *profileEnv {
 }
 
 func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *profileEnv {
+	return setupProfileEnvWithDeps(t, objectStore, nil)
+}
+
+func setupProfileEnvWithRepoFS(t *testing.T) *profileEnv {
+	t.Helper()
+	repoFS, err := storage.NewRepoFS(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewRepoFS: %v", err)
+	}
+	return setupProfileEnvWithDeps(t, nil, repoFS)
+}
+
+func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repoFS *storage.RepoFS) *profileEnv {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
 	tmplFS := fstest.MapFS{
 		"_layout.html":           {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":             {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"orgs/repositories.html": {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
@@ -60,6 +76,7 @@ func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *pr
 	h, err := profileh.New(profileh.Deps{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Render: rr, Pool: pool,
+		RepoFS:      repoFS,
 		ObjectStore: objectStore,
 	})
 	if err != nil {
@@ -94,7 +111,7 @@ func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *pr
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
-	return &profileEnv{srv: srv, pool: pool, q: usersdb.New()}
+	return &profileEnv{srv: srv, pool: pool, q: usersdb.New(), repoFS: repoFS}
 }
 
 // fixtureHash is a static PHC test fixture (zero salt, zero key) — not a real credential.
@@ -119,6 +136,18 @@ func (e *profileEnv) insertUser(t *testing.T, username, display, bio string) use
 		}
 	}
 	return user
+}
+
+func (e *profileEnv) insertVerifiedEmail(t *testing.T, userID int64, email string) {
+	t.Helper()
+	if _, err := e.q.CreateUserEmail(context.Background(), e.pool, usersdb.CreateUserEmailParams{
+		UserID:    userID,
+		Email:     email,
+		IsPrimary: true,
+		Verified:  true,
+	}); err != nil {
+		t.Fatalf("CreateUserEmail: %v", err)
+	}
 }
 
 func (e *profileEnv) insertOrg(t *testing.T, slug, display, desc string, creator usersdb.User) int64 {
@@ -178,6 +207,37 @@ func (e *profileEnv) insertUserRepo(t *testing.T, userID int64, name, desc, visi
 		t.Fatalf("insert user repo: %v", err)
 	}
 	return repoID
+}
+
+func (e *profileEnv) writeInitialCommit(t *testing.T, owner, repoName, authorName, authorEmail string, when time.Time) string {
+	t.Helper()
+	if e.repoFS == nil {
+		t.Fatal("repoFS not configured")
+	}
+	ctx := context.Background()
+	gitDir, err := e.repoFS.RepoPath(owner, repoName)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := e.repoFS.InitBare(ctx, gitDir); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+	oid, err := repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  authorName,
+		AuthorEmail: authorEmail,
+		Message:     "Initial commit",
+		Branch:      "trunk",
+		When:        when,
+		Files: []repogit.FileEntry{{
+			Path: "README.md",
+			Body: []byte("# " + repoName + "\n"),
+		}},
+	}.Build(ctx)
+	if err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+	return oid
 }
 
 func (e *profileEnv) insertRedirect(t *testing.T, oldname string, userID int64) {
@@ -301,6 +361,58 @@ func TestProfile_OverviewDataUsesVisibleReposAndOrganizations(t *testing.T) {
 	}
 	if strings.Contains(body, "private-repo") {
 		t.Fatalf("anonymous profile overview leaked private repo data: %s", body)
+	}
+}
+
+func TestProfile_ContributionsCountVerifiedEmailAcrossUserAndOrgRepos(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnvWithRepoFS(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "Hi.")
+	env.insertVerifiedEmail(t, alice.ID, "alice@example.com")
+	env.insertUserRepo(t, alice.ID, "owned", "user repo", "public", "Go", 0, 0)
+	orgID := env.insertOrg(t, "acme", "Acme", "", alice)
+	env.insertOrgRepo(t, orgID, "team", "org repo", "public", "Rust", 0, 0)
+	env.insertOrgRepo(t, orgID, "other", "different author", "public", "Rust", 0, 0)
+
+	now := time.Now().UTC()
+	env.writeInitialCommit(t, "alice", "owned", "Alice Anderson", "alice@example.com", now.AddDate(0, 0, -7))
+	env.writeInitialCommit(t, "acme", "team", "A. Alice", "alice@example.com", now.AddDate(0, 0, -14))
+	env.writeInitialCommit(t, "acme", "other", "Bob", "bob@example.com", now.AddDate(0, 0, -5))
+
+	body := env.getAs(t, "/alice", usersdb.User{})
+	for _, want := range []string{
+		"CONTRIB=2",
+		"PERIOD=in the last year",
+		"WEEKS=53",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+}
+
+func TestProfile_ContributionsSelectedYearHasStableLinks(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnvWithRepoFS(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "")
+	env.insertVerifiedEmail(t, alice.ID, "alice@example.com")
+	env.insertUserRepo(t, alice.ID, "archive", "old work", "public", "Go", 0, 0)
+
+	currentYear := time.Now().UTC().Year()
+	selectedYear := currentYear - 1
+	env.writeInitialCommit(t, "alice", "archive", "Alice Anderson", "alice@example.com",
+		time.Date(selectedYear, time.March, 10, 12, 0, 0, 0, time.UTC))
+
+	body := env.getAs(t, fmt.Sprintf("/alice?year=%d", selectedYear), usersdb.User{})
+	for _, want := range []string{
+		"CONTRIB=1",
+		"PERIOD=in " + strconv.Itoa(selectedYear),
+		fmt.Sprintf("%d:false:/alice;", currentYear),
+		fmt.Sprintf("%d:true:/alice?year=%d;", selectedYear, selectedYear),
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
 	}
 }
 
