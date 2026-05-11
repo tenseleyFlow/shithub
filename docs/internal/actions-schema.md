@@ -438,7 +438,8 @@ defer to S41g where the lifecycle work touches that surface anyway.
 
 ### What S41b deliberately doesn't do
 
-- Run jobs. Runs sit in `queued` forever — S41c+ runner work.
+- Run jobs. S41c adds runner claim/status APIs; S41d adds the actual
+  `shithubd-runner` execution binary.
 - Schedule sweep. Cron-driven triggers split into S41b-2 to keep
   this PR reviewable; the trigger pipeline accepts schedule events,
   but no caller produces them yet. S41b-2 adds the sweep + the
@@ -487,7 +488,7 @@ constraint.
 
 - No trigger pipeline. `domain_events` aren't matched against `on:`
   yet — that's S41b.
-- No runner. Jobs land in `queued` and stay there — S41c onward.
+- No runner. S41c/S41d add runner claim APIs and the execution binary.
 - No UI. The Actions tab still renders the placeholder — S41f.
 - No secret encryption helpers wired to anything writable — S41c.
 - No JWT issuance, no runner registration flow — S41c.

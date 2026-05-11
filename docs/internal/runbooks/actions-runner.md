@@ -1,15 +1,19 @@
 # Actions runner smoke runbook
 
-This runbook drives one queued Actions job with curl. It is for S41c
-operator validation before the real `shithubd-runner` binary lands.
+This runbook validates the runner-facing Actions path. `shithubd-runner`
+now claims jobs and executes containerized `run:` steps through Docker or
+Podman. The curl flow below remains useful for token/replay debugging.
 
 Prereqs:
 
 - Database migrations are current through `0053_runner_jwt_used.sql`.
 - `SHITHUB_TOTP_KEY` or `auth.totp_key_b64` is set on the web process.
 - Object storage is configured if testing artifact upload.
+- Docker or Podman is installed on the runner host.
 - A repo has a workflow under `.shithub/workflows/*.yml` with
   `runs-on: ubuntu-latest`, and a push/dispatch has enqueued a run.
+  S41d PR1 supports `run:` steps; checkout and artifact aliases land in
+  the following S41d slices.
 
 Register a runner:
 
@@ -26,6 +30,44 @@ Save the printed token:
 export RUNNER_TOKEN='<printed-token>'
 export BASE='https://shithub.example'
 ```
+
+Run the binary:
+
+```sh
+shithubd-runner run \
+  --server-url "$BASE" \
+  --token "$RUNNER_TOKEN" \
+  --labels self-hosted,linux,ubuntu-latest \
+  --workspace-root /var/lib/shithubd-runner/workspaces
+```
+
+Equivalent config file:
+
+```toml
+[server]
+base_url = "https://shithub.example"
+
+[runner]
+token = "<printed-token>"
+labels = ["self-hosted", "linux", "ubuntu-latest"]
+capacity = 1
+poll_interval = "5s"
+workspace_root = "/var/lib/shithubd-runner/workspaces"
+workspace_ttl = "24h"
+
+[engine]
+kind = "docker"
+default_image = "ghcr.io/shithub/runner-nix:1.0"
+network = "bridge"
+memory = "2g"
+cpus = "2"
+```
+
+The config path defaults to `/etc/shithubd-runner/config.toml`.
+Environment variables use the `SHITHUB_RUNNER_` prefix, for example
+`SHITHUB_RUNNER_TOKEN` or `SHITHUB_RUNNER_SERVER__BASE_URL`.
+
+## Curl token smoke
 
 Claim a job:
 
