@@ -33,6 +33,8 @@ type Deps struct {
 // Errors surfaced to handlers.
 var (
 	ErrNotLoggedIn       = errors.New("social: login required")
+	ErrCannotFollowSelf  = errors.New("social: cannot follow yourself")
 	ErrInvalidWatchLevel = errors.New("social: watch level must be all, participating, or ignore")
 	ErrStarRateLimit     = errors.New("social: star/unstar rate limit exceeded")
+	ErrFollowRateLimit   = errors.New("social: follow/unfollow rate limit exceeded")
 )

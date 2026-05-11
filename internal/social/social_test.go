@@ -4,6 +4,7 @@ package social_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	socialdb "github.com/tenseleyFlow/shithub/internal/social/sqlc"
@@ -65,6 +67,20 @@ func mustCreateUser(t *testing.T, pool *pgxpool.Pool, username string) int64 {
 	return u.ID
 }
 
+func mustCreateOrg(t *testing.T, pool *pgxpool.Pool, slug string, creatorID int64) int64 {
+	t.Helper()
+	o, err := orgsdb.New().CreateOrg(context.Background(), pool, orgsdb.CreateOrgParams{
+		Slug:            slug,
+		DisplayName:     slug,
+		BillingEmail:    slug + "@example.test",
+		CreatedByUserID: pgtype.Int8{Int64: creatorID, Valid: creatorID != 0},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg %s: %v", slug, err)
+	}
+	return o.ID
+}
+
 func repoStarCount(t *testing.T, pool *pgxpool.Pool, repoID int64) int64 {
 	t.Helper()
 	r, err := reposdb.New().GetRepoByID(context.Background(), pool, repoID)
@@ -101,6 +117,105 @@ func TestStar_IncrementsCount_AndIsIdempotent(t *testing.T) {
 	}
 	if got := repoStarCount(t, pool, repoID); got != 1 {
 		t.Errorf("after re-star: got %d, want 1 (idempotent)", got)
+	}
+}
+
+func TestFollowUser_IdempotentCountsAndEvent(t *testing.T) {
+	pool, deps, targetID, _ := setup(t)
+	followerID := mustCreateUser(t, pool, "bob")
+	ctx := context.Background()
+
+	if err := social.FollowUser(ctx, deps, followerID, targetID); err != nil {
+		t.Fatalf("FollowUser: %v", err)
+	}
+	if err := social.FollowUser(ctx, deps, followerID, targetID); err != nil {
+		t.Fatalf("FollowUser duplicate: %v", err)
+	}
+	q := socialdb.New()
+	followers, err := q.CountFollowersForUser(ctx, pool, pgtype.Int8{Int64: targetID, Valid: true})
+	if err != nil {
+		t.Fatalf("CountFollowersForUser: %v", err)
+	}
+	if followers != 1 {
+		t.Fatalf("followers = %d, want 1", followers)
+	}
+	following, err := q.CountFollowingForUser(ctx, pool, followerID)
+	if err != nil {
+		t.Fatalf("CountFollowingForUser: %v", err)
+	}
+	if following != 1 {
+		t.Fatalf("following = %d, want 1", following)
+	}
+	var eventCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM domain_events WHERE actor_user_id = $1 AND kind = 'followed_user'`,
+		followerID,
+	).Scan(&eventCount); err != nil {
+		t.Fatalf("count follow events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("event count = %d, want 1", eventCount)
+	}
+}
+
+func TestFollowUser_RejectsSelf(t *testing.T) {
+	_, deps, userID, _ := setup(t)
+	if err := social.FollowUser(context.Background(), deps, userID, userID); !errors.Is(err, social.ErrCannotFollowSelf) {
+		t.Fatalf("FollowUser self err = %v, want ErrCannotFollowSelf", err)
+	}
+}
+
+func TestFollowOrg_IdempotentCountsAndEvent(t *testing.T) {
+	pool, deps, creatorID, _ := setup(t)
+	followerID := mustCreateUser(t, pool, "bob")
+	orgID := mustCreateOrg(t, pool, "octo-org", creatorID)
+	ctx := context.Background()
+
+	if err := social.FollowOrg(ctx, deps, followerID, orgID); err != nil {
+		t.Fatalf("FollowOrg: %v", err)
+	}
+	if err := social.FollowOrg(ctx, deps, followerID, orgID); err != nil {
+		t.Fatalf("FollowOrg duplicate: %v", err)
+	}
+	followers, err := socialdb.New().CountFollowersForOrg(ctx, pool, pgtype.Int8{Int64: orgID, Valid: true})
+	if err != nil {
+		t.Fatalf("CountFollowersForOrg: %v", err)
+	}
+	if followers != 1 {
+		t.Fatalf("org followers = %d, want 1", followers)
+	}
+	var eventCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM domain_events WHERE actor_user_id = $1 AND kind = 'followed_org'`,
+		followerID,
+	).Scan(&eventCount); err != nil {
+		t.Fatalf("count org follow events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("event count = %d, want 1", eventCount)
+	}
+}
+
+func TestUnfollowUser_Idempotent(t *testing.T) {
+	pool, deps, targetID, _ := setup(t)
+	followerID := mustCreateUser(t, pool, "bob")
+	ctx := context.Background()
+
+	if err := social.FollowUser(ctx, deps, followerID, targetID); err != nil {
+		t.Fatalf("FollowUser: %v", err)
+	}
+	if err := social.UnfollowUser(ctx, deps, followerID, targetID); err != nil {
+		t.Fatalf("UnfollowUser: %v", err)
+	}
+	if err := social.UnfollowUser(ctx, deps, followerID, targetID); err != nil {
+		t.Fatalf("UnfollowUser duplicate: %v", err)
+	}
+	followers, err := socialdb.New().CountFollowersForUser(ctx, pool, pgtype.Int8{Int64: targetID, Valid: true})
+	if err != nil {
+		t.Fatalf("CountFollowersForUser: %v", err)
+	}
+	if followers != 0 {
+		t.Fatalf("followers = %d, want 0", followers)
 	}
 }
 
