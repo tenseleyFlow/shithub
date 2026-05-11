@@ -149,6 +149,13 @@ var (
 		},
 		[]string{"result"},
 	)
+	ActionsJobsCancelledTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_jobs_cancelled_total",
+			Help: "Total Actions job cancellation requests by reason (user, concurrency, timeout).",
+		},
+		[]string{"reason"},
+	)
 	ActionsLogScrubReplacementsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "shithub_actions_log_scrub_replacements_total",
@@ -176,6 +183,7 @@ func init() {
 		ActionsRunnerRegistrationsTotal,
 		ActionsRunnerHeartbeatsTotal,
 		ActionsRunnerJWTTotal,
+		ActionsJobsCancelledTotal,
 		ActionsLogScrubReplacementsTotal,
 	)
 }

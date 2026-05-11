@@ -11,6 +11,65 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelOpenWorkflowStepsForJob = `-- name: CancelOpenWorkflowStepsForJob :many
+UPDATE workflow_steps
+SET status = 'cancelled',
+    conclusion = 'cancelled',
+    started_at = COALESCE(started_at, now()),
+    completed_at = COALESCE(completed_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE job_id = $1
+  AND status IN ('queued', 'running')
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with
+`
+
+func (q *Queries) CancelOpenWorkflowStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]WorkflowStep, error) {
+	rows, err := db.Query(ctx, cancelOpenWorkflowStepsForJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowStep{}
+	for rows.Next() {
+		var i WorkflowStep
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.StepIndex,
+			&i.StepID,
+			&i.StepName,
+			&i.IfExpr,
+			&i.RunCommand,
+			&i.UsesAlias,
+			&i.WorkingDirectory,
+			&i.StepEnv,
+			&i.ContinueOnError,
+			&i.Status,
+			&i.Conclusion,
+			&i.LogObjectKey,
+			&i.LogByteCount,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.StepWith,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFirstStepForJob = `-- name: GetFirstStepForJob :one
 SELECT id, job_id, step_index, step_id, step_name, if_expr,
        run_command, uses_alias, working_directory, step_env,

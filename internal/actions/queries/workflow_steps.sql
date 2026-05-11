@@ -38,6 +38,22 @@ RETURNING id, job_id, step_index, step_id, step_name, if_expr,
           log_byte_count, started_at, completed_at, version,
           created_at, updated_at, step_with;
 
+-- name: CancelOpenWorkflowStepsForJob :many
+UPDATE workflow_steps
+SET status = 'cancelled',
+    conclusion = 'cancelled',
+    started_at = COALESCE(started_at, now()),
+    completed_at = COALESCE(completed_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE job_id = $1
+  AND status IN ('queued', 'running')
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with;
+
 -- name: UpdateWorkflowStepLogObject :one
 UPDATE workflow_steps
 SET log_object_key = sqlc.narg(log_object_key)::text,

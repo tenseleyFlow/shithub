@@ -16,6 +16,7 @@ WITH candidate AS (
     SELECT j.id
     FROM workflow_jobs j
     WHERE j.status = 'queued'
+      AND j.cancel_requested = false
       AND j.runner_id IS NULL
       AND (j.runs_on = '' OR j.runs_on = ANY($1::text[]))
       AND NOT EXISTS (
@@ -247,26 +248,27 @@ func (q *Queries) InsertWorkflowJob(ctx context.Context, db DBTX, arg InsertWork
 
 const listJobsForRun = `-- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
-       conclusion, needs_jobs, started_at, completed_at, created_at, updated_at
+       conclusion, cancel_requested, needs_jobs, started_at, completed_at, created_at, updated_at
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC
 `
 
 type ListJobsForRunRow struct {
-	ID          int64
-	RunID       int64
-	JobIndex    int32
-	JobKey      string
-	JobName     string
-	RunsOn      string
-	Status      WorkflowJobStatus
-	Conclusion  NullCheckConclusion
-	NeedsJobs   []string
-	StartedAt   pgtype.Timestamptz
-	CompletedAt pgtype.Timestamptz
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	ID              int64
+	RunID           int64
+	JobIndex        int32
+	JobKey          string
+	JobName         string
+	RunsOn          string
+	Status          WorkflowJobStatus
+	Conclusion      NullCheckConclusion
+	CancelRequested bool
+	NeedsJobs       []string
+	StartedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error) {
@@ -287,9 +289,139 @@ func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]L
 			&i.RunsOn,
 			&i.Status,
 			&i.Conclusion,
+			&i.CancelRequested,
 			&i.NeedsJobs,
 			&i.StartedAt,
 			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const requestWorkflowJobCancel = `-- name: RequestWorkflowJobCancel :one
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = CASE
+        WHEN status = 'queued' THEN 'cancelled'::workflow_job_status
+        ELSE status
+    END,
+    conclusion = CASE
+        WHEN status = 'queued' THEN 'cancelled'::check_conclusion
+        ELSE conclusion
+    END,
+    started_at = CASE
+        WHEN status = 'queued' THEN COALESCE(started_at, now())
+        ELSE started_at
+    END,
+    completed_at = CASE
+        WHEN status = 'queued' THEN COALESCE(completed_at, now())
+        ELSE completed_at
+    END,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND status IN ('queued', 'running')
+  AND (status = 'queued' OR cancel_requested = false)
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at
+`
+
+func (q *Queries) RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error) {
+	row := db.QueryRow(ctx, requestWorkflowJobCancel, id)
+	var i WorkflowJob
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.JobIndex,
+		&i.JobKey,
+		&i.JobName,
+		&i.RunsOn,
+		&i.RunnerID,
+		&i.NeedsJobs,
+		&i.IfExpr,
+		&i.TimeoutMinutes,
+		&i.Permissions,
+		&i.JobEnv,
+		&i.Status,
+		&i.Conclusion,
+		&i.CancelRequested,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const requestWorkflowRunCancel = `-- name: RequestWorkflowRunCancel :many
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = CASE
+        WHEN status = 'queued' THEN 'cancelled'::workflow_job_status
+        ELSE status
+    END,
+    conclusion = CASE
+        WHEN status = 'queued' THEN 'cancelled'::check_conclusion
+        ELSE conclusion
+    END,
+    started_at = CASE
+        WHEN status = 'queued' THEN COALESCE(started_at, now())
+        ELSE started_at
+    END,
+    completed_at = CASE
+        WHEN status = 'queued' THEN COALESCE(completed_at, now())
+        ELSE completed_at
+    END,
+    version = version + 1,
+    updated_at = now()
+WHERE run_id = $1
+  AND status IN ('queued', 'running')
+  AND (status = 'queued' OR cancel_requested = false)
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at
+`
+
+func (q *Queries) RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error) {
+	rows, err := db.Query(ctx, requestWorkflowRunCancel, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowJob{}
+	for rows.Next() {
+		var i WorkflowJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.JobIndex,
+			&i.JobKey,
+			&i.JobName,
+			&i.RunsOn,
+			&i.RunnerID,
+			&i.NeedsJobs,
+			&i.IfExpr,
+			&i.TimeoutMinutes,
+			&i.Permissions,
+			&i.JobEnv,
+			&i.Status,
+			&i.Conclusion,
+			&i.CancelRequested,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
