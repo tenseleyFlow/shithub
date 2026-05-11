@@ -45,7 +45,7 @@ func setupProfileEnvWithStore(t *testing.T, objectStore storage.ObjectStore) *pr
 	tmplFS := fstest.MapFS{
 		"_layout.html":           {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":             {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
+		"profile/view.html":      {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"profile/suspended.html": {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":      {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"orgs/repositories.html": {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
@@ -275,6 +275,32 @@ func TestProfile_RendersForExistingUser(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
+	}
+}
+
+func TestProfile_OverviewDataUsesVisibleReposAndOrganizations(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "Hi.")
+	env.insertOrg(t, "acme", "Acme", "", alice)
+	env.insertUserRepo(t, alice.ID, "public-repo", "visible", "public", "Go", 0, 0)
+	env.insertUserRepo(t, alice.ID, "private-repo", "hidden", "private", "Rust", 0, 0)
+
+	body := env.getAs(t, "/alice", usersdb.User{})
+	for _, want := range []string{
+		"VISIBLE=1",
+		"ORGS=1",
+		"README=false",
+		"CONTRIB=0",
+		"WEEKS=53",
+		"YEARS=4",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "private-repo") {
+		t.Fatalf("anonymous profile overview leaked private repo data: %s", body)
 	}
 }
 

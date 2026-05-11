@@ -1,68 +1,166 @@
 {{ define "page" -}}
-<section class="shithub-profile">
-  <header class="shithub-profile-header">
-    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="200" height="200">
-    <div class="shithub-profile-id">
-      <h1 class="shithub-profile-name">
-        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
-        {{ if .IsSelf }}<span class="shithub-profile-you" title="this is you">you</span>{{ end }}
-      </h1>
-      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
-      {{ if .User.Pronouns }}<p class="shithub-profile-pronouns">{{ .User.Pronouns }}</p>{{ end }}
+<section class="shithub-user-profile">
+  <div class="shithub-profile-tabs-shell">
+    {{ template "profile-tabs" . }}
+  </div>
+
+  <div class="shithub-user-profile-container">
+    <aside class="shithub-user-profile-sidebar" aria-label="{{ .User.Username }} profile">
+      <a class="shithub-profile-avatar-link" href="{{ .AvatarURL }}">
+        <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="@{{ .User.Username }}" width="296" height="296">
+      </a>
+      <div class="shithub-profile-names">
+        <h1>
+          <span class="shithub-profile-name">{{ .DisplayName }}</span>
+          <span class="shithub-profile-handle">{{ .User.Username }}</span>
+        </h1>
+        {{ if .User.Pronouns }}<span class="shithub-profile-pronouns">{{ .User.Pronouns }}</span>{{ end }}
+      </div>
+
+      {{ if .User.Bio }}<div class="shithub-profile-bio">{{ .User.Bio }}</div>{{ end }}
+
       {{ if .IsSelf }}
-        <a href="/settings/profile" class="shithub-button">Edit profile</a>
+        <a href="/settings/profile" class="shithub-button shithub-button-block">Edit profile</a>
+      {{ else }}
+        <button type="button" class="shithub-button shithub-button-block" disabled>Follow</button>
       {{ end }}
-    </div>
-  </header>
 
-  {{ template "profile-tabs" . }}
+      <p class="shithub-profile-follow-counts">
+        {{ octicon "people" }}
+        <span><strong>0</strong> followers</span>
+        <span class="shithub-profile-dot" aria-hidden="true">·</span>
+        <span><strong>0</strong> following</span>
+      </p>
 
-  {{ if .User.Bio }}<p class="shithub-profile-bio">{{ .User.Bio }}</p>{{ end }}
+      <ul class="shithub-profile-vcard">
+        {{ if .User.Company }}<li>{{ octicon "organization" }} <span>{{ .User.Company }}</span></li>{{ end }}
+        {{ if .User.Location }}<li>{{ octicon "location" }} <span>{{ .User.Location }}</span></li>{{ end }}
+        {{ if .WebsiteSafe }}<li>{{ octicon "link" }} <a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .User.Website }}</a></li>{{ end }}
+        <li>{{ octicon "calendar" }} <span>Joined {{ .JoinedFormatted }}</span></li>
+      </ul>
 
-  <dl class="shithub-profile-meta">
-    {{ if .User.Company }}<dt>Company</dt><dd>{{ .User.Company }}</dd>{{ end }}
-    {{ if .User.Location }}<dt>Location</dt><dd>{{ .User.Location }}</dd>{{ end }}
-    {{ if .WebsiteSafe }}<dt>Website</dt><dd><a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .User.Website }}</a></dd>{{ end }}
-    <dt>Joined</dt><dd>{{ .JoinedFormatted }}</dd>
-  </dl>
-
-  <section class="shithub-profile-pinned" id="pinned" aria-labelledby="pinned-h">
-    <div class="shithub-profile-section-head">
-      <h2 id="pinned-h">Pinned repositories</h2>
-      {{ if .CanCustomizePins }}<button type="button" class="shithub-link-button" data-pins-open>Customize pins</button>{{ end }}
-    </div>
-    {{ if .PinnedRepos }}
-    <ol class="shithub-profile-pinned-grid">
-      {{ range .PinnedRepos }}
-      <li class="shithub-org-pin-card">
-        <div class="shithub-org-pin-title">
-          <span class="shithub-org-pin-icon">{{ octicon "repo" }}</span>
-          <a href="/{{ .OwnerSlug }}/{{ .Name }}">{{ .Name }}</a>
-          {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+      {{ if .Orgs }}
+      <section class="shithub-profile-sidebar-section" aria-labelledby="profile-orgs-heading">
+        <h2 id="profile-orgs-heading">Organizations</h2>
+        <div class="shithub-profile-orgs">
+          {{ range .Orgs }}
+          <a href="/{{ .Slug }}" aria-label="{{ .DisplayName }}">
+            <img src="{{ .AvatarURL }}" alt="" width="32" height="32">
+          </a>
+          {{ end }}
         </div>
-        {{ if .Description }}<p>{{ .Description }}</p>{{ else }}<p class="shithub-muted">No description provided.</p>{{ end }}
-        <div class="shithub-org-repo-meta">
-          {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
-          <span>{{ octicon "star" }} {{ .StarCount }}</span>
-          <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
-        </div>
-      </li>
+      </section>
       {{ end }}
-    </ol>
-    {{ else }}
-    <p class="shithub-empty">Nothing pinned yet.</p>
-    {{ end }}
-  </section>
+    </aside>
 
-  <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
-    <h2 id="contrib-h">Contributions</h2>
-    <p class="shithub-empty">Contribution graph coming soon.</p>
-  </section>
+    <main class="shithub-user-profile-main">
+      {{ if .HasProfileReadme }}
+      <section class="shithub-profile-readme-card markdown-body" aria-label="Profile README">
+        <header>
+          <div class="shithub-profile-readme-title">
+            <a href="/{{ .ProfileReadme.Owner }}/{{ .ProfileReadme.Repo }}">{{ .ProfileReadme.Owner }}</a>
+            <span>/</span>
+            <strong>{{ .ProfileReadme.Path }}</strong>
+          </div>
+          {{ if .IsSelf }}
+          <a class="shithub-icon-link" href="/{{ .ProfileReadme.Owner }}/{{ .ProfileReadme.Repo }}/edit/{{ .ProfileReadme.Ref }}/{{ .ProfileReadme.Path }}" aria-label="Edit profile README">{{ octicon "pencil" }}</a>
+          {{ end }}
+        </header>
+        <article>{{ .ProfileReadme.HTML }}</article>
+      </section>
+      {{ end }}
 
-  <section class="shithub-profile-readme" aria-labelledby="readme-h">
-    <h2 id="readme-h">Profile README</h2>
-    <p class="shithub-empty">No profile README yet.</p>
-  </section>
+      <section class="shithub-profile-pinned" id="pinned" aria-labelledby="pinned-h">
+        <div class="shithub-profile-section-head">
+          <h2 id="pinned-h">Pinned</h2>
+          {{ if .CanCustomizePins }}<button type="button" class="shithub-link-button" data-pins-open>Customize your pins</button>{{ end }}
+        </div>
+        {{ if .PinnedRepos }}
+        <ol class="shithub-profile-pinned-grid">
+          {{ range .PinnedRepos }}
+          <li class="shithub-org-pin-card">
+            <div class="shithub-org-pin-title">
+              <span class="shithub-org-pin-icon">{{ octicon "repo" }}</span>
+              <a href="/{{ .OwnerSlug }}/{{ .Name }}">{{ if ne .OwnerSlug $.User.Username }}{{ .OwnerSlug }}/{{ end }}{{ .Name }}</a>
+              {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+            </div>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ else }}<p class="shithub-muted">No description provided.</p>{{ end }}
+            <div class="shithub-org-repo-meta">
+              {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+              {{ if .StarCount }}<span>{{ octicon "star" }} {{ .StarCount }}</span>{{ end }}
+              {{ if .ForkCount }}<span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>{{ end }}
+            </div>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <p class="shithub-empty">Nothing pinned yet.</p>
+        {{ end }}
+      </section>
+
+      <section class="shithub-profile-contributions" aria-labelledby="contrib-h">
+        <div class="shithub-profile-contrib-head">
+          <h2 id="contrib-h">{{ .Contributions.Total }} contribution{{ pluralize .Contributions.Total "" "s" }} in the last year</h2>
+          <details class="shithub-profile-contrib-settings">
+            <summary>Contribution settings {{ octicon "triangle-down" }}</summary>
+            <div>
+              <strong>Private contributions</strong>
+              <p>Private contribution counts are shown only when those repositories are visible to you.</p>
+              <strong>Activity overview</strong>
+              <p>Activity is summarized from visible repositories on this shithub instance.</p>
+            </div>
+          </details>
+        </div>
+
+        <div class="shithub-profile-contrib-layout">
+          <div class="shithub-profile-calendar" role="img" aria-label="{{ .Contributions.Total }} contributions in the last year">
+            <div class="shithub-contrib-months" aria-hidden="true">
+              {{ range .Contributions.Weeks }}<span>{{ .MonthLabel }}</span>{{ end }}
+            </div>
+            <div class="shithub-contrib-grid-wrap">
+              <div class="shithub-contrib-weekdays" aria-hidden="true">
+                <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+              </div>
+              <div class="shithub-contrib-weeks">
+                {{ range .Contributions.Weeks }}
+                <div class="shithub-contrib-week">
+                  {{ range .Days }}
+                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" title="{{ .Title }}" aria-label="{{ .Title }}"></span>
+                  {{ end }}
+                </div>
+                {{ end }}
+              </div>
+            </div>
+            <div class="shithub-profile-calendar-foot">
+              <a href="/docs">Learn how we count contributions</a>
+              <span class="shithub-contrib-legend">Less <i class="level-0"></i><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i> More</span>
+            </div>
+          </div>
+          <ol class="shithub-profile-years" aria-label="Contribution years">
+            {{ range .Contributions.Years }}
+            <li><span class="{{ if eq . $.Contributions.CurrentYear }}is-active{{ end }}">{{ . }}</span></li>
+            {{ end }}
+          </ol>
+        </div>
+      </section>
+
+      <section class="shithub-profile-activity" aria-labelledby="activity-h">
+        <h2 id="activity-h">Contribution activity</h2>
+        <div class="shithub-profile-activity-row">
+          <div class="shithub-profile-activity-month">{{ .Contributions.MonthLabel }}</div>
+          <div class="shithub-profile-activity-item">
+            <span class="shithub-profile-activity-icon">{{ octicon "repo" }}</span>
+            {{ if .Contributions.MonthCommitCount }}
+            <strong>Created {{ .Contributions.MonthCommitCount }} commit{{ pluralize .Contributions.MonthCommitCount "" "s" }} in {{ .Contributions.MonthRepoCount }} repositor{{ pluralize .Contributions.MonthRepoCount "y" "ies" }}</strong>
+            {{ else }}
+            <strong>No public activity yet this month</strong>
+            {{ end }}
+          </div>
+        </div>
+        <button type="button" class="shithub-button shithub-button-block" disabled>Show more activity</button>
+      </section>
+    </main>
+  </div>
 </section>
 {{ template "pins-modal" . }}
 {{- end }}

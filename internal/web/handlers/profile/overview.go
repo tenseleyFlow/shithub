@@ -43,6 +43,7 @@ type profileOrgBadge struct {
 type profileReadme struct {
 	Owner string
 	Repo  string
+	Ref   string
 	Path  string
 	HTML  template.HTML
 }
@@ -174,6 +175,7 @@ func (h *Handlers) profileReadme(ctx context.Context, user usersdb.User, viewer 
 		return profileReadme{
 			Owner: user.Username,
 			Repo:  repo.Name,
+			Ref:   repo.DefaultBranch,
 			Path:  entry.Name,
 			HTML:  template.HTML(html), //nolint:gosec // sanitized by markdown renderer or escaped above.
 		}, true

@@ -1,6 +1,6 @@
-# User profile (read-only)
+# User profile
 
-S09 ships the public `/{username}` page and the `/avatars/{username}` route. Edit-profile UI lands in S10; pinned repos in S26; profile README and contribution graph post-MVP.
+S09 shipped the public `/{username}` page and the `/avatars/{username}` route. Later sprints added edit-profile UI, pinned repositories, a profile README card, and a local contribution calendar so the overview follows GitHub's profile layout.
 
 ## Routes
 
@@ -79,8 +79,30 @@ S10 will write the upload path, including resize-to-variants (`avatars/<owner>/<
 The profile renders only fields the user explicitly set (or that the system computed publicly):
 
 - Username, display name, bio, location, company, website, pronouns, joined date, avatar.
+- Organizations the viewer can already discover through membership/profile navigation.
+- Public pinned repositories and visible repository activity.
 - **Email addresses NEVER appear on the profile page.** Post-MVP opt-in only.
 - Verified-email status is exposed via the API (`/api/v1/user`), not the public page.
+
+## Profile README
+
+The overview looks for a visible repository owned by the user whose name matches the username, then renders a root-level `README*` file in a GitHub-style bordered card:
+
+- Markdown is rendered only through `internal/markdown.RenderDocumentHTML`.
+- Plain non-Markdown README files are HTML-escaped and shown in a `<pre>`.
+- Relative links and images are rewritten to the matching repository `blob` or `raw` route on the repository default branch.
+- The self-view edit pencil links to the actual repository default branch, not a hard-coded `trunk`.
+- Visibility is checked with `policy.IsVisibleTo`; private profile READMEs only render to actors who can already see that repository.
+
+## Contribution calendar
+
+The overview contribution calendar is computed from local Git history for repositories visible to the viewer:
+
+- The window is the last 365 days, rendered as a 53-week GitHub-style grid.
+- Only visible repositories are scanned, capped at 80 repos and 2,000 commits per repo for request-time safety.
+- When the user has verified email addresses, commits are counted only if the author email matches one of them.
+- If no verified email exists, shithub falls back to visible user-owned repository commits as a best-effort local signal.
+- Private repository contributions appear only when the viewer can already see those repositories.
 
 ## Self-view enrichment
 
