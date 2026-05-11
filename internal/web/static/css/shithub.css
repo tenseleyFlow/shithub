@@ -5349,7 +5349,7 @@ button.shithub-repo-action {
   border-bottom-color: var(--accent-emphasis, #fd8c73);
   color: var(--fg-default);
 }
-.shithub-readme-outline {
+.shithub-readme-head .shithub-readme-outline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
