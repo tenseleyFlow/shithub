@@ -61,9 +61,9 @@ type Querier interface {
 	// O(1) cost the user-side path enjoys.
 	GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerOrgAndNameParams) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
-	// Returns the owner_username for a repo. Used by size-recalc and other
-	// jobs that need to derive the bare-repo on-disk path without round-
-	// tripping through the full user row.
+	// Returns the owner slug for a repo. Used by size-recalc, indexing, and
+	// other jobs that need the bare-repo on-disk path. Org-owned repos use the
+	// org slug in the same path position as user-owned repos.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)

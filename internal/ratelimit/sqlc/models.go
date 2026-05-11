@@ -1870,6 +1870,47 @@ type Org struct {
 	UpdatedAt             pgtype.Timestamptz
 }
 
+type OrgGithubImport struct {
+	ID                int64
+	OrgID             int64
+	SourceHost        string
+	SourceOrg         string
+	RequestedByUserID pgtype.Int8
+	Status            string
+	IncludePrivate    bool
+	TokenPresent      bool
+	TokenCiphertext   []byte
+	TokenNonce        []byte
+	TotalCount        int32
+	LastError         pgtype.Text
+	StartedAt         pgtype.Timestamptz
+	CompletedAt       pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type OrgGithubImportRepo struct {
+	ID               int64
+	ImportID         int64
+	GithubID         pgtype.Int8
+	SourceFullName   string
+	SourceName       string
+	TargetName       string
+	CloneUrl         string
+	Description      string
+	DefaultBranch    string
+	TargetVisibility RepoVisibility
+	IsPrivate        bool
+	IsFork           bool
+	Status           string
+	RepoID           pgtype.Int8
+	LastError        pgtype.Text
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type OrgInvitation struct {
 	ID              int64
 	OrgID           int64

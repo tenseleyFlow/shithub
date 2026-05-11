@@ -22,6 +22,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -84,6 +85,12 @@ var workerCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("object storage: %w", err)
 		}
+		box, boxErr := secretbox.FromBase64(cfg.Auth.TOTPKeyB64)
+		if boxErr != nil {
+			logger.Warn("secretbox unavailable for encrypted worker payloads",
+				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
+				"error", boxErr)
+		}
 
 		p := worker.NewPool(pool, worker.PoolConfig{
 			Workers:    count,
@@ -118,6 +125,12 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindRepoIndexReconcile, jobs.RepoIndexReconcile(jobs.IndexReconcileDeps{
 			Pool: pool, Logger: logger,
 		}))
+		importDeps := jobs.OrgGitHubImportDeps{
+			Pool: pool, RepoFS: rfs, Box: box, Audit: auditRecorder(),
+			Limiter: throttle.NewLimiter(), Logger: logger, ShithubdPath: shithubdPath,
+		}
+		p.Register(worker.KindOrgGitHubImportDiscover, jobs.OrgGitHubImportDiscover(importDeps))
+		p.Register(worker.KindOrgGitHubImportRepo, jobs.OrgGitHubImportRepo(importDeps))
 
 		notifSender, _ := pickNotifEmailSender(cfg)
 		p.Register(worker.KindNotifyFanout, jobs.NotifyFanout(jobs.NotifyFanoutDeps{
@@ -138,11 +151,10 @@ var workerCmd = &cobra.Command{
 		// purge-old prunes terminal rows past the retention window.
 		// We reuse the TOTP key as the at-rest secretbox key — both
 		// are encrypted-blob columns in the same trust domain.
-		hookBox, hookBoxErr := secretbox.FromBase64(cfg.Auth.TOTPKeyB64)
-		if hookBoxErr != nil {
+		if boxErr != nil {
 			logger.Warn("webhook: secretbox unavailable; webhook delivery disabled",
 				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
-				"error", hookBoxErr)
+				"error", boxErr)
 		} else {
 			p.Register(webhook.KindWebhookFanout, jobs.WebhookFanout(jobs.WebhookFanoutDeps{
 				Pool: pool, Logger: logger,
@@ -150,7 +162,7 @@ var workerCmd = &cobra.Command{
 			p.Register(webhook.KindWebhookDeliver, jobs.WebhookDeliver(jobs.WebhookDeliverDeps{
 				Pool:      pool,
 				Logger:    logger,
-				SecretBox: hookBox,
+				SecretBox: box,
 				SSRF:      webhook.DefaultSSRFConfig(),
 			}))
 			p.Register(webhook.KindWebhookPurgeOld, jobs.WebhookPurgeOld(jobs.WebhookPurgeOldDeps{

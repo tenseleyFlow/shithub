@@ -18,7 +18,6 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
-	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
@@ -62,7 +61,6 @@ func RepoIndexCode(deps IndexCodeDeps) worker.Handler {
 		}
 
 		rq := reposdb.New()
-		uq := usersdb.New()
 		repo, err := rq.GetRepoByID(ctx, deps.Pool, p.RepoID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -74,14 +72,15 @@ func RepoIndexCode(deps IndexCodeDeps) worker.Handler {
 			// Repo went away between enqueue and now. Nothing to do.
 			return nil
 		}
-		if !repo.OwnerUserID.Valid {
-			return worker.PoisonError(fmt.Errorf("repo %d has no user owner (org-owned arrives in S31)", repo.ID))
-		}
-		owner, err := uq.GetUserByID(ctx, deps.Pool, repo.OwnerUserID.Int64)
+		owner, err := rq.GetRepoOwnerUsernameByID(ctx, deps.Pool, repo.ID)
 		if err != nil {
 			return err
 		}
-		gitDir, err := deps.RepoFS.RepoPath(owner.Username, repo.Name)
+		ownerSlug, err := ownerSlugString(owner.OwnerUsername)
+		if err != nil {
+			return err
+		}
+		gitDir, err := deps.RepoFS.RepoPath(ownerSlug, repo.Name)
 		if err != nil {
 			return err
 		}

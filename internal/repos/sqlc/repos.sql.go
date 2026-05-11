@@ -427,20 +427,21 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 }
 
 const getRepoOwnerUsernameByID = `-- name: GetRepoOwnerUsernameByID :one
-SELECT u.username AS owner_username, r.name AS repo_name
+SELECT COALESCE(u.username::varchar, o.slug::varchar) AS owner_username, r.name AS repo_name
 FROM repos r
-JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
 WHERE r.id = $1
 `
 
 type GetRepoOwnerUsernameByIDRow struct {
-	OwnerUsername string
+	OwnerUsername interface{}
 	RepoName      string
 }
 
-// Returns the owner_username for a repo. Used by size-recalc and other
-// jobs that need to derive the bare-repo on-disk path without round-
-// tripping through the full user row.
+// Returns the owner slug for a repo. Used by size-recalc, indexing, and
+// other jobs that need the bare-repo on-disk path. Org-owned repos use the
+// org slug in the same path position as user-owned repos.
 func (q *Queries) GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error) {
 	row := db.QueryRow(ctx, getRepoOwnerUsernameByID, id)
 	var i GetRepoOwnerUsernameByIDRow

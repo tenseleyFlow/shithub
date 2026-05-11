@@ -33,6 +33,8 @@ type Querier interface {
 	// tx (separate query so the orchestrator owns ordering).
 	CreateOrg(ctx context.Context, db DBTX, arg CreateOrgParams) (Org, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	CreateOrgGithubImport(ctx context.Context, db DBTX, arg CreateOrgGithubImportParams) (OrgGithubImport, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── org_invitations ───────────────────────────────────────────────
 	CreateOrgInvitation(ctx context.Context, db DBTX, arg CreateOrgInvitationParams) (OrgInvitation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -53,6 +55,10 @@ type Querier interface {
 	// column for grace-period restore).
 	GetOrgBySlug(ctx context.Context, db DBTX, slug string) (Org, error)
 	GetOrgBySlugIncludingDeleted(ctx context.Context, db DBTX, slug string) (Org, error)
+	GetOrgGithubImport(ctx context.Context, db DBTX, id int64) (OrgGithubImport, error)
+	GetOrgGithubImportForOrg(ctx context.Context, db DBTX, arg GetOrgGithubImportForOrgParams) (OrgGithubImport, error)
+	GetOrgGithubImportProgress(ctx context.Context, db DBTX, arg GetOrgGithubImportProgressParams) (GetOrgGithubImportProgressRow, error)
+	GetOrgGithubImportRepo(ctx context.Context, db DBTX, id int64) (OrgGithubImportRepo, error)
 	GetOrgInvitationByID(ctx context.Context, db DBTX, id int64) (OrgInvitation, error)
 	GetOrgInvitationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (OrgInvitation, error)
 	GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberParams) (OrgMember, error)
@@ -64,11 +70,14 @@ type Querier interface {
 	// Final row removal after the cascade finished. The principals
 	// trigger drops the matching principals row in the same tx.
 	HardDeleteOrgRow(ctx context.Context, db DBTX, id int64) error
+	InsertOrgGithubImportRepo(ctx context.Context, db DBTX, arg InsertOrgGithubImportRepoParams) (OrgGithubImportRepo, error)
 	// Replaces the inline EXISTS query in handlers/orgs/teams.go
 	// canSeeTeam + filterSecretTeams (SR2 M2). Used by the visibility
 	// gate for secret teams.
 	IsTeamMember(ctx context.Context, db DBTX, arg IsTeamMemberParams) (bool, error)
 	ListChildTeams(ctx context.Context, db DBTX, parentTeamID pgtype.Int8) ([]Team, error)
+	ListOrgGithubImportRepos(ctx context.Context, db DBTX, importID int64) ([]OrgGithubImportRepo, error)
+	ListOrgGithubImportsForOrg(ctx context.Context, db DBTX, arg ListOrgGithubImportsForOrgParams) ([]OrgGithubImport, error)
 	// Sweep input for the lifecycle worker: every soft-deleted org whose
 	// 14-day grace window has elapsed. The interval is intentionally a
 	// DB literal (not a parameter) so the policy lives next to the data.
@@ -100,6 +109,15 @@ type Querier interface {
 	// policy aggregator unions this with each row's parent_team_id to
 	// get the inherited set.
 	ListTeamsForUserInOrg(ctx context.Context, db DBTX, arg ListTeamsForUserInOrgParams) ([]ListTeamsForUserInOrgRow, error)
+	MarkOrgGithubImportCompleted(ctx context.Context, db DBTX, id int64) error
+	MarkOrgGithubImportCompletedIfDone(ctx context.Context, db DBTX, id int64) (OrgGithubImport, error)
+	MarkOrgGithubImportDiscovering(ctx context.Context, db DBTX, id int64) error
+	MarkOrgGithubImportFailed(ctx context.Context, db DBTX, arg MarkOrgGithubImportFailedParams) error
+	MarkOrgGithubImportImporting(ctx context.Context, db DBTX, arg MarkOrgGithubImportImportingParams) error
+	MarkOrgGithubImportRepoFailed(ctx context.Context, db DBTX, arg MarkOrgGithubImportRepoFailedParams) error
+	MarkOrgGithubImportRepoImported(ctx context.Context, db DBTX, arg MarkOrgGithubImportRepoImportedParams) error
+	MarkOrgGithubImportRepoImporting(ctx context.Context, db DBTX, id int64) error
+	MarkOrgGithubImportRepoSkipped(ctx context.Context, db DBTX, arg MarkOrgGithubImportRepoSkippedParams) error
 	RemoveOrgMember(ctx context.Context, db DBTX, arg RemoveOrgMemberParams) error
 	RemoveTeamMember(ctx context.Context, db DBTX, arg RemoveTeamMemberParams) error
 	// ─── principals (read-only from this domain) ───────────────────────

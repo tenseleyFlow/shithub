@@ -58,7 +58,11 @@ func RepoSizeRecalc(deps RepoSizeRecalcDeps) worker.Handler {
 			return fmt.Errorf("load repo: %w", err)
 		}
 
-		gitDir, err := deps.RepoFS.RepoPath(ownerRow.OwnerUsername, ownerRow.RepoName)
+		ownerSlug, err := ownerSlugString(ownerRow.OwnerUsername)
+		if err != nil {
+			return worker.PoisonError(fmt.Errorf("repo owner slug: %w", err))
+		}
+		gitDir, err := deps.RepoFS.RepoPath(ownerSlug, ownerRow.RepoName)
 		if err != nil {
 			return worker.PoisonError(fmt.Errorf("repo path: %w", err))
 		}
