@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/notif"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/templates"
@@ -268,6 +269,20 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 		return Result{}, fmt.Errorf("repos: commit tx: %w", err)
 	}
 	committed = true
+
+	if err := notif.Emit(ctx, deps.Pool, notif.Event{
+		ActorUserID: p.ActorUserID,
+		Kind:        "repo_created",
+		RepoID:      row.ID,
+		SourceKind:  "repo",
+		SourceID:    row.ID,
+		Public:      p.Visibility == "public",
+		Extra: map[string]any{
+			"repo_name": p.Name,
+		},
+	}); err != nil && deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "repos: emit repo_created", "repo_id", row.ID, "error", err)
+	}
 
 	if err := deps.Audit.Record(ctx, deps.Pool, p.ActorUserID,
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID, map[string]any{

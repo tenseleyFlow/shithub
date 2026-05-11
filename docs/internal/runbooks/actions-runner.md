@@ -64,6 +64,16 @@ capacity = 1
 poll_interval = "5s"
 workspace_root = "/var/lib/shithubd-runner/workspaces"
 workspace_ttl = "24h"
+network_allowlist = [
+  "api.github.com",
+  "auth.docker.io",
+  "codeload.github.com",
+  "github.com",
+  "objects.githubusercontent.com",
+  "production.cloudflare.docker.com",
+  "registry-1.docker.io",
+  "*.githubusercontent.com",
+]
 
 [engine]
 kind = "docker"
@@ -74,6 +84,7 @@ cpus = "2"
 seccomp_profile = "/etc/shithubd-runner/seccomp.json"
 user = "65534:65534"
 pids_limit = 512
+dns_servers = []
 ```
 
 The config path defaults to `/etc/shithubd-runner/config.toml`.

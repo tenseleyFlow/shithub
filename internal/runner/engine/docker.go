@@ -64,6 +64,7 @@ type DockerConfig struct {
 	SeccompProfile   string
 	User             string
 	PidsLimit        int
+	DNSServers       []string
 	LogChunkBytes    int
 	LogFlushInterval time.Duration
 	StepLogLimit     int64
@@ -261,6 +262,12 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 		"--workdir=" + workdir,
 		"--mount", "type=bind,src=" + job.WorkspaceDir + ",dst=/workspace,rw",
 	}
+	for _, dns := range d.cfg.DNSServers {
+		dns = strings.TrimSpace(dns)
+		if dns != "" {
+			args = append(args, "--dns", dns)
+		}
+	}
 	env, err := validateEnv(rendered.Env)
 	if err != nil {
 		return dockerInvocation{}, err
@@ -306,6 +313,7 @@ func expressionContext(job Job) expr.Context {
 		_ = json.Unmarshal([]byte(job.Event), &event)
 	}
 	return expr.Context{
+		Secrets: job.Secrets,
 		Shithub: expr.ShithubContext{
 			Event: event,
 			RunID: fmt.Sprintf("%d", job.RunID),

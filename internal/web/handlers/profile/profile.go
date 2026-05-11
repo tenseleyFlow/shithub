@@ -26,6 +26,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/avatars"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -46,6 +48,8 @@ type Deps struct {
 	// ObjectStore is used to stream uploaded avatars. May be nil in tests
 	// or when S3 is not configured — falls back to identicon.
 	ObjectStore storage.ObjectStore
+	Limiter     *throttle.Limiter
+	Audit       *audit.Recorder
 }
 
 // Handlers is the registered profile handler set.
@@ -78,6 +82,8 @@ func (h *Handlers) MountProfile(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireUser)
 		r.Post("/{username}/contribution-settings", h.contributionSettingsUpdate)
+		r.Post("/{username}/follow", h.profileFollow)
+		r.Post("/{username}/unfollow", h.profileUnfollow)
 		r.Post("/{username}/pins", h.pinsUpdate)
 	})
 	r.Get("/{username}", h.serveProfile)
@@ -143,6 +149,12 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	// and ?tab=stars take their own renderers (each one is
 	// visibility-filtered independently).
 	switch r.URL.Query().Get("tab") {
+	case "followers":
+		h.serveFollowersTab(w, r, user, viewer, isSelf)
+		return
+	case "following":
+		h.serveFollowingTab(w, r, user, viewer, isSelf)
+		return
 	case "stars":
 		h.serveStarsTab(w, r, user, viewer, isSelf)
 		return
@@ -160,6 +172,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 
 	avatarURL := fmt.Sprintf("/avatars/%s", url.PathEscape(user.Username))
 	tabs := h.tabCounts(r.Context(), user.ID, viewer)
+	followState := h.userFollowState(r.Context(), user.ID, viewer)
 	visibleRepos := h.visibleUserRepos(r.Context(), user.ID, viewer)
 	pinnedRepos, pinCandidates := h.userPinData(r.Context(), user)
 	readme, hasReadme := h.profileReadme(r.Context(), user, viewer)
@@ -180,6 +193,12 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"WebsiteSafe":                safeWebsite(user.Website),
 		"Tabs":                       tabs,
 		"ActiveTab":                  "overview",
+		"FollowersCount":             followState.FollowersCount,
+		"FollowingCount":             followState.FollowingCount,
+		"IsFollowing":                followState.IsFollowing,
+		"FollowAction":               "/" + url.PathEscape(user.Username) + "/follow",
+		"UnfollowAction":             "/" + url.PathEscape(user.Username) + "/unfollow",
+		"ReturnTo":                   r.URL.RequestURI(),
 		"VisibleRepoCount":           len(visibleRepos),
 		"Orgs":                       h.profileOrganizations(r.Context(), user.ID),
 		"ProfileReadme":              readme,

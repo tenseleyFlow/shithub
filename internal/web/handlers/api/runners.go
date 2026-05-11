@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +23,15 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
+	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/runner/scrub"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
@@ -114,7 +118,13 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
 	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Inc()
-	writeJSON(w, http.StatusOK, presentRunnerClaim(job, steps, token, time.Unix(claims.Exp, 0)))
+	resolvedSecrets, err := h.resolveVisibleSecrets(r.Context(), job.RepoID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner secret resolution failed", "repo_id", job.RepoID, "job_id", job.ID, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "runner secret resolution failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, presentRunnerClaim(job, steps, resolvedSecrets, token, time.Unix(claims.Exp, 0)))
 }
 
 func (h *Handlers) authenticateRunner(w http.ResponseWriter, r *http.Request) (actionsdb.GetRunnerByTokenHashRow, bool) {
@@ -337,15 +347,17 @@ func (h *Handlers) runnerJobLogs(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "chunk must be between 1 and 524288 bytes")
 		return
 	}
+	values, err := h.logMaskValues(r.Context(), auth.Claims.RepoID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner log mask resolution failed", "repo_id", auth.Claims.RepoID, "job_id", auth.Claims.JobID, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "log mask resolution failed")
+		return
+	}
 	stepID, ok := h.resolveLogStep(w, r, auth.Job.ID, body.StepID)
 	if !ok {
 		return
 	}
-	if _, err := actionsdb.New().AppendStepLogChunk(r.Context(), h.d.Pool, actionsdb.AppendStepLogChunkParams{
-		StepID: stepID,
-		Seq:    body.Seq,
-		Chunk:  chunk,
-	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := h.appendScrubbedLogChunk(r.Context(), stepID, body.Seq, chunk, values); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "append log failed")
 		return
 	}
@@ -853,6 +865,190 @@ func (h *Handlers) runnerJobCancelCheck(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map[string]string, error) {
+	if h.d.SecretBox == nil {
+		return nil, nil
+	}
+	repo, err := reposdb.New().GetRepoByID(ctx, h.d.Pool, repoID)
+	if err != nil {
+		return nil, err
+	}
+	store := secrets.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, Logger: h.d.Logger}
+	out := map[string]string{}
+	if repo.OwnerOrgID.Valid {
+		if err := h.mergeSecrets(ctx, store, secrets.OrgScope(repo.OwnerOrgID.Int64), out); err != nil {
+			return nil, err
+		}
+	}
+	if err := h.mergeSecrets(ctx, store, secrets.RepoScope(repo.ID), out); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (h *Handlers) mergeSecrets(ctx context.Context, store secrets.Deps, scope secrets.Scope, out map[string]string) error {
+	items, err := store.List(ctx, scope)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		plaintext, err := store.Get(ctx, scope, item.Name)
+		if err != nil {
+			return err
+		}
+		out[item.Name] = string(plaintext)
+	}
+	return nil
+}
+
+func (h *Handlers) logMaskValues(ctx context.Context, repoID int64) ([]string, error) {
+	resolved, err := h.resolveVisibleSecrets(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	return secretMaskValues(resolved), nil
+}
+
+func secretMaskValues(resolved map[string]string) []string {
+	if len(resolved) == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(resolved))
+	for _, value := range resolved {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq int32, chunk []byte, values []string) error {
+	q := actionsdb.New()
+	if len(values) == 0 {
+		_, err := q.AppendStepLogChunk(ctx, h.d.Pool, actionsdb.AppendStepLogChunkParams{
+			StepID: stepID,
+			Seq:    seq,
+			Chunk:  chunk,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+
+	tx, err := h.d.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if _, err := q.GetStepLogChunkByStepSeq(ctx, tx, actionsdb.GetStepLogChunkByStepSeqParams{
+		StepID: stepID,
+		Seq:    seq,
+	}); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	var replacements uint64
+	prev, err := q.GetStepLogChunkBefore(ctx, tx, actionsdb.GetStepLogChunkBeforeParams{
+		StepID: stepID,
+		Seq:    seq,
+	})
+	switch {
+	case err == nil:
+		if carry := scrubCarryLen(prev.Chunk, values); carry > 0 {
+			prefix := append([]byte(nil), prev.Chunk[:len(prev.Chunk)-carry]...)
+			combined := append(append([]byte(nil), prev.Chunk[len(prev.Chunk)-carry:]...), chunk...)
+			chunk, replacements = scrubChunk(combined, values)
+			if err := q.UpdateStepLogChunk(ctx, tx, actionsdb.UpdateStepLogChunkParams{
+				ID:    prev.ID,
+				Chunk: prefix,
+			}); err != nil {
+				return err
+			}
+		} else {
+			chunk, replacements = scrubChunk(chunk, values)
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		chunk, replacements = scrubChunk(chunk, values)
+	default:
+		return err
+	}
+
+	if _, err := q.AppendStepLogChunk(ctx, tx, actionsdb.AppendStepLogChunkParams{
+		StepID: stepID,
+		Seq:    seq,
+		Chunk:  chunk,
+	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	if replacements > 0 {
+		metrics.ActionsLogScrubReplacementsTotal.WithLabelValues("server").Add(float64(replacements))
+	}
+	return nil
+}
+
+func scrubChunk(chunk []byte, values []string) ([]byte, uint64) {
+	if len(values) == 0 {
+		return chunk, 0
+	}
+	s := scrub.New(values)
+	out := s.Scrub(chunk)
+	return append(out, s.Flush()...), s.Replacements()
+}
+
+func scrubCarryLen(chunk []byte, values []string) int {
+	if len(chunk) == 0 || len(values) == 0 {
+		return 0
+	}
+	text := string(chunk)
+	keep := 0
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		max := len(value) - 1
+		if max > len(text) {
+			max = len(text)
+		}
+		for n := max; n > keep; n-- {
+			if strings.HasSuffix(text, value[:n]) {
+				keep = n
+				break
+			}
+		}
+	}
+	return keep
+}
+
 func (h *Handlers) writeNextTokenResponse(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -884,25 +1080,27 @@ type runnerClaimResponse struct {
 }
 
 type runnerJobPayload struct {
-	ID             int64           `json:"id"`
-	RunID          int64           `json:"run_id"`
-	RepoID         int64           `json:"repo_id"`
-	RunIndex       int64           `json:"run_index"`
-	WorkflowFile   string          `json:"workflow_file"`
-	WorkflowName   string          `json:"workflow_name"`
-	HeadSHA        string          `json:"head_sha"`
-	HeadRef        string          `json:"head_ref"`
-	Event          string          `json:"event"`
-	EventPayload   json.RawMessage `json:"event_payload"`
-	JobKey         string          `json:"job_key"`
-	JobName        string          `json:"job_name"`
-	RunsOn         string          `json:"runs_on"`
-	Needs          []string        `json:"needs"`
-	If             string          `json:"if"`
-	TimeoutMinutes int32           `json:"timeout_minutes"`
-	Permissions    json.RawMessage `json:"permissions"`
-	Env            json.RawMessage `json:"env"`
-	Steps          []runnerStep    `json:"steps"`
+	ID             int64             `json:"id"`
+	RunID          int64             `json:"run_id"`
+	RepoID         int64             `json:"repo_id"`
+	RunIndex       int64             `json:"run_index"`
+	WorkflowFile   string            `json:"workflow_file"`
+	WorkflowName   string            `json:"workflow_name"`
+	HeadSHA        string            `json:"head_sha"`
+	HeadRef        string            `json:"head_ref"`
+	Event          string            `json:"event"`
+	EventPayload   json.RawMessage   `json:"event_payload"`
+	JobKey         string            `json:"job_key"`
+	JobName        string            `json:"job_name"`
+	RunsOn         string            `json:"runs_on"`
+	Needs          []string          `json:"needs"`
+	If             string            `json:"if"`
+	TimeoutMinutes int32             `json:"timeout_minutes"`
+	Permissions    json.RawMessage   `json:"permissions"`
+	Secrets        map[string]string `json:"secrets"`
+	MaskValues     []string          `json:"mask_values"`
+	Env            json.RawMessage   `json:"env"`
+	Steps          []runnerStep      `json:"steps"`
 }
 
 type runnerStep struct {
@@ -922,6 +1120,7 @@ type runnerStep struct {
 func presentRunnerClaim(
 	job actionsdb.ClaimQueuedWorkflowJobRow,
 	steps []actionsdb.ListRunnerStepsForJobRow,
+	resolvedSecrets map[string]string,
 	token string,
 	expiresAt time.Time,
 ) runnerClaimResponse {
@@ -962,6 +1161,8 @@ func presentRunnerClaim(
 			If:             job.IfExpr,
 			TimeoutMinutes: job.TimeoutMinutes,
 			Permissions:    rawJSONOrObject(job.Permissions),
+			Secrets:        cloneStringMap(resolvedSecrets),
+			MaskValues:     secretMaskValues(resolvedSecrets),
 			Env:            rawJSONOrObject(job.JobEnv),
 			Steps:          outSteps,
 		},

@@ -12,6 +12,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"reflect"
@@ -32,6 +33,17 @@ const (
 	defaultContainerUser   = "65534:65534"
 	defaultContainerPIDMax = 512
 )
+
+var defaultNetworkAllowlist = []string{
+	"api.github.com",
+	"auth.docker.io",
+	"codeload.github.com",
+	"github.com",
+	"objects.githubusercontent.com",
+	"production.cloudflare.docker.com",
+	"registry-1.docker.io",
+	"*.githubusercontent.com",
+}
 
 // LoadOptions controls config resolution. Zero value uses the default path,
 // process environment, and no CLI overrides.
@@ -54,23 +66,25 @@ type ServerConfig struct {
 }
 
 type RunnerConfig struct {
-	Token         string        `toml:"token"`
-	Labels        []string      `toml:"labels"`
-	Capacity      int           `toml:"capacity"`
-	PollInterval  time.Duration `toml:"poll_interval"`
-	WorkspaceRoot string        `toml:"workspace_root"`
-	WorkspaceTTL  time.Duration `toml:"workspace_ttl"`
+	Token            string        `toml:"token"`
+	Labels           []string      `toml:"labels"`
+	Capacity         int           `toml:"capacity"`
+	PollInterval     time.Duration `toml:"poll_interval"`
+	WorkspaceRoot    string        `toml:"workspace_root"`
+	WorkspaceTTL     time.Duration `toml:"workspace_ttl"`
+	NetworkAllowlist []string      `toml:"network_allowlist"`
 }
 
 type EngineConfig struct {
-	Kind           string `toml:"kind"`
-	DefaultImage   string `toml:"default_image"`
-	Network        string `toml:"network"`
-	Memory         string `toml:"memory"`
-	CPUs           string `toml:"cpus"`
-	SeccompProfile string `toml:"seccomp_profile"`
-	User           string `toml:"user"`
-	PidsLimit      int    `toml:"pids_limit"`
+	Kind           string   `toml:"kind"`
+	DefaultImage   string   `toml:"default_image"`
+	Network        string   `toml:"network"`
+	Memory         string   `toml:"memory"`
+	CPUs           string   `toml:"cpus"`
+	SeccompProfile string   `toml:"seccomp_profile"`
+	User           string   `toml:"user"`
+	PidsLimit      int      `toml:"pids_limit"`
+	DNSServers     []string `toml:"dns_servers"`
 }
 
 type LogConfig struct {
@@ -84,11 +98,12 @@ func Defaults() Config {
 			BaseURL: "http://127.0.0.1:8080",
 		},
 		Runner: RunnerConfig{
-			Labels:        []string{"self-hosted", "linux", "ubuntu-latest"},
-			Capacity:      1,
-			PollInterval:  5 * time.Second,
-			WorkspaceRoot: "/var/lib/shithubd-runner/workspaces",
-			WorkspaceTTL:  24 * time.Hour,
+			Labels:           []string{"self-hosted", "linux", "ubuntu-latest"},
+			Capacity:         1,
+			PollInterval:     5 * time.Second,
+			WorkspaceRoot:    "/var/lib/shithubd-runner/workspaces",
+			WorkspaceTTL:     24 * time.Hour,
+			NetworkAllowlist: append([]string{}, defaultNetworkAllowlist...),
 		},
 		Engine: EngineConfig{
 			Kind:           "docker",
@@ -227,6 +242,11 @@ func Validate(c *Config) error {
 	if c.Runner.WorkspaceTTL <= 0 {
 		return errors.New("runner config: runner.workspace_ttl must be positive")
 	}
+	allowlist, err := normalizeHostPatterns(c.Runner.NetworkAllowlist)
+	if err != nil {
+		return fmt.Errorf("runner config: runner.network_allowlist: %w", err)
+	}
+	c.Runner.NetworkAllowlist = allowlist
 
 	switch strings.ToLower(strings.TrimSpace(c.Engine.Kind)) {
 	case "docker", "podman":
@@ -257,6 +277,11 @@ func Validate(c *Config) error {
 	if c.Engine.PidsLimit <= 0 {
 		return fmt.Errorf("runner config: engine.pids_limit must be positive, got %d", c.Engine.PidsLimit)
 	}
+	dnsServers, err := normalizeDNSServers(c.Engine.DNSServers)
+	if err != nil {
+		return fmt.Errorf("runner config: engine.dns_servers: %w", err)
+	}
+	c.Engine.DNSServers = dnsServers
 
 	switch strings.ToLower(c.Log.Level) {
 	case "debug", "info", "warn", "error":
@@ -271,6 +296,58 @@ func Validate(c *Config) error {
 		return fmt.Errorf("runner config: log.format must be text|json, got %q", c.Log.Format)
 	}
 	return nil
+}
+
+func normalizeHostPatterns(patterns []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		if strings.ContainsAny(p, "/:") || strings.Trim(p, "*.abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+			return nil, fmt.Errorf("invalid host pattern %q", p)
+		}
+		if strings.Contains(p, "**") || strings.Contains(p, "..") || strings.HasPrefix(p, ".") || strings.HasSuffix(p, ".") {
+			return nil, fmt.Errorf("invalid host pattern %q", p)
+		}
+		if strings.Contains(p, "*") && !strings.HasPrefix(p, "*.") {
+			return nil, fmt.Errorf("invalid wildcard host pattern %q", p)
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("must contain at least one host pattern")
+	}
+	return out, nil
+}
+
+func normalizeDNSServers(servers []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(servers))
+	for _, s := range servers {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if strings.ContainsAny(s, " \t\r\n") {
+			return nil, fmt.Errorf("invalid DNS server %q", s)
+		}
+		if _, err := netip.ParseAddr(s); err != nil {
+			return nil, fmt.Errorf("invalid DNS server %q", s)
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func normalizeLabels(labels []string) ([]string, error) {

@@ -25,6 +25,7 @@ import (
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/social"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
@@ -208,6 +209,20 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 		// processed_at guard at the top.
 		if err := wq.MarkPushEventProcessed(ctx, deps.Pool, event.ID); err != nil {
 			return fmt.Errorf("mark processed: %w", err)
+		}
+		if actorID := int64ValueOrZero(event.PusherUserID); actorID != 0 {
+			if err := social.Emit(ctx, social.Deps{Pool: deps.Pool, Logger: deps.Logger}, social.EmitParams{
+				ActorUserID: actorID,
+				Kind:        "push",
+				RepoID:      event.RepoID,
+				SourceKind:  "repo",
+				SourceID:    event.RepoID,
+				Public:      repo.Visibility == reposdb.RepoVisibilityPublic,
+				Payload:     body,
+			}); err != nil && deps.Logger != nil {
+				deps.Logger.WarnContext(ctx, "push:process: emit push event",
+					"push_event_id", event.ID, "error", err)
+			}
 		}
 
 		// Wake any size_recalc workers waiting on LISTEN.

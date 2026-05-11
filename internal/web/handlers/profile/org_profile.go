@@ -99,6 +99,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 	}
 
 	repos := h.orgProfileRepos(ctx, org.ID, viewer)
+	followState := h.orgFollowState(ctx, org.ID, viewer)
 	repoRows := h.withOrgRepoActivity(ctx, string(org.Slug), limitOrgRepos(repos, orgHomepageRepoLimit))
 	pinnedRepos, pinCandidates := h.orgPinData(ctx, org.ID, string(org.Slug), repos)
 	people := h.orgProfilePeople(ctx, q, org.ID)
@@ -136,6 +137,11 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"RepoCount":          int64(len(repos)),
 		"TeamCount":          teamCount,
 		"MemberCount":        memberCount,
+		"FollowerCount":      followState.FollowersCount,
+		"IsFollowing":        followState.IsFollowing,
+		"FollowAction":       "/" + url.PathEscape(org.Slug) + "/follow",
+		"UnfollowAction":     "/" + url.PathEscape(org.Slug) + "/unfollow",
+		"ReturnTo":           r.URL.RequestURI(),
 		"People":             limitOrgPeople(people, orgHomepagePeopleLimit),
 		"TopLanguages":       orgTopLanguages(repos),
 		"TopTopics":          orgTopTopics(repos),

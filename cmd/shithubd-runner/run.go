@@ -61,6 +61,7 @@ var runCmd = &cobra.Command{
 			SeccompProfile: cfg.Engine.SeccompProfile,
 			User:           cfg.Engine.User,
 			PidsLimit:      cfg.Engine.PidsLimit,
+			DNSServers:     cfg.Engine.DNSServers,
 			Stdout:         os.Stdout,
 			Stderr:         os.Stderr,
 			Logger:         logger,
@@ -97,29 +98,33 @@ func init() {
 	runCmd.Flags().String("seccomp-profile", "", "Container seccomp profile path")
 	runCmd.Flags().String("container-user", "", "Default container user")
 	runCmd.Flags().Int("pids-limit", 0, "Container PID limit")
+	runCmd.Flags().String("network-allowlist", "", "Comma-separated host patterns allowed by the runner DNS policy")
+	runCmd.Flags().String("dns-servers", "", "Comma-separated DNS servers passed to step containers")
 	runCmd.Flags().String("log-level", "", "Log level: debug, info, warn, error")
 	runCmd.Flags().String("log-format", "", "Log format: text or json")
 }
 
 func flagOverrides(cmd *cobra.Command) map[string]string {
 	keys := map[string]string{
-		"server-url":      "server.base_url",
-		"token":           "runner.token",
-		"labels":          "runner.labels",
-		"capacity":        "runner.capacity",
-		"poll-interval":   "runner.poll_interval",
-		"workspace-root":  "runner.workspace_root",
-		"workspace-ttl":   "runner.workspace_ttl",
-		"engine":          "engine.kind",
-		"image":           "engine.default_image",
-		"network":         "engine.network",
-		"memory":          "engine.memory",
-		"cpus":            "engine.cpus",
-		"seccomp-profile": "engine.seccomp_profile",
-		"container-user":  "engine.user",
-		"pids-limit":      "engine.pids_limit",
-		"log-level":       "log.level",
-		"log-format":      "log.format",
+		"server-url":        "server.base_url",
+		"token":             "runner.token",
+		"labels":            "runner.labels",
+		"capacity":          "runner.capacity",
+		"poll-interval":     "runner.poll_interval",
+		"workspace-root":    "runner.workspace_root",
+		"workspace-ttl":     "runner.workspace_ttl",
+		"engine":            "engine.kind",
+		"image":             "engine.default_image",
+		"network":           "engine.network",
+		"memory":            "engine.memory",
+		"cpus":              "engine.cpus",
+		"seccomp-profile":   "engine.seccomp_profile",
+		"container-user":    "engine.user",
+		"pids-limit":        "engine.pids_limit",
+		"network-allowlist": "runner.network_allowlist",
+		"dns-servers":       "engine.dns_servers",
+		"log-level":         "log.level",
+		"log-format":        "log.format",
 	}
 	out := make(map[string]string)
 	cmd.Flags().Visit(func(f *pflag.Flag) {

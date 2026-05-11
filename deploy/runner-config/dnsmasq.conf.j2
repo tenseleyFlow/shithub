@@ -1,0 +1,15 @@
+# Managed by Ansible. Optional DNS allowlist resolver for Actions runners.
+#
+# Pair this with a Docker bridge/network that uses this resolver as its only
+# DNS server. This controls name resolution, not direct-IP egress; enforce
+# direct-IP denial with host firewall rules on the runner bridge.
+
+domain-needed
+bogus-priv
+no-resolv
+no-hosts
+
+{% for pattern in shithub_runner_network_allowlist %}
+{% set host = (pattern[2:] if pattern.startswith("*.") else pattern) %}
+server=/{{ host }}/{{ shithub_runner_dnsmasq_upstream }}
+{% endfor %}

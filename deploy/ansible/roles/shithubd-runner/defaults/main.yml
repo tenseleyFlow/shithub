@@ -12,9 +12,21 @@ shithub_runner_capacity: 1
 shithub_runner_poll_interval: 5s
 shithub_runner_workspace_root: /var/lib/shithubd-runner/workspaces
 shithub_runner_workspace_ttl: 24h
+shithub_runner_network_allowlist:
+  - api.github.com
+  - auth.docker.io
+  - codeload.github.com
+  - github.com
+  - objects.githubusercontent.com
+  - production.cloudflare.docker.com
+  - registry-1.docker.io
+  - "*.githubusercontent.com"
 shithub_runner_engine: docker
 shithub_runner_default_image: ghcr.io/shithub/runner-nix:1.0
 shithub_runner_network: bridge
+shithub_runner_dns_servers: []
+shithub_runner_dnsmasq_config: /etc/shithubd-runner/dnsmasq.conf
+shithub_runner_dnsmasq_upstream: 1.1.1.1
 shithub_runner_memory: 2g
 shithub_runner_cpus: "2"
 shithub_runner_seccomp_profile: /etc/shithubd-runner/seccomp.json

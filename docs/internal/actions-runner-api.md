@@ -62,6 +62,8 @@ Returns 204 when no matching job is claimable. Returns 200 with
 `token`, `expires_at`, and `job` when a job is claimed. Capacity is
 enforced server-side by counting current `workflow_jobs.status =
 'running'` rows for the runner while holding a row lock on the runner.
+The job payload includes resolved `secrets` and `mask_values`; repo
+secrets shadow org secrets with the same name.
 
 `POST /api/v1/jobs/{id}/logs`
 
@@ -75,6 +77,10 @@ Auth: job JWT. Body:
 first step in the job receives the chunk. Chunks are base64-decoded,
 capped at 512 KiB raw, and appended to `workflow_step_log_chunks`.
 Duplicate `(step_id, seq)` inserts are accepted as idempotent retries.
+Before append, the API re-scrubs exact secret values from the runner
+claim's visible secret set. It also reprocesses any possible secret
+prefix carried at the end of the prior chunk, so a runner cannot leak a
+secret by splitting it across two log calls.
 
 `POST /api/v1/jobs/{id}/steps/{step_id}/status`
 
@@ -142,3 +148,4 @@ request UI lands later in S41g.
 - `shithub_actions_runner_registrations_total`
 - `shithub_actions_runner_heartbeats_total{result="claimed|no_job"}`
 - `shithub_actions_runner_jwt_total{result="issued|rejected|replay"}`
+- `shithub_actions_log_scrub_replacements_total{location="server"}`

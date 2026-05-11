@@ -91,6 +91,8 @@ fresh Docker or Podman container with these defaults:
 - pinned seccomp profile at `/etc/shithubd-runner/seccomp.json`
 - `--user 65534:65534`
 - PID, file-descriptor, process, CPU, memory, and log-size caps
+- optional per-container DNS servers for operator-managed egress
+  allowlisting
 
 The writable `/workspace` mount is deliberate. The v1 engine starts one
 container per step, so checkout/build outputs need a host-backed job
@@ -103,6 +105,23 @@ container user write to the bind-mounted workspace owned by the runner
 host user. It is not a general privilege grant: `CAP_SYS_ADMIN` is not
 present, no-new-privileges is set, and the default seccomp profile still
 filters dangerous syscalls.
+
+Runner network allowlisting is an operator-managed control. The runner
+config records `runner.network_allowlist` and passes
+`engine.dns_servers` to each step container; the deployment role renders
+a dnsmasq allowlist template. DNS filtering must be paired with host
+firewall rules on the runner bridge to block direct-IP egress. Do not
+treat DNS-only filtering as a complete network sandbox.
+
+Actions secrets are decrypted only for the runner job claim that needs
+them. Repo secrets shadow org secrets with the same name. The runner
+receives the resolved secret map plus an exact-value mask set; runner
+logs are scrubbed before upload, and the web API scrubs again before
+persisting chunks. The server-side scrubber carries possible secret
+prefix tails across adjacent chunks so a bypassing runner cannot leak a
+secret by splitting it over multiple log POSTs. Base64-encoded or
+transformed secrets are not masked; workflows must not print secrets in
+derived forms.
 
 Root containers are opt-in per job through an explicit shithub-only
 permissions key:

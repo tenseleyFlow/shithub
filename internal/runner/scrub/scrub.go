@@ -11,9 +11,10 @@ import (
 const Mask = "***"
 
 type Scrubber struct {
-	values   []string
-	replacer *strings.Replacer
-	tail     string
+	values       []string
+	replacer     *strings.Replacer
+	tail         string
+	replacements uint64
 }
 
 func New(values []string) *Scrubber {
@@ -40,6 +41,7 @@ func (s *Scrubber) Scrub(chunk []byte) []byte {
 	}
 	emit := combined[:len(combined)-keep]
 	s.tail = combined[len(combined)-keep:]
+	s.replacements += countReplacements(emit, s.values)
 	return []byte(s.replacer.Replace(emit))
 }
 
@@ -52,7 +54,15 @@ func (s *Scrubber) Flush() []byte {
 	if s.replacer == nil {
 		return []byte(tail)
 	}
+	s.replacements += countReplacements(tail, s.values)
 	return []byte(s.replacer.Replace(tail))
+}
+
+func (s *Scrubber) Replacements() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.replacements
 }
 
 func normalize(values []string) []string {
@@ -72,6 +82,31 @@ func normalize(values []string) []string {
 		return len(out[i]) > len(out[j])
 	})
 	return out
+}
+
+func countReplacements(input string, values []string) uint64 {
+	var count uint64
+	rest := input
+	for rest != "" {
+		bestAt := -1
+		best := ""
+		for _, value := range values {
+			at := strings.Index(rest, value)
+			if at < 0 {
+				continue
+			}
+			if bestAt == -1 || at < bestAt || (at == bestAt && len(value) > len(best)) {
+				bestAt = at
+				best = value
+			}
+		}
+		if bestAt == -1 {
+			return count
+		}
+		count++
+		rest = rest[bestAt+len(best):]
+	}
+	return count
 }
 
 func (s *Scrubber) pendingSuffixLen(combined string) int {

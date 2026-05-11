@@ -13,5 +13,22 @@ WHERE step_id = $1 AND seq > $2
 ORDER BY seq ASC
 LIMIT $3;
 
+-- name: GetStepLogChunkBefore :one
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1 AND seq < $2
+ORDER BY seq DESC
+LIMIT 1;
+
+-- name: GetStepLogChunkByStepSeq :one
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1 AND seq = $2;
+
+-- name: UpdateStepLogChunk :exec
+UPDATE workflow_step_log_chunks
+SET chunk = $2
+WHERE id = $1;
+
 -- name: DeleteStepLogChunks :exec
 DELETE FROM workflow_step_log_chunks WHERE step_id = $1;

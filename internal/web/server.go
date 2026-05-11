@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
@@ -144,6 +145,7 @@ func Run(ctx context.Context, opts Options) error {
 		StaticFS:     StaticFS(),
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
+		Pool:         pool,
 		CookieSecure: cfg.Session.Secure,
 	}
 	if pool != nil {
@@ -165,17 +167,24 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		deps.AuthMounter = auth.Mount
 
-		var runnerJWT *runnerjwt.Signer
+		var (
+			runnerJWT  *runnerjwt.Signer
+			actionsBox *secretbox.Box
+		)
 		if cfg.Auth.TOTPKeyB64 != "" {
 			runnerJWT, err = runnerjwt.NewFromTOTPKeyB64(cfg.Auth.TOTPKeyB64)
 			if err != nil {
 				return fmt.Errorf("runner jwt: %w", err)
 			}
+			actionsBox, err = secretbox.FromBase64(cfg.Auth.TOTPKeyB64)
+			if err != nil {
+				return fmt.Errorf("actions secretbox: %w", err)
+			}
 		} else {
 			logger.Warn("actions runner API disabled: auth.totp_key_b64 is not configured",
 				"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable runner job JWTs")
 		}
-		api, err := buildAPIHandlers(pool, objectStore, runnerJWT, ratelimit.New(pool), logger)
+		api, err := buildAPIHandlers(pool, objectStore, runnerJWT, actionsBox, ratelimit.New(pool), logger)
 		if err != nil {
 			return fmt.Errorf("api handlers: %w", err)
 		}

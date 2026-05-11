@@ -6,9 +6,14 @@ package socialdb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	CountFollowersForOrg(ctx context.Context, db DBTX, followeeOrgID pgtype.Int8) (int64, error)
+	CountFollowersForUser(ctx context.Context, db DBTX, followeeUserID pgtype.Int8) (int64, error)
+	CountFollowingForUser(ctx context.Context, db DBTX, followerUserID int64) (int64, error)
 	CountStargazersForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountStarsForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountWatchersForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
@@ -17,6 +22,9 @@ type Querier interface {
 	// implicit `participating` default). Trigger drops the watcher_count
 	// when the prior level wasn't 'ignore'.
 	DeleteWatch(ctx context.Context, db DBTX, arg DeleteWatchParams) error
+	FollowOrg(ctx context.Context, db DBTX, arg FollowOrgParams) (bool, error)
+	// ─── follows ───────────────────────────────────────────────────────
+	FollowUser(ctx context.Context, db DBTX, arg FollowUserParams) (bool, error)
 	// ─── watches ───────────────────────────────────────────────────────
 	GetWatch(ctx context.Context, db DBTX, arg GetWatchParams) (Watch, error)
 	HasStar(ctx context.Context, db DBTX, arg HasStarParams) (bool, error)
@@ -29,18 +37,30 @@ type Querier interface {
 	// already-starred repo doesn't double-increment the count (the
 	// AFTER INSERT trigger only fires on actual insert).
 	InsertStar(ctx context.Context, db DBTX, arg InsertStarParams) error
+	InsertTrendingSnapshot(ctx context.Context, db DBTX, arg InsertTrendingSnapshotParams) (TrendingSnapshot, error)
 	// Auto-watch flow: only insert if the user doesn't already have a
 	// preference. ON CONFLICT DO NOTHING preserves the user's chosen
 	// level when the trigger fires repeatedly.
 	InsertWatchIfAbsent(ctx context.Context, db DBTX, arg InsertWatchIfAbsentParams) error
+	IsFollowingOrg(ctx context.Context, db DBTX, arg IsFollowingOrgParams) (bool, error)
+	IsFollowingUser(ctx context.Context, db DBTX, arg IsFollowingUserParams) (bool, error)
+	LatestTrendingSnapshot(ctx context.Context, db DBTX, arg LatestTrendingSnapshotParams) (TrendingSnapshot, error)
+	// ─── activity feed / trending ─────────────────────────────────────
+	ListDashboardFeedEvents(ctx context.Context, db DBTX, arg ListDashboardFeedEventsParams) ([]ListDashboardFeedEventsRow, error)
+	ListDashboardReposForUser(ctx context.Context, db DBTX, arg ListDashboardReposForUserParams) ([]ListDashboardReposForUserRow, error)
 	// Repo-scoped events, recency-sorted. No visibility filter — the
 	// caller has already established read access to the repo.
 	ListEventsForRepo(ctx context.Context, db DBTX, arg ListEventsForRepoParams) ([]DomainEvent, error)
+	ListFollowersForOrg(ctx context.Context, db DBTX, arg ListFollowersForOrgParams) ([]ListFollowersForOrgRow, error)
+	ListFollowersForUser(ctx context.Context, db DBTX, arg ListFollowersForUserParams) ([]ListFollowersForUserRow, error)
+	ListFollowingOrgsForUser(ctx context.Context, db DBTX, arg ListFollowingOrgsForUserParams) ([]ListFollowingOrgsForUserRow, error)
+	ListFollowingUsersForUser(ctx context.Context, db DBTX, arg ListFollowingUsersForUserParams) ([]ListFollowingUsersForUserRow, error)
 	// Public activity-feed slice for a user's profile. Returns only
 	// public rows, recency-sorted. The handler additionally filters by
 	// repo visibility against the viewer (a public event row on a repo
 	// whose visibility flipped to private must not leak).
 	ListPublicEventsForActor(ctx context.Context, db DBTX, arg ListPublicEventsForActorParams) ([]DomainEvent, error)
+	ListPublicFeedEvents(ctx context.Context, db DBTX, arg ListPublicFeedEventsParams) ([]ListPublicFeedEventsRow, error)
 	// S29 notification-routing consumer: for fan-out, get every watcher
 	// of a repo at the requested level (e.g. `level='all'` for new-issue
 	// events). This is the cross-package read; expose the user_ids
@@ -55,9 +75,13 @@ type Querier interface {
 	// user starred and lets the handler decide what to render. Sort axis
 	// is the spec's day-1 lean: most-recently-starred first.
 	ListStarsForUser(ctx context.Context, db DBTX, arg ListStarsForUserParams) ([]ListStarsForUserRow, error)
+	ListTrendingRepos(ctx context.Context, db DBTX, arg ListTrendingReposParams) ([]ListTrendingReposRow, error)
+	ListTrendingUsers(ctx context.Context, db DBTX, arg ListTrendingUsersParams) ([]ListTrendingUsersRow, error)
 	// Watchers list. `level <> 'ignore'` excludes users who have actively
 	// muted the repo. Excludes suspended users from public surfaces.
 	ListWatchersForRepo(ctx context.Context, db DBTX, arg ListWatchersForRepoParams) ([]ListWatchersForRepoRow, error)
+	UnfollowOrg(ctx context.Context, db DBTX, arg UnfollowOrgParams) (int64, error)
+	UnfollowUser(ctx context.Context, db DBTX, arg UnfollowUserParams) (int64, error)
 	// Always-write upsert. The AFTER trigger handles the watcher_count
 	// delta on transition into / out of `ignore`.
 	UpsertWatch(ctx context.Context, db DBTX, arg UpsertWatchParams) error

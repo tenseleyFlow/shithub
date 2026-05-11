@@ -13,6 +13,11 @@ capacity = {{ shithub_runner_capacity }}
 poll_interval = "{{ shithub_runner_poll_interval }}"
 workspace_root = "{{ shithub_runner_workspace_root }}"
 workspace_ttl = "{{ shithub_runner_workspace_ttl }}"
+{% if shithub_runner_network_allowlist is string %}
+network_allowlist = {{ shithub_runner_network_allowlist.split(",") | map("trim") | list | to_json }}
+{% else %}
+network_allowlist = {{ shithub_runner_network_allowlist | to_json }}
+{% endif %}
 
 [engine]
 kind = "{{ shithub_runner_engine }}"
@@ -23,6 +28,11 @@ cpus = "{{ shithub_runner_cpus }}"
 seccomp_profile = "{{ shithub_runner_seccomp_profile }}"
 user = "{{ shithub_runner_container_user }}"
 pids_limit = {{ shithub_runner_pids_limit }}
+{% if shithub_runner_dns_servers is string %}
+dns_servers = {{ shithub_runner_dns_servers.split(",") | map("trim") | list | to_json }}
+{% else %}
+dns_servers = {{ shithub_runner_dns_servers | to_json }}
+{% endif %}
 
 [log]
 level = "{{ shithub_runner_log_level }}"
