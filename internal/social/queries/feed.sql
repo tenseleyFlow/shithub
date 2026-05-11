@@ -21,6 +21,7 @@ LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
 LEFT JOIN users source_user ON de.source_kind = 'user' AND source_user.id = de.source_id
 LEFT JOIN orgs source_org ON de.source_kind = 'org' AND source_org.id = de.source_id
 WHERE de.public = true
+  AND de.kind <> 'unstar'
   AND actor.suspended_at IS NULL
   AND actor.deleted_at IS NULL
   AND (
@@ -86,6 +87,7 @@ LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
 LEFT JOIN users source_user ON de.source_kind = 'user' AND source_user.id = de.source_id
 LEFT JOIN orgs source_org ON de.source_kind = 'org' AND source_org.id = de.source_id
 WHERE de.public = true
+  AND de.kind <> 'unstar'
   AND actor.suspended_at IS NULL
   AND actor.deleted_at IS NULL
   AND (
@@ -172,6 +174,7 @@ LIMIT sqlc.arg(limit_count)::int;
 -- name: ListDashboardReposForUser :many
 SELECT
     r.id AS repo_id,
+    COALESCE(owner_user.username::text, owner_org.slug::text, '')::text AS owner,
     r.name::text AS name,
     r.description,
     r.visibility,
@@ -180,10 +183,18 @@ SELECT
     r.fork_count,
     r.updated_at
 FROM repos r
-WHERE r.owner_user_id = $1
+LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+WHERE (
+      r.owner_user_id = sqlc.arg(viewer_user_id)::bigint
+      OR r.owner_org_id IN (
+          SELECT org_id FROM org_members
+          WHERE user_id = sqlc.arg(viewer_user_id)::bigint
+      )
+  )
   AND r.deleted_at IS NULL
 ORDER BY r.updated_at DESC
-LIMIT $2;
+LIMIT sqlc.arg(limit_count)::int;
 
 -- name: InsertTrendingSnapshot :one
 INSERT INTO trending_snapshots (scope, kind, payload)

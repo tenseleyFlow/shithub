@@ -8,7 +8,11 @@
     </div>
 
     <nav class="shithub-offcanvas-nav" aria-label="Global navigation">
+      {{ if .Viewer.ID }}
+      <a href="/explore" class="shithub-offcanvas-link">{{ octicon "home" }} <span>Home</span></a>
+      {{ else }}
       <a href="/" class="shithub-offcanvas-link">{{ octicon "home" }} <span>Home</span></a>
+      {{ end }}
       <a href="/search?type=issues" class="shithub-offcanvas-link">{{ octicon "issue-opened" }} <span>All issues</span></a>
       <a href="/search?type=pullrequests" class="shithub-offcanvas-link">{{ octicon "git-pull-request" }} <span>All pull requests</span></a>
       <a href="/search?type=repositories" class="shithub-offcanvas-link">{{ octicon "repo" }} <span>All repositories</span></a>

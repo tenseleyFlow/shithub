@@ -255,7 +255,7 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
 		r.Use(csrf)
-		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger, pool: deps.Pool}.ServeHTTP)
+		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger}.ServeHTTP)
 		r.Get("/explore", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeExplore)
 		r.Get("/trending", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeTrending)
 		// /internal/panic is a dev affordance: GET it to trigger the

@@ -85,6 +85,7 @@ LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
 LEFT JOIN users source_user ON de.source_kind = 'user' AND source_user.id = de.source_id
 LEFT JOIN orgs source_org ON de.source_kind = 'org' AND source_org.id = de.source_id
 WHERE de.public = true
+  AND de.kind <> 'unstar'
   AND actor.suspended_at IS NULL
   AND actor.deleted_at IS NULL
   AND (
@@ -206,6 +207,7 @@ func (q *Queries) ListDashboardFeedEvents(ctx context.Context, db DBTX, arg List
 const listDashboardReposForUser = `-- name: ListDashboardReposForUser :many
 SELECT
     r.id AS repo_id,
+    COALESCE(owner_user.username::text, owner_org.slug::text, '')::text AS owner,
     r.name::text AS name,
     r.description,
     r.visibility,
@@ -214,19 +216,28 @@ SELECT
     r.fork_count,
     r.updated_at
 FROM repos r
-WHERE r.owner_user_id = $1
+LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+WHERE (
+      r.owner_user_id = $1::bigint
+      OR r.owner_org_id IN (
+          SELECT org_id FROM org_members
+          WHERE user_id = $1::bigint
+      )
+  )
   AND r.deleted_at IS NULL
 ORDER BY r.updated_at DESC
-LIMIT $2
+LIMIT $2::int
 `
 
 type ListDashboardReposForUserParams struct {
-	OwnerUserID pgtype.Int8
-	Limit       int32
+	ViewerUserID int64
+	LimitCount   int32
 }
 
 type ListDashboardReposForUserRow struct {
 	RepoID          int64
+	Owner           string
 	Name            string
 	Description     string
 	Visibility      RepoVisibility
@@ -237,7 +248,7 @@ type ListDashboardReposForUserRow struct {
 }
 
 func (q *Queries) ListDashboardReposForUser(ctx context.Context, db DBTX, arg ListDashboardReposForUserParams) ([]ListDashboardReposForUserRow, error) {
-	rows, err := db.Query(ctx, listDashboardReposForUser, arg.OwnerUserID, arg.Limit)
+	rows, err := db.Query(ctx, listDashboardReposForUser, arg.ViewerUserID, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +258,7 @@ func (q *Queries) ListDashboardReposForUser(ctx context.Context, db DBTX, arg Li
 		var i ListDashboardReposForUserRow
 		if err := rows.Scan(
 			&i.RepoID,
+			&i.Owner,
 			&i.Name,
 			&i.Description,
 			&i.Visibility,
@@ -286,6 +298,7 @@ LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
 LEFT JOIN users source_user ON de.source_kind = 'user' AND source_user.id = de.source_id
 LEFT JOIN orgs source_org ON de.source_kind = 'org' AND source_org.id = de.source_id
 WHERE de.public = true
+  AND de.kind <> 'unstar'
   AND actor.suspended_at IS NULL
   AND actor.deleted_at IS NULL
   AND (

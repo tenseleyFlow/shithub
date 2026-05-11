@@ -6,24 +6,9 @@
   <h1 class="hello-title">shithub</h1>
   <p class="hello-tagline">GitHub. Open source. Without Copilot.</p>
 
-  {{ if .Viewer.ID }}
-  {{/* Authed dashboard surface — concise, points at the things you
-       most likely want when you sign in. The full activity feed is a
-       post-MVP feature; until then the quicklinks ARE the dashboard. */}}
-  <div class="hello-greeting">
-    <p>Signed in as <strong>@{{ .Viewer.Username }}</strong>.</p>
-    <nav class="hello-quicklinks" aria-label="Account quick links">
-      <a href="/{{ .Viewer.Username }}">Your profile</a>
-      <a href="/new">New repository</a>
-      <a href="/notifications">Notifications</a>
-      <a href="/explore">Explore</a>
-      <a href="/settings/profile">Settings</a>
-    </nav>
-  </div>
-  {{ else }}
-  {{/* Anonymous landing — marketing copy for the v1 launch. Honest
-       and concise; the heavy "what works / what doesn't" lives in
-       the README and docs site, not on the homepage. */}}
+  {{/* Landing page — marketing copy for the v1 launch. Honest and
+       concise; the heavy "what works / what doesn't" lives in the
+       README and docs site, not on the homepage. */}}
   <section class="shithub-landing-pitch">
     <p>
       A self-hostable git forge that aims to look and feel like GitHub.
@@ -62,8 +47,14 @@
   </ul>
 
   <nav class="shithub-landing-cta" aria-label="Primary actions">
+    {{ if .Viewer.ID }}
+    <a class="shithub-landing-cta-primary" href="/explore">Go to Explore</a>
+    <a class="shithub-landing-cta-secondary" href="/new">New repository</a>
+    <a class="shithub-landing-cta-secondary" href="/{{ .Viewer.Username }}">Your profile</a>
+    {{ else }}
     <a class="shithub-landing-cta-primary" href="/signup">Create an account</a>
     <a class="shithub-landing-cta-secondary" href="/login">Sign in</a>
+    {{ end }}
     <a class="shithub-landing-cta-secondary" href="https://docs.shithub.sh/">Read the docs</a>
     <a class="shithub-landing-cta-secondary" href="/shithub/shithub">Read the source</a>
   </nav>
@@ -74,7 +65,6 @@
     <a href="https://docs.shithub.sh/">docs</a> are honest about
     what works and what's still in flight.
   </p>
-  {{ end }}
 
   <dl class="hello-meta">
     <dt>Version</dt><dd>{{ .Version }}</dd>

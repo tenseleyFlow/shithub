@@ -11,7 +11,18 @@
       {{ if and .RepoFullName (ne .ItemTitle .RepoFullName) }}<span>in</span> <a href="{{ .RepoURL }}" class="shithub-feed-target">{{ .RepoFullName }}</a>{{ end }}
       <time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt }}</time>
     </p>
-    {{ if .Repo }}
+    {{ if and .SourceName (or (eq .Kind "followed_user") (eq .Kind "followed_org")) }}
+    <div class="shithub-feed-profile">
+      <a href="{{ .SourceURL }}" class="shithub-feed-profile-avatar">
+        <img src="/avatars/{{ .SourceName }}" alt="" width="44" height="44">
+      </a>
+      <div class="shithub-feed-profile-copy">
+        <a href="{{ .SourceURL }}" class="shithub-feed-profile-name">{{ .SourceName }}</a>
+        <span>{{ if eq .SourceKind "org" }}Organization{{ else }}@{{ .SourceName }}{{ end }}</span>
+      </div>
+      <a href="{{ .SourceURL }}" class="shithub-button shithub-button-small">View</a>
+    </div>
+    {{ else if .Repo }}
     <div class="shithub-feed-repo">
       <a href="{{ .RepoURL }}" class="shithub-feed-repo-title">{{ octicon "repo" }} {{ .RepoFullName }}</a>
       {{ if .Repo.Description }}<p>{{ .Repo.Description }}</p>{{ end }}

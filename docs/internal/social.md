@@ -1,7 +1,7 @@
 # Social Feed
 
 S42 turns the S26 social primitives into a GitHub-like network surface:
-follow graph, authenticated Home feed, public Explore feed, and cached
+follow graph, signed-in Explore/Home feed, public Explore feed, and cached
 trending rankings.
 
 ## Follow Graph
@@ -33,7 +33,11 @@ repo-scoped. This second repo visibility check is load-bearing: an event
 emitted while a repo was public must not leak after the repo becomes
 private.
 
-The authenticated Home feed includes:
+After sign-in, the default destination is `/explore`. `/` remains the
+public build/landing page so the top-left shithub brand is always a way
+back to the instance/version stamp.
+
+The signed-in `/explore` feed includes:
 
 - the viewer's own public activity,
 - public activity from followed users,
@@ -41,8 +45,8 @@ The authenticated Home feed includes:
 - public activity from repos owned by followed orgs,
 - public org-scoped activity for followed orgs.
 
-Explore uses the global public feed. Both feeds page with a keyset
-cursor over `(created_at, id)`.
+Anonymous Explore uses the global public feed. Both feeds page with a
+keyset cursor over `(created_at, id)`.
 
 ## Event Kinds
 
@@ -55,6 +59,10 @@ Current feed sources include:
 - `issue_created`, comments, close/reopen, assignment events
 - `pr_opened` and pull-request comment events
 - `followed_user` / `followed_org`
+
+`unstar` events remain in `domain_events` for audit/product history, but
+the feed queries suppress them because GitHub does not surface unstars as
+activity feed stories.
 
 The `kind` and `source_kind` columns remain text. New product surfaces
 can add events without a schema migration as long as their payload is
