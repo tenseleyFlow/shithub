@@ -23,7 +23,6 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
-	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/checks"
@@ -93,7 +92,7 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, steps, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity))
+	job, steps, resolvedSecrets, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity))
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "runner heartbeat claim failed", "runner_id", runner.ID, "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "runner heartbeat failed")
@@ -118,12 +117,6 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
 	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Inc()
-	resolvedSecrets, err := h.resolveVisibleSecrets(r.Context(), job.RepoID)
-	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "runner secret resolution failed", "repo_id", job.RepoID, "job_id", job.ID, "error", err)
-		writeAPIError(w, http.StatusInternalServerError, "runner secret resolution failed")
-		return
-	}
 	writeJSON(w, http.StatusOK, presentRunnerClaim(job, steps, resolvedSecrets, token, time.Unix(claims.Exp, 0)))
 }
 
@@ -169,11 +162,11 @@ func (h *Handlers) claimRunnerJob(
 	runnerID int64,
 	labels []string,
 	capacity int32,
-) (actionsdb.ClaimQueuedWorkflowJobRow, []actionsdb.ListRunnerStepsForJobRow, bool, error) {
+) (actionsdb.ClaimQueuedWorkflowJobRow, []actionsdb.ListRunnerStepsForJobRow, map[string]string, bool, error) {
 	q := actionsdb.New()
 	tx, err := h.d.Pool.Begin(ctx)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	committed := false
 	defer func() {
@@ -183,11 +176,11 @@ func (h *Handlers) claimRunnerJob(
 	}()
 
 	if _, err := q.LockRunnerByID(ctx, tx, runnerID); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	running, err := q.CountRunningJobsForRunner(ctx, tx, runnerID)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	if running >= capacity {
 		if _, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
@@ -196,13 +189,13 @@ func (h *Handlers) claimRunnerJob(
 			Capacity: capacity,
 			Status:   actionsdb.WorkflowRunnerStatusBusy,
 		}); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		committed = true
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, nil
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
 	}
 
 	job, err := q.ClaimQueuedWorkflowJob(ctx, tx, actionsdb.ClaimQueuedWorkflowJobParams{
@@ -211,7 +204,7 @@ func (h *Handlers) claimRunnerJob(
 	})
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		if _, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
 			ID:       runnerID,
@@ -219,20 +212,27 @@ func (h *Handlers) claimRunnerJob(
 			Capacity: capacity,
 			Status:   actionsdb.WorkflowRunnerStatusIdle,
 		}); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		committed = true
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, nil
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
 	}
 	if err := q.MarkWorkflowRunRunning(ctx, tx, job.RunID); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	steps, err := q.ListRunnerStepsForJob(ctx, tx, job.ID)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+	}
+	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID)
+	if err != nil {
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+	}
+	if err := h.storeJobSecretMaskSnapshot(ctx, tx, job.ID, secretMaskValues(resolvedSecrets)); err != nil {
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	status := actionsdb.WorkflowRunnerStatusIdle
 	if running+1 >= capacity {
@@ -244,13 +244,13 @@ func (h *Handlers) claimRunnerJob(
 		Capacity: capacity,
 		Status:   status,
 	}); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	committed = true
-	return job, steps, true, nil
+	return job, steps, resolvedSecrets, true, nil
 }
 
 type runnerJobAuth struct {
@@ -347,7 +347,7 @@ func (h *Handlers) runnerJobLogs(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "chunk must be between 1 and 524288 bytes")
 		return
 	}
-	values, err := h.logMaskValues(r.Context(), auth.Claims.RepoID)
+	values, err := h.jobSecretMaskValues(r.Context(), auth.Job.ID, auth.Claims.RepoID)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "runner log mask resolution failed", "repo_id", auth.Claims.RepoID, "job_id", auth.Claims.JobID, "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "log mask resolution failed")
@@ -865,22 +865,30 @@ func (h *Handlers) runnerJobCancelCheck(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+type secretResolutionDB interface {
+	actionsdb.DBTX
+	reposdb.DBTX
+}
+
 func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map[string]string, error) {
+	return h.resolveVisibleSecretsFromDB(ctx, h.d.Pool, repoID)
+}
+
+func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64) (map[string]string, error) {
 	if h.d.SecretBox == nil {
 		return nil, nil
 	}
-	repo, err := reposdb.New().GetRepoByID(ctx, h.d.Pool, repoID)
+	repo, err := reposdb.New().GetRepoByID(ctx, db, repoID)
 	if err != nil {
 		return nil, err
 	}
-	store := secrets.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, Logger: h.d.Logger}
 	out := map[string]string{}
 	if repo.OwnerOrgID.Valid {
-		if err := h.mergeSecrets(ctx, store, secrets.OrgScope(repo.OwnerOrgID.Int64), out); err != nil {
+		if err := h.mergeOrgSecrets(ctx, db, repo.OwnerOrgID.Int64, out); err != nil {
 			return nil, err
 		}
 	}
-	if err := h.mergeSecrets(ctx, store, secrets.RepoScope(repo.ID), out); err != nil {
+	if err := h.mergeRepoSecrets(ctx, db, repo.ID, out); err != nil {
 		return nil, err
 	}
 	if len(out) == 0 {
@@ -889,13 +897,44 @@ func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map
 	return out, nil
 }
 
-func (h *Handlers) mergeSecrets(ctx context.Context, store secrets.Deps, scope secrets.Scope, out map[string]string) error {
-	items, err := store.List(ctx, scope)
+func (h *Handlers) mergeRepoSecrets(ctx context.Context, db actionsdb.DBTX, repoID int64, out map[string]string) error {
+	q := actionsdb.New()
+	items, err := q.ListRepoSecrets(ctx, db, pgtype.Int8{Int64: repoID, Valid: true})
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		plaintext, err := store.Get(ctx, scope, item.Name)
+		row, err := q.GetRepoSecret(ctx, db, actionsdb.GetRepoSecretParams{
+			RepoID: pgtype.Int8{Int64: repoID, Valid: true},
+			Name:   item.Name,
+		})
+		if err != nil {
+			return err
+		}
+		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+		if err != nil {
+			return err
+		}
+		out[item.Name] = string(plaintext)
+	}
+	return nil
+}
+
+func (h *Handlers) mergeOrgSecrets(ctx context.Context, db actionsdb.DBTX, orgID int64, out map[string]string) error {
+	q := actionsdb.New()
+	items, err := q.ListOrgSecrets(ctx, db, pgtype.Int8{Int64: orgID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		row, err := q.GetOrgSecret(ctx, db, actionsdb.GetOrgSecretParams{
+			OrgID: pgtype.Int8{Int64: orgID, Valid: true},
+			Name:  item.Name,
+		})
+		if err != nil {
+			return err
+		}
+		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
 		if err != nil {
 			return err
 		}
@@ -910,6 +949,51 @@ func (h *Handlers) logMaskValues(ctx context.Context, repoID int64) ([]string, e
 		return nil, err
 	}
 	return secretMaskValues(resolved), nil
+}
+
+func (h *Handlers) storeJobSecretMaskSnapshot(ctx context.Context, db actionsdb.DBTX, jobID int64, values []string) error {
+	if h.d.SecretBox == nil {
+		return nil
+	}
+	if values == nil {
+		values = []string{}
+	}
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	ciphertext, nonce, err := h.d.SecretBox.Seal(payload)
+	if err != nil {
+		return err
+	}
+	return actionsdb.New().UpsertWorkflowJobSecretMask(ctx, db, actionsdb.UpsertWorkflowJobSecretMaskParams{
+		JobID:      jobID,
+		Ciphertext: ciphertext,
+		Nonce:      nonce,
+	})
+}
+
+func (h *Handlers) jobSecretMaskValues(ctx context.Context, jobID, repoID int64) ([]string, error) {
+	if h.d.SecretBox == nil {
+		return nil, nil
+	}
+	row, err := actionsdb.New().GetWorkflowJobSecretMask(ctx, h.d.Pool, jobID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return h.logMaskValues(ctx, repoID)
+		}
+		return nil, err
+	}
+	plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	if err := json.Unmarshal(plaintext, &values); err != nil {
+		return nil, err
+	}
+	sort.Strings(values)
+	return values, nil
 }
 
 func secretMaskValues(resolved map[string]string) []string {

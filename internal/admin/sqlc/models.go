@@ -2397,6 +2397,13 @@ type WorkflowJob struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type WorkflowJobSecretMask struct {
+	JobID      int64
+	Ciphertext []byte
+	Nonce      []byte
+	CreatedAt  pgtype.Timestamptz
+}
+
 type WorkflowRun struct {
 	ID               int64
 	RepoID           int64

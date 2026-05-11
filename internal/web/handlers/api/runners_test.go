@@ -204,6 +204,12 @@ func TestRunnerSecretsAreClaimedAndServerScrubsLogs(t *testing.T) {
 	if claim.Job.RunID != runID || claim.Job.Secrets["TOKEN"] != "hunter2" || !containsString(claim.Job.MaskValues, "hunter2") {
 		t.Fatalf("claim did not include masked secret context: %+v", claim.Job)
 	}
+	if _, err := actionsdb.New().GetWorkflowJobSecretMask(ctx, pool, claim.Job.ID); err != nil {
+		t.Fatalf("GetWorkflowJobSecretMask: %v", err)
+	}
+	if err := (actionsecrets.Deps{Pool: pool, Box: box}).Set(ctx, actionsecrets.RepoScope(repoID), "TOKEN", []byte("rotated"), userID); err != nil {
+		t.Fatalf("rotate secret after claim: %v", err)
+	}
 
 	rawLog := []byte("before hunter2 after\n")
 	logBody := fmt.Sprintf(`{"seq":0,"chunk":%q}`, base64.StdEncoding.EncodeToString(rawLog))
