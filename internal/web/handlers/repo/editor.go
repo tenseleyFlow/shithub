@@ -21,8 +21,10 @@ import (
 type codeEditorData struct {
 	Title       string
 	CSRFToken   string
+	Viewer      middleware.CurrentUser
 	Owner       string
 	Repo        any
+	Org         any
 	Ref         string
 	RefDisplay  string
 	BaseOID     string
@@ -42,9 +44,14 @@ type codeEditorData struct {
 	Notice      string
 	IsMarkdown  bool
 
-	RepoCounts   any
-	CanSettings  bool
-	ActiveSubnav string
+	OGTitle           string
+	OGDescription     string
+	OGImage           string
+	GlobalSearchQuery string
+	RepoActions       repoActionView
+	RepoCounts        repoSubnavData
+	CanSettings       bool
+	ActiveSubnav      string
 }
 
 func (h *Handlers) codeEditForm(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +305,7 @@ func (h *Handlers) codeMarkdownPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) editorData(r *http.Request, cc *codeContext, mode, pathValue, content string) codeEditorData {
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	head, headFound, _ := repogit.CommitAt(r.Context(), cc.gitDir, cc.ref)
 	baseOID := ""
 	if headFound {
@@ -346,6 +354,7 @@ func (h *Handlers) editorData(r *http.Request, cc *codeContext, mode, pathValue,
 	return codeEditorData{
 		Title:        titleVerb + " · " + cc.row.Name,
 		CSRFToken:    middleware.CSRFTokenForRequest(r),
+		Viewer:       viewer,
 		Owner:        cc.owner,
 		Repo:         cc.row,
 		Ref:          cc.ref,
@@ -363,17 +372,26 @@ func (h *Handlers) editorData(r *http.Request, cc *codeContext, mode, pathValue,
 		Message:      message,
 		Primary:      primary,
 		IsMarkdown:   hasExt(strings.ToLower(pathValue), []string{".md", ".markdown"}),
+		RepoActions:  h.repoActions(r, cc.row.ID),
 		RepoCounts:   h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
-		CanSettings:  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		CanSettings:  h.canViewSettings(viewer),
 		ActiveSubnav: "code",
 	}
 }
 
 func (h *Handlers) renderEditor(w http.ResponseWriter, r *http.Request, data codeEditorData, status int) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if status != http.StatusOK {
 		w.WriteHeader(status)
 	}
-	h.d.Render.RenderPage(w, r, "repo/editor", data)
+	if err := h.d.Render.RenderPage(w, r, "repo/editor", data); err != nil {
+		if h.d.Logger != nil {
+			h.d.Logger.ErrorContext(r.Context(), "code: render editor", "error", err, "mode", data.Mode, "owner", data.Owner, "path", data.Path)
+		}
+		if status == http.StatusOK {
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		}
+	}
 }
 
 func (h *Handlers) renderWebEditError(w http.ResponseWriter, r *http.Request, data codeEditorData, err error) {
