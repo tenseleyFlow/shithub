@@ -38,6 +38,7 @@ type Job struct {
 	HeadSHA        string
 	HeadRef        string
 	Event          string
+	EventPayload   map[string]any
 	JobKey         string
 	JobName        string
 	RunsOn         string
@@ -49,6 +50,7 @@ type Job struct {
 	Steps          []Step
 	WorkspaceDir   string
 	Image          string
+	MaskValues     []string
 }
 
 type Step struct {

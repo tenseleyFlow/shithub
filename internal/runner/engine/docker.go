@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/actions/expr"
+	runnerexec "github.com/tenseleyFlow/shithub/internal/runner/exec"
+	"github.com/tenseleyFlow/shithub/internal/runner/scrub"
 )
 
 var (
@@ -47,6 +52,7 @@ type DockerConfig struct {
 	Stdout           io.Writer
 	Stderr           io.Writer
 	Runner           CommandRunner
+	MaskValues       []string
 }
 
 type Docker struct {
@@ -149,7 +155,7 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	if err != nil {
 		return err
 	}
-	writer := d.newStepLogWriter(ctx, job.ID, step.ID)
+	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
 	out := io.MultiWriter(d.cfg.Stdout, writer)
 	errOut := io.MultiWriter(d.cfg.Stderr, writer)
 	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, args, out, errOut); err != nil {
@@ -176,6 +182,15 @@ func (d *Docker) dockerArgs(job Job, step Step) ([]string, error) {
 	if image == "" {
 		return nil, errors.New("runner engine: image is required")
 	}
+	rendered, err := runnerexec.RenderStep(runnerexec.StepInput{
+		Run:     step.Run,
+		JobEnv:  job.Env,
+		StepEnv: step.Env,
+		Context: expressionContext(job),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runner engine: render step %q: %w", stepLabel(step), err)
+	}
 	args := []string{
 		"run",
 		"--rm",
@@ -185,15 +200,31 @@ func (d *Docker) dockerArgs(job Job, step Step) ([]string, error) {
 		"--workdir=" + workdir,
 		"-v", job.WorkspaceDir + ":/workspace",
 	}
-	env, err := mergeEnv(job.Env, step.Env)
+	env, err := validateEnv(rendered.Env)
 	if err != nil {
 		return nil, err
 	}
 	for _, key := range sortedKeys(env) {
 		args = append(args, "-e", key+"="+env[key])
 	}
-	args = append(args, image, "bash", "-c", step.Run)
+	args = append(args, image, "bash", "-c", rendered.Run)
 	return args, nil
+}
+
+func expressionContext(job Job) expr.Context {
+	event := job.EventPayload
+	if len(event) == 0 && strings.TrimSpace(job.Event) != "" && json.Valid([]byte(job.Event)) {
+		_ = json.Unmarshal([]byte(job.Event), &event)
+	}
+	return expr.Context{
+		Shithub: expr.ShithubContext{
+			Event: event,
+			RunID: fmt.Sprintf("%d", job.RunID),
+			SHA:   job.HeadSHA,
+			Ref:   job.HeadRef,
+		},
+		Untrusted: expr.DefaultUntrusted(),
+	}
 }
 
 func (d *Docker) StreamLogs(_ context.Context, jobID int64) (<-chan LogChunk, error) {
@@ -280,7 +311,7 @@ func (d *Docker) emitStepOutcome(ctx context.Context, jobID int64, step StepOutc
 	}
 }
 
-func (d *Docker) newStepLogWriter(ctx context.Context, jobID, stepID int64) *stepLogWriter {
+func (d *Docker) newStepLogWriter(ctx context.Context, jobID, stepID int64, jobMasks []string) *stepLogWriter {
 	w := &stepLogWriter{
 		ctx:      ctx,
 		ch:       d.logStream(jobID),
@@ -290,6 +321,7 @@ func (d *Docker) newStepLogWriter(ctx context.Context, jobID, stepID int64) *ste
 		maxChunk: d.cfg.LogChunkBytes,
 		interval: d.cfg.LogFlushInterval,
 		limit:    d.cfg.StepLogLimit,
+		masker:   scrub.New(append(append([]string{}, d.cfg.MaskValues...), jobMasks...)),
 		done:     make(chan struct{}),
 	}
 	go w.flushLoop()
@@ -308,6 +340,7 @@ type stepLogWriter struct {
 	limit     int64
 	written   int64
 	truncated bool
+	masker    *scrub.Scrubber
 	buf       []byte
 	done      chan struct{}
 	once      sync.Once
@@ -337,6 +370,7 @@ func (w *stepLogWriter) Close() error {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		_ = w.flushLocked()
+		_ = w.flushMaskerLocked()
 		w.closed = true
 	})
 	return nil
@@ -392,6 +426,27 @@ func (w *stepLogWriter) flushLocked() error {
 }
 
 func (w *stepLogWriter) emitLocked(chunk []byte) error {
+	if w.masker != nil {
+		chunk = w.masker.Scrub(chunk)
+		if len(chunk) == 0 {
+			return nil
+		}
+	}
+	return w.emitChunkLocked(chunk)
+}
+
+func (w *stepLogWriter) flushMaskerLocked() error {
+	if w.masker == nil {
+		return nil
+	}
+	chunk := w.masker.Flush()
+	if len(chunk) == 0 {
+		return nil
+	}
+	return w.emitChunkLocked(chunk)
+}
+
+func (w *stepLogWriter) emitChunkLocked(chunk []byte) error {
 	copied := LogChunk{JobID: w.jobID, StepID: w.stepID, Seq: w.seq, Chunk: append([]byte(nil), chunk...)}
 	if w.ch != nil {
 		select {
@@ -439,15 +494,9 @@ func containerWorkdir(wd string) (string, error) {
 
 var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func mergeEnv(jobEnv, stepEnv map[string]string) (map[string]string, error) {
-	out := make(map[string]string, len(jobEnv)+len(stepEnv))
-	for k, v := range jobEnv {
-		if !envNameRE.MatchString(k) {
-			return nil, fmt.Errorf("runner engine: invalid env name %q", k)
-		}
-		out[k] = v
-	}
-	for k, v := range stepEnv {
+func validateEnv(env map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
 		if !envNameRE.MatchString(k) {
 			return nil, fmt.Errorf("runner engine: invalid env name %q", k)
 		}

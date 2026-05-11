@@ -893,6 +893,7 @@ type runnerJobPayload struct {
 	HeadSHA        string          `json:"head_sha"`
 	HeadRef        string          `json:"head_ref"`
 	Event          string          `json:"event"`
+	EventPayload   json.RawMessage `json:"event_payload"`
 	JobKey         string          `json:"job_key"`
 	JobName        string          `json:"job_name"`
 	RunsOn         string          `json:"runs_on"`
@@ -953,6 +954,7 @@ func presentRunnerClaim(
 			HeadSHA:        job.HeadSha,
 			HeadRef:        job.HeadRef,
 			Event:          string(job.Event),
+			EventPayload:   rawJSONOrObject(job.EventPayload),
 			JobKey:         job.JobKey,
 			JobName:        job.JobName,
 			RunsOn:         job.RunsOn,

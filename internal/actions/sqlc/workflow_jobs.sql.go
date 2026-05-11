@@ -50,7 +50,7 @@ SELECT c.id, c.run_id, c.job_index, c.job_key, c.job_name, c.runs_on,
        c.cancel_requested, c.started_at, c.completed_at, c.version,
        c.created_at, c.updated_at,
        r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
-       r.head_sha, r.head_ref, r.event
+       r.head_sha, r.head_ref, r.event, r.event_payload
 FROM claimed c
 JOIN workflow_runs r ON r.id = c.run_id
 `
@@ -88,6 +88,7 @@ type ClaimQueuedWorkflowJobRow struct {
 	HeadSha         string
 	HeadRef         string
 	Event           WorkflowRunEvent
+	EventPayload    []byte
 }
 
 func (q *Queries) ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error) {
@@ -121,6 +122,7 @@ func (q *Queries) ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg Claim
 		&i.HeadSha,
 		&i.HeadRef,
 		&i.Event,
+		&i.EventPayload,
 	)
 	return i, err
 }

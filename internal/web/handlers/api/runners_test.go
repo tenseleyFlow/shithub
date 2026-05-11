@@ -61,10 +61,11 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	var resp struct {
 		Token string `json:"token"`
 		Job   struct {
-			ID     int64 `json:"id"`
-			RunID  int64 `json:"run_id"`
-			RepoID int64 `json:"repo_id"`
-			Steps  []struct {
+			ID           int64          `json:"id"`
+			RunID        int64          `json:"run_id"`
+			RepoID       int64          `json:"repo_id"`
+			EventPayload map[string]any `json:"event_payload"`
+			Steps        []struct {
 				Run  string `json:"run"`
 				Uses string `json:"uses"`
 			} `json:"steps"`
@@ -78,6 +79,9 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	}
 	if resp.Job.RunID != runID || resp.Job.RepoID != repoID || len(resp.Job.Steps) != 2 {
 		t.Fatalf("unexpected job payload: %+v", resp.Job)
+	}
+	if resp.Job.EventPayload["ref"] != "refs/heads/trunk" {
+		t.Fatalf("event payload not returned to runner: %#v", resp.Job.EventPayload)
 	}
 	claims, err := signer.Verify(resp.Token)
 	if err != nil {
