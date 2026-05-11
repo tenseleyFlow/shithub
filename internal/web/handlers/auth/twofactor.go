@@ -137,7 +137,7 @@ func (h *Handlers) twoFactorChallengeSubmit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	dest := "/"
+	dest := defaultPostLoginPath
 	if next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
 		dest = next
 	}

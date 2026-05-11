@@ -338,6 +338,8 @@ type loginForm struct {
 	Username string
 }
 
+const defaultPostLoginPath = "/explore"
+
 func (h *Handlers) loginUser(ctx context.Context, identifier string) (usersdb.User, error) {
 	if strings.Contains(identifier, "@") {
 		em, err := h.q.GetUserEmailByAddress(ctx, h.d.Pool, identifier)
@@ -489,7 +491,7 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dest := "/"
+	dest := defaultPostLoginPath
 	if next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
 		// dest is constrained to single-leading-slash relative paths above,
 		// which prevents the protocol-relative ("//evil.com") form gosec warns about.

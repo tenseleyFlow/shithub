@@ -7,9 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/version"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -19,7 +16,6 @@ type helloHandler struct {
 	render  *render.Renderer
 	logoSVG string
 	logger  *slog.Logger
-	pool    *pgxpool.Pool
 }
 
 type helloData struct {
@@ -54,11 +50,6 @@ type helloData struct {
 
 func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	if viewer.ID != 0 && h.pool != nil {
-		h.serveDashboard(w, r, viewer)
-		return
-	}
-
 	data := helloData{
 		Title:     "Welcome",
 		Version:   version.Version,
@@ -71,41 +62,6 @@ func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.render.RenderPage(w, r, "hello", data); err != nil {
 		h.logger.Error("render hello", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-	}
-}
-
-func (h helloHandler) serveDashboard(w http.ResponseWriter, r *http.Request, viewer middleware.CurrentUser) {
-	deps := social.Deps{Pool: h.pool, Logger: h.logger}
-	feed, hasNext, nextURL := feedPageFor(r, func(cursor social.FeedCursor, limit int32) ([]social.FeedItem, error) {
-		return social.DashboardFeed(r.Context(), deps, viewer.ID, cursor, limit)
-	})
-	repos, err := social.DashboardRepos(r.Context(), deps, viewer.ID, 8)
-	if err != nil && h.logger != nil {
-		h.logger.WarnContext(r.Context(), "dashboard repos", "error", err)
-	}
-	trendingRepos, err := social.CachedTrendingRepos(r.Context(), deps, social.TrendingScopeWeek, 7, 5)
-	if err != nil && h.logger != nil {
-		h.logger.WarnContext(r.Context(), "dashboard trending repos", "error", err)
-	}
-	trendingUsers, err := social.CachedTrendingUsers(r.Context(), deps, social.TrendingScopeWeek, 7, 5)
-	if err != nil && h.logger != nil {
-		h.logger.WarnContext(r.Context(), "dashboard trending users", "error", err)
-	}
-
-	data := map[string]any{
-		"Title":         "Home",
-		"TopRepos":      repos,
-		"Feed":          feed,
-		"FeedHasNext":   hasNext,
-		"FeedNextURL":   nextURL,
-		"TrendingRepos": trendingRepos,
-		"TrendingUsers": trendingUsers,
-	}
-	if err := h.render.RenderPage(w, r, "dashboard", data); err != nil {
-		if h.logger != nil {
-			h.logger.Error("render dashboard", "error", err)
-		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }

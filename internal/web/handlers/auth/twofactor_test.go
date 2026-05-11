@@ -160,8 +160,8 @@ func TestTwoFactor_Enroll_Logout_Login_Challenge_FullSession(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("2fa challenge: %d body=%s", resp.StatusCode, body)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/" {
-		t.Fatalf("expected / after challenge, got %q", loc)
+	if loc := resp.Header.Get("Location"); loc != "/explore" {
+		t.Fatalf("expected /explore after challenge, got %q", loc)
 	}
 	_ = resp.Body.Close()
 }

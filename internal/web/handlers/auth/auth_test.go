@@ -391,8 +391,8 @@ func TestSignup_Verify_Login_Logout(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("verified login: status %d body=%s", resp.StatusCode, body)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/" {
-		t.Fatalf("login redirect: %q, want /", loc)
+	if loc := resp.Header.Get("Location"); loc != "/explore" {
+		t.Fatalf("login redirect: %q, want /explore", loc)
 	}
 	_ = resp.Body.Close()
 
@@ -425,8 +425,8 @@ func TestLogin_AcceptsEmailAddress(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("email login: status %d body=%s", resp.StatusCode, body)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/" {
-		t.Fatalf("email login redirect: %q, want /", loc)
+	if loc := resp.Header.Get("Location"); loc != "/explore" {
+		t.Fatalf("email login redirect: %q, want /explore", loc)
 	}
 	_ = resp.Body.Close()
 }
