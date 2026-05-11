@@ -427,15 +427,6 @@ func TestContainerWorkdirRejectsEscapes(t *testing.T) {
 	}
 }
 
-func containsArg(args []string, want string) bool {
-	for _, arg := range args {
-		if arg == want {
-			return true
-		}
-	}
-	return false
-}
-
 func containsFlagValue(args []string, flag, value string) bool {
 	for i, arg := range args {
 		if arg == flag && i+1 < len(args) && args[i+1] == value {

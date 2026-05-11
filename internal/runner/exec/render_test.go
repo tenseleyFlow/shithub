@@ -87,26 +87,26 @@ func TestRenderStep_EnvTaintPropagatesToRunExpressions(t *testing.T) {
 func TestRenderStep_EnvSensitivityPropagatesToRunExpressions(t *testing.T) {
 	t.Parallel()
 	ctx := expr.Context{
-		Secrets:   map[string]string{"TOKEN": "hunter2"},
+		Secrets:   map[string]string{"PRIVATE": "from-context"},
 		Untrusted: expr.DefaultUntrusted(),
 	}
 	got, err := RenderStep(StepInput{
 		Context: ctx,
 		JobEnv: map[string]string{
-			"TOKEN": "${{ secrets.TOKEN }}",
+			"PRIVATE": "${{ secrets.PRIVATE }}",
 		},
-		Run: "echo ${{ env.TOKEN }}",
+		Run: "echo ${{ env.PRIVATE }}",
 	})
 	if err != nil {
 		t.Fatalf("RenderStep: %v", err)
 	}
-	if got.Env["TOKEN"] != "hunter2" || !got.EnvSensitive["TOKEN"] {
+	if got.Env["PRIVATE"] != "from-context" || !got.EnvSensitive["PRIVATE"] {
 		t.Fatalf("env/sensitive: env=%#v sensitive=%#v", got.Env, got.EnvSensitive)
 	}
 	if got.Run != "echo ${SHITHUB_INPUT_0}" {
 		t.Fatalf("run: %q", got.Run)
 	}
-	if got.Env["SHITHUB_INPUT_0"] != "hunter2" {
+	if got.Env["SHITHUB_INPUT_0"] != "from-context" {
 		t.Fatalf("input binding: %#v", got.Env)
 	}
 }
@@ -163,23 +163,23 @@ func TestRenderStep_StepEnvOverrideClearsJobEnvTaint(t *testing.T) {
 func TestRenderStep_StepEnvOverrideClearsJobEnvSensitivity(t *testing.T) {
 	t.Parallel()
 	ctx := expr.Context{
-		Secrets:   map[string]string{"TOKEN": "hunter2"},
+		Secrets:   map[string]string{"PRIVATE": "from-context"},
 		Untrusted: expr.DefaultUntrusted(),
 	}
 	got, err := RenderStep(StepInput{
 		Context: ctx,
 		JobEnv: map[string]string{
-			"TOKEN": "${{ secrets.TOKEN }}",
+			"PRIVATE": "${{ secrets.PRIVATE }}",
 		},
 		StepEnv: map[string]string{
-			"TOKEN": "trusted",
+			"PRIVATE": "trusted",
 		},
-		Run: "echo ${{ env.TOKEN }}",
+		Run: "echo ${{ env.PRIVATE }}",
 	})
 	if err != nil {
 		t.Fatalf("RenderStep: %v", err)
 	}
-	if got.EnvSensitive["TOKEN"] {
+	if got.EnvSensitive["PRIVATE"] {
 		t.Fatalf("step override should clear sensitivity: %#v", got.EnvSensitive)
 	}
 	if got.Run != "echo trusted" {
