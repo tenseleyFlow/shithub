@@ -4788,20 +4788,21 @@ button.shithub-repo-action {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  align-self: stretch;
+  align-self: center;
   margin-left: auto;
 }
 .shithub-readme-head-actions .shithub-button-icon,
 .shithub-readme-outline > summary {
   box-sizing: border-box;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 32px;
   width: 32px;
   min-width: 32px;
   height: 32px;
   padding: 0;
-  line-height: 0;
+  line-height: 1;
 }
 .shithub-readme-head-actions svg {
   display: block;
@@ -4833,10 +4834,13 @@ button.shithub-repo-action {
 .shithub-readme-outline {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   position: relative;
   flex: 0 0 auto;
+  width: 32px;
   height: 32px;
   margin: 0;
+  align-self: center;
 }
 .shithub-readme-outline > summary {
   margin: 0;
@@ -4846,6 +4850,8 @@ button.shithub-repo-action {
   background: transparent;
   cursor: pointer;
   list-style: none;
+  appearance: none;
+  -webkit-appearance: none;
 }
 .shithub-readme-outline > summary::marker {
   content: "";
