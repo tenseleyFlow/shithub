@@ -23,8 +23,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 )
 
-const actionsRunsPageSize = int32(20)
-const actionsStepLogRenderLimit = 1 << 20
+const (
+	actionsRunsPageSize       = int32(20)
+	actionsStepLogRenderLimit = 1 << 20
+)
 
 type actionsWorkflowView struct {
 	File   string

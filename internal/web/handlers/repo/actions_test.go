@@ -407,7 +407,8 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 		conclusion = actionsdb.NullCheckConclusion{CheckConclusion: fx.Conclusion, Valid: true}
 	}
 	var id int64
-	err := f.pool.QueryRow(context.Background(), `
+	err := f.pool.QueryRow(
+		context.Background(), `
 		INSERT INTO workflow_runs (
 			repo_id, run_index, workflow_file, workflow_name,
 			head_sha, head_ref, event, event_payload, actor_user_id,
@@ -483,7 +484,8 @@ func (f *repoFixture) insertWorkflowJob(t *testing.T, fx workflowJobFixture) int
 		runnerID = pgtype.Int8{Int64: f.insertWorkflowRunner(t), Valid: true}
 	}
 	var id int64
-	err := f.pool.QueryRow(context.Background(), `
+	err := f.pool.QueryRow(
+		context.Background(), `
 		INSERT INTO workflow_jobs (
 			run_id, job_index, job_key, job_name, runs_on, needs_jobs,
 			runner_id, status, conclusion, started_at, completed_at
@@ -513,7 +515,8 @@ func (f *repoFixture) insertWorkflowJob(t *testing.T, fx workflowJobFixture) int
 func (f *repoFixture) insertWorkflowRunner(t *testing.T) int64 {
 	t.Helper()
 	var id int64
-	err := f.pool.QueryRow(context.Background(), `
+	err := f.pool.QueryRow(
+		context.Background(), `
 		INSERT INTO workflow_runners (name, labels, status)
 		VALUES ($1, ARRAY['ubuntu-latest']::text[], 'busy')
 		RETURNING id`,
@@ -560,7 +563,8 @@ func (f *repoFixture) insertWorkflowStep(t *testing.T, fx workflowStepFixture) i
 		completedAt = pgtype.Timestamptz{Time: fx.CompletedAt, Valid: true}
 	}
 	var id int64
-	err := f.pool.QueryRow(context.Background(), `
+	err := f.pool.QueryRow(
+		context.Background(), `
 		INSERT INTO workflow_steps (
 			job_id, step_index, step_name, run_command, uses_alias,
 			status, conclusion, started_at, completed_at
