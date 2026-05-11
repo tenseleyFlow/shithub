@@ -7,17 +7,6 @@
         <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
       </a>
     </div>
-    <nav class="shithub-org-nav" aria-label="Organization">
-      <a href="/{{ .Org.Slug }}" class="shithub-org-nav-item">{{ octicon "home" }} Overview</a>
-      <a href="/orgs/{{ .Org.Slug }}/repositories" class="shithub-org-nav-item">{{ octicon "repo" }} Repositories</a>
-      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "table" }} Projects</span>
-      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "package" }} Packages</span>
-      <a href="/{{ .Org.Slug }}/teams" class="shithub-org-nav-item">{{ octicon "people" }} Teams</a>
-      <a href="/{{ .Org.Slug }}/people" class="shithub-org-nav-item">{{ octicon "person" }} People</a>
-      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
-      <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
-      <a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item is-active" aria-current="page">{{ octicon "gear" }} Settings</a>
-    </nav>
   </header>
 
   <div class="shithub-org-settings-layout">

@@ -80,6 +80,46 @@ func TestProductionTemplatesPartialsTolerateEmptyData(t *testing.T) {
 	}
 }
 
+func TestOrgPagesRenderSingleSharedOrgNav(t *testing.T) {
+	t.Parallel()
+	r, err := render.New(TemplatesFS(), render.Options{})
+	if err != nil {
+		t.Fatalf("render.New: %v", err)
+	}
+	data := map[string]any{
+		"Title":         "Organization",
+		"Org":           map[string]any{"Slug": "gardesk", "DisplayName": "gardesk"},
+		"AvatarURL":     "/avatars/gardesk",
+		"ActiveOrgNav":  "repositories",
+		"RepoCount":     5,
+		"FilteredCount": 5,
+		"PageCount":     1,
+		"MemberCount":   1,
+		"IsOwner":       true,
+		"Form": map[string]any{
+			"DisplayName":           "gardesk",
+			"Description":           "",
+			"Website":               "",
+			"Location":              "",
+			"BillingEmail":          "",
+			"AllowMemberRepoCreate": true,
+		},
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	for _, page := range []string{"orgs/repositories", "orgs/settings_profile"} {
+		t.Run(page, func(t *testing.T) {
+			t.Parallel()
+			rw := httptest.NewRecorder()
+			if err := r.RenderPage(rw, req, page, data); err != nil {
+				t.Fatalf("RenderPage: %v", err)
+			}
+			if got := strings.Count(rw.Body.String(), `<nav class="shithub-org-nav"`); got != 1 {
+				t.Fatalf("org nav count = %d, want 1", got)
+			}
+		})
+	}
+}
+
 // errorOriginatesInPartial returns true when an html/template execute
 // error blames a file whose basename starts with `_`. Errors from such
 // files are bugs in the partial because we render with an empty map
