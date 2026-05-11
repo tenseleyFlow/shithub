@@ -35,6 +35,7 @@ backstop poll (every 5s by default) covers dropped notifications.
 | `push:process`         | post-receive hook per ref            | `push_events.processed_at` |
 | `repo:size_recalc`     | enqueued by `push:process`           | overwrite-last-wins        |
 | `jobs:purge_completed` | future cron / manual ad-hoc          | always safe to re-run      |
+| `trending:compute`     | recurring self-scheduled S42 job     | append-only snapshots      |
 
 Adding a new kind: write the handler in `internal/worker/jobs/<kind>.go`,
 add the `Kind` constant to `internal/worker/types.go`, register it in

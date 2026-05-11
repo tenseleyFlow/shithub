@@ -84,12 +84,12 @@ incrementally; we don't want a migration per kind.
 
 ### Public-flag policy
 
-* Public-repo events → `public = true`. Activity feed (post-MVP)
-  surfaces these in public timelines.
+* Public-repo events → `public = true`. S42's Home and Explore feeds
+  surface these in authenticated and public timelines.
 * Private-repo events → `public = false`. Visible only to repo
   collaborators via per-row visibility checks at read time.
-* User-scoped events (e.g. profile-edit, post-MVP) → follows the
-  user's profile-visibility setting.
+* User-scoped events (e.g. follow events) → public only when the action
+  is safe to expose on the public timeline.
 
 The handler/orchestrator is the source of truth for the public flag
 — `social.Star` reads `repo.visibility` and passes the bool through.
@@ -128,8 +128,8 @@ manipulation.
   both.
 * **S32 (settings UI):** wire `AutoWatchOnCollab` into the
   collaborator-add path.
-* **Activity feed (post-MVP):** read public events sliced by repo
-  or by actor.
+* **S42 (social feed):** read public events for Home/Explore and cached
+  trending rankings.
 
 ## What S11 promised but didn't ship
 
