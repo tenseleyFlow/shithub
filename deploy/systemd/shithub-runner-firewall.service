@@ -1,0 +1,14 @@
+[Unit]
+Description=shithub Actions runner firewall
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+Before=shithubd-runner.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/shithub-runner-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

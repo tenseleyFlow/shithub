@@ -1,0 +1,26 @@
+#!/bin/sh
+# Managed by Ansible. Enforces deny-by-default egress for the Actions bridge.
+set -eu
+
+IPSET="{{ shithub_runner_ipset_name }}"
+CHAIN="SHITHUB_ACTIONS_EGRESS"
+SUBNET="{{ shithub_runner_network_subnet }}"
+DNS="{{ shithub_runner_network_gateway }}"
+
+IPSET_BIN="${IPSET_BIN:-ipset}"
+IPTABLES="${IPTABLES:-iptables}"
+
+"$IPSET_BIN" create "$IPSET" hash:ip family inet timeout 86400 -exist
+
+"$IPTABLES" -w -N "$CHAIN" 2>/dev/null || true
+"$IPTABLES" -w -F "$CHAIN"
+"$IPTABLES" -w -A "$CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -d "$DNS" -p udp --dport 53 -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -d "$DNS" -p tcp --dport 53 -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -m set --match-set "$IPSET" dst -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -j REJECT
+
+while "$IPTABLES" -w -D FORWARD -s "$SUBNET" -j "$CHAIN" 2>/dev/null; do
+    :
+done
+"$IPTABLES" -w -I FORWARD 1 -s "$SUBNET" -j "$CHAIN"
