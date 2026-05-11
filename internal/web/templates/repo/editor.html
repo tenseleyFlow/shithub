@@ -1,24 +1,35 @@
 {{ define "page" -}}
-<section class="shithub-repo-page">
-  {{ template "repo-header" . }}
-
-  <main class="shithub-editor" data-code-editor>
-    <header class="shithub-editor-head">
-      <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
-        {{ range $i, $c := .Crumbs }}
-          {{ if $i }}<span class="shithub-code-sep">/</span>{{ end }}
-          <a href="{{ $c.URL }}">{{ $c.Name }}</a>
-        {{ end }}
-      </nav>
-      <span class="shithub-editor-ref">{{ octicon "git-branch" }} {{ .RefDisplay }}</span>
-    </header>
-
+<section class="shithub-repo-page shithub-editor-page">
+  <main class="shithub-editor" data-code-editor data-editor-mode="{{ .Mode }}">
     {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
     {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
 
     <form method="post" action="{{ .FormAction }}" class="shithub-editor-form"{{ if eq .Mode "upload" }} enctype="multipart/form-data"{{ end }}>
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
       <input type="hidden" name="base_oid" value="{{ .BaseOID }}">
+
+      <header class="shithub-editor-filebar">
+        <div class="shithub-editor-filepath">
+          <span class="shithub-editor-file-icon" aria-hidden="true">{{ octicon "file" }}</span>
+          <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-editor-repo-name">{{ .Repo.Name }}</a>
+          {{ if eq .Mode "upload" }}
+          <span class="shithub-code-sep">/</span>
+          <span class="shithub-editor-static-path">Upload files</span>
+          {{ else if eq .Mode "delete" }}
+          <span class="shithub-code-sep">/</span>
+          <span class="shithub-editor-static-path">{{ .Path }}</span>
+          {{ else }}
+          <span class="shithub-code-sep">/</span>
+          <input type="text" name="path" value="{{ .PathValue }}" aria-label="File path" autocomplete="off" spellcheck="false" data-editor-path>
+          {{ end }}
+          <span class="shithub-editor-in">in</span>
+          <span class="shithub-editor-branch">{{ .RefDisplay }}</span>
+        </div>
+        <div class="shithub-editor-top-actions">
+          <a href="{{ .CancelURL }}" class="shithub-button shithub-button-large" data-editor-cancel>Cancel changes</a>
+          <button type="button" class="shithub-button shithub-button-primary shithub-button-large" data-editor-commit-open disabled>{{ .Primary }}...</button>
+        </div>
+      </header>
 
       {{ if eq .Mode "upload" }}
       <section class="shithub-editor-panel">
@@ -42,21 +53,53 @@
         <p>This commit removes <code>{{ .Path }}</code> from <code>{{ .RefDisplay }}</code>.</p>
       </section>
       {{ else }}
-      <label class="shithub-editor-path-row">
-        <span>Name your file...</span>
-        <input type="text" name="path" value="{{ .PathValue }}" autocomplete="off" spellcheck="false" data-editor-path>
-      </label>
-
       <section class="shithub-editor-panel">
-        <div class="shithub-editor-tabs" role="tablist" aria-label="File editor tabs">
-          <button type="button" class="is-active" role="tab" aria-selected="true" data-editor-tab="edit">{{ octicon "code" }} Edit file</button>
-          <button type="button" role="tab" aria-selected="false" data-editor-tab="preview">{{ octicon "eye" }} Preview</button>
+        <div class="shithub-editor-toolbar">
+          <div class="shithub-editor-tabs" role="tablist" aria-label="File editor tabs">
+            <button type="button" class="is-active" role="tab" aria-selected="true" data-editor-tab="edit">Edit</button>
+            <button type="button" role="tab" aria-selected="false" data-editor-tab="preview">Preview</button>
+          </div>
+          <div class="shithub-editor-tools" data-editor-edit-tools>
+            <details class="shithub-editor-menu" data-editor-menu>
+              <summary><span data-indent-mode-label>Spaces</span>{{ octicon "triangle-down" }}</summary>
+              <div class="shithub-editor-menu-panel" role="menu">
+                <strong>Indent mode</strong>
+                <button type="button" class="is-selected" data-indent-mode-option="spaces" role="menuitemradio" aria-checked="true"><span class="shithub-editor-menu-check" aria-hidden="true"></span>Spaces</button>
+                <button type="button" data-indent-mode-option="tabs" role="menuitemradio" aria-checked="false"><span class="shithub-editor-menu-check" aria-hidden="true"></span>Tabs</button>
+              </div>
+            </details>
+            <details class="shithub-editor-menu" data-editor-menu>
+              <summary><span data-indent-size-label>2</span>{{ octicon "triangle-down" }}</summary>
+              <div class="shithub-editor-menu-panel" role="menu">
+                <strong>Indent size</strong>
+                <button type="button" class="is-selected" data-indent-size-option="2" role="menuitemradio" aria-checked="true"><span class="shithub-editor-menu-check" aria-hidden="true"></span>2</button>
+                <button type="button" data-indent-size-option="4" role="menuitemradio" aria-checked="false"><span class="shithub-editor-menu-check" aria-hidden="true"></span>4</button>
+                <button type="button" data-indent-size-option="8" role="menuitemradio" aria-checked="false"><span class="shithub-editor-menu-check" aria-hidden="true"></span>8</button>
+              </div>
+            </details>
+            <details class="shithub-editor-menu" data-editor-menu>
+              <summary><span data-wrap-label>Soft wrap</span>{{ octicon "triangle-down" }}</summary>
+              <div class="shithub-editor-menu-panel shithub-editor-menu-panel-wide" role="menu">
+                <strong>Line wrap mode</strong>
+                <button type="button" data-wrap-option="off" role="menuitemradio" aria-checked="false"><span class="shithub-editor-menu-check" aria-hidden="true"></span>No wrap</button>
+                <button type="button" class="is-selected" data-wrap-option="soft" role="menuitemradio" aria-checked="true"><span class="shithub-editor-menu-check" aria-hidden="true"></span>Soft wrap</button>
+              </div>
+            </details>
+          </div>
+          <label class="shithub-editor-diff-toggle" data-editor-preview-tools hidden>
+            <input type="checkbox" checked data-editor-show-diff>
+            <span>Show Diff</span>
+          </label>
         </div>
         <div class="shithub-editor-pane" data-editor-pane="edit">
           <div class="shithub-editor-textbox">
             <pre class="shithub-editor-gutter" aria-hidden="true" data-editor-gutter>1</pre>
             <textarea name="content" spellcheck="false" autocomplete="off" autocapitalize="off" data-editor-content>{{ .Content }}</textarea>
           </div>
+          <div class="shithub-editor-helpbar">
+            Use <kbd>Control + Shift + m</kbd> to toggle the <kbd>tab</kbd> key moving focus. Alternatively, use <kbd>esc</kbd> then <kbd>tab</kbd> to move to the next interactive element on the page.
+          </div>
+          <div class="shithub-editor-attach">Attach files by dragging & dropping, selecting or pasting them.</div>
         </div>
         <div class="shithub-editor-pane shithub-editor-preview" data-editor-pane="preview" hidden>
           <div class="markdown-body shithub-editor-preview-body" data-editor-preview data-preview-url="{{ .PreviewURL }}" data-preview-ref="{{ .Ref }}">
@@ -66,8 +109,11 @@
       </section>
       {{ end }}
 
-      <section class="shithub-commit-box">
-        <h2>Commit changes</h2>
+      <dialog class="shithub-commit-dialog" data-editor-commit-dialog>
+        <div class="shithub-commit-dialog-head">
+          <h2>Commit changes</h2>
+          <button type="button" class="shithub-commit-dialog-close" aria-label="Close" data-editor-commit-close>{{ octicon "x" }}</button>
+        </div>
         <label class="shithub-form-row">
           <span>Commit message</span>
           <input type="text" name="commit_message" value="{{ .Message }}" required>
@@ -78,10 +124,10 @@
         </label>
         <div class="shithub-commit-target">{{ octicon "git-commit" }} Commit directly to the <strong>{{ .RefDisplay }}</strong> branch.</div>
         <div class="shithub-form-actions">
-          <a href="{{ .CancelURL }}" class="shithub-button" data-editor-cancel>Cancel</a>
-          <button type="submit" class="shithub-button{{ if eq .Mode "delete" }} shithub-button-danger{{ else }} shithub-button-primary{{ end }}">{{ .Primary }}</button>
+          <button type="button" class="shithub-button" data-editor-commit-close>Cancel</button>
+          <button type="submit" class="shithub-button{{ if eq .Mode "delete" }} shithub-button-danger{{ else }} shithub-button-primary{{ end }}" data-editor-commit-submit>{{ .Primary }}</button>
         </div>
-      </section>
+      </dialog>
     </form>
   </main>
 </section>
@@ -94,8 +140,19 @@
   const gutter = root.querySelector("[data-editor-gutter]");
   const pathInput = root.querySelector("[data-editor-path]");
   const preview = root.querySelector("[data-editor-preview]");
+  const previewTools = root.querySelector("[data-editor-preview-tools]");
+  const editTools = root.querySelector("[data-editor-edit-tools]");
+  const showDiff = root.querySelector("[data-editor-show-diff]");
+  const commitOpen = root.querySelector("[data-editor-commit-open]");
+  const commitSubmit = root.querySelector("[data-editor-commit-submit]");
+  const commitDialog = root.querySelector("[data-editor-commit-dialog]");
+  const commitMessage = root.querySelector("input[name='commit_message']");
   const uploadInput = root.querySelector("[data-upload-input]");
   const uploadList = root.querySelector("[data-upload-list]");
+  const mode = root.dataset.editorMode || "edit";
+  let indentMode = "spaces";
+  let indentSize = 2;
+  let softWrap = true;
   let previewDirty = true;
   let submitting = false;
 
@@ -108,8 +165,42 @@
   }
 
   function dirty() {
-    if (!textarea) return false;
-    return textarea.value !== (textarea.dataset.original || "");
+    if (mode === "delete") return true;
+    if (uploadInput) return uploadInput.files && uploadInput.files.length > 0;
+    const contentChanged = textarea && textarea.value !== (textarea.dataset.original || "");
+    const pathChanged = pathInput && pathInput.value !== (pathInput.dataset.original || "");
+    if (mode === "new") return !!(pathInput && pathInput.value.trim()) && (!!(textarea && textarea.value) || pathChanged);
+    return !!(contentChanged || pathChanged);
+  }
+
+  function updateCommitState() {
+    const changed = dirty();
+    [commitOpen, commitSubmit].forEach(function (button) {
+      if (button) button.disabled = !changed;
+    });
+  }
+
+  function setMenuSelection(selector, value, labelSelector, label) {
+    root.querySelectorAll(selector).forEach(function (button) {
+      const selected = button.dataset.indentModeOption === value || button.dataset.indentSizeOption === value || button.dataset.wrapOption === value;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-checked", selected ? "true" : "false");
+    });
+    const labelEl = root.querySelector(labelSelector);
+    if (labelEl) labelEl.textContent = label;
+  }
+
+  function applyEditorOptions() {
+    if (!textarea) return;
+    textarea.style.tabSize = String(indentSize);
+    gutter.style.tabSize = String(indentSize);
+    root.classList.toggle("is-soft-wrap", softWrap);
+  }
+
+  function closeEditorMenus() {
+    root.querySelectorAll("[data-editor-menu]").forEach(function (menu) {
+      menu.removeAttribute("open");
+    });
   }
 
   async function renderPreview() {
@@ -129,6 +220,25 @@
     previewDirty = false;
   }
 
+  function openCommitDialog() {
+    if (!commitDialog || (commitOpen && commitOpen.disabled)) return;
+    if (commitDialog.showModal) {
+      commitDialog.showModal();
+    } else {
+      commitDialog.setAttribute("open", "");
+    }
+    if (commitMessage) commitMessage.focus();
+  }
+
+  function closeCommitDialog() {
+    if (!commitDialog) return;
+    if (commitDialog.close) {
+      commitDialog.close();
+    } else {
+      commitDialog.removeAttribute("open");
+    }
+  }
+
   root.addEventListener("submit", function () { submitting = true; });
   window.addEventListener("beforeunload", function (event) {
     if (submitting || !dirty()) return;
@@ -138,10 +248,14 @@
 
   if (textarea) {
     textarea.dataset.original = textarea.value;
+    if (pathInput) pathInput.dataset.original = pathInput.value;
     updateGutter();
+    applyEditorOptions();
+    updateCommitState();
     textarea.addEventListener("input", function () {
       updateGutter();
       previewDirty = true;
+      updateCommitState();
     });
     textarea.addEventListener("scroll", function () {
       if (gutter) gutter.scrollTop = textarea.scrollTop;
@@ -151,9 +265,11 @@
       event.preventDefault();
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      textarea.setRangeText("  ", start, end, "end");
+      const insert = indentMode === "tabs" ? "\t" : " ".repeat(indentSize);
+      textarea.setRangeText(insert, start, end, "end");
       updateGutter();
       previewDirty = true;
+      updateCommitState();
     });
   }
 
@@ -168,12 +284,66 @@
       root.querySelectorAll("[data-editor-pane]").forEach(function (pane) {
         pane.hidden = pane.dataset.editorPane !== tab;
       });
+      if (editTools) editTools.hidden = tab !== "edit";
+      if (previewTools) previewTools.hidden = tab !== "preview";
+      if (pathInput) pathInput.readOnly = tab === "preview";
+      root.classList.toggle("is-previewing", tab === "preview");
       if (tab === "preview") renderPreview();
     });
   });
 
   if (pathInput) {
-    pathInput.addEventListener("input", function () { previewDirty = true; });
+    pathInput.dataset.original = pathInput.value;
+    pathInput.addEventListener("input", function () {
+      previewDirty = true;
+      updateCommitState();
+    });
+  }
+
+  root.querySelectorAll("[data-indent-mode-option]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      indentMode = button.dataset.indentModeOption || "spaces";
+      setMenuSelection("[data-indent-mode-option]", indentMode, "[data-indent-mode-label]", indentMode === "tabs" ? "Tabs" : "Spaces");
+      closeEditorMenus();
+    });
+  });
+
+  root.querySelectorAll("[data-indent-size-option]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      indentSize = parseInt(button.dataset.indentSizeOption || "2", 10);
+      setMenuSelection("[data-indent-size-option]", String(indentSize), "[data-indent-size-label]", String(indentSize));
+      applyEditorOptions();
+      closeEditorMenus();
+    });
+  });
+
+  root.querySelectorAll("[data-wrap-option]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      softWrap = button.dataset.wrapOption !== "off";
+      setMenuSelection("[data-wrap-option]", softWrap ? "soft" : "off", "[data-wrap-label]", softWrap ? "Soft wrap" : "No wrap");
+      applyEditorOptions();
+      closeEditorMenus();
+    });
+  });
+
+  if (showDiff) {
+    showDiff.addEventListener("change", function () {
+      if (preview) preview.classList.toggle("is-showing-diff", showDiff.checked);
+    });
+  }
+
+  if (commitOpen) {
+    commitOpen.addEventListener("click", openCommitDialog);
+  }
+
+  root.querySelectorAll("[data-editor-commit-close]").forEach(function (button) {
+    button.addEventListener("click", closeCommitDialog);
+  });
+
+  if (commitDialog) {
+    commitDialog.addEventListener("click", function (event) {
+      if (event.target === commitDialog) closeCommitDialog();
+    });
   }
 
   if (uploadInput && uploadList) {
@@ -184,8 +354,10 @@
         item.textContent = file.name + " · " + file.size + " bytes";
         uploadList.appendChild(item);
       });
+      updateCommitState();
     });
   }
+  updateCommitState();
 }());
 </script>
 {{- end }}
