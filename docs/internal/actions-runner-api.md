@@ -63,7 +63,11 @@ Returns 204 when no matching job is claimable. Returns 200 with
 enforced server-side by counting current `workflow_jobs.status =
 'running'` rows for the runner while holding a row lock on the runner.
 The job payload includes resolved `secrets` and `mask_values`; repo
-secrets shadow org secrets with the same name.
+secrets shadow org secrets with the same name. The server also stores
+an encrypted claim-time copy of the mask values on
+`workflow_job_secret_masks` so later log uploads are scrubbed against
+the secrets that were actually handed to the runner, even if an
+operator rotates or deletes a secret mid-job.
 
 `POST /api/v1/jobs/{id}/logs`
 
@@ -77,10 +81,10 @@ Auth: job JWT. Body:
 first step in the job receives the chunk. Chunks are base64-decoded,
 capped at 512 KiB raw, and appended to `workflow_step_log_chunks`.
 Duplicate `(step_id, seq)` inserts are accepted as idempotent retries.
-Before append, the API re-scrubs exact secret values from the runner
-claim's visible secret set. It also reprocesses any possible secret
-prefix carried at the end of the prior chunk, so a runner cannot leak a
-secret by splitting it across two log calls.
+Before append, the API re-scrubs exact secret values from the job's
+claim-time mask snapshot. It also reprocesses any possible secret prefix
+carried at the end of the prior chunk, so a runner cannot leak a secret
+by splitting it across two log calls.
 
 `POST /api/v1/jobs/{id}/steps/{step_id}/status`
 

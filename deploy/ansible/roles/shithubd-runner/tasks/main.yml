@@ -25,10 +25,28 @@
       unless the shithubd-runner systemd unit's ReadWritePaths= hardening is
       updated with the matching path.
 
+- name: Runner Docker bridge name fits Linux interface limit
+  assert:
+    that:
+      - (shithub_runner_network_bridge | string | length) <= 15
+    fail_msg: >-
+      shithub_runner_network_bridge must be 15 characters or fewer because
+      Linux interface names are capped by IFNAMSIZ.
+
 - name: Docker group exists
   getent:
     database: group
     key: docker
+  when: shithub_runner_engine == "docker"
+
+- name: Runner network firewall packages
+  apt:
+    name:
+      - dnsmasq
+      - ipset
+      - iptables
+    state: present
+    update_cache: yes
   when: shithub_runner_engine == "docker"
 
 - name: Runner group
@@ -59,6 +77,50 @@
     - { path: /var/lib/shithubd-runner, owner: shithub-runner, group: shithub-runner, mode: "0750" }
     - { path: "{{ shithub_runner_workspace_root }}", owner: shithub-runner, group: shithub-runner, mode: "0750" }
     - { path: /var/lib/shithubd-runner/binaries, owner: shithub-runner, group: shithub-runner, mode: "0750" }
+
+- name: Inspect Actions Docker network
+  command: "{{ shithub_runner_engine }} network inspect {{ shithub_runner_network }}"
+  register: shithub_runner_network_inspect
+  failed_when: shithub_runner_network_inspect.rc not in [0, 1]
+  changed_when: false
+  when: shithub_runner_engine == "docker" and not ansible_check_mode
+
+- name: Create Actions Docker network
+  command: >-
+    {{ shithub_runner_engine }} network create
+    --driver bridge
+    --subnet {{ shithub_runner_network_subnet }}
+    --gateway {{ shithub_runner_network_gateway }}
+    --opt com.docker.network.bridge.name={{ shithub_runner_network_bridge }}
+    {{ shithub_runner_network }}
+  when:
+    - shithub_runner_engine == "docker"
+    - not ansible_check_mode
+    - shithub_runner_network_inspect.rc == 1
+
+- name: Inspect Actions Docker network after converge
+  command: "{{ shithub_runner_engine }} network inspect {{ shithub_runner_network }}"
+  register: shithub_runner_network_final
+  changed_when: false
+  when: shithub_runner_engine == "docker" and not ansible_check_mode
+
+- name: Record Actions Docker network facts
+  set_fact:
+    shithub_runner_network_info: "{{ (shithub_runner_network_final.stdout | from_json)[0] }}"
+  when: shithub_runner_engine == "docker" and not ansible_check_mode
+
+- name: Actions Docker network matches runner firewall config
+  assert:
+    that:
+      - shithub_runner_network_info.Driver == "bridge"
+      - shithub_runner_network_info.Options["com.docker.network.bridge.name"] == shithub_runner_network_bridge
+      - shithub_runner_network_info.IPAM.Config[0].Subnet == shithub_runner_network_subnet
+      - shithub_runner_network_info.IPAM.Config[0].Gateway == shithub_runner_network_gateway
+    fail_msg: >-
+      Existing Docker network {{ shithub_runner_network }} does not match the
+      configured Actions subnet/gateway/bridge. Remove or rename the network
+      before re-running the role so firewall rules target the correct bridge.
+  when: shithub_runner_engine == "docker" and not ansible_check_mode
 
 - name: Upload shithubd-runner binary (built by `make build` locally)
   copy:
@@ -107,8 +169,35 @@
     src: "{{ playbook_dir }}/../runner-config/dnsmasq.conf.j2"
     dest: "{{ shithub_runner_dnsmasq_config }}"
     owner: root
-    group: shithub-runner
-    mode: "0640"
+    group: root
+    mode: "0644"
+  notify: restart dnsmasq
+
+- name: Runner firewall script
+  template:
+    src: "{{ playbook_dir }}/../runner-config/firewall.sh.j2"
+    dest: "{{ shithub_runner_firewall_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: restart shithub-runner-firewall
+
+- name: Runner firewall systemd unit
+  copy:
+    src: "{{ playbook_dir }}/../systemd/shithub-runner-firewall.service"
+    dest: /etc/systemd/system/shithub-runner-firewall.service
+    mode: "0644"
+  notify: [daemon-reload, restart shithub-runner-firewall]
+
+- name: Enable + start runner firewall
+  systemd:
+    name: shithub-runner-firewall
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Enable + start runner dnsmasq
+  systemd: { name: dnsmasq, state: started, enabled: yes }
 
 - name: Runner systemd unit
   copy:

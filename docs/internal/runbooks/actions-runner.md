@@ -9,7 +9,7 @@ For host provisioning and the systemd/Ansible path, see
 
 Prereqs:
 
-- Database migrations are current through `0053_runner_jwt_used.sql`.
+- Database migrations are current through `0057_workflow_job_secret_masks.sql`.
 - `SHITHUB_TOTP_KEY` or `auth.totp_key_b64` is set on the web process.
 - Object storage is configured if testing artifact upload.
 - Docker or Podman is installed on the runner host.
@@ -48,7 +48,9 @@ shithubd-runner run \
   --server-url "$BASE" \
   --token "$RUNNER_TOKEN" \
   --labels self-hosted,linux,ubuntu-latest \
-  --workspace-root /var/lib/shithubd-runner/workspaces
+  --workspace-root /var/lib/shithubd-runner/workspaces \
+  --network shithub-actions \
+  --dns-servers 172.30.0.1
 ```
 
 Equivalent config file:
@@ -78,18 +80,24 @@ network_allowlist = [
 [engine]
 kind = "docker"
 default_image = "ghcr.io/shithub/runner-nix:1.0"
-network = "bridge"
+network = "shithub-actions"
 memory = "2g"
 cpus = "2"
 seccomp_profile = "/etc/shithubd-runner/seccomp.json"
 user = "65534:65534"
 pids_limit = 512
-dns_servers = []
+dns_servers = ["172.30.0.1"]
 ```
 
 The config path defaults to `/etc/shithubd-runner/config.toml`.
 Environment variables use the `SHITHUB_RUNNER_` prefix, for example
 `SHITHUB_RUNNER_TOKEN` or `SHITHUB_RUNNER_SERVER__BASE_URL`.
+
+The Ansible runner role creates the `shithub-actions` bridge, runs the
+allowlist resolver at `172.30.0.1`, and installs firewall rules that
+reject direct-IP egress from step containers. If you run the binary
+without the role, provision equivalent network controls before pointing
+workflows at the runner.
 
 ## Curl token smoke
 

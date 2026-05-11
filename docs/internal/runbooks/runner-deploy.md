@@ -59,7 +59,6 @@ shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
 shithub_runner_container_user=65534:65534
 shithub_runner_pids_limit=512
-shithub_runner_dns_servers=172.30.0.1
 ```
 
 The role writes non-secret config to
@@ -70,9 +69,10 @@ the systemd unit grants runner writes only to that subtree.
 
 `shithub_runner_network_allowlist` defaults to GitHub source/archive
 hosts plus Docker Hub registry hosts. Override it when a runner must
-fetch from an internal package registry. `shithub_runner_dns_servers`
-is empty by default; set it only after a DNS allowlist resolver exists
-on the runner network.
+fetch from an internal package registry. The role creates the
+`shithub-actions` Docker bridge at `172.30.0.1/24`, runs dnsmasq on
+that bridge, and sets `engine.dns_servers` to the bridge resolver by
+default.
 
 ## Deploy
 
@@ -89,8 +89,12 @@ The role:
 - creates the `shithub-runner` system user and joins it to `docker`
 - uploads `/usr/local/bin/shithubd-runner`
 - renders `/etc/shithubd-runner/config.toml` and `runner.env`
-- renders `/etc/shithubd-runner/dnsmasq.conf` from the network
-  allowlist for operators who run a local DNS allowlist resolver
+- creates the dedicated Actions Docker network and bridge
+- renders `/etc/dnsmasq.d/shithubd-runner.conf` from the network
+  allowlist and starts dnsmasq bound to the Actions bridge
+- installs `shithub-runner-firewall.service`, which rejects direct-IP
+  egress from step containers unless dnsmasq populated the destination
+  in the allowlist ipset
 - installs the pinned seccomp profile at
   `/etc/shithubd-runner/seccomp.json`
 - installs `deploy/systemd/shithubd-runner.service`
@@ -147,6 +151,9 @@ jobs:
 Expected state:
 
 - the UID check prints `65534`
+- a workflow-level request for `permissions: {shithub-runner-root: write}`
+  still runs as `65534`; root opt-in is disabled in the shipped runner
+  config until a trusted-workflow policy exists
 - writing under `/etc` fails because the root filesystem is read-only
 - `mount` fails because the container does not have `CAP_SYS_ADMIN`
 - step logs and systemd journal include the configured image, network,
@@ -162,16 +169,16 @@ The runner config carries two separate network controls:
   Docker `--dns`.
 
 For a single-host deployment, create a dedicated Docker bridge for
-Actions jobs, run dnsmasq bound to that bridge, render
-`/etc/shithubd-runner/dnsmasq.conf`, and set
+Actions jobs, run dnsmasq bound to that bridge, and set
 `shithub_runner_dns_servers` to the bridge address of that resolver.
-The rendered dnsmasq config has no default upstream resolver; names not
-matching the allowlist fail DNS resolution.
+The Ansible role now does this by default. The rendered dnsmasq config
+has no default upstream resolver; names not matching the allowlist fail
+DNS resolution.
 
-DNS filtering is not a complete egress boundary by itself. Block
-direct-IP egress from the Actions bridge with host firewall rules, and
-allow only DNS to the resolver plus established outbound connections
-opened by that resolver. Keep the runner on a separate host from web
+The firewall service closes the direct-IP bypass: containers on the
+Actions subnet may send DNS only to the bridge resolver, and other
+egress is allowed only when the destination IP is present in the
+dnsmasq-populated ipset. Keep the runner on a separate host from web
 and database services.
 
 ## Rollback

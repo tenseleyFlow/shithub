@@ -45,6 +45,7 @@ type Querier interface {
 	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
 	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
+	GetWorkflowJobSecretMask(ctx context.Context, db DBTX, jobID int64) (WorkflowJobSecretMask, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
 	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error)
@@ -97,6 +98,8 @@ type Querier interface {
 	UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (WorkflowSecret, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (ActionsVariable, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	UpsertWorkflowJobSecretMask(ctx context.Context, db DBTX, arg UpsertWorkflowJobSecretMaskParams) error
 }
 
 var _ Querier = (*Queries)(nil)

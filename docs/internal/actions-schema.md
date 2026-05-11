@@ -12,9 +12,10 @@ without churning under them.
 
 ## SQL schema
 
-Actions migrations currently span 0042–0051 and 0053. Migration 0052 belongs to
-the repo source-remotes feature and was already deployed before the runner JWT
-replay table landed.
+Actions migrations currently span 0042–0051, 0053, and 0057. Migration
+0052 belongs to the repo source-remotes feature, 0054 belongs to push
+event protocol tracking, 0055 belongs to the social feed, and 0056
+belongs to user profile contribution settings.
 
 | #     | Table                       | Purpose                                                       |
 | ----- | --------------------------- | ------------------------------------------------------------- |
@@ -29,6 +30,7 @@ replay table landed.
 | 0050  | `workflow_steps.step_with`  | Parsed `with:` inputs for magic `uses:` aliases               |
 | 0051  | `workflow_runs.trigger_event_id` | Trigger idempotency for retries/admin replays            |
 | 0053  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
+| 0057  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -66,6 +68,11 @@ later schema diff:
   and the API returns 401. JWTs are HMAC-SHA256 and use an HKDF
   subkey derived from `auth.totp_key_b64` with label
   `actions-runner-jwt-v1`.
+- **`workflow_job_secret_masks`** — one encrypted JSON array of exact
+  secret values per claimed job. It snapshots the log scrub set at
+  claim time, preventing a rotated or deleted secret from disappearing
+  from server-side masking while the old value is still in a runner's
+  job payload.
 
 The `version` and `run_index` patterns are the two pieces I'd point
 out to a future maintainer first. Both are cheap to add now and
@@ -176,7 +183,7 @@ This is a deliberate decision recorded in the campaign plan.
 
 | Namespace        | Source            | Tainted?                    |
 | ---------------- | ----------------- | --------------------------- |
-| `secrets.X`      | workflow_secrets  | no (operator-controlled)    |
+| `secrets.X`      | workflow_secrets  | no, but sensitive           |
 | `vars.X`         | actions_variables | no (operator-controlled)    |
 | `env.X`          | workflow file     | no (workflow author's text) |
 | `shithub.run_id` | dispatch context  | no                          |
@@ -250,17 +257,22 @@ Propagation rules:
 
 - Reading `shithub.event.X` → `Tainted: true` (always, including
   missing-path null results).
-- Reading any other namespace → `Tainted: false`, except `env.X`
-  preserves the taint of the resolved env value. This closes the
-  escape where an event-derived value is first assigned to env and
-  then interpolated through `${{ env.X }}`.
-- Binary op (`==`, `!=`, `&&`, `||`) → tainted if either operand is.
-- Unary op (`!`) → tainted iff its operand is.
-- Function call (`contains`, `startsWith`, `endsWith`) → tainted
-  if any argument is.
+- Reading `secrets.X` → `Sensitive: true`. Secrets are operator-
+  controlled, so they are not tainted, but they must not appear in
+  shell source strings or Docker argv.
+- Reading any other namespace → `Tainted: false` and
+  `Sensitive: false`, except `env.X` preserves both flags of the
+  resolved env value. This closes the escape where an event-derived or
+  secret-derived value is first assigned to env and then interpolated
+  through `${{ env.X }}`.
+- Binary op (`==`, `!=`, `&&`, `||`) → tainted or sensitive if either
+  operand is.
+- Unary op (`!`) → tainted/sensitive iff its operand is.
+- Function call (`contains`, `startsWith`, `endsWith`) → tainted or
+  sensitive if any argument is.
 
-The runner consumes `Tainted` and refuses to interpolate tainted
-values into shell strings. Instead, tainted values are bound to
+The runner consumes `Tainted` and `Sensitive` and refuses to interpolate
+either class into shell strings. Instead, those values are bound to
 runner-owned `SHITHUB_INPUT_xx` envvars and the shell source only
 references those placeholders. The author writes:
 
@@ -275,9 +287,9 @@ SHITHUB_INPUT_0="$user_pr_title" exec sh -c 'echo "PR title was: $SHITHUB_INPUT_
 ```
 
 …where `$user_pr_title` is set via Go's `cmd.Env`, never inserted into
-the shell source string. Backticks, `$()`, `;`, `&&` — none of those
-work as command-injection vectors when the value reaches the shell as
-environment data instead of syntax.
+the shell source string or Docker CLI argv. Backticks, `$()`, `;`,
+`&&` — none of those work as command-injection vectors when the value
+reaches the shell as environment data instead of syntax.
 
 The shared renderer lives in `internal/runner/exec`, so future engines
 consume the same injection boundary instead of reimplementing it. The
@@ -295,11 +307,12 @@ Runner log chunks pass through `internal/runner/scrub` before they are
 posted to the API. It masks exact secret values and preserves enough
 tail bytes between chunks to catch a secret split across chunk
 boundaries. S41e wires resolved workflow secrets into the runner claim
-payload and mask set, then applies the same exact-value scrub again in
-the runner API before persisting chunks. The server path also carries a
-possible secret-prefix tail from the prior persisted chunk, so a runner
-that bypasses client-side scrubbing cannot leak a secret by splitting
-it across adjacent log POSTs.
+payload and mask set, snapshots that mask set encrypted on the job, then
+applies the same exact-value scrub again in the runner API before
+persisting chunks. The server path also carries a possible secret-prefix
+tail from the prior persisted chunk, so a runner that bypasses
+client-side scrubbing cannot leak a secret by splitting it across
+adjacent log POSTs.
 
 ## `shithub.event` payload schema (v1)
 

@@ -15,14 +15,14 @@ Source: `moby/moby` commit
 Update this file deliberately when changing Docker daemon versions or
 runner syscall posture.
 
-`dnsmasq.conf.j2` is the optional runner DNS allowlist template. The
-Ansible role renders it to `/etc/shithubd-runner/dnsmasq.conf` from
-`shithub_runner_network_allowlist`; operators can run dnsmasq bound to
-their Actions Docker bridge and point step containers at it with
-`engine.dns_servers`.
+`dnsmasq.conf.j2` is the runner DNS allowlist template. The Ansible
+role renders it to `/etc/dnsmasq.d/shithubd-runner.conf` from
+`shithub_runner_network_allowlist`, binds dnsmasq to the dedicated
+Actions Docker bridge, and points step containers at that resolver
+with `engine.dns_servers`.
 
-The dnsmasq template intentionally has no default upstream resolver, so
-names outside the allowlist fail resolution. DNS allowlisting alone does
-not block direct-IP egress or a workflow that brings its own resolver;
-pair it with host firewall rules on the runner bridge for a deny-by-
-default network boundary.
+`firewall.sh.j2` is installed as `/usr/local/sbin/shithub-runner-firewall`
+and run by `shithub-runner-firewall.service`. It creates the ipset used
+by dnsmasq and rejects direct-IP egress from the Actions bridge unless
+the destination IP was populated by an allowlisted DNS response. DNS to
+the bridge resolver is the only DNS path allowed from step containers.
