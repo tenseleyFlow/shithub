@@ -144,6 +144,7 @@ func minimalTemplatesFS() fstest.MapFS {
 		"errors/429.html":            {Data: body},
 		"errors/500.html":            {Data: body},
 		"repo/new.html":              {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
+		"repo/actions.html":          {Data: []byte(`{{ define "page" }}COUNT={{ .RunCount }};FILTERED={{ .FilteredRunCount }};PAGE={{ .Pagination.ResultText }};{{ range .Workflows }}WF={{ .Name }}:{{ .Count }}:{{ .Active }};{{ end }}{{ range .Runs }}RUN={{ .Title }}:#{{ .RunIndex }}:{{ .Event }}:{{ .HeadRef }}:{{ .ActorUsername }}:{{ .StateClass }};{{ end }}{{ end }}`)},
 		"repo/settings_secrets.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
 	}
 }
