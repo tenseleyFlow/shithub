@@ -4,6 +4,9 @@ This runbook validates the runner-facing Actions path. `shithubd-runner`
 now claims jobs and executes containerized `run:` steps through Docker or
 Podman. The curl flow below remains useful for token/replay debugging.
 
+For host provisioning and the systemd/Ansible path, see
+[runner-deploy.md](./runner-deploy.md).
+
 Prereqs:
 
 - Database migrations are current through `0053_runner_jwt_used.sql`.

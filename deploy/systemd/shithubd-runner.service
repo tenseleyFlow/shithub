@@ -1,0 +1,37 @@
+[Unit]
+Description=shithub Actions runner
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=shithub-runner
+Group=shithub-runner
+SupplementaryGroups=docker
+EnvironmentFile=/etc/shithubd-runner/runner.env
+ExecStart=/usr/local/bin/shithubd-runner run --config /etc/shithubd-runner/config.toml
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65535
+
+# Docker access is intentionally broad in S41d. S41e narrows network and
+# secret exposure; until then this unit is only for trusted runner hosts.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/shithubd-runner
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+# Match shithubd-web's posture. Docker and git may need setgid semantics
+# inside their own managed trees; S41e revisits runner hardening in depth.
+RestrictSUIDSGID=no
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

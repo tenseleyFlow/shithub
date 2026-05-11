@@ -43,3 +43,12 @@ wg_metal_pubkey=REPLACE_ME
 grafana_cloud_prom_url=https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom/push
 grafana_cloud_prom_user=REPLACE_ME    # numeric tenant id
 grafana_cloud_prom_token=REPLACE_ME   # access-policy token
+
+# Optional Actions runner on this host. Generate the token with:
+#   shithubd admin runner register --name prod-runner-1 --labels self-hosted,linux,ubuntu-latest --capacity 1
+# Store the real token in ansible-vault or your secret manager.
+# shithub_runner_enabled=true
+# shithub_runner_token=REPLACE_ME
+# shithub_runner_labels=self-hosted,linux,ubuntu-latest
+# shithub_runner_capacity=1
+# shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0

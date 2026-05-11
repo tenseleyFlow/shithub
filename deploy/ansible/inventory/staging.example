@@ -22,3 +22,9 @@ shithub_email_backend=stdout    # no real outbound mail in staging
 # s3_secret_access_key=REPLACE_ME
 # s3_use_ssl=true
 # s3_force_path_style=false
+
+# Optional Actions runner on this host.
+# shithub_runner_enabled=true
+# shithub_runner_token=REPLACE_ME
+# shithub_runner_labels=self-hosted,linux,ubuntu-latest
+# shithub_runner_capacity=1

@@ -1,0 +1,8 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+- name: daemon-reload
+  systemd: { daemon_reload: yes }
+
+- name: restart shithubd-runner
+  systemd: { name: shithubd-runner, state: restarted, enabled: yes }
