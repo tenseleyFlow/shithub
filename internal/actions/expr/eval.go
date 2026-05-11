@@ -78,6 +78,7 @@ type Context struct {
 	Secrets   map[string]string
 	Vars      map[string]string
 	Env       map[string]string
+	EnvTaint  map[string]bool
 	Shithub   ShithubContext
 	Untrusted map[string]struct{} // namespace prefixes
 	JobStatus JobStatus           // for success()/failure()/always()/cancelled()
@@ -194,7 +195,7 @@ func evalRef(r Ref, ctx *Context) (Value, error) {
 		if !ok {
 			return Value{Kind: KindString, S: ""}, nil
 		}
-		return Value{Kind: KindString, S: v}, nil
+		return Value{Kind: KindString, S: v, Tainted: ctx.EnvTaint[path[1]]}, nil
 	case "shithub":
 		return evalShithub(path[1:], ctx, tainted)
 	}

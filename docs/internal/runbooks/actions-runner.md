@@ -18,6 +18,13 @@ Prereqs:
   S41d PR1 supports `run:` steps; checkout and artifact aliases land in
   the following S41d slices.
 
+`runs-on` is a runner-label selector, not a hard-coded image name.
+A workflow that says `runs-on: ubuntu-latest` can be claimed by any
+runner advertising the `ubuntu-latest` label. The container image is
+selected by the runner host's `engine.default_image` setting; the
+reproducible Nix-built image is the default, but operators can point it
+at another OCI image when they need closer Ubuntu parity.
+
 Register a runner:
 
 ```sh

@@ -357,6 +357,20 @@ func TestEval_GithubAliasNonEventNotTainted(t *testing.T) {
 	}
 }
 
+func TestEval_EnvTaintPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := defaultContext()
+	ctx.Env["TITLE"] = "hello"
+	ctx.EnvTaint = map[string]bool{"TITLE": true}
+	v, err := evalString(t, `env.TITLE`, ctx)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if !v.Tainted {
+		t.Fatal("env values resolved from tainted expressions must remain tainted")
+	}
+}
+
 // TestEval_GithubUnknownFieldErrors confirms the alias is *narrow*: only
 // the shithub.{run_id,sha,ref,actor,event} subset routes through. github
 // fields we don't expose (event_name, repository, run_number, etc.) get
