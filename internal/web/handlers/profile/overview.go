@@ -82,8 +82,9 @@ type contributionDay struct {
 }
 
 type profileContributionRepo struct {
-	Repo      reposdb.Repo
-	OwnerSlug string
+	Repo                  reposdb.Repo
+	OwnerSlug             string
+	AllowIdentityFallback bool
 }
 
 func (h *Handlers) visibleUserRepos(ctx context.Context, userID int64, viewer middleware.CurrentUser) []reposdb.Repo {
@@ -236,7 +237,7 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 				continue
 			}
 			for _, commit := range commits {
-				if !commitMatchesProfileUser(commit, emails, user) {
+				if !commitMatchesProfileUser(commit, emails, user, source.AllowIdentityFallback) {
 					continue
 				}
 				day := time.Date(commit.AuthorWhen.UTC().Year(), commit.AuthorWhen.UTC().Month(), commit.AuthorWhen.UTC().Day(), 0, 0, 0, 0, time.UTC)
@@ -305,7 +306,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 	queries := reposdb.New()
 	seen := map[int64]struct{}{}
 	out := make([]profileContributionRepo, 0, 64)
-	add := func(ownerSlug string, repo reposdb.Repo) {
+	add := func(ownerSlug string, repo reposdb.Repo, allowIdentityFallback bool) {
 		if ownerSlug == "" {
 			return
 		}
@@ -316,7 +317,11 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 			return
 		}
 		seen[repo.ID] = struct{}{}
-		out = append(out, profileContributionRepo{Repo: repo, OwnerSlug: ownerSlug})
+		out = append(out, profileContributionRepo{
+			Repo:                  repo,
+			OwnerSlug:             ownerSlug,
+			AllowIdentityFallback: allowIdentityFallback,
+		})
 	}
 
 	userRepos, err := queries.ListReposForOwnerUser(ctx, h.d.Pool, pgtype.Int8{Int64: user.ID, Valid: true})
@@ -324,7 +329,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 		h.d.Logger.WarnContext(ctx, "profile overview: contribution user repos", "user_id", user.ID, "error", err)
 	} else {
 		for _, repo := range userRepos {
-			add(user.Username, repo)
+			add(user.Username, repo, true)
 		}
 	}
 
@@ -339,7 +344,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 				continue
 			}
 			for _, repo := range orgRepos {
-				add(org.Slug, repo)
+				add(org.Slug, repo, true)
 			}
 		}
 	}
@@ -350,7 +355,7 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 		return out
 	}
 	for _, row := range publicRepos {
-		add(row.OwnerSlug, row.Repo)
+		add(row.OwnerSlug, row.Repo, false)
 	}
 	return out
 }
@@ -387,19 +392,33 @@ func contributionYears(username string, currentYear, selectedYear int) []contrib
 	return years
 }
 
-func commitMatchesProfileUser(commit repogit.Commit, verifiedEmails map[string]struct{}, user usersdb.User) bool {
+func commitMatchesProfileUser(commit repogit.Commit, verifiedEmails map[string]struct{}, user usersdb.User, allowIdentityFallback bool) bool {
 	if len(verifiedEmails) > 0 {
-		_, ok := verifiedEmails[strings.ToLower(strings.TrimSpace(commit.AuthorEmail))]
-		return ok
+		if _, ok := verifiedEmails[strings.ToLower(strings.TrimSpace(commit.AuthorEmail))]; ok {
+			return true
+		}
 	}
-	name := strings.ToLower(strings.TrimSpace(commit.AuthorName))
-	if name == "" {
+	if !allowIdentityFallback {
 		return false
 	}
+	name := strings.ToLower(strings.TrimSpace(commit.AuthorName))
 	if name == strings.ToLower(user.Username) {
 		return true
 	}
-	return user.DisplayName != "" && name == strings.ToLower(strings.TrimSpace(user.DisplayName))
+	if user.DisplayName != "" && name == strings.ToLower(strings.TrimSpace(user.DisplayName)) {
+		return true
+	}
+	return commitEmailNamesProfileUser(commit.AuthorEmail, user.Username)
+}
+
+func commitEmailNamesProfileUser(email, username string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	username = strings.ToLower(strings.TrimSpace(username))
+	if email == "" || username == "" {
+		return false
+	}
+	return strings.HasSuffix(email, "+"+username+"@users.noreply.github.com") ||
+		email == username+"@users.noreply.github.com"
 }
 
 func (h *Handlers) verifiedEmails(ctx context.Context, userID int64) map[string]struct{} {
