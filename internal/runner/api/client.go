@@ -73,6 +73,8 @@ type Job struct {
 	If             string            `json:"if"`
 	TimeoutMinutes int32             `json:"timeout_minutes"`
 	Permissions    json.RawMessage   `json:"permissions"`
+	Secrets        map[string]string `json:"secrets"`
+	MaskValues     []string          `json:"mask_values"`
 	Env            map[string]string `json:"env"`
 	Steps          []Step            `json:"steps"`
 }

@@ -34,6 +34,9 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if cfg.Engine.PidsLimit != 512 {
 		t.Fatalf("Engine.PidsLimit: %d", cfg.Engine.PidsLimit)
 	}
+	if want := []string{"api.github.com", "auth.docker.io", "codeload.github.com", "github.com", "objects.githubusercontent.com", "production.cloudflare.docker.com", "registry-1.docker.io", "*.githubusercontent.com"}; !reflect.DeepEqual(cfg.Runner.NetworkAllowlist, want) {
+		t.Fatalf("NetworkAllowlist: got %#v want %#v", cfg.Runner.NetworkAllowlist, want)
+	}
 	if cfg.Runner.PollInterval != 5*time.Second {
 		t.Fatalf("PollInterval: %v", cfg.Runner.PollInterval)
 	}
@@ -54,6 +57,7 @@ capacity = 2
 poll_interval = "10s"
 workspace_root = "/tmp/file"
 workspace_ttl = "12h"
+network_allowlist = ["github.com", "*.githubusercontent.com"]
 
 [engine]
 kind = "docker"
@@ -64,6 +68,7 @@ cpus = "1"
 seccomp_profile = "/file/seccomp.json"
 user = "1000:1000"
 pids_limit = 64
+dns_servers = ["172.30.0.10"]
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -74,15 +79,17 @@ pids_limit = 64
 		Environ: []string{
 			"SHITHUB_RUNNER_TOKEN=alias-token",
 			"SHITHUB_RUNNER_ENGINE__PIDS_LIMIT=256",
+			"SHITHUB_RUNNER_ENGINE__DNS_SERVERS=172.30.0.11,172.30.0.12",
 			"SHITHUB_RUNNER_RUNNER__CAPACITY=3",
 			"SHITHUB_RUNNER_RUNNER__LABELS=self-hosted,linux,x64",
 		},
 		Overrides: map[string]string{
-			"server.base_url":        "https://flag.example/path/",
-			"runner.capacity":        "4",
-			"runner.poll_interval":   "2s",
-			"engine.seccomp_profile": "/flag/seccomp.json",
-			"engine.user":            "123:456",
+			"server.base_url":          "https://flag.example/path/",
+			"runner.capacity":          "4",
+			"runner.poll_interval":     "2s",
+			"runner.network_allowlist": "api.github.com,github.com",
+			"engine.seccomp_profile":   "/flag/seccomp.json",
+			"engine.user":              "123:456",
 		},
 	})
 	if err != nil {
@@ -111,6 +118,12 @@ pids_limit = 64
 	}
 	if cfg.Engine.PidsLimit != 256 {
 		t.Fatalf("PidsLimit: %d", cfg.Engine.PidsLimit)
+	}
+	if want := []string{"api.github.com", "github.com"}; !reflect.DeepEqual(cfg.Runner.NetworkAllowlist, want) {
+		t.Fatalf("NetworkAllowlist: got %#v want %#v", cfg.Runner.NetworkAllowlist, want)
+	}
+	if want := []string{"172.30.0.11", "172.30.0.12"}; !reflect.DeepEqual(cfg.Engine.DNSServers, want) {
+		t.Fatalf("DNSServers: got %#v want %#v", cfg.Engine.DNSServers, want)
 	}
 }
 
@@ -147,6 +160,26 @@ func TestValidate_RejectsBadPidsLimit(t *testing.T) {
 	cfg := Defaults()
 	cfg.Runner.Token = "tok"
 	cfg.Engine.PidsLimit = 0
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+}
+
+func TestValidate_RejectsBadNetworkAllowlist(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Runner.Token = "tok"
+	cfg.Runner.NetworkAllowlist = []string{"https://github.com"}
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+}
+
+func TestValidate_RejectsBadDNSServer(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Runner.Token = "tok"
+	cfg.Engine.DNSServers = []string{"dns.internal"}
 	if err := Validate(&cfg); err == nil {
 		t.Fatal("Validate returned nil error")
 	}

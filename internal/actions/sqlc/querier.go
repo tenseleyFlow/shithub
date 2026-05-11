@@ -42,6 +42,8 @@ type Querier interface {
 	GetRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
 	GetRunnerByName(ctx context.Context, db DBTX, name string) (WorkflowRunner, error)
 	GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (GetRunnerByTokenHashRow, error)
+	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
+	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
@@ -85,6 +87,7 @@ type Querier interface {
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
+	UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
 	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)

@@ -54,6 +54,56 @@ func (q *Queries) DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64
 	return err
 }
 
+const getStepLogChunkBefore = `-- name: GetStepLogChunkBefore :one
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1 AND seq < $2
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetStepLogChunkBeforeParams struct {
+	StepID int64
+	Seq    int32
+}
+
+func (q *Queries) GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error) {
+	row := db.QueryRow(ctx, getStepLogChunkBefore, arg.StepID, arg.Seq)
+	var i WorkflowStepLogChunk
+	err := row.Scan(
+		&i.ID,
+		&i.StepID,
+		&i.Seq,
+		&i.Chunk,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getStepLogChunkByStepSeq = `-- name: GetStepLogChunkByStepSeq :one
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1 AND seq = $2
+`
+
+type GetStepLogChunkByStepSeqParams struct {
+	StepID int64
+	Seq    int32
+}
+
+func (q *Queries) GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error) {
+	row := db.QueryRow(ctx, getStepLogChunkByStepSeq, arg.StepID, arg.Seq)
+	var i WorkflowStepLogChunk
+	err := row.Scan(
+		&i.ID,
+		&i.StepID,
+		&i.Seq,
+		&i.Chunk,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listStepLogChunks = `-- name: ListStepLogChunks :many
 SELECT id, step_id, seq, chunk, created_at
 FROM workflow_step_log_chunks
@@ -92,4 +142,20 @@ func (q *Queries) ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLo
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateStepLogChunk = `-- name: UpdateStepLogChunk :exec
+UPDATE workflow_step_log_chunks
+SET chunk = $2
+WHERE id = $1
+`
+
+type UpdateStepLogChunkParams struct {
+	ID    int64
+	Chunk []byte
+}
+
+func (q *Queries) UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error {
+	_, err := db.Exec(ctx, updateStepLogChunk, arg.ID, arg.Chunk)
+	return err
 }

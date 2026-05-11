@@ -12,6 +12,9 @@ func TestScrubber_MasksPlainAndMultilineSecrets(t *testing.T) {
 	if got != want {
 		t.Fatalf("scrubbed:\ngot  %q\nwant %q", got, want)
 	}
+	if s.Replacements() != 2 {
+		t.Fatalf("replacements: got %d, want 2", s.Replacements())
+	}
 }
 
 func TestScrubber_MasksAcrossChunkBoundary(t *testing.T) {
@@ -23,6 +26,9 @@ func TestScrubber_MasksAcrossChunkBoundary(t *testing.T) {
 	want := "before *** after"
 	if got != want {
 		t.Fatalf("scrubbed:\ngot  %q\nwant %q", got, want)
+	}
+	if s.Replacements() != 1 {
+		t.Fatalf("replacements: got %d, want 1", s.Replacements())
 	}
 }
 
