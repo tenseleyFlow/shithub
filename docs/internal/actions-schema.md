@@ -12,9 +12,10 @@ without churning under them.
 
 ## SQL schema
 
-Actions migrations currently span 0042–0051, 0053, and 0055. Migration
-0052 belongs to the repo source-remotes feature and 0054 belongs to push
-event protocol tracking.
+Actions migrations currently span 0042–0051, 0053, and 0057. Migration
+0052 belongs to the repo source-remotes feature, 0054 belongs to push
+event protocol tracking, 0055 belongs to the social feed, and 0056
+belongs to user profile contribution settings.
 
 | #     | Table                       | Purpose                                                       |
 | ----- | --------------------------- | ------------------------------------------------------------- |
@@ -29,7 +30,7 @@ event protocol tracking.
 | 0050  | `workflow_steps.step_with`  | Parsed `with:` inputs for magic `uses:` aliases               |
 | 0051  | `workflow_runs.trigger_event_id` | Trigger idempotency for retries/admin replays            |
 | 0053  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
-| 0055  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
+| 0057  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:

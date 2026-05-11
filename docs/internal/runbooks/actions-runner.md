@@ -9,7 +9,7 @@ For host provisioning and the systemd/Ansible path, see
 
 Prereqs:
 
-- Database migrations are current through `0055_workflow_job_secret_masks.sql`.
+- Database migrations are current through `0057_workflow_job_secret_masks.sql`.
 - `SHITHUB_TOTP_KEY` or `auth.totp_key_b64` is set on the web process.
 - Object storage is configured if testing artifact upload.
 - Docker or Podman is installed on the runner host.
