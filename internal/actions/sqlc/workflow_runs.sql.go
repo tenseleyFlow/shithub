@@ -63,6 +63,44 @@ func (q *Queries) CompleteWorkflowRun(ctx context.Context, db DBTX, arg Complete
 	return i, err
 }
 
+const countWorkflowRunsForRepo = `-- name: CountWorkflowRunsForRepo :one
+SELECT COUNT(*)::bigint
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = $1::bigint
+  AND ($2::text IS NULL OR r.workflow_file = $2::text)
+  AND ($3::text IS NULL OR r.head_ref = $3::text)
+  AND ($4::workflow_run_event IS NULL OR r.event = $4::workflow_run_event)
+  AND ($5::workflow_run_status IS NULL OR r.status = $5::workflow_run_status)
+  AND ($6::check_conclusion IS NULL OR r.conclusion = $6::check_conclusion)
+  AND ($7::text IS NULL OR u.username = $7::citext)
+`
+
+type CountWorkflowRunsForRepoParams struct {
+	RepoID        int64
+	WorkflowFile  pgtype.Text
+	HeadRef       pgtype.Text
+	Event         NullWorkflowRunEvent
+	Status        NullWorkflowRunStatus
+	Conclusion    NullCheckConclusion
+	ActorUsername pgtype.Text
+}
+
+func (q *Queries) CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error) {
+	row := db.QueryRow(ctx, countWorkflowRunsForRepo,
+		arg.RepoID,
+		arg.WorkflowFile,
+		arg.HeadRef,
+		arg.Event,
+		arg.Status,
+		arg.Conclusion,
+		arg.ActorUsername,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const enqueueWorkflowRun = `-- name: EnqueueWorkflowRun :one
 INSERT INTO workflow_runs (
     repo_id, run_index, workflow_file, workflow_name,
@@ -268,41 +306,110 @@ func (q *Queries) InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWork
 	return i, err
 }
 
+const listWorkflowRunWorkflowsForRepo = `-- name: ListWorkflowRunWorkflowsForRepo :many
+WITH ranked AS (
+    SELECT workflow_file,
+           workflow_name,
+           (COUNT(*) OVER (PARTITION BY workflow_file))::bigint AS run_count,
+           ROW_NUMBER() OVER (PARTITION BY workflow_file ORDER BY created_at DESC, id DESC) AS rn
+    FROM workflow_runs
+    WHERE repo_id = $1
+)
+SELECT workflow_file,
+       COALESCE(NULLIF(workflow_name, ''), workflow_file) AS workflow_name,
+       run_count
+FROM ranked
+WHERE rn = 1
+ORDER BY lower(COALESCE(NULLIF(workflow_name, ''), workflow_file)), workflow_file
+`
+
+type ListWorkflowRunWorkflowsForRepoRow struct {
+	WorkflowFile string
+	WorkflowName string
+	RunCount     int64
+}
+
+func (q *Queries) ListWorkflowRunWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListWorkflowRunWorkflowsForRepoRow, error) {
+	rows, err := db.Query(ctx, listWorkflowRunWorkflowsForRepo, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkflowRunWorkflowsForRepoRow{}
+	for rows.Next() {
+		var i ListWorkflowRunWorkflowsForRepoRow
+		if err := rows.Scan(&i.WorkflowFile, &i.WorkflowName, &i.RunCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkflowRunsForRepo = `-- name: ListWorkflowRunsForRepo :many
-SELECT id, repo_id, run_index, workflow_file, workflow_name,
-       head_sha, head_ref, event, status, conclusion,
-       actor_user_id, started_at, completed_at, created_at
-FROM workflow_runs
-WHERE repo_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.status, r.conclusion,
+       r.actor_user_id, COALESCE(u.username::text, '')::text AS actor_username,
+       r.started_at, r.completed_at, r.created_at, r.updated_at
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = $1::bigint
+  AND ($2::text IS NULL OR r.workflow_file = $2::text)
+  AND ($3::text IS NULL OR r.head_ref = $3::text)
+  AND ($4::workflow_run_event IS NULL OR r.event = $4::workflow_run_event)
+  AND ($5::workflow_run_status IS NULL OR r.status = $5::workflow_run_status)
+  AND ($6::check_conclusion IS NULL OR r.conclusion = $6::check_conclusion)
+  AND ($7::text IS NULL OR u.username = $7::citext)
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $9 OFFSET $8
 `
 
 type ListWorkflowRunsForRepoParams struct {
-	RepoID int64
-	Limit  int32
-	Offset int32
+	RepoID        int64
+	WorkflowFile  pgtype.Text
+	HeadRef       pgtype.Text
+	Event         NullWorkflowRunEvent
+	Status        NullWorkflowRunStatus
+	Conclusion    NullCheckConclusion
+	ActorUsername pgtype.Text
+	PageOffset    int32
+	PageLimit     int32
 }
 
 type ListWorkflowRunsForRepoRow struct {
-	ID           int64
-	RepoID       int64
-	RunIndex     int64
-	WorkflowFile string
-	WorkflowName string
-	HeadSha      string
-	HeadRef      string
-	Event        WorkflowRunEvent
-	Status       WorkflowRunStatus
-	Conclusion   NullCheckConclusion
-	ActorUserID  pgtype.Int8
-	StartedAt    pgtype.Timestamptz
-	CompletedAt  pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
+	ID            int64
+	RepoID        int64
+	RunIndex      int64
+	WorkflowFile  string
+	WorkflowName  string
+	HeadSha       string
+	HeadRef       string
+	Event         WorkflowRunEvent
+	Status        WorkflowRunStatus
+	Conclusion    NullCheckConclusion
+	ActorUserID   pgtype.Int8
+	ActorUsername string
+	StartedAt     pgtype.Timestamptz
+	CompletedAt   pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
 }
 
 func (q *Queries) ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error) {
-	rows, err := db.Query(ctx, listWorkflowRunsForRepo, arg.RepoID, arg.Limit, arg.Offset)
+	rows, err := db.Query(ctx, listWorkflowRunsForRepo,
+		arg.RepoID,
+		arg.WorkflowFile,
+		arg.HeadRef,
+		arg.Event,
+		arg.Status,
+		arg.Conclusion,
+		arg.ActorUsername,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -322,9 +429,11 @@ func (q *Queries) ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg List
 			&i.Status,
 			&i.Conclusion,
 			&i.ActorUserID,
+			&i.ActorUsername,
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
