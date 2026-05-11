@@ -23,6 +23,34 @@ SELECT id, job_id, step_index, step_id, step_name, if_expr,
 FROM workflow_steps
 WHERE id = $1;
 
+-- name: UpdateWorkflowStepStatus :one
+UPDATE workflow_steps
+SET status = $2,
+    conclusion = sqlc.narg(conclusion)::check_conclusion,
+    started_at = sqlc.narg(started_at)::timestamptz,
+    completed_at = sqlc.narg(completed_at)::timestamptz,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with;
+
+-- name: UpdateWorkflowStepLogObject :one
+UPDATE workflow_steps
+SET log_object_key = sqlc.narg(log_object_key)::text,
+    log_byte_count = sqlc.arg(log_byte_count)::bigint,
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)::bigint
+RETURNING id, job_id, step_index, step_id, step_name, if_expr,
+          run_command, uses_alias, working_directory, step_env,
+          continue_on_error, status, conclusion, log_object_key,
+          log_byte_count, started_at, completed_at, version,
+          created_at, updated_at, step_with;
+
 -- name: ListRunnerStepsForJob :many
 SELECT id, job_id, step_index, step_id, step_name, if_expr,
        run_command, uses_alias, working_directory, step_env,

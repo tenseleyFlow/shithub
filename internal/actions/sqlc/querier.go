@@ -86,6 +86,8 @@ type Querier interface {
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
+	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
+	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
 	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
