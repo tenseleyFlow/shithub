@@ -3592,6 +3592,164 @@ button.shithub-contrib-setting-item:hover {
   margin: 0.15rem 0 0;
   color: var(--fg-muted);
 }
+.shithub-org-import-create {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-org-import-create legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+.shithub-org-import-create p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.shithub-org-import-form {
+  max-width: 640px;
+}
+.shithub-org-import-history {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-org-import-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-muted, var(--border-default));
+  color: var(--fg-default);
+  text-decoration: none;
+}
+.shithub-org-import-history-row:first-child {
+  border-top: 0;
+}
+.shithub-org-import-history-row:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-org-import-progress {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+.shithub-org-import-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-org-import-progress-head h1 {
+  margin: 0.15rem 0 0;
+  font-size: 1.5rem;
+}
+.shithub-org-import-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: max-content;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.shithub-org-import-status.is-imported,
+.shithub-org-import-status.is-completed {
+  color: var(--success-fg);
+  border-color: color-mix(in srgb, var(--success-fg) 45%, transparent);
+}
+.shithub-org-import-status.is-failed {
+  color: var(--danger-fg);
+  border-color: color-mix(in srgb, var(--danger-fg) 45%, transparent);
+}
+.shithub-org-import-status.is-importing,
+.shithub-org-import-status.is-discovering {
+  color: var(--accent-fg);
+  border-color: color-mix(in srgb, var(--accent-fg) 45%, transparent);
+}
+.shithub-org-import-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: 1rem 0;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-org-import-counts div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.8rem 1rem;
+  border-left: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-org-import-counts div:first-child {
+  border-left: 0;
+}
+.shithub-org-import-counts strong {
+  font-size: 1.2rem;
+}
+.shithub-org-import-counts span {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.shithub-org-import-list {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-org-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-org-import-row:first-child {
+  border-top: 0;
+}
+.shithub-org-import-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  font-weight: 600;
+}
+.shithub-org-import-row p {
+  margin: 0.2rem 0 0;
+  color: var(--fg-muted);
+}
+.shithub-org-import-row .shithub-org-import-error {
+  color: var(--danger-fg);
+}
+.shithub-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: shithub-spin 0.75s linear infinite;
+}
+.shithub-org-import-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+@keyframes shithub-spin {
+  to { transform: rotate(360deg); }
+}
 .shithub-org-danger-box {
   margin-top: 0.75rem;
 }

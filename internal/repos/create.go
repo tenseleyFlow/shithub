@@ -78,6 +78,11 @@ type Params struct {
 	// accounts, not to throttle staff.
 	ActorIsSiteAdmin bool
 
+	// BypassCreateRateLimit lets trusted server-side bulk operations
+	// create many repos for the same actor without tripping the browser
+	// anti-abuse throttle. Keep false for direct user submits.
+	BypassCreateRateLimit bool
+
 	Name        string // already lowercased + trimmed
 	Description string
 	Visibility  string // "public" | "private"
@@ -146,7 +151,7 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	// Rate-limit per actor (NOT per owner) so a user can't bypass the
 	// per-account cap by spreading creates across orgs they manage.
 	// Site admins skip the cap entirely.
-	if !p.ActorIsSiteAdmin {
+	if !p.ActorIsSiteAdmin && !p.BypassCreateRateLimit {
 		if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
 			Scope:      "repo_create",
 			Identifier: fmt.Sprintf("user:%d", p.ActorUserID),

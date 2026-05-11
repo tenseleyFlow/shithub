@@ -79,6 +79,14 @@ const (
 	KindTrendingCompute Kind = "trending:compute"
 )
 
+// Organization import kinds. The discovery job lists GitHub repositories
+// and fans out one child job per repository so large organizations can
+// progress incrementally.
+const (
+	KindOrgGitHubImportDiscover Kind = "org:github_import_discover"
+	KindOrgGitHubImportRepo     Kind = "org:github_import_repo"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the

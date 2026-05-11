@@ -34,6 +34,9 @@ POST /organizations/{org}/settings/profile
 POST /organizations/{org}/settings/profile/avatar
 POST /organizations/{org}/settings/profile/avatar/remove
 POST /organizations/{org}/settings/delete
+GET  /organizations/{org}/settings/import
+POST /organizations/{org}/settings/import
+GET  /organizations/{org}/imports/{importID}
 GET  /invitations/{token}          accept/decline view (auth required)
 POST /invitations/{token}/accept
 POST /invitations/{token}/decline
@@ -93,6 +96,28 @@ avatar pipeline and object store.
 `POST /organizations/{org}/settings/delete` soft-deletes the org through
 `orgs.SoftDelete` after an owner confirms the slug; the hard-delete
 worker still owns permanent removal after the grace window.
+
+`GET /organizations/{org}/settings/import` renders the owner-only
+GitHub organization import page. Owners can provide a GitHub
+organization name or `github.com/<org>` URL and, optionally, a token.
+Untokened imports discover public repositories only. Token-backed
+imports use GitHub's `type=all` repo listing, persist the token
+encrypted with the server secret box, and keep private upstream repos
+private on shithub.
+
+`POST /organizations/{org}/settings/import` creates an
+`org_github_imports` row and enqueues
+`worker.KindOrgGitHubImportDiscover`. `GET
+/organizations/{org}/imports/{importID}` shows a polling progress page
+with per-repo queued/importing/imported/skipped/failed state. The
+discover job pages through the GitHub API, records one
+`org_github_import_repos` row per repository, and enqueues an import job
+per repo. Each repo job creates the org-owned shithub repository, saves
+the GitHub source remote, fetches heads/tags with a temporary Git
+askpass helper when a token is present, updates the default branch from
+fetched refs, and enqueues indexing + size recalculation. Existing
+active repositories in the organization are skipped instead of
+overwritten.
 
 Repo visibility is filtered through `policy.IsVisibleTo` using an actor
 constructed from `middleware.CurrentUser`, including suspension,
@@ -187,3 +212,7 @@ old slug for 301s during the rename cooldown.
   re-clicking Invite doesn't spam the recipient.
 * **Reserved slugs**: `auth.IsReserved` filter applies to org
   slugs the same way it applies to usernames.
+* **Org import token storage**: the token never enters a Git URL, logs,
+  or plaintext database column. It is encrypted in
+  `org_github_imports.token_ciphertext` and supplied to git via a
+  temporary askpass script scoped to the fetch process.

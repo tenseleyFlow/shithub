@@ -9,16 +9,29 @@
       <input type="text" name="slug" required
              pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
              title="lowercase letters, digits, and hyphens; 1–39 chars; cannot start or end with a hyphen"
-             value="{{ .Slug }}" autofocus>
+             value="{{ .Form.Slug }}" autofocus>
     </label>
     <label>
       <span>Display name</span>
-      <input type="text" name="display_name">
+      <input type="text" name="display_name" value="{{ .Form.DisplayName }}">
     </label>
     <label>
       <span>Billing email (optional)</span>
-      <input type="email" name="billing_email" autocomplete="email">
+      <input type="email" name="billing_email" autocomplete="email" value="{{ .Form.BillingEmail }}">
     </label>
+    <fieldset class="shithub-org-import-create">
+      <legend>Import repositories from GitHub</legend>
+      <p>Optionally mirror repositories from a GitHub organization after this organization is created.</p>
+      <label>
+        <span>GitHub organization</span>
+        <input type="text" name="github_org" placeholder="github-org" value="{{ .Form.GitHubOrg }}" autocomplete="off">
+      </label>
+      <label>
+        <span>GitHub token (optional)</span>
+        <input type="password" name="github_token" autocomplete="off" placeholder="Required for private repositories">
+      </label>
+      <p class="shithub-auth-aside">Without a token, shithub imports public repositories only. With a token, repositories visible to that token are imported and private repositories stay private.</p>
+    </fieldset>
     <button type="submit" class="shithub-button shithub-button-primary">Create organization</button>
   </form>
   <p class="shithub-auth-aside">

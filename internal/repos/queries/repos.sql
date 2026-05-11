@@ -34,12 +34,13 @@ FROM repos
 WHERE id = $1;
 
 -- name: GetRepoOwnerUsernameByID :one
--- Returns the owner_username for a repo. Used by size-recalc and other
--- jobs that need to derive the bare-repo on-disk path without round-
--- tripping through the full user row.
-SELECT u.username AS owner_username, r.name AS repo_name
+-- Returns the owner slug for a repo. Used by size-recalc, indexing, and
+-- other jobs that need the bare-repo on-disk path. Org-owned repos use the
+-- org slug in the same path position as user-owned repos.
+SELECT COALESCE(u.username::varchar, o.slug::varchar) AS owner_username, r.name AS repo_name
 FROM repos r
-JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
 WHERE r.id = $1;
 
 -- name: GetRepoByOwnerUserAndName :one

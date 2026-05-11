@@ -10,6 +10,9 @@
 //	POST /{org}/people/{user}/role                          change role
 //	POST /{org}/people/{user}/remove                        remove member
 //	GET  /organizations/{org}/settings/profile              profile settings
+//	GET  /organizations/{org}/settings/import               GitHub org import
+//	POST /organizations/{org}/settings/import               start GitHub org import
+//	GET  /organizations/{org}/imports/{importID}            GitHub org import progress
 //	GET  /organizations/{org}/settings/{secrets,variables}/actions
 //	POST /organizations/{org}/settings/{secrets,variables}/actions
 //	GET  /invitations/{token}                               accept/decline view
@@ -89,6 +92,9 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/profile/avatar", h.settingsAvatarUpload)
 	r.Post("/organizations/{org}/settings/profile/avatar/remove", h.settingsAvatarRemove)
 	r.Post("/organizations/{org}/settings/delete", h.settingsDelete)
+	r.Get("/organizations/{org}/settings/import", h.settingsImport)
+	r.Post("/organizations/{org}/settings/import", h.settingsImportSubmit)
+	r.Get("/organizations/{org}/imports/{importID}", h.importProgress)
 	r.Get("/organizations/{org}/settings/secrets/actions", h.settingsActionsSecrets)
 	r.Post("/organizations/{org}/settings/secrets/actions", h.settingsActionsSecretSet)
 	r.Post("/organizations/{org}/settings/secrets/actions/{name}/delete", h.settingsActionsSecretDelete)
@@ -157,7 +163,15 @@ func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=/organizations/new", http.StatusSeeOther)
 		return
 	}
-	h.renderNewForm(w, r, "", "")
+	h.renderNewForm(w, r, orgCreateForm{}, "")
+}
+
+type orgCreateForm struct {
+	Slug         string
+	DisplayName  string
+	BillingEmail string
+	GitHubOrg    string
+	GitHubToken  string
 }
 
 func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
@@ -170,28 +184,63 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
-	slug := strings.TrimSpace(r.PostFormValue("slug"))
-	displayName := strings.TrimSpace(r.PostFormValue("display_name"))
-	billingEmail := strings.TrimSpace(r.PostFormValue("billing_email"))
+	form := orgCreateForm{
+		Slug:         strings.TrimSpace(r.PostFormValue("slug")),
+		DisplayName:  strings.TrimSpace(r.PostFormValue("display_name")),
+		BillingEmail: strings.TrimSpace(r.PostFormValue("billing_email")),
+		GitHubOrg:    strings.TrimSpace(r.PostFormValue("github_org")),
+		GitHubToken:  strings.TrimSpace(r.PostFormValue("github_token")),
+	}
+	if form.GitHubOrg != "" {
+		if _, err := orgs.NormalizeGitHubOrg(form.GitHubOrg); err != nil {
+			h.renderNewForm(w, r, form, "GitHub organization must be a valid organization name or github.com organization URL.")
+			return
+		}
+		if form.GitHubToken != "" && h.d.SecretBox == nil {
+			h.renderNewForm(w, r, form.withoutToken(), "GitHub token imports require the server secret key to be configured.")
+			return
+		}
+	}
 
 	row, err := orgs.Create(r.Context(), h.deps(), orgs.CreateParams{
-		Slug:            slug,
-		DisplayName:     displayName,
-		BillingEmail:    billingEmail,
+		Slug:            form.Slug,
+		DisplayName:     form.DisplayName,
+		BillingEmail:    form.BillingEmail,
 		CreatedByUserID: viewer.ID,
 	})
 	if err != nil {
-		h.renderNewForm(w, r, slug, friendlyOrgErr(err))
+		h.renderNewForm(w, r, form.withoutToken(), friendlyOrgErr(err))
+		return
+	}
+	if form.GitHubOrg != "" {
+		imp, err := orgs.StartGitHubImport(r.Context(), orgs.ImportDeps{
+			Pool: h.d.Pool, Box: h.d.SecretBox, Logger: h.d.Logger,
+		}, orgs.StartGitHubImportParams{
+			OrgID: row.ID, SourceOrg: form.GitHubOrg,
+			RequestedByUserID: viewer.ID, Token: form.GitHubToken,
+		})
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "orgs: start GitHub import after create", "error", err, "org_id", row.ID)
+			http.Redirect(w, r, "/organizations/"+row.Slug+"/settings/import?notice=start-failed", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/organizations/"+row.Slug+"/imports/"+strconv.FormatInt(imp.ID, 10), http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
 }
 
-func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, slug, errMsg string) {
+func (f orgCreateForm) withoutToken() orgCreateForm {
+	f.GitHubToken = ""
+	return f
+}
+
+func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form orgCreateForm, errMsg string) {
 	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
 		"Title":     "New organization",
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Slug":      slug,
+		"Slug":      form.Slug,
+		"Form":      form,
 		"Error":     errMsg,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
