@@ -145,6 +145,7 @@ type actionsStepDetailView struct {
 	StateClass   string
 	StateIcon    string
 	Duration     string
+	IsTerminal   bool
 	LogByteCount int64
 	LogHref      string
 }
@@ -162,6 +163,7 @@ type actionsStepLogView struct {
 	LogSource    string
 	LogError     string
 	LogTruncated bool
+	StreamHref   string
 	DownloadURL  string
 	BackHref     string
 }
@@ -204,11 +206,16 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 	for _, run := range runs {
 		runViews = append(runViews, actionsListRunViewFromRow(run, owner.Username, row.Name, now))
 	}
+	dispatchWorkflows, err := h.actionsDispatchWorkflowViews(r.Context(), row, owner.Username)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: discover dispatch workflows", "repo_id", row.ID, "error", err)
+	}
 
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = "Actions · " + row.Name
 	data["Runs"] = runViews
 	data["Workflows"] = workflows
+	data["DispatchWorkflows"] = dispatchWorkflows
 	data["RunCount"] = allRunCount
 	data["FilteredRunCount"] = filteredCount
 	data["ActiveWorkflowName"] = activeWorkflowName
@@ -694,6 +701,9 @@ func (h *Handlers) repoActionStepLog(w http.ResponseWriter, r *http.Request) {
 		DownloadURL:  logContent.DownloadURL,
 		BackHref:     run.ActionsHref + "/runs/" + strconv.FormatInt(run.RunIndex, 10) + "#job-" + strconv.FormatInt(int64(job.JobIndex), 10),
 	}
+	if !step.IsTerminal && logContent.Error == "" && logContent.DownloadURL == "" {
+		view.StreamHref = step.LogHref + "/log/stream?after=" + strconv.FormatInt(int64(logContent.LastSeq), 10)
+	}
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = step.Name + " · " + run.Title + " #" + strconv.FormatInt(run.RunIndex, 10)
 	data["Log"] = view
@@ -811,6 +821,7 @@ func actionsStepDetailViewFromRow(row actionsdb.ListStepsForJobRow, owner, repoN
 		StateClass:   stateClass,
 		StateIcon:    stateIcon,
 		Duration:     actionItemDuration(string(row.Status), string(actionsdb.WorkflowStepStatusQueued), row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt, now),
+		IsTerminal:   workflowStepTerminal(row.Status),
 		LogByteCount: row.LogByteCount,
 		LogHref: "/" + owner + "/" + repoName + "/actions/runs/" + strconv.FormatInt(runIndex, 10) +
 			"/jobs/" + strconv.FormatInt(int64(jobIndex), 10) +
@@ -962,6 +973,12 @@ func workflowRunTerminal(status actionsdb.WorkflowRunStatus) bool {
 	return status == actionsdb.WorkflowRunStatusCompleted || status == actionsdb.WorkflowRunStatusCancelled
 }
 
+func workflowStepTerminal(status actionsdb.WorkflowStepStatus) bool {
+	return status == actionsdb.WorkflowStepStatusCompleted ||
+		status == actionsdb.WorkflowStepStatusCancelled ||
+		status == actionsdb.WorkflowStepStatusSkipped
+}
+
 func actionItemDuration(status string, queuedStatus string, startedAt, completedAt, createdAt, updatedAt pgtype.Timestamptz, now time.Time) string {
 	if status == queuedStatus {
 		return "—"
@@ -1013,6 +1030,7 @@ type actionsStepLogContent struct {
 	Source      string
 	Error       string
 	Truncated   bool
+	LastSeq     int32
 	DownloadURL string
 }
 
@@ -1031,7 +1049,9 @@ func (h *Handlers) loadStepLogContent(ctx context.Context, stepID int64) (action
 	}
 	buf := bytes.NewBuffer(make([]byte, 0, minInt(actionsStepLogRenderLimit, int(step.LogByteCount)+1)))
 	truncated := false
+	lastSeq := int32(-1)
 	for _, chunk := range chunks {
+		lastSeq = chunk.Seq
 		if buf.Len() >= actionsStepLogRenderLimit {
 			truncated = true
 			break
@@ -1048,6 +1068,7 @@ func (h *Handlers) loadStepLogContent(ctx context.Context, stepID int64) (action
 		Text:      strings.ToValidUTF8(buf.String(), "\uFFFD"),
 		Source:    "SQL chunks",
 		Truncated: truncated,
+		LastSeq:   lastSeq,
 	}, nil
 }
 

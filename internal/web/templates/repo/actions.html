@@ -27,7 +27,49 @@
         <h1>{{ if .ActiveWorkflowName }}{{ .ActiveWorkflowName }}{{ else }}All workflows{{ end }}</h1>
         <p>{{ .Pagination.ResultText }}</p>
       </div>
-      <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">{{ octicon "gear" }} Actions settings</a>
+      <div class="shithub-actions-head-actions">
+        {{ if .DispatchWorkflows }}
+          <details class="shithub-actions-dispatch">
+            <summary class="shithub-button">{{ octicon "play" }} Run workflow</summary>
+            <div class="shithub-actions-dispatch-menu">
+              {{ range .DispatchWorkflows }}
+                <form method="POST" action="{{ .DispatchHref }}" class="shithub-actions-dispatch-form">
+                  <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                  <header>
+                    <h2>{{ .Name }}</h2>
+                    <code>{{ .File }}</code>
+                  </header>
+                  <label>
+                    <span>Branch</span>
+                    <input type="text" name="ref" value="{{ $.Repo.DefaultBranch }}" required>
+                  </label>
+                  {{ range .Inputs }}
+                    <label>
+                      <span>{{ .Name }}{{ if .Required }} <strong>*</strong>{{ end }}</span>
+                      {{ if .Description }}<small>{{ .Description }}</small>{{ end }}
+                      {{ if .IsChoice }}
+                        <select name="inputs.{{ .Name }}"{{ if .Required }} required{{ end }}>
+                          {{ if not .Required }}<option value=""></option>{{ end }}
+                          {{ range .Options }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Value }}</option>{{ end }}
+                        </select>
+                      {{ else if .IsBoolean }}
+                        <span class="shithub-actions-dispatch-check">
+                          <input type="hidden" name="inputs.{{ .Name }}" value="false">
+                          <input type="checkbox" name="inputs.{{ .Name }}" value="true"{{ if eq .Default "true" }} checked{{ end }}>
+                        </span>
+                      {{ else }}
+                        <input type="text" name="inputs.{{ .Name }}" value="{{ .Default }}"{{ if .Required }} required{{ end }}>
+                      {{ end }}
+                    </label>
+                  {{ end }}
+                  <button type="submit" class="shithub-button shithub-button-primary">{{ octicon "play" }} Run</button>
+                </form>
+              {{ end }}
+            </div>
+          </details>
+        {{ end }}
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">{{ octicon "gear" }} Actions settings</a>
+      </div>
     </header>
 
     <form class="shithub-actions-filters" method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/actions" aria-label="Workflow run filters">

@@ -17,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	repoh "github.com/tenseleyFlow/shithub/internal/web/handlers/repo"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -79,6 +80,7 @@ func buildRepoHandlers(
 		ObjectStore:  objectStore,
 		Audit:        audit.NewRecorder(),
 		Limiter:      throttle.NewLimiter(),
+		RateLimiter:  ratelimit.New(pool),
 		SecretBox:    hookBox,
 		ShithubdPath: shithubdPath,
 		CloneURLs: repoh.CloneURLs{

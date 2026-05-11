@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// Concurrent-lease variant for long-lived streams. `hits` is the
+	// currently-held lease count. The ttl rolls stale rows forward so a process
+	// crash or severed TCP connection cannot consume capacity indefinitely.
+	AcquireRateLimitLease(ctx context.Context, db DBTX, arg AcquireRateLimitLeaseParams) (AcquireRateLimitLeaseRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// Generic rate-limit counter queries (S35). Two write paths:
@@ -34,6 +38,7 @@ type Querier interface {
 	PeekRateLimit(ctx context.Context, db DBTX, arg PeekRateLimitParams) (RateLimit, error)
 	PruneRateLimits(ctx context.Context, db DBTX, retention pgtype.Interval) (int64, error)
 	PruneSignupIPThrottle(ctx context.Context, db DBTX, retention pgtype.Interval) (int64, error)
+	ReleaseRateLimitLease(ctx context.Context, db DBTX, arg ReleaseRateLimitLeaseParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

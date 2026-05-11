@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -55,6 +57,14 @@ type Decision struct {
 	Limit      int           // == Policy.Max, surfaced for the X-RateLimit-Limit header
 	ResetIn    time.Duration // wall-clock until the current window rolls over
 	RetryAfter time.Duration // 0 when Allowed; otherwise the wait the client should respect
+}
+
+// Lease represents one held concurrent slot. Release is idempotent.
+type Lease struct {
+	limiter  *Limiter
+	policy   Policy
+	key      string
+	released atomic.Bool
 }
 
 // Allow increments the (scope, key) counter and reports whether the
@@ -98,6 +108,81 @@ func (l *Limiter) Allow(ctx context.Context, p Policy, key string) (Decision, er
 		}
 	}
 	return d, nil
+}
+
+// AcquireLease holds one concurrent slot for long-lived requests such as SSE
+// streams. Callers must Release when the request exits. Policy.Window is the
+// stale-lease TTL: it bounds leak duration if a process exits without release.
+//
+// Like Allow, transient Postgres errors fail open. The returned lease is nil in
+// that case, so callers can continue without a release hook while still logging
+// the error.
+func (l *Limiter) AcquireLease(ctx context.Context, p Policy, key string) (*Lease, Decision, error) {
+	if p.Max <= 0 || p.Window <= 0 {
+		return nil, Decision{}, errors.New("ratelimit: Policy.Max and Window must be positive")
+	}
+	if p.Scope == "" || key == "" {
+		return nil, Decision{}, errors.New("ratelimit: Policy.Scope and key must be non-empty")
+	}
+	row, err := l.q.AcquireRateLimitLease(ctx, l.pool, ratelimitdb.AcquireRateLimitLeaseParams{
+		Scope:   p.Scope,
+		Key:     key,
+		Ttl:     pgtype.Interval{Microseconds: int64(p.Window / time.Microsecond), Valid: true},
+		MaxHits: int32(p.Max),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, l.blockedLeaseDecision(ctx, p, key), nil
+	}
+	if err != nil {
+		return nil, Decision{Allowed: true, Remaining: p.Max, Limit: p.Max, ResetIn: p.Window}, fmt.Errorf("ratelimit: acquire lease: %w", err)
+	}
+	hits := int(row.Hits)
+	resetIn := time.Until(row.WindowStartedAt.Time.Add(p.Window))
+	if resetIn < 0 {
+		resetIn = 0
+	}
+	return &Lease{limiter: l, policy: p, key: key}, Decision{
+		Allowed:   true,
+		Limit:     p.Max,
+		Remaining: max0(p.Max - hits),
+		ResetIn:   resetIn,
+	}, nil
+}
+
+// Release returns the held slot to the limiter. It is safe to call multiple
+// times; only the first call touches postgres.
+func (l *Lease) Release(ctx context.Context) error {
+	if l == nil || l.limiter == nil {
+		return nil
+	}
+	if !l.released.CompareAndSwap(false, true) {
+		return nil
+	}
+	_, err := l.limiter.q.ReleaseRateLimitLease(ctx, l.limiter.pool, ratelimitdb.ReleaseRateLimitLeaseParams{
+		Scope: l.policy.Scope,
+		Key:   l.key,
+	})
+	if err != nil {
+		return fmt.Errorf("ratelimit: release lease: %w", err)
+	}
+	return nil
+}
+
+func (l *Limiter) blockedLeaseDecision(ctx context.Context, p Policy, key string) Decision {
+	resetIn := p.Window
+	if row, err := l.q.PeekRateLimit(ctx, l.pool, ratelimitdb.PeekRateLimitParams{Scope: p.Scope, Key: key}); err == nil {
+		resetIn = time.Until(row.WindowStartedAt.Time.Add(p.Window))
+		if resetIn <= 0 {
+			resetIn = time.Second
+		}
+	}
+	return Decision{
+		Allowed:    false,
+		Limit:      p.Max,
+		Remaining:  0,
+		ResetIn:    resetIn,
+		RetryAfter: resetIn,
+	}
 }
 
 // AllowSignupIP is the inet-keyed sibling of Allow against the

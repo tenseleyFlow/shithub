@@ -43,6 +43,9 @@
         </header>
         {{ if .Log.LogError }}
           <p class="shithub-actions-log-empty">{{ .Log.LogError }}</p>
+        {{ else if .Log.StreamHref }}
+          <pre class="shithub-actions-log-output"><code data-actions-log-stream="{{ .Log.StreamHref }}">{{ .Log.LogText }}</code></pre>
+          <p class="shithub-actions-log-live" data-actions-log-status>Live</p>
         {{ else if .Log.LogText }}
           <pre class="shithub-actions-log-output"><code>{{ .Log.LogText }}</code></pre>
         {{ else }}
@@ -52,4 +55,39 @@
     </div>
   </div>
 </section>
+{{ if .Log.StreamHref }}
+<script>
+(() => {
+  const code = document.querySelector("[data-actions-log-stream]");
+  if (!code || !window.EventSource) return;
+  const status = document.querySelector("[data-actions-log-status]");
+  const scroller = code.closest(".shithub-actions-log-output");
+  const decoder = new TextDecoder();
+  const stream = new EventSource(code.dataset.actionsLogStream);
+  const scrollToBottom = () => {
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  };
+  stream.addEventListener("chunk", (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      const raw = atob(message.chunk_b64 || "");
+      const bytes = Uint8Array.from(raw, (char) => char.charCodeAt(0));
+      code.textContent += decoder.decode(bytes, { stream: true });
+      scrollToBottom();
+    } catch {
+      if (status) status.textContent = "Live log interrupted";
+    }
+  });
+  stream.addEventListener("done", () => {
+    stream.close();
+    if (status) status.textContent = "Log complete";
+    window.setTimeout(() => window.location.reload(), 600);
+  });
+  stream.onerror = () => {
+    if (status) status.textContent = "Reconnecting";
+  };
+  scrollToBottom();
+})();
+</script>
+{{ end }}
 {{- end }}
