@@ -230,6 +230,82 @@ func (q *Queries) GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (Wo
 	return i, err
 }
 
+const getWorkflowRunForRepoByIndex = `-- name: GetWorkflowRunForRepoByIndex :one
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.event_payload,
+       r.actor_user_id, COALESCE(u.username::text, '')::text AS actor_username,
+       r.parent_run_id, r.concurrency_group,
+       r.status, r.conclusion, r.pinned, r.need_approval, r.approved_by_user_id,
+       r.started_at, r.completed_at, r.version, r.created_at, r.updated_at, r.trigger_event_id
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = $1 AND r.run_index = $2
+`
+
+type GetWorkflowRunForRepoByIndexParams struct {
+	RepoID   int64
+	RunIndex int64
+}
+
+type GetWorkflowRunForRepoByIndexRow struct {
+	ID               int64
+	RepoID           int64
+	RunIndex         int64
+	WorkflowFile     string
+	WorkflowName     string
+	HeadSha          string
+	HeadRef          string
+	Event            WorkflowRunEvent
+	EventPayload     []byte
+	ActorUserID      pgtype.Int8
+	ActorUsername    string
+	ParentRunID      pgtype.Int8
+	ConcurrencyGroup string
+	Status           WorkflowRunStatus
+	Conclusion       NullCheckConclusion
+	Pinned           bool
+	NeedApproval     bool
+	ApprovedByUserID pgtype.Int8
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	Version          int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	TriggerEventID   string
+}
+
+func (q *Queries) GetWorkflowRunForRepoByIndex(ctx context.Context, db DBTX, arg GetWorkflowRunForRepoByIndexParams) (GetWorkflowRunForRepoByIndexRow, error) {
+	row := db.QueryRow(ctx, getWorkflowRunForRepoByIndex, arg.RepoID, arg.RunIndex)
+	var i GetWorkflowRunForRepoByIndexRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+		&i.EventPayload,
+		&i.ActorUserID,
+		&i.ActorUsername,
+		&i.ParentRunID,
+		&i.ConcurrencyGroup,
+		&i.Status,
+		&i.Conclusion,
+		&i.Pinned,
+		&i.NeedApproval,
+		&i.ApprovedByUserID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TriggerEventID,
+	)
+	return i, err
+}
+
 const insertWorkflowRun = `-- name: InsertWorkflowRun :one
 
 INSERT INTO workflow_runs (

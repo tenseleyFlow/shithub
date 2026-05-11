@@ -104,6 +104,39 @@ func (q *Queries) GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg Get
 	return i, err
 }
 
+const listAllStepLogChunksForStep = `-- name: ListAllStepLogChunksForStep :many
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1
+ORDER BY seq ASC
+`
+
+func (q *Queries) ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error) {
+	rows, err := db.Query(ctx, listAllStepLogChunksForStep, stepID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowStepLogChunk{}
+	for rows.Next() {
+		var i WorkflowStepLogChunk
+		if err := rows.Scan(
+			&i.ID,
+			&i.StepID,
+			&i.Seq,
+			&i.Chunk,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStepLogChunks = `-- name: ListStepLogChunks :many
 SELECT id, step_id, seq, chunk, created_at
 FROM workflow_step_log_chunks

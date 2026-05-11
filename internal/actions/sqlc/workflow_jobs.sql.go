@@ -247,7 +247,7 @@ func (q *Queries) InsertWorkflowJob(ctx context.Context, db DBTX, arg InsertWork
 
 const listJobsForRun = `-- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
-       conclusion, started_at, completed_at, created_at
+       conclusion, needs_jobs, started_at, completed_at, created_at, updated_at
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC
@@ -262,9 +262,11 @@ type ListJobsForRunRow struct {
 	RunsOn      string
 	Status      WorkflowJobStatus
 	Conclusion  NullCheckConclusion
+	NeedsJobs   []string
 	StartedAt   pgtype.Timestamptz
 	CompletedAt pgtype.Timestamptz
 	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
 }
 
 func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error) {
@@ -285,9 +287,11 @@ func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]L
 			&i.RunsOn,
 			&i.Status,
 			&i.Conclusion,
+			&i.NeedsJobs,
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

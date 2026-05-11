@@ -85,7 +85,7 @@ JOIN workflow_runs r ON r.id = c.run_id;
 
 -- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
-       conclusion, started_at, completed_at, created_at
+       conclusion, needs_jobs, started_at, completed_at, created_at, updated_at
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC;

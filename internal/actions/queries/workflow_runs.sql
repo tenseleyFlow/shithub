@@ -62,6 +62,17 @@ SELECT id, repo_id, run_index, workflow_file, workflow_name,
 FROM workflow_runs
 WHERE id = $1;
 
+-- name: GetWorkflowRunForRepoByIndex :one
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.event_payload,
+       r.actor_user_id, COALESCE(u.username::text, '')::text AS actor_username,
+       r.parent_run_id, r.concurrency_group,
+       r.status, r.conclusion, r.pinned, r.need_approval, r.approved_by_user_id,
+       r.started_at, r.completed_at, r.version, r.created_at, r.updated_at, r.trigger_event_id
+FROM workflow_runs r
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.repo_id = $1 AND r.run_index = $2;
+
 -- name: MarkWorkflowRunRunning :exec
 UPDATE workflow_runs
 SET status = 'running',

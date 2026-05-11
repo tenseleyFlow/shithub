@@ -235,8 +235,8 @@ func (q *Queries) ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int6
 
 const listStepsForJob = `-- name: ListStepsForJob :many
 SELECT id, job_id, step_index, step_id, step_name, run_command,
-       uses_alias, status, conclusion, log_byte_count,
-       started_at, completed_at, created_at
+       uses_alias, status, conclusion, log_object_key, log_byte_count,
+       started_at, completed_at, created_at, updated_at
 FROM workflow_steps
 WHERE job_id = $1
 ORDER BY step_index ASC
@@ -252,10 +252,12 @@ type ListStepsForJobRow struct {
 	UsesAlias    string
 	Status       WorkflowStepStatus
 	Conclusion   NullCheckConclusion
+	LogObjectKey pgtype.Text
 	LogByteCount int64
 	StartedAt    pgtype.Timestamptz
 	CompletedAt  pgtype.Timestamptz
 	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 }
 
 func (q *Queries) ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error) {
@@ -277,10 +279,12 @@ func (q *Queries) ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]
 			&i.UsesAlias,
 			&i.Status,
 			&i.Conclusion,
+			&i.LogObjectKey,
 			&i.LogByteCount,
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
