@@ -978,7 +978,8 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		StepID: stepID,
 		Seq:    seq,
 	})
-	if err == nil {
+	switch {
+	case err == nil:
 		if carry := scrubCarryLen(prev.Chunk, values); carry > 0 {
 			prefix := append([]byte(nil), prev.Chunk[:len(prev.Chunk)-carry]...)
 			combined := append(append([]byte(nil), prev.Chunk[len(prev.Chunk)-carry:]...), chunk...)
@@ -992,9 +993,9 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		} else {
 			chunk, replacements = scrubChunk(chunk, values)
 		}
-	} else if errors.Is(err, pgx.ErrNoRows) {
+	case errors.Is(err, pgx.ErrNoRows):
 		chunk, replacements = scrubChunk(chunk, values)
-	} else {
+	default:
 		return err
 	}
 
