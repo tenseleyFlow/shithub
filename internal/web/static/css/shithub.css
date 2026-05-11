@@ -5442,11 +5442,11 @@ button.shithub-repo-action {
 .shithub-editor-textbox textarea:focus {
   box-shadow: inset 0 0 0 2px var(--accent-emphasis);
 }
-.shithub-editor-helpbar,
-.shithub-editor-attach {
+.shithub-editor-helpbar {
   min-height: 36px;
   padding: 0.45rem 0.75rem;
   border-top: 1px solid var(--border-default);
+  border-radius: 0 0 6px 6px;
   color: var(--fg-muted);
   background: var(--canvas-subtle);
   font-size: 0.875rem;
@@ -5462,10 +5462,6 @@ button.shithub-repo-action {
   background: var(--canvas-default);
   font: 0.8rem ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
-.shithub-editor-attach {
-  border-radius: 0 0 6px 6px;
-  font-weight: 600;
-}
 .shithub-editor-preview {
   min-height: min(72vh, 900px);
   padding: 3rem 2.75rem;
@@ -5474,6 +5470,31 @@ button.shithub-repo-action {
 .shithub-editor-preview-body {
   max-width: none;
   color: var(--fg-default);
+}
+.shithub-editor-preview-body.is-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.shithub-editor-preview-diff-block {
+  margin: 0;
+}
+.shithub-editor-preview-diff-block.is-added,
+.shithub-editor-preview-diff-block.is-deleted {
+  padding-left: 0.95rem;
+  border-left: 4px solid;
+}
+.shithub-editor-preview-diff-block.is-added {
+  border-left-color: var(--success-emphasis);
+}
+.shithub-editor-preview-diff-block.is-deleted {
+  border-left-color: var(--danger-fg);
+}
+.shithub-editor-preview-diff-block > :first-child {
+  margin-top: 0;
+}
+.shithub-editor-preview-diff-block > :last-child {
+  margin-bottom: 0;
 }
 .shithub-editor-preview-empty {
   margin: 0;

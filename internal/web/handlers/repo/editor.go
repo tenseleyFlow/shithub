@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -275,33 +276,218 @@ func (h *Handlers) codeMarkdownPreview(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusRequestEntityTooLarge, "")
 		return
 	}
-	rendered, err := mdrender.RenderDocumentHTML(body)
-	if err != nil {
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
-	}
 	ref := r.PostFormValue("ref")
 	if ref == "" {
 		ref = row.DefaultBranch
 	}
 	filePath := cleanEditorPath(r.PostFormValue("path"))
-	dir := parentPath(filePath)
-	if !validateSubpath(dir) {
-		dir = ""
+	if !validateSubpath(filePath) {
+		filePath = ""
 	}
-	rendered = rewriteMarkdownRelativeURLs(
-		rendered,
-		codeRouteBase(owner.Username, row.Name, "blob", ref, dir),
-		codeRouteBase(owner.Username, row.Name, "blob", ref, ""),
-		codeRouteBase(owner.Username, row.Name, "raw", ref, dir),
-		codeRouteBase(owner.Username, row.Name, "raw", ref, ""),
-	)
+	if r.PostFormValue("show_diff") == "1" {
+		sourcePath := cleanEditorPath(r.PostFormValue("original_path"))
+		if sourcePath == "" {
+			sourcePath = filePath
+		}
+		blocks, err := h.markdownPreviewDiffBlocks(r.Context(), owner.Username, row.Name, ref, filePath, sourcePath, body)
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "code: markdown diff preview", "error", err)
+		} else {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := h.d.Render.RenderFragment(w, "repo/markdown_preview", map[string]any{
+				"DiffMode":   true,
+				"DiffBlocks": blocks,
+			}); err != nil {
+				h.d.Logger.WarnContext(r.Context(), "code: markdown preview", "error", err)
+			}
+			return
+		}
+	}
+	rendered, err := mdrender.RenderDocumentHTML(body)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	rendered = rewriteEditorMarkdownURLs(rendered, owner.Username, row.Name, ref, filePath)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.d.Render.RenderFragment(w, "repo/markdown_preview", map[string]any{
 		"MarkdownHTML": template.HTML(rendered), //nolint:gosec // sanitized by markdown renderer
 	}); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: markdown preview", "error", err)
 	}
+}
+
+type markdownPreviewDiffBlock struct {
+	Kind string
+	HTML template.HTML
+}
+
+type markdownLineRun struct {
+	Kind  string
+	Lines []string
+}
+
+func (h *Handlers) markdownPreviewDiffBlocks(ctx context.Context, owner, repoName, ref, previewPath, sourcePath string, body []byte) ([]markdownPreviewDiffBlock, error) {
+	var original []byte
+	if validateSubpath(sourcePath) && sourcePath != "" {
+		gitDir, err := h.d.RepoFS.RepoPath(owner, repoName)
+		if err != nil {
+			return nil, err
+		}
+		kind, _, size, err := repogit.StatPath(ctx, gitDir, ref, sourcePath)
+		switch {
+		case err == nil && kind == repogit.EntryBlob && size <= webedit.MaxTextBytes:
+			original, err = repogit.ReadBlobBytes(ctx, gitDir, ref, sourcePath, webedit.MaxTextBytes)
+			if err != nil {
+				return nil, err
+			}
+		case err == nil:
+			original = nil
+		case errors.Is(err, repogit.ErrPathNotFound):
+			original = nil
+		default:
+			return nil, err
+		}
+	}
+	return renderMarkdownPreviewDiffBlocks(original, body, func(rendered string) string {
+		return rewriteEditorMarkdownURLs(rendered, owner, repoName, ref, previewPath)
+	})
+}
+
+func renderMarkdownPreviewDiffBlocks(original, current []byte, rewrite func(string) string) ([]markdownPreviewDiffBlock, error) {
+	runs := markdownLineDiff(splitMarkdownLines(string(original)), splitMarkdownLines(string(current)))
+	blocks := make([]markdownPreviewDiffBlock, 0, len(runs))
+	for _, run := range runs {
+		body := strings.Join(run.Lines, "")
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		rendered, err := mdrender.RenderDocumentHTML([]byte(body))
+		if err != nil {
+			return nil, err
+		}
+		if rewrite != nil {
+			rendered = rewrite(rendered)
+		}
+		blocks = append(blocks, markdownPreviewDiffBlock{
+			Kind: run.Kind,
+			HTML: template.HTML(rendered), //nolint:gosec // sanitized by markdown renderer
+		})
+	}
+	return blocks, nil
+}
+
+func rewriteEditorMarkdownURLs(rendered, owner, repoName, ref, filePath string) string {
+	dir := parentPath(filePath)
+	if !validateSubpath(dir) {
+		dir = ""
+	}
+	return rewriteMarkdownRelativeURLs(
+		rendered,
+		codeRouteBase(owner, repoName, "blob", ref, dir),
+		codeRouteBase(owner, repoName, "blob", ref, ""),
+		codeRouteBase(owner, repoName, "raw", ref, dir),
+		codeRouteBase(owner, repoName, "raw", ref, ""),
+	)
+}
+
+func splitMarkdownLines(s string) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	if s == "" {
+		return nil
+	}
+	lines := strings.SplitAfter(s, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+const maxMarkdownPreviewDiffCells = 40000
+
+func markdownLineDiff(original, current []string) []markdownLineRun {
+	if len(original) == 0 && len(current) == 0 {
+		return nil
+	}
+	if len(original) > 0 && len(current) > maxMarkdownPreviewDiffCells/len(original) {
+		return boundedMarkdownLineDiff(original, current)
+	}
+	width := len(current) + 1
+	table := make([]int, (len(original)+1)*width)
+	for i := len(original) - 1; i >= 0; i-- {
+		for j := len(current) - 1; j >= 0; j-- {
+			if original[i] == current[j] {
+				table[i*width+j] = table[(i+1)*width+j+1] + 1
+				continue
+			}
+			deleted := table[(i+1)*width+j]
+			added := table[i*width+j+1]
+			if deleted >= added {
+				table[i*width+j] = deleted
+			} else {
+				table[i*width+j] = added
+			}
+		}
+	}
+	var runs []markdownLineRun
+	i, j := 0, 0
+	for i < len(original) && j < len(current) {
+		switch {
+		case original[i] == current[j]:
+			runs = appendMarkdownLineRun(runs, "context", current[j])
+			i++
+			j++
+		case table[(i+1)*width+j] >= table[i*width+j+1]:
+			runs = appendMarkdownLineRun(runs, "deleted", original[i])
+			i++
+		default:
+			runs = appendMarkdownLineRun(runs, "added", current[j])
+			j++
+		}
+	}
+	for ; i < len(original); i++ {
+		runs = appendMarkdownLineRun(runs, "deleted", original[i])
+	}
+	for ; j < len(current); j++ {
+		runs = appendMarkdownLineRun(runs, "added", current[j])
+	}
+	return runs
+}
+
+func boundedMarkdownLineDiff(original, current []string) []markdownLineRun {
+	prefix := 0
+	for prefix < len(original) && prefix < len(current) && original[prefix] == current[prefix] {
+		prefix++
+	}
+	origEnd := len(original)
+	currEnd := len(current)
+	for origEnd > prefix && currEnd > prefix && original[origEnd-1] == current[currEnd-1] {
+		origEnd--
+		currEnd--
+	}
+	var runs []markdownLineRun
+	for _, line := range current[:prefix] {
+		runs = appendMarkdownLineRun(runs, "context", line)
+	}
+	for _, line := range original[prefix:origEnd] {
+		runs = appendMarkdownLineRun(runs, "deleted", line)
+	}
+	for _, line := range current[prefix:currEnd] {
+		runs = appendMarkdownLineRun(runs, "added", line)
+	}
+	for _, line := range current[currEnd:] {
+		runs = appendMarkdownLineRun(runs, "context", line)
+	}
+	return runs
+}
+
+func appendMarkdownLineRun(runs []markdownLineRun, kind, line string) []markdownLineRun {
+	if len(runs) > 0 && runs[len(runs)-1].Kind == kind {
+		runs[len(runs)-1].Lines = append(runs[len(runs)-1].Lines, line)
+		return runs
+	}
+	return append(runs, markdownLineRun{Kind: kind, Lines: []string{line}})
 }
 
 func (h *Handlers) editorData(r *http.Request, cc *codeContext, mode, pathValue, content string) codeEditorData {
