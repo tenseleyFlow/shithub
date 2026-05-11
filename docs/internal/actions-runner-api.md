@@ -38,13 +38,15 @@ directly for JWT signing.
 Job JWTs are single-use. Every job endpoint verifies the signature and
 expiry, checks that the path job belongs to the claimed runner/run, and
 then inserts `jti` into `runner_jwt_used`. A replay returns 401. To
-support multi-step runner flows, successful non-terminal job endpoints
+support multi-step runner flows, successful in-flight job endpoints
 return `next_token` and `next_token_expires_at`.
 
 `shithubd-runner` consumes the same token chain: it claims with the
 registration token, marks the job `running` with the first job JWT, then
-uses the returned `next_token` for the terminal status update. Reusing
-any consumed job JWT is a replay and must fail with 401.
+uses each returned `next_token` serially for log chunks, step-status
+updates, cancel checks, artifact upload requests, and finally the
+terminal job-status update. Reusing any consumed job JWT is a replay and
+must fail with 401.
 
 ## Endpoints
 
@@ -74,6 +76,26 @@ first step in the job receives the chunk. Chunks are base64-decoded,
 capped at 512 KiB raw, and appended to `workflow_step_log_chunks`.
 Duplicate `(step_id, seq)` inserts are accepted as idempotent retries.
 
+`POST /api/v1/jobs/{id}/steps/{step_id}/status`
+
+Auth: job JWT. Body:
+
+```json
+{"status":"completed","conclusion":"success"}
+```
+
+Valid transitions are `queued|running -> running|completed|cancelled|skipped`
+with idempotent repeats of the target terminal state. Completed and
+skipped steps require a valid check conclusion; cancelled defaults to
+`cancelled` when omitted. The endpoint always returns a `next_token`
+because a completed step is not the end of the job.
+
+When object storage is configured, terminal step updates enqueue
+`workflow:finalize_step`. The worker concatenates
+`workflow_step_log_chunks` in sequence order, uploads the log to
+`actions/runs/<run_id>/jobs/<job_id>/steps/<step_id>.log`, stores that
+key and byte count on `workflow_steps`, then deletes the SQL chunks.
+
 `POST /api/v1/jobs/{id}/status`
 
 Auth: job JWT. Body:
@@ -87,10 +109,11 @@ Completed jobs require a valid check conclusion. The handler updates
 `workflow_jobs`, rolls up `workflow_runs`, and best-effort updates the
 matching `check_runs` row created by the trigger pipeline.
 
-S41d PR1 runner execution supports containerized `run:` steps. `uses:`
-aliases such as `actions/checkout@v4` and artifact upload/download are
-reserved for the later S41d slices that add checkout metadata, log
-streaming, and artifact transfer.
+S41d PR2 runner execution supports containerized `run:` steps with
+per-step log streaming and server-side log finalization. `uses:` aliases
+such as `actions/checkout@v4` and artifact upload/download remain
+reserved for the later S41d slices that add checkout metadata and
+artifact transfer.
 
 `POST /api/v1/jobs/{id}/artifacts/upload`
 
