@@ -250,16 +250,19 @@ Propagation rules:
 
 - Reading `shithub.event.X` → `Tainted: true` (always, including
   missing-path null results).
-- Reading any other namespace → `Tainted: false`.
+- Reading any other namespace → `Tainted: false`, except `env.X`
+  preserves the taint of the resolved env value. This closes the
+  escape where an event-derived value is first assigned to env and
+  then interpolated through `${{ env.X }}`.
 - Binary op (`==`, `!=`, `&&`, `||`) → tainted if either operand is.
 - Unary op (`!`) → tainted iff its operand is.
 - Function call (`contains`, `startsWith`, `endsWith`) → tainted
   if any argument is.
 
-The runner (S41d) consumes `Tainted` and refuses to interpolate
-tainted values into shell strings. Instead, tainted values are
-bound to `${SHITHUB_INPUT_xx}` envvars set by the runner with no
-shell expansion. The author writes:
+The runner consumes `Tainted` and refuses to interpolate tainted
+values into shell strings. Instead, tainted values are bound to
+runner-owned `SHITHUB_INPUT_xx` envvars and the shell source only
+references those placeholders. The author writes:
 
 ```yaml
 - run: echo "PR title was: ${{ shithub.event.pull_request.title }}"
@@ -268,18 +271,32 @@ shell expansion. The author writes:
 The runner sees a tainted reference; it compiles the step to:
 
 ```bash
-SHITHUB_INPUT_01="$user_pr_title" exec sh -c 'echo "PR title was: $SHITHUB_INPUT_01"'
+SHITHUB_INPUT_0="$user_pr_title" exec sh -c 'echo "PR title was: $SHITHUB_INPUT_0"'
 ```
 
-…where `$user_pr_title` is set via Go's `cmd.Env`, never via
-shell-string interpolation. Backticks, `$()`, `;`, `&&` — none of
-those work as injection vectors when the value never reaches the
-shell parser.
+…where `$user_pr_title` is set via Go's `cmd.Env`, never inserted into
+the shell source string. Backticks, `$()`, `;`, `&&` — none of those
+work as command-injection vectors when the value reaches the shell as
+environment data instead of syntax.
 
-Tests for this contract live in `internal/actions/expr/eval_test.go`
-under `TestEval_Taint*`. **Do not** weaken them in a later PR
-without an audit-checkpoint review — they're explicitly load-bearing
-for S41e's threat model.
+The shared renderer lives in `internal/runner/exec`, so future engines
+consume the same injection boundary instead of reimplementing it. The
+runner claim payload includes `workflow_runs.event_payload`; without
+that field, the runner cannot evaluate and taint
+`${{ shithub.event.* }}` references.
+
+Tests for this contract live in `internal/actions/expr/eval_test.go`,
+`internal/runner/exec/render_test.go`, and
+`internal/runner/engine/docker_test.go`. **Do not** weaken them in a
+later PR without an audit-checkpoint review — they're explicitly
+load-bearing for S41e's threat model.
+
+Runner log chunks pass through `internal/runner/scrub` before they are
+posted to the API. It masks exact secret values and preserves enough
+tail bytes between chunks to catch a secret split across chunk
+boundaries. S41e follow-up work wires resolved workflow secrets into
+the runner/API mask set and adds server-side defense in depth before
+persisting chunks.
 
 ## `shithub.event` payload schema (v1)
 
