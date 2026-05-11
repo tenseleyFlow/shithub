@@ -64,6 +64,8 @@ site.
 ## Operations
 
 - [deploy.md](./deploy.md) — Ansible playbook + topology.
+- [runbooks/runner-deploy.md](./runbooks/runner-deploy.md) —
+  Actions runner host deployment.
 - [runbooks/](./runbooks/) — incident, backup, restore, upgrade,
   rollback, plus rotation procedures.
 
