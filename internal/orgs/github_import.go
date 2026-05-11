@@ -47,7 +47,7 @@ var (
 	ErrImportTokenKeyNeeded = errors.New("orgs: import token encryption key is not configured")
 )
 
-var githubOrgRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,99})$`)
+var githubOrgRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
 
 // ImportDeps wires org-import orchestration.
 type ImportDeps struct {
@@ -127,7 +127,7 @@ func NormalizeGitHubOrg(raw string) (string, error) {
 	org = strings.TrimPrefix(org, "https://github.com/")
 	org = strings.TrimPrefix(org, "http://github.com/")
 	org = strings.Trim(org, "/")
-	if org == "" || strings.Contains(org, "/") || !githubOrgRE.MatchString(org) {
+	if org == "" || strings.Contains(org, "/") || strings.Contains(org, "--") || !githubOrgRE.MatchString(org) {
 		return "", ErrInvalidGitHubOrg
 	}
 	return org, nil

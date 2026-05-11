@@ -106,6 +106,16 @@ each submodule repo with its source remote, then create/import the parent
 repo, and the pinned submodule links can hydrate exact detached tree
 views on demand.
 
+Organization GitHub imports reuse the same source-remote path in bulk.
+The org import worker creates one org-owned repository per discovered
+GitHub repo, persists the upstream clone URL in `repo_source_remotes`,
+fetches heads/tags, and then refreshes `default_branch` /
+`default_branch_oid` exactly like the single-repo import flow. Private
+repositories are only imported when the owner supplied a GitHub token;
+the token is stored encrypted on the import row and passed to git via
+temporary askpass environment, never embedded into the persisted remote
+URL.
+
 ## Plumbing-only initial commit
 
 Why no working tree:

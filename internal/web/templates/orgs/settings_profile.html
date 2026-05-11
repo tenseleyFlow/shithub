@@ -14,6 +14,7 @@
       <h1>Settings</h1>
       <nav class="shithub-org-settings-menu">
         <a class="is-selected" href="/organizations/{{ .Org.Slug }}/settings/profile" aria-current="page">{{ octicon "organization" }} General</a>
+        <a href="/organizations/{{ .Org.Slug }}/settings/import">{{ octicon "repo" }} Import repositories</a>
         <span aria-disabled="true">{{ octicon "people" }} People</span>
         <span aria-disabled="true">{{ octicon "repo" }} Repository defaults</span>
         <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>

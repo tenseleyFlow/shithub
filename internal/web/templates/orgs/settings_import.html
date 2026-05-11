@@ -1,0 +1,78 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    <aside class="shithub-org-settings-sidebar" aria-label="Organization settings">
+      <h1>Settings</h1>
+      <nav class="shithub-org-settings-menu">
+        <a href="/organizations/{{ .Org.Slug }}/settings/profile">{{ octicon "organization" }} General</a>
+        <a class="is-selected" href="/organizations/{{ .Org.Slug }}/settings/import" aria-current="page">{{ octicon "repo" }} Import repositories</a>
+        <span aria-disabled="true">{{ octicon "people" }} People</span>
+        <span aria-disabled="true">{{ octicon "repo" }} Repository defaults</span>
+        <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>
+        <h2>Code, planning, and automation</h2>
+        <span aria-disabled="true">{{ octicon "play" }} Actions</span>
+        <span aria-disabled="true">{{ octicon "table" }} Projects</span>
+        <span aria-disabled="true">{{ octicon "package" }} Packages</span>
+        <h2>Security</h2>
+        <span aria-disabled="true">{{ octicon "shield-check" }} Code security</span>
+        <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
+        <h2>Access</h2>
+        <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
+        <span aria-disabled="true">{{ octicon "history" }} Audit log</span>
+      </nav>
+    </aside>
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Import repositories</h2>
+      </div>
+
+      <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/import" class="shithub-org-settings-form shithub-org-import-form" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>GitHub organization</span>
+          <input type="text" name="github_org" value="{{ .Form.GitHubOrg }}" placeholder="github-org" required autocomplete="off">
+        </label>
+        <label>
+          <span>GitHub token <small>(optional)</small></span>
+          <input type="password" name="github_token" placeholder="Required for private repositories" autocomplete="off">
+        </label>
+        {{ if not .SecretBoxOK }}
+        <p class="shithub-flash shithub-flash-error" role="status">Token-backed imports are disabled until the server secret key is configured.</p>
+        {{ end }}
+        <p class="shithub-empty-note">Public imports need no token. Token-backed imports include private repositories visible to that token and keep them private on shithub.</p>
+        <button type="submit" class="shithub-button shithub-button-primary">Start import</button>
+      </form>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-import-history-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-import-history-heading" class="Subhead-heading">Recent imports</h2>
+        </div>
+        <div class="shithub-org-import-history">
+          {{ range .Imports }}
+          <a href="/organizations/{{ $.Org.Slug }}/imports/{{ .ID }}" class="shithub-org-import-history-row">
+            <span>{{ .SourceOrg }}</span>
+            <span class="shithub-org-import-status is-{{ .Status }}">{{ .Status }}</span>
+            <span>{{ relativeTime .CreatedAt.Time }}</span>
+          </a>
+          {{ else }}
+          <p class="shithub-empty-note">No imports have been started for this organization.</p>
+          {{ end }}
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

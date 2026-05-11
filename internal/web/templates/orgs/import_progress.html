@@ -1,0 +1,62 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  {{ if not .IsTerminal }}<script>setTimeout(function(){ window.location.reload(); }, 3000);</script>{{ end }}
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="shithub-org-import-progress">
+    <div class="shithub-org-import-progress-head">
+      <div>
+        <p class="shithub-muted">github.com/{{ .Progress.SourceOrg }}</p>
+        <h1>Import repositories</h1>
+      </div>
+      <span class="shithub-org-import-status is-{{ .Progress.Status }}">{{ .Progress.Status }}</span>
+    </div>
+
+    {{ if .Progress.LastError.Valid }}
+    <p class="shithub-flash shithub-flash-error" role="alert">{{ .Progress.LastError.String }}</p>
+    {{ end }}
+
+    <div class="shithub-org-import-counts" aria-label="Import progress">
+      <div><strong>{{ .Progress.ImportedCount }}</strong><span>Imported</span></div>
+      <div><strong>{{ .Progress.ImportingCount }}</strong><span>Importing</span></div>
+      <div><strong>{{ .Progress.QueuedCount }}</strong><span>Queued</span></div>
+      <div><strong>{{ .Progress.SkippedCount }}</strong><span>Skipped</span></div>
+      <div><strong>{{ .Progress.FailedCount }}</strong><span>Failed</span></div>
+    </div>
+
+    <div class="shithub-org-import-list">
+      {{ range .Items }}
+      <div class="shithub-org-import-row">
+        <div>
+          <div class="shithub-org-import-row-title">
+            {{ if eq .Status "imported" }}
+              <a href="/{{ $.Org.Slug }}/{{ .TargetName }}">{{ .SourceName }}</a>
+            {{ else }}
+              <span>{{ .SourceName }}</span>
+            {{ end }}
+            <span class="shithub-repo-visibility">{{ .TargetVisibility }}</span>
+          </div>
+          <p>{{ if .Description }}{{ .Description }}{{ else }}{{ .SourceFullName }}{{ end }}</p>
+          {{ if .LastError.Valid }}<p class="shithub-org-import-error">{{ .LastError.String }}</p>{{ end }}
+        </div>
+        <span class="shithub-org-import-status is-{{ .Status }}">{{ if eq .Status "queued" }}{{ octicon "history" }}{{ else if eq .Status "importing" }}<span class="shithub-spinner" aria-hidden="true"></span>{{ else if eq .Status "imported" }}{{ octicon "check" }}{{ else if eq .Status "skipped" }}{{ octicon "dash" }}{{ else }}{{ octicon "x" }}{{ end }} {{ .Status }}</span>
+      </div>
+      {{ else }}
+      <p class="shithub-empty-note">Repository discovery has not finished yet.</p>
+      {{ end }}
+    </div>
+
+    <p class="shithub-org-import-actions">
+      <a class="shithub-button" href="/organizations/{{ .Org.Slug }}/settings/import">Back to imports</a>
+      <a class="shithub-button" href="/orgs/{{ .Org.Slug }}/repositories">View repositories</a>
+    </p>
+  </main>
+</section>
+{{- end }}
