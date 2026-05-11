@@ -73,8 +73,8 @@ LIMIT 1;
 
 -- name: ListStepsForJob :many
 SELECT id, job_id, step_index, step_id, step_name, run_command,
-       uses_alias, status, conclusion, log_byte_count,
-       started_at, completed_at, created_at
+       uses_alias, status, conclusion, log_object_key, log_byte_count,
+       started_at, completed_at, created_at, updated_at
 FROM workflow_steps
 WHERE job_id = $1
 ORDER BY step_index ASC;

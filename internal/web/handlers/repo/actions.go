@@ -3,8 +3,10 @@
 package repo
 
 import (
+	"bytes"
+	"context"
 	"errors"
-	"html/template"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -18,11 +20,13 @@ import (
 
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
-	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
-	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 )
 
-const actionsRunsPageSize = int32(20)
+const (
+	actionsRunsPageSize       = int32(20)
+	actionsStepLogRenderLimit = 1 << 20
+)
 
 type actionsWorkflowView struct {
 	File   string
@@ -83,37 +87,83 @@ type actionsPaginationView struct {
 	ResultText string
 }
 
-type actionsSuiteView struct {
-	ID                 int64
-	AppSlug            string
-	Title              string
-	HeadSha            string
-	HeadShaShort       string
-	PullNumber         int64
-	PullAuthorUsername string
-	HeadRef            string
-	BaseRef            string
-	RunCount           int
-	StateText          string
-	StateClass         string
-	StateIcon          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Duration           string
-	Runs               []actionsRunView
-	AnnotationCount    int
+type actionsRunDetailView struct {
+	ID             int64
+	RunIndex       int64
+	WorkflowFile   string
+	WorkflowName   string
+	Title          string
+	HeadSha        string
+	HeadShaShort   string
+	HeadRef        string
+	Event          string
+	EventLabel     string
+	ActorUsername  string
+	StateText      string
+	StateClass     string
+	StateIcon      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Duration       string
+	IsTerminal     bool
+	StatusHref     string
+	ActionsHref    string
+	CodeHref       string
+	ArtifactCount  int
+	JobCount       int
+	CompletedCount int
+	FailureCount   int
+	Jobs           []actionsJobDetailView
+	Stages         []actionsJobStageView
 }
 
-type actionsRunView struct {
-	ID          int64
-	Name        string
-	StateText   string
-	StateClass  string
-	StateIcon   string
-	Duration    string
-	CompletedAt time.Time
-	DetailsURL  string
-	SummaryHTML template.HTML
+type actionsJobDetailView struct {
+	ID         int64
+	JobIndex   int32
+	JobKey     string
+	Name       string
+	RunsOn     string
+	Needs      []string
+	NeedsText  string
+	StateText  string
+	StateClass string
+	StateIcon  string
+	Duration   string
+	Anchor     string
+	Depth      int
+	Steps      []actionsStepDetailView
+}
+
+type actionsStepDetailView struct {
+	ID           int64
+	StepIndex    int32
+	StepID       string
+	Name         string
+	Kind         string
+	Detail       string
+	StateText    string
+	StateClass   string
+	StateIcon    string
+	Duration     string
+	LogByteCount int64
+	LogHref      string
+}
+
+type actionsJobStageView struct {
+	Index int
+	Jobs  []actionsJobDetailView
+}
+
+type actionsStepLogView struct {
+	Run          actionsRunDetailView
+	Job          actionsJobDetailView
+	Step         actionsStepDetailView
+	LogText      string
+	LogSource    string
+	LogError     string
+	LogTruncated bool
+	DownloadURL  string
+	BackHref     string
 }
 
 func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
@@ -537,180 +587,527 @@ func (h *Handlers) repoActionRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	suiteID, err := strconv.ParseInt(chi.URLParam(r, "suiteID"), 10, 64)
-	if err != nil {
+	runIndex, ok := parsePositiveInt64Param(r, "runIndex")
+	if !ok {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	suite, err := h.cq.GetCheckSuiteForRepo(r.Context(), h.d.Pool, checksdb.GetCheckSuiteForRepoParams{
-		RepoID: row.ID,
-		ID:     suiteID,
-	})
+	view, err := h.loadActionsRunDetail(r.Context(), row.ID, owner.Username, row.Name, runIndex)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		} else {
-			h.d.Logger.WarnContext(r.Context(), "repo actions: get suite", "suite_id", suiteID, "error", err)
+			h.d.Logger.WarnContext(r.Context(), "repo actions: get run detail", "repo_id", row.ID, "run_index", runIndex, "error", err)
 			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		}
 		return
 	}
-	runs, err := h.cq.ListCheckRunsBySuite(r.Context(), h.d.Pool, suite.ID)
+
+	data := h.repoHeaderData(r, row, owner.Username, "actions")
+	data["Title"] = view.Title + " #" + strconv.FormatInt(view.RunIndex, 10) + " · " + row.Name
+	data["Run"] = view
+	data["UseHTMX"] = true
+	if err := h.d.Render.RenderPage(w, r, "repo/action_run", data); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo action run render", "run_index", runIndex, "error", err)
+	}
+}
+
+func (h *Handlers) repoActionRunStatus(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
+	if !ok {
+		return
+	}
+	runIndex, ok := parsePositiveInt64Param(r, "runIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	view, err := h.loadActionsRunDetail(r.Context(), row.ID, owner.Username, row.Name, runIndex)
 	if err != nil {
-		h.d.Logger.WarnContext(r.Context(), "repo actions: get suite runs", "suite_id", suiteID, "error", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		} else {
+			h.d.Logger.WarnContext(r.Context(), "repo actions: get run status", "repo_id", row.ID, "run_index", runIndex, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		}
+		return
+	}
+
+	data := h.repoHeaderData(r, row, owner.Username, "actions")
+	data["Run"] = view
+	if err := h.d.Render.RenderFragment(w, "repo/action_run_status", data); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo action run status render", "run_index", runIndex, "error", err)
+	}
+}
+
+func (h *Handlers) repoActionStepLog(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
+	if !ok {
+		return
+	}
+	runIndex, ok := parsePositiveInt64Param(r, "runIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	jobIndex, ok := parseNonNegativeInt32Param(r, "jobIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	stepIndex, ok := parseNonNegativeInt32Param(r, "stepIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	run, err := h.loadActionsRunDetail(r.Context(), row.ID, owner.Username, row.Name, runIndex)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		} else {
+			h.d.Logger.WarnContext(r.Context(), "repo actions: get run for step log", "repo_id", row.ID, "run_index", runIndex, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		}
+		return
+	}
+
+	job, step, ok := findActionStep(run, jobIndex, stepIndex)
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	logContent, err := h.loadStepLogContent(r.Context(), step.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: load step log", "step_id", step.ID, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 
-	view := actionsSuiteViewFromGetRow(suite, runs)
+	view := actionsStepLogView{
+		Run:          run,
+		Job:          job,
+		Step:         step,
+		LogText:      logContent.Text,
+		LogSource:    logContent.Source,
+		LogError:     logContent.Error,
+		LogTruncated: logContent.Truncated,
+		DownloadURL:  logContent.DownloadURL,
+		BackHref:     run.ActionsHref + "/runs/" + strconv.FormatInt(run.RunIndex, 10) + "#job-" + strconv.FormatInt(int64(job.JobIndex), 10),
+	}
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
-	data["Title"] = view.Title + " · " + row.Name
-	data["Run"] = view
-	data["CSRFToken"] = middleware.CSRFTokenForRequest(r)
-	if err := h.d.Render.RenderPage(w, r, "repo/action_run", data); err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "repo action run render", "suite_id", suiteID, "error", err)
+	data["Title"] = step.Name + " · " + run.Title + " #" + strconv.FormatInt(run.RunIndex, 10)
+	data["Log"] = view
+	if err := h.d.Render.RenderPage(w, r, "repo/action_step_log", data); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo action step log render", "run_index", runIndex, "job_index", jobIndex, "step_index", stepIndex, "error", err)
 	}
 }
 
-func actionsSuiteViewFromGetRow(row checksdb.GetCheckSuiteForRepoRow, runs []checksdb.CheckRun) actionsSuiteView {
-	return actionsSuiteViewFromParts(
-		row.ID,
-		row.HeadSha,
-		row.AppSlug,
-		row.Status,
-		row.Conclusion,
-		row.CreatedAt.Time,
-		row.UpdatedAt.Time,
-		row.PullNumber,
-		row.PullTitle,
-		row.PullAuthorUsername,
-		row.HeadRef,
-		row.BaseRef,
-		runs,
-	)
-}
-
-func actionsSuiteViewFromParts(
-	id int64,
-	headSHA string,
-	appSlug string,
-	status checksdb.CheckStatus,
-	conclusion checksdb.NullCheckConclusion,
-	createdAt time.Time,
-	updatedAt time.Time,
-	pullNumber int64,
-	pullTitle string,
-	pullAuthorUsername string,
-	headRef string,
-	baseRef string,
-	runs []checksdb.CheckRun,
-) actionsSuiteView {
-	title := pullTitle
-	if title == "" {
-		title = appSlug + " checks for " + shortSHA(headSHA)
+func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner, repoName string, runIndex int64) (actionsRunDetailView, error) {
+	q := actionsdb.New()
+	run, err := q.GetWorkflowRunForRepoByIndex(ctx, h.d.Pool, actionsdb.GetWorkflowRunForRepoByIndexParams{
+		RepoID:   repoID,
+		RunIndex: runIndex,
+	})
+	if err != nil {
+		return actionsRunDetailView{}, err
 	}
-	stateText, stateClass, stateIcon := checkActionState(status, conclusion)
-	runViews := make([]actionsRunView, 0, len(runs))
-	annotationCount := 0
-	for _, run := range runs {
-		view := actionsRunViewFromRun(run)
-		if view.SummaryHTML != "" {
-			annotationCount++
+	jobs, err := q.ListJobsForRun(ctx, h.d.Pool, run.ID)
+	if err != nil {
+		return actionsRunDetailView{}, err
+	}
+	artifacts, err := q.ListArtifactsForRun(ctx, h.d.Pool, run.ID)
+	if err != nil {
+		return actionsRunDetailView{}, err
+	}
+
+	basePath := "/" + owner + "/" + repoName + "/actions"
+	runPath := basePath + "/runs/" + strconv.FormatInt(run.RunIndex, 10)
+	now := time.Now()
+	stateText, stateClass, stateIcon := workflowRunState(run.Status, run.Conclusion)
+	updatedAt := pgTime(run.UpdatedAt, run.CreatedAt.Time)
+	view := actionsRunDetailView{
+		ID:             run.ID,
+		RunIndex:       run.RunIndex,
+		WorkflowFile:   run.WorkflowFile,
+		WorkflowName:   run.WorkflowName,
+		Title:          workflowDisplayName(run.WorkflowName, run.WorkflowFile),
+		HeadSha:        run.HeadSha,
+		HeadShaShort:   shortSHA(run.HeadSha),
+		HeadRef:        run.HeadRef,
+		Event:          string(run.Event),
+		EventLabel:     workflowRunEventLabel(string(run.Event)),
+		ActorUsername:  run.ActorUsername,
+		StateText:      stateText,
+		StateClass:     stateClass,
+		StateIcon:      stateIcon,
+		CreatedAt:      run.CreatedAt.Time,
+		UpdatedAt:      updatedAt,
+		Duration:       workflowRunDuration(run.Status, run.StartedAt, run.CompletedAt, run.CreatedAt, updatedAt, now),
+		IsTerminal:     workflowRunTerminal(run.Status),
+		StatusHref:     runPath + "/status",
+		ActionsHref:    basePath,
+		CodeHref:       "/" + owner + "/" + repoName + "/tree/" + codeTarget(run.HeadRef, run.HeadSha),
+		ArtifactCount:  len(artifacts),
+		JobCount:       len(jobs),
+		CompletedCount: 0,
+		FailureCount:   0,
+		Jobs:           make([]actionsJobDetailView, 0, len(jobs)),
+	}
+	for _, job := range jobs {
+		steps, err := q.ListStepsForJob(ctx, h.d.Pool, job.ID)
+		if err != nil {
+			return actionsRunDetailView{}, err
 		}
-		runViews = append(runViews, view)
+		jobView := actionsJobDetailViewFromRow(job, owner, repoName, run.RunIndex, now)
+		jobView.Steps = make([]actionsStepDetailView, 0, len(steps))
+		for _, step := range steps {
+			jobView.Steps = append(jobView.Steps, actionsStepDetailViewFromRow(step, owner, repoName, run.RunIndex, job.JobIndex, now))
+		}
+		if job.Status == actionsdb.WorkflowJobStatusCompleted || job.Status == actionsdb.WorkflowJobStatusCancelled || job.Status == actionsdb.WorkflowJobStatusSkipped {
+			view.CompletedCount++
+		}
+		if jobView.StateClass == "failure" {
+			view.FailureCount++
+		}
+		view.Jobs = append(view.Jobs, jobView)
 	}
-	return actionsSuiteView{
-		ID:                 id,
-		AppSlug:            appSlug,
-		Title:              title,
-		HeadSha:            headSHA,
-		HeadShaShort:       shortSHA(headSHA),
-		PullNumber:         pullNumber,
-		PullAuthorUsername: pullAuthorUsername,
-		HeadRef:            headRef,
-		BaseRef:            baseRef,
-		RunCount:           len(runs),
-		StateText:          stateText,
-		StateClass:         stateClass,
-		StateIcon:          stateIcon,
-		CreatedAt:          createdAt,
-		UpdatedAt:          updatedAt,
-		Duration:           actionSuiteDuration(runs, createdAt, updatedAt),
-		Runs:               runViews,
-		AnnotationCount:    annotationCount,
+	view.Stages = actionsJobStages(view.Jobs)
+	return view, nil
+}
+
+func actionsJobDetailViewFromRow(row actionsdb.ListJobsForRunRow, owner, repoName string, runIndex int64, now time.Time) actionsJobDetailView {
+	stateText, stateClass, stateIcon := workflowJobState(row.Status, row.Conclusion)
+	name := strings.TrimSpace(row.JobName)
+	if name == "" {
+		name = row.JobKey
+	}
+	return actionsJobDetailView{
+		ID:         row.ID,
+		JobIndex:   row.JobIndex,
+		JobKey:     row.JobKey,
+		Name:       name,
+		RunsOn:     row.RunsOn,
+		Needs:      append([]string(nil), row.NeedsJobs...),
+		NeedsText:  strings.Join(row.NeedsJobs, ", "),
+		StateText:  stateText,
+		StateClass: stateClass,
+		StateIcon:  stateIcon,
+		Duration:   actionItemDuration(string(row.Status), string(actionsdb.WorkflowJobStatusQueued), row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt, now),
+		Anchor:     "job-" + strconv.FormatInt(int64(row.JobIndex), 10),
 	}
 }
 
-func actionsRunViewFromRun(run checksdb.CheckRun) actionsRunView {
-	stateText, stateClass, stateIcon := checkActionState(run.Status, run.Conclusion)
-	start := run.CreatedAt.Time
-	if run.StartedAt.Valid {
-		start = run.StartedAt.Time
-	}
-	end := run.UpdatedAt.Time
-	if run.CompletedAt.Valid {
-		end = run.CompletedAt.Time
-	}
-	return actionsRunView{
-		ID:          run.ID,
-		Name:        run.Name,
-		StateText:   stateText,
-		StateClass:  stateClass,
-		StateIcon:   stateIcon,
-		Duration:    formatDuration(end.Sub(start)),
-		CompletedAt: end,
-		DetailsURL:  run.DetailsUrl,
-		SummaryHTML: renderCheckSummary(run.Output),
+func actionsStepDetailViewFromRow(row actionsdb.ListStepsForJobRow, owner, repoName string, runIndex int64, jobIndex int32, now time.Time) actionsStepDetailView {
+	stateText, stateClass, stateIcon := workflowStepState(row.Status, row.Conclusion)
+	name, kind, detail := workflowStepDisplay(row)
+	return actionsStepDetailView{
+		ID:           row.ID,
+		StepIndex:    row.StepIndex,
+		StepID:       row.StepID,
+		Name:         name,
+		Kind:         kind,
+		Detail:       detail,
+		StateText:    stateText,
+		StateClass:   stateClass,
+		StateIcon:    stateIcon,
+		Duration:     actionItemDuration(string(row.Status), string(actionsdb.WorkflowStepStatusQueued), row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt, now),
+		LogByteCount: row.LogByteCount,
+		LogHref: "/" + owner + "/" + repoName + "/actions/runs/" + strconv.FormatInt(runIndex, 10) +
+			"/jobs/" + strconv.FormatInt(int64(jobIndex), 10) +
+			"/steps/" + strconv.FormatInt(int64(row.StepIndex), 10),
 	}
 }
 
-func checkActionState(status checksdb.CheckStatus, conclusion checksdb.NullCheckConclusion) (string, string, string) {
-	if !conclusion.Valid {
-		switch status {
-		case checksdb.CheckStatusCompleted:
-			return "Completed", "neutral", "check-circle"
-		case checksdb.CheckStatusInProgress:
-			return "In progress", "running", "dot-fill"
-		case checksdb.CheckStatusQueued, checksdb.CheckStatusPending:
-			return "Queued", "pending", "dot-fill"
-		default:
-			return string(status), "neutral", "dot-fill"
+func workflowStepDisplay(row actionsdb.ListStepsForJobRow) (name, kind, detail string) {
+	if row.UsesAlias != "" {
+		kind = "uses"
+		detail = row.UsesAlias
+	} else {
+		kind = "run"
+		detail = firstCommandLine(row.RunCommand)
+	}
+	name = strings.TrimSpace(row.StepName)
+	if name == "" {
+		name = strings.TrimSpace(detail)
+	}
+	if name == "" {
+		name = "Step " + strconv.Itoa(int(row.StepIndex)+1)
+	}
+	if len(detail) > 120 {
+		detail = detail[:117] + "..."
+	}
+	return name, kind, detail
+}
+
+func firstCommandLine(command string) string {
+	for _, line := range strings.Split(command, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
 		}
 	}
-	switch conclusion.CheckConclusion {
-	case checksdb.CheckConclusionSuccess, checksdb.CheckConclusionSkipped, checksdb.CheckConclusionNeutral:
+	return ""
+}
+
+func actionsJobStages(jobs []actionsJobDetailView) []actionsJobStageView {
+	indexByKey := make(map[string]int, len(jobs))
+	for i := range jobs {
+		indexByKey[jobs[i].JobKey] = i
+	}
+	state := make(map[string]int, len(jobs))
+	var depthFor func(string) int
+	depthFor = func(key string) int {
+		i, ok := indexByKey[key]
+		if !ok {
+			return 0
+		}
+		switch state[key] {
+		case 1:
+			return 0
+		case 2:
+			return jobs[i].Depth
+		}
+		state[key] = 1
+		depth := 0
+		for _, need := range jobs[i].Needs {
+			if _, ok := indexByKey[need]; ok {
+				if depDepth := depthFor(need) + 1; depDepth > depth {
+					depth = depDepth
+				}
+			}
+		}
+		jobs[i].Depth = depth
+		state[key] = 2
+		return depth
+	}
+	maxDepth := 0
+	for i := range jobs {
+		depth := depthFor(jobs[i].JobKey)
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+	stages := make([]actionsJobStageView, maxDepth+1)
+	for i := range stages {
+		stages[i].Index = i
+	}
+	for _, job := range jobs {
+		stages[job.Depth].Jobs = append(stages[job.Depth].Jobs, job)
+	}
+	return stages
+}
+
+func workflowJobState(status actionsdb.WorkflowJobStatus, conclusion actionsdb.NullCheckConclusion) (string, string, string) {
+	if status == actionsdb.WorkflowJobStatusSkipped && !conclusion.Valid {
+		return "Skipped", "neutral", "dash"
+	}
+	if status == actionsdb.WorkflowJobStatusCompleted && conclusion.Valid {
+		return workflowConclusionState(conclusion.CheckConclusion)
+	}
+	switch status {
+	case actionsdb.WorkflowJobStatusQueued:
+		return "Queued", "pending", "dot-fill"
+	case actionsdb.WorkflowJobStatusRunning:
+		return "In progress", "running", "dot-fill"
+	case actionsdb.WorkflowJobStatusCancelled:
+		return "Cancelled", "neutral", "x-circle"
+	case actionsdb.WorkflowJobStatusCompleted:
+		return "Completed", "neutral", "check-circle"
+	default:
+		if conclusion.Valid {
+			return workflowConclusionState(conclusion.CheckConclusion)
+		}
+		return string(status), "neutral", "dot-fill"
+	}
+}
+
+func workflowStepState(status actionsdb.WorkflowStepStatus, conclusion actionsdb.NullCheckConclusion) (string, string, string) {
+	if status == actionsdb.WorkflowStepStatusSkipped && !conclusion.Valid {
+		return "Skipped", "neutral", "dash"
+	}
+	if status == actionsdb.WorkflowStepStatusCompleted && conclusion.Valid {
+		return workflowConclusionState(conclusion.CheckConclusion)
+	}
+	switch status {
+	case actionsdb.WorkflowStepStatusQueued:
+		return "Queued", "pending", "dot-fill"
+	case actionsdb.WorkflowStepStatusRunning:
+		return "In progress", "running", "dot-fill"
+	case actionsdb.WorkflowStepStatusCancelled:
+		return "Cancelled", "neutral", "x-circle"
+	case actionsdb.WorkflowStepStatusCompleted:
+		return "Completed", "neutral", "check-circle"
+	default:
+		if conclusion.Valid {
+			return workflowConclusionState(conclusion.CheckConclusion)
+		}
+		return string(status), "neutral", "dot-fill"
+	}
+}
+
+func workflowConclusionState(conclusion actionsdb.CheckConclusion) (string, string, string) {
+	switch conclusion {
+	case actionsdb.CheckConclusionSuccess, actionsdb.CheckConclusionSkipped, actionsdb.CheckConclusionNeutral:
 		return "Success", "success", "check-circle-fill"
-	case checksdb.CheckConclusionFailure, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired:
+	case actionsdb.CheckConclusionFailure, actionsdb.CheckConclusionTimedOut, actionsdb.CheckConclusionActionRequired:
 		return "Failure", "failure", "x-circle-fill"
-	case checksdb.CheckConclusionCancelled, checksdb.CheckConclusionStale:
+	case actionsdb.CheckConclusionCancelled, actionsdb.CheckConclusionStale:
 		return "Cancelled", "neutral", "x-circle"
 	default:
-		return string(conclusion.CheckConclusion), "neutral", "dot-fill"
+		return string(conclusion), "neutral", "dot-fill"
 	}
 }
 
-func actionSuiteDuration(runs []checksdb.CheckRun, createdAt, updatedAt time.Time) string {
-	if len(runs) == 0 {
-		return formatDuration(updatedAt.Sub(createdAt))
+func workflowRunTerminal(status actionsdb.WorkflowRunStatus) bool {
+	return status == actionsdb.WorkflowRunStatusCompleted || status == actionsdb.WorkflowRunStatusCancelled
+}
+
+func actionItemDuration(status string, queuedStatus string, startedAt, completedAt, createdAt, updatedAt pgtype.Timestamptz, now time.Time) string {
+	if status == queuedStatus {
+		return "—"
 	}
-	var start, end time.Time
-	for _, run := range runs {
-		runStart := run.CreatedAt.Time
-		if run.StartedAt.Valid {
-			runStart = run.StartedAt.Time
-		}
-		runEnd := run.UpdatedAt.Time
-		if run.CompletedAt.Valid {
-			runEnd = run.CompletedAt.Time
-		}
-		if start.IsZero() || runStart.Before(start) {
-			start = runStart
-		}
-		if end.IsZero() || runEnd.After(end) {
-			end = runEnd
-		}
+	start := createdAt.Time
+	if startedAt.Valid {
+		start = startedAt.Time
+	}
+	end := pgTime(updatedAt, now)
+	if status == "running" {
+		end = now
+	} else if completedAt.Valid {
+		end = completedAt.Time
 	}
 	return formatDuration(end.Sub(start))
+}
+
+func pgTime(ts pgtype.Timestamptz, fallback time.Time) time.Time {
+	if ts.Valid && !ts.Time.IsZero() {
+		return ts.Time
+	}
+	return fallback
+}
+
+func codeTarget(ref, sha string) string {
+	if ref != "" {
+		return ref
+	}
+	return sha
+}
+
+func findActionStep(run actionsRunDetailView, jobIndex, stepIndex int32) (actionsJobDetailView, actionsStepDetailView, bool) {
+	for _, job := range run.Jobs {
+		if job.JobIndex != jobIndex {
+			continue
+		}
+		for _, step := range job.Steps {
+			if step.StepIndex == stepIndex {
+				return job, step, true
+			}
+		}
+		return actionsJobDetailView{}, actionsStepDetailView{}, false
+	}
+	return actionsJobDetailView{}, actionsStepDetailView{}, false
+}
+
+type actionsStepLogContent struct {
+	Text        string
+	Source      string
+	Error       string
+	Truncated   bool
+	DownloadURL string
+}
+
+func (h *Handlers) loadStepLogContent(ctx context.Context, stepID int64) (actionsStepLogContent, error) {
+	q := actionsdb.New()
+	step, err := q.GetWorkflowStepByID(ctx, h.d.Pool, stepID)
+	if err != nil {
+		return actionsStepLogContent{}, err
+	}
+	if step.LogObjectKey.Valid && step.LogObjectKey.String != "" {
+		return h.loadArchivedStepLog(ctx, step.LogObjectKey.String)
+	}
+	chunks, err := q.ListAllStepLogChunksForStep(ctx, h.d.Pool, step.ID)
+	if err != nil {
+		return actionsStepLogContent{}, err
+	}
+	buf := bytes.NewBuffer(make([]byte, 0, minInt(actionsStepLogRenderLimit, int(step.LogByteCount)+1)))
+	truncated := false
+	for _, chunk := range chunks {
+		if buf.Len() >= actionsStepLogRenderLimit {
+			truncated = true
+			break
+		}
+		remaining := actionsStepLogRenderLimit - buf.Len()
+		if len(chunk.Chunk) > remaining {
+			_, _ = buf.Write(chunk.Chunk[:remaining])
+			truncated = true
+			break
+		}
+		_, _ = buf.Write(chunk.Chunk)
+	}
+	return actionsStepLogContent{
+		Text:      strings.ToValidUTF8(buf.String(), "\uFFFD"),
+		Source:    "SQL chunks",
+		Truncated: truncated,
+	}, nil
+}
+
+func (h *Handlers) loadArchivedStepLog(ctx context.Context, key string) (actionsStepLogContent, error) {
+	if h.d.ObjectStore == nil {
+		return actionsStepLogContent{
+			Source: "object storage",
+			Error:  "Archived log storage is not configured for this server.",
+		}, nil
+	}
+	rc, _, err := h.d.ObjectStore.Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return actionsStepLogContent{
+				Source: "object storage",
+				Error:  "Archived log object was not found.",
+			}, nil
+		}
+		return actionsStepLogContent{}, err
+	}
+	defer rc.Close()
+	body, truncated, err := readLimitedLog(rc, actionsStepLogRenderLimit)
+	if err != nil {
+		return actionsStepLogContent{}, err
+	}
+	downloadURL, _ := h.d.ObjectStore.SignedURL(ctx, key, 15*time.Minute, http.MethodGet)
+	return actionsStepLogContent{
+		Text:        strings.ToValidUTF8(string(body), "\uFFFD"),
+		Source:      "object storage",
+		Truncated:   truncated,
+		DownloadURL: downloadURL,
+	}, nil
+}
+
+func readLimitedLog(r io.Reader, limit int) ([]byte, bool, error) {
+	body, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(body) > limit {
+		return body[:limit], true, nil
+	}
+	return body, false, nil
+}
+
+func parsePositiveInt64Param(r *http.Request, name string) (int64, bool) {
+	v, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
+	return v, err == nil && v > 0
+}
+
+func parseNonNegativeInt32Param(r *http.Request, name string) (int32, bool) {
+	v, err := strconv.ParseInt(chi.URLParam(r, name), 10, 32)
+	return int32(v), err == nil && v >= 0
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func formatDuration(d time.Duration) string {

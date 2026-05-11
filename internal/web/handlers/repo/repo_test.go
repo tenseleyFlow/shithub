@@ -50,6 +50,7 @@ const fixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
 type repoFixture struct {
 	pool        *pgxpool.Pool
 	handlers    *Handlers
+	objectStore storage.ObjectStore
 	owner       usersdb.User
 	stranger    usersdb.User
 	publicRepo  reposdb.Repo
@@ -70,14 +71,16 @@ func newRepoFixture(t *testing.T) *repoFixture {
 	if err != nil {
 		t.Fatalf("render.New: %v", err)
 	}
+	objectStore := storage.NewMemoryStore()
 
 	h, err := New(Deps{
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Render:  rr,
-		Pool:    pool,
-		RepoFS:  rfs,
-		Audit:   audit.NewRecorder(),
-		Limiter: throttle.NewLimiter(),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Render:      rr,
+		Pool:        pool,
+		RepoFS:      rfs,
+		ObjectStore: objectStore,
+		Audit:       audit.NewRecorder(),
+		Limiter:     throttle.NewLimiter(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -124,6 +127,7 @@ func newRepoFixture(t *testing.T) *repoFixture {
 	return &repoFixture{
 		pool:        pool,
 		handlers:    h,
+		objectStore: objectStore,
 		owner:       owner,
 		stranger:    stranger,
 		publicRepo:  pubRepo,
@@ -137,15 +141,19 @@ func minimalTemplatesFS() fstest.MapFS {
 	layout := []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)
 	body := []byte(`{{ define "page" }}{{ .StatusText }}: {{ .Message }}{{ end }}`)
 	return fstest.MapFS{
-		"_layout.html":               {Data: layout},
-		"_repo_settings_nav.html":    {Data: []byte(`{{ define "repo-settings-nav" }}NAV{{ end }}`)},
-		"errors/403.html":            {Data: body},
-		"errors/404.html":            {Data: body},
-		"errors/429.html":            {Data: body},
-		"errors/500.html":            {Data: body},
-		"repo/new.html":              {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
-		"repo/actions.html":          {Data: []byte(`{{ define "page" }}COUNT={{ .RunCount }};FILTERED={{ .FilteredRunCount }};PAGE={{ .Pagination.ResultText }};{{ range .Workflows }}WF={{ .Name }}:{{ .Count }}:{{ .Active }};{{ end }}{{ range .Runs }}RUN={{ .Title }}:#{{ .RunIndex }}:{{ .Event }}:{{ .HeadRef }}:{{ .ActorUsername }}:{{ .StateClass }};{{ end }}{{ end }}`)},
-		"repo/settings_secrets.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
+		"_layout.html":                 {Data: layout},
+		"_repo_settings_nav.html":      {Data: []byte(`{{ define "repo-settings-nav" }}NAV{{ end }}`)},
+		"errors/403.html":              {Data: body},
+		"errors/404.html":              {Data: body},
+		"errors/429.html":              {Data: body},
+		"errors/500.html":              {Data: body},
+		"repo/new.html":                {Data: []byte(`{{ define "page" }}OWNERS={{ range .Owners }}{{ .Token }}:{{ if eq .Token $.Form.Owner }}selected{{ end }}:{{ .Slug }};{{ end }}{{ end }}`)},
+		"repo/actions.html":            {Data: []byte(`{{ define "page" }}COUNT={{ .RunCount }};FILTERED={{ .FilteredRunCount }};PAGE={{ .Pagination.ResultText }};{{ range .Workflows }}WF={{ .Name }}:{{ .Count }}:{{ .Active }};{{ end }}{{ range .Runs }}RUN={{ .Title }}:#{{ .RunIndex }}:{{ .Event }}:{{ .HeadRef }}:{{ .ActorUsername }}:{{ .StateClass }};{{ end }}{{ end }}`)},
+		"repo/_action_run_status.html": {Data: []byte(`{{ define "action-run-status" }}STATUS={{ .Run.StateClass }}:{{ .Run.IsTerminal }}:{{ .Run.StatusHref }};{{ end }}`)},
+		"repo/action_run.html":         {Data: []byte(`{{ define "page" }}RUN={{ .Run.Title }}:#{{ .Run.RunIndex }}:{{ .Run.Event }}:{{ .Run.ActorUsername }}:{{ .Run.StateClass }};SUMMARY={{ .Run.JobCount }}:{{ .Run.CompletedCount }}:{{ .Run.FailureCount }}:{{ .Run.ArtifactCount }};{{ range .Run.Jobs }}JOB={{ .Name }}:{{ .StateClass }}:{{ .NeedsText }}:{{ .RunsOn }};{{ range .Steps }}STEP={{ .Name }}:{{ .StateClass }}:{{ .LogHref }};{{ end }}{{ end }}{{ end }}`)},
+		"repo/action_run_status.html":  {Data: []byte(`{{ define "page" }}{{ template "action-run-status" . }}{{ end }}`)},
+		"repo/action_step_log.html":    {Data: []byte(`{{ define "page" }}STEPLOG={{ .Log.Job.Name }}:{{ .Log.Step.Name }}:{{ .Log.LogSource }}:{{ .Log.DownloadURL }}:{{ .Log.LogTruncated }};{{ with .Log.LogError }}ERROR={{ . }};{{ end }}LOG={{ .Log.LogText }};{{ end }}`)},
+		"repo/settings_secrets.html":   {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
 	}
 }
 

@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="/static/primer/primer.css" onerror="this.remove()">
   <link rel="stylesheet" href="/static/css/shithub.css">
   <link rel="stylesheet" href="/static/css/chroma.css">
+  {{ if flag . "UseHTMX" }}<script src="/static/vendor/htmx/htmx.min.js" defer></script>{{ end }}
 </head>
 <body class="shithub-body">
 {{ template "nav" . }}

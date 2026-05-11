@@ -198,7 +198,7 @@ func Run(ctx context.Context, opts Options) error {
 		deps.ProfileMounter = profile.MountProfile
 		deps.OrgRepositoriesMounter = profile.MountOrgRepositories
 
-		repoH, err := buildRepoHandlers(cfg, pool, deps.TemplatesFS, logger)
+		repoH, err := buildRepoHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
 			return fmt.Errorf("repo handlers: %w", err)
 		}

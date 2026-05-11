@@ -13,6 +13,12 @@ WHERE step_id = $1 AND seq > $2
 ORDER BY seq ASC
 LIMIT $3;
 
+-- name: ListAllStepLogChunksForStep :many
+SELECT id, step_id, seq, chunk, created_at
+FROM workflow_step_log_chunks
+WHERE step_id = $1
+ORDER BY seq ASC;
+
 -- name: GetStepLogChunkBefore :one
 SELECT id, step_id, seq, chunk, created_at
 FROM workflow_step_log_chunks

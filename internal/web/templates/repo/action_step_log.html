@@ -1,0 +1,55 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-actions-run-page shithub-actions-log-page">
+  <header class="shithub-actions-run-head">
+    <div>
+      <a href="{{ .Log.BackHref }}" class="shithub-actions-back">{{ octicon "workflow" }} {{ .Log.Run.Title }} #{{ .Log.Run.RunIndex }}</a>
+      <h1>
+        <span class="shithub-actions-state shithub-actions-state-{{ .Log.Step.StateClass }}">{{ octicon .Log.Step.StateIcon }}</span>
+        {{ .Log.Step.Name }}
+      </h1>
+      <p>
+        {{ .Log.Job.Name }} · {{ .Log.Step.StateText }} · {{ .Log.Step.Duration }}
+        {{ if .Log.Step.LogByteCount }} · {{ .Log.Step.LogByteCount }} bytes{{ end }}
+      </p>
+    </div>
+    <div class="shithub-actions-run-head-actions">
+      <a class="shithub-button" href="{{ .Log.BackHref }}">{{ octicon "list-unordered" }} Run</a>
+      {{ if .Log.DownloadURL }}<a class="shithub-button" href="{{ .Log.DownloadURL }}">{{ octicon "download" }} Download</a>{{ end }}
+    </div>
+  </header>
+
+  <div class="shithub-actions-run-layout">
+    <aside class="shithub-actions-sidebar shithub-actions-run-sidebar" aria-label="Run navigation">
+      <a href="{{ .Log.BackHref }}" class="shithub-actions-nav-item">{{ octicon "home" }} <span>Summary</span></a>
+      <div class="shithub-actions-sidebar-section">
+        <h2>Steps</h2>
+        {{ range .Log.Job.Steps }}
+          <a href="{{ .LogHref }}" class="shithub-actions-nav-item{{ if eq .StepIndex $.Log.Step.StepIndex }} is-active{{ end }}"{{ if eq .StepIndex $.Log.Step.StepIndex }} aria-current="page"{{ end }}>
+            <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+            <span>{{ .Name }}</span>
+          </a>
+        {{ end }}
+      </div>
+    </aside>
+
+    <div class="shithub-actions-run-main">
+      <section class="shithub-actions-log-panel">
+        <header>
+          <div>
+            <h2>{{ .Log.Step.Name }}</h2>
+            <p>{{ .Log.LogSource }}{{ if .Log.LogTruncated }} · truncated to 1 MiB{{ end }}</p>
+          </div>
+        </header>
+        {{ if .Log.LogError }}
+          <p class="shithub-actions-log-empty">{{ .Log.LogError }}</p>
+        {{ else if .Log.LogText }}
+          <pre class="shithub-actions-log-output"><code>{{ .Log.LogText }}</code></pre>
+        {{ else }}
+          <p class="shithub-actions-log-empty">No log output has been recorded for this step.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

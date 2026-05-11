@@ -61,13 +61,17 @@ func (h *Handlers) cloneSSH(owner, name string) string {
 
 // Deps wires the handler set.
 type Deps struct {
-	Logger    *slog.Logger
-	Render    *render.Renderer
-	Pool      *pgxpool.Pool
-	RepoFS    *storage.RepoFS
-	Audit     *audit.Recorder
-	Limiter   *throttle.Limiter
-	CloneURLs CloneURLs
+	Logger *slog.Logger
+	Render *render.Renderer
+	Pool   *pgxpool.Pool
+	RepoFS *storage.RepoFS
+	// ObjectStore serves archived Actions logs and other repo-scoped blobs.
+	// nil keeps pages renderable in dev/test but archived logs show an
+	// unavailable message instead of exposing storage details.
+	ObjectStore storage.ObjectStore
+	Audit       *audit.Recorder
+	Limiter     *throttle.Limiter
+	CloneURLs   CloneURLs
 	// SecretBox AEAD-wraps webhook secrets at rest (S33). nil disables
 	// the webhook surface (the handler renders a placeholder page).
 	SecretBox *secretbox.Box
@@ -128,7 +132,9 @@ func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
 // two-segment route doesn't collide with the /{username} catch-all from S09;
 // caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
-	r.Get("/{owner}/{repo}/actions/runs/{suiteID}", h.repoActionRun)
+	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
+	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
+	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)
 	r.Get("/{owner}/{repo}/actions", h.repoTabActions)
 	r.Get("/{owner}/{repo}/projects", h.repoTabProjects)
 	r.Get("/{owner}/{repo}/wiki", h.repoTabWiki)

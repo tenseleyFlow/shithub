@@ -1,0 +1,10 @@
+{{ define "action-run-status" -}}
+{{ with .Run -}}
+<div id="shithub-actions-run-status" class="shithub-actions-run-status-wrap"{{ if not .IsTerminal }} hx-get="{{ .StatusHref }}" hx-trigger="every 2s" hx-swap="outerHTML"{{ end }}>
+  <span class="shithub-button shithub-actions-run-status shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }} {{ .StateText }}</span>
+  <span class="shithub-actions-run-status-meta">Updated <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .UpdatedAt }}</time></span>
+</div>
+{{- else -}}
+<div id="shithub-actions-run-status" class="shithub-actions-run-status-wrap"></div>
+{{- end }}
+{{- end }}

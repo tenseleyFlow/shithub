@@ -48,6 +48,7 @@ type Querier interface {
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowJobSecretMask(ctx context.Context, db DBTX, jobID int64) (WorkflowJobSecretMask, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
+	GetWorkflowRunForRepoByIndex(ctx context.Context, db DBTX, arg GetWorkflowRunForRepoByIndexParams) (GetWorkflowRunForRepoByIndexRow, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
 	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -61,6 +62,7 @@ type Querier interface {
 	InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWorkflowRunParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
+	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)
