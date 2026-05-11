@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/tenseleyFlow/shithub/internal/runner/api"
@@ -18,6 +19,8 @@ import (
 type API interface {
 	Heartbeat(ctx context.Context, req api.HeartbeatRequest) (*api.Claim, error)
 	UpdateStatus(ctx context.Context, jobID int64, token string, req api.StatusRequest) (api.StatusResponse, error)
+	UpdateStepStatus(ctx context.Context, jobID, stepID int64, token string, req api.StatusRequest) (api.StepStatusResponse, error)
+	AppendLog(ctx context.Context, jobID int64, token string, req api.LogRequest) (api.LogResponse, error)
 }
 
 type Workspaces interface {
@@ -114,11 +117,11 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if claim == nil {
 		return false, nil
 	}
-	token := claim.Token
+	session := newJobSession(r.api, claim.Job.ID, claim.Token)
 	started := r.clock()
 	workspaceDir, err := r.workspaces.Prepare(claim.Job.RunID, claim.Job.ID)
 	if err != nil {
-		statusErr := r.complete(ctx, claim.Job.ID, token, engine.ConclusionFailure, started, r.clock())
+		statusErr := r.complete(ctx, session, engine.ConclusionFailure, started, r.clock())
 		return true, errors.Join(fmt.Errorf("prepare workspace: %w", err), statusErr)
 	}
 	defer func() {
@@ -127,7 +130,7 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 		}
 	}()
 
-	running, err := r.api.UpdateStatus(ctx, claim.Job.ID, token, api.StatusRequest{
+	running, err := session.UpdateStatus(ctx, api.StatusRequest{
 		Status:    "running",
 		StartedAt: started,
 	})
@@ -137,9 +140,50 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if running.NextToken == "" {
 		return true, errors.New("mark job running: server did not return next_token")
 	}
-	token = running.NextToken
+	var (
+		streamedEvents bool
+		drainErr       chan error
+	)
+	if streamer, ok := r.engine.(engine.EventStreamer); ok {
+		events, err := streamer.StreamEvents(ctx, claim.Job.ID)
+		if err != nil {
+			return true, fmt.Errorf("open event stream: %w", err)
+		}
+		streamedEvents = true
+		drainErr = make(chan error, 1)
+		go func() {
+			drainErr <- drainEvents(ctx, session, events)
+		}()
+	} else {
+		logs, err := r.engine.StreamLogs(ctx, claim.Job.ID)
+		if err != nil {
+			return true, fmt.Errorf("open log stream: %w", err)
+		}
+		drainErr = make(chan error, 1)
+		go func() {
+			drainErr <- drainLogs(ctx, session, logs)
+		}()
+	}
 
 	outcome, execErr := r.engine.Execute(ctx, toEngineJob(claim.Job, workspaceDir, r.defaultImage))
+	if err := <-drainErr; err != nil {
+		return true, fmt.Errorf("stream runner events: %w", err)
+	}
+	if !streamedEvents {
+		for _, step := range outcome.StepOutcomes {
+			if step.StepID == 0 {
+				continue
+			}
+			if err := session.UpdateStepStatus(ctx, step.StepID, api.StatusRequest{
+				Status:      step.Status,
+				Conclusion:  step.Conclusion,
+				StartedAt:   step.StartedAt,
+				CompletedAt: step.CompletedAt,
+			}); err != nil {
+				return true, fmt.Errorf("mark step completed: %w", err)
+			}
+		}
+	}
 	conclusion := outcome.Conclusion
 	if conclusion == "" {
 		conclusion = engine.ConclusionFailure
@@ -151,7 +195,7 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if outcome.StartedAt.IsZero() {
 		outcome.StartedAt = started
 	}
-	if err := r.complete(ctx, claim.Job.ID, token, conclusion, outcome.StartedAt, completed); err != nil {
+	if err := r.complete(ctx, session, conclusion, outcome.StartedAt, completed); err != nil {
 		return true, err
 	}
 	if execErr != nil {
@@ -160,8 +204,8 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (r *Runner) complete(ctx context.Context, jobID int64, token, conclusion string, started, completed time.Time) error {
-	_, err := r.api.UpdateStatus(ctx, jobID, token, api.StatusRequest{
+func (r *Runner) complete(ctx context.Context, session *jobSession, conclusion string, started, completed time.Time) error {
+	_, err := session.UpdateStatus(ctx, api.StatusRequest{
 		Status:      "completed",
 		Conclusion:  conclusion,
 		StartedAt:   started,
@@ -171,6 +215,107 @@ func (r *Runner) complete(ctx context.Context, jobID int64, token, conclusion st
 		return fmt.Errorf("mark job completed: %w", err)
 	}
 	return nil
+}
+
+type jobSession struct {
+	api   API
+	jobID int64
+	token string
+	mu    sync.Mutex
+}
+
+func newJobSession(api API, jobID int64, token string) *jobSession {
+	return &jobSession{api: api, jobID: jobID, token: token}
+}
+
+func (s *jobSession) UpdateStatus(ctx context.Context, req api.StatusRequest) (api.StatusResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resp, err := s.api.UpdateStatus(ctx, s.jobID, s.token, req)
+	if err != nil {
+		return resp, err
+	}
+	if resp.NextToken != "" {
+		s.token = resp.NextToken
+	}
+	return resp, nil
+}
+
+func (s *jobSession) UpdateStepStatus(ctx context.Context, stepID int64, req api.StatusRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resp, err := s.api.UpdateStepStatus(ctx, s.jobID, stepID, s.token, req)
+	if err != nil {
+		return err
+	}
+	if resp.NextToken != "" {
+		s.token = resp.NextToken
+	}
+	return nil
+}
+
+func (s *jobSession) AppendLog(ctx context.Context, chunk engine.LogChunk) error {
+	if len(chunk.Chunk) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resp, err := s.api.AppendLog(ctx, s.jobID, s.token, api.LogRequest{
+		Seq:    chunk.Seq,
+		Chunk:  chunk.Chunk,
+		StepID: chunk.StepID,
+	})
+	if err != nil {
+		return err
+	}
+	if resp.NextToken != "" {
+		s.token = resp.NextToken
+	}
+	return nil
+}
+
+func drainLogs(ctx context.Context, session *jobSession, logs <-chan engine.LogChunk) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case chunk, ok := <-logs:
+			if !ok {
+				return nil
+			}
+			if err := session.AppendLog(ctx, chunk); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func drainEvents(ctx context.Context, session *jobSession, events <-chan engine.Event) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if event.Log != nil {
+				if err := session.AppendLog(ctx, *event.Log); err != nil {
+					return err
+				}
+			}
+			if event.Step != nil && event.Step.StepID != 0 {
+				if err := session.UpdateStepStatus(ctx, event.Step.StepID, api.StatusRequest{
+					Status:      event.Step.Status,
+					Conclusion:  event.Step.Conclusion,
+					StartedAt:   event.Step.StartedAt,
+					CompletedAt: event.Step.CompletedAt,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+	}
 }
 
 func toEngineJob(job api.Job, workspaceDir, defaultImage string) engine.Job {
