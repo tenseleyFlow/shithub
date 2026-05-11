@@ -196,8 +196,18 @@ func TestSetVisibility(t *testing.T) {
 func TestSoftDeleteAndRestore(t *testing.T) {
 	t.Parallel()
 	env := setup(t)
+	deletedPath, err := env.deps.RepoFS.DeletedRepoPath("alice", "demo", env.repoID)
+	if err != nil {
+		t.Fatalf("DeletedRepoPath: %v", err)
+	}
 	if err := lifecycle.SoftDelete(context.Background(), env.deps, env.alice.ID, env.repoID); err != nil {
 		t.Fatalf("SoftDelete: %v", err)
+	}
+	if _, err := os.Stat(env.originalFS); !os.IsNotExist(err) {
+		t.Fatalf("canonical path after soft-delete: err = %v, want not exist", err)
+	}
+	if _, err := os.Stat(deletedPath); err != nil {
+		t.Fatalf("deleted tombstone missing: %v", err)
 	}
 	if err := lifecycle.SoftDelete(context.Background(), env.deps, env.alice.ID, env.repoID); !errors.Is(err, lifecycle.ErrAlreadyDeleted) {
 		t.Errorf("double soft-delete: err=%v", err)
@@ -205,8 +215,43 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 	if err := lifecycle.Restore(context.Background(), env.deps, env.alice.ID, env.repoID); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
+	if _, err := os.Stat(env.originalFS); err != nil {
+		t.Fatalf("canonical path after restore missing: %v", err)
+	}
+	if _, err := os.Stat(deletedPath); !os.IsNotExist(err) {
+		t.Fatalf("deleted tombstone after restore: err = %v, want not exist", err)
+	}
 	if err := lifecycle.Restore(context.Background(), env.deps, env.alice.ID, env.repoID); !errors.Is(err, lifecycle.ErrNotDeleted) {
 		t.Errorf("double restore: err=%v", err)
+	}
+}
+
+func TestRestore_RefusesWhenNameReused(t *testing.T) {
+	t.Parallel()
+	env := setup(t)
+	ctx := context.Background()
+	if err := lifecycle.SoftDelete(ctx, env.deps, env.alice.ID, env.repoID); err != nil {
+		t.Fatalf("SoftDelete: %v", err)
+	}
+	replacement, err := repos.Create(ctx, env.rdeps, repos.Params{
+		OwnerUserID: env.alice.ID, OwnerUsername: env.alice.Username,
+		Name: "demo", Visibility: "public",
+	})
+	if err != nil {
+		t.Fatalf("replacement create: %v", err)
+	}
+	if err := lifecycle.Restore(ctx, env.deps, env.alice.ID, env.repoID); !errors.Is(err, lifecycle.ErrNameTaken) {
+		t.Fatalf("Restore: err = %v, want ErrNameTaken", err)
+	}
+	if _, err := os.Stat(replacement.DiskPath); err != nil {
+		t.Fatalf("replacement canonical path missing: %v", err)
+	}
+	deletedPath, err := env.deps.RepoFS.DeletedRepoPath("alice", "demo", env.repoID)
+	if err != nil {
+		t.Fatalf("DeletedRepoPath: %v", err)
+	}
+	if _, err := os.Stat(deletedPath); err != nil {
+		t.Fatalf("old tombstone should remain restorable: %v", err)
 	}
 }
 
@@ -311,6 +356,10 @@ func TestTransfer_ExpireSweepFlipsPending(t *testing.T) {
 func TestHardDelete_PastGraceCascades(t *testing.T) {
 	t.Parallel()
 	env := setup(t)
+	deletedPath, err := env.deps.RepoFS.DeletedRepoPath("alice", "demo", env.repoID)
+	if err != nil {
+		t.Fatalf("DeletedRepoPath: %v", err)
+	}
 	if err := lifecycle.SoftDelete(context.Background(), env.deps, env.alice.ID, env.repoID); err != nil {
 		t.Fatal(err)
 	}
@@ -327,8 +376,8 @@ func TestHardDelete_PastGraceCascades(t *testing.T) {
 	if _, err := rq.GetRepoByID(context.Background(), env.deps.Pool, env.repoID); err == nil {
 		t.Errorf("repo row still present after hard-delete")
 	}
-	// FS dir gone.
-	if _, err := os.Stat(env.originalFS); !os.IsNotExist(err) {
-		t.Errorf("FS path still present: err=%v", err)
+	// Tombstone dir gone.
+	if _, err := os.Stat(deletedPath); !os.IsNotExist(err) {
+		t.Errorf("deleted tombstone still present: err=%v", err)
 	}
 }

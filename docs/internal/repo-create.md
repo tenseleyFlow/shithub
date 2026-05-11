@@ -4,7 +4,7 @@ S11 ships the create-a-repo flow end-to-end: a logged-in user clicks **New**, fi
 
 ## What's wired
 
-- **Migration:** `0017_repos.sql` adds the `repos` table (with `repo_visibility` enum, owner XOR check, per-owner unique-by-name partial indexes, soft-delete column).
+- **Migration:** `0017_repos.sql` adds the `repos` table (with `repo_visibility` enum, owner XOR check, per-owner unique-by-name partial indexes, soft-delete column). `0058_repo_name_reuse_after_soft_delete.sql` narrows those uniqueness indexes to active repos so deleted names can be reused.
 - **Source remotes:** `0052_repo_source_remotes.sql` adds one optional public fetch URL per repo. Creation and settings can save this URL, fetch heads/tags, and use it later for submodule gitlink backfill.
 - **sqlc package:** `internal/repos/sqlc` (`reposdb`) — Create, Get-by-owner-and-name, Exists, List-by-owner, Count, SoftDelete, UpdateDiskUsed.
 - `internal/repos/validate.go` — name shape (≤100 chars, `[a-z0-9._-]`, non-separator edges, no dot-dot, no leading dot) + reserved-name list.
@@ -52,8 +52,11 @@ POST /new
   │     (refuse with ErrNoVerifiedEmail when init is requested AND missing)
   ├─ RepoFS.RepoPath(owner, name) → defense-in-depth path validation
   ├─ tx.Begin()
+  │   ├─ LockRepoOwnerName(owner/name) advisory lock
   │   └─ reposdb.CreateRepo(...)        ← unique-violation surfaces as ErrTaken
   ├─ RepoFS.InitBare(diskPath)          ← `git init --bare --initial-branch=trunk`
+  │   └─ if a legacy soft-deleted repo still occupies diskPath:
+  │      move it to `.deleted/<old-repo-id>.git` and retry
   ├─ if init flag set:
   │     buildInitialCommit(ic) → commit OID
   │       (hash-object → update-index → write-tree → commit-tree → update-ref)
@@ -70,7 +73,7 @@ POST /new
 Failure handling at each step:
 
 - DB insert error: tx already rolled back via the deferred Rollback closure; nothing on disk to clean.
-- FS InitBare error: tx still uncommitted (we Rollback via defer); best-effort `os.RemoveAll(diskPath)` clears any partially-mkdir'd directory.
+- FS InitBare error: tx still uncommitted (we Rollback via defer); best-effort `os.RemoveAll(diskPath)` clears any partially-mkdir'd directory. `storage.ErrAlreadyExists` is not blindly removed because it can be a legacy soft-deleted repo path; create first tries to displace that path to the deleted tombstone.
 - Initial-commit error: same as above — Rollback + RemoveAll.
 - tx.Commit error: post-FS-success but DB couldn't commit. We RemoveAll the bare repo dir to keep DB and disk consistent.
 - Audit error: logged at WARN, not propagated — we don't fail the create just because audit logging blipped.

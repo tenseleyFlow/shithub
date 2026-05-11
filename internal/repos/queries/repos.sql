@@ -15,6 +15,13 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           star_count, watcher_count, fork_count, init_status,
           last_indexed_oid;
 
+-- name: LockRepoOwnerName :exec
+-- Serializes DB + filesystem operations for one logical owner/name
+-- pair. Create, soft-delete, restore, and hard-delete all touch the
+-- canonical bare path; a transaction-scoped advisory lock keeps those
+-- cross-resource moves from racing.
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
+
 -- name: GetRepoByID :one
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
@@ -45,6 +52,19 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        last_indexed_oid
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL;
+
+-- name: GetSoftDeletedRepoByOwnerUserAndName :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
+ORDER BY deleted_at DESC, id DESC
+LIMIT 1;
 
 -- name: ExistsRepoForOwnerUser :one
 SELECT EXISTS(
@@ -81,6 +101,19 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        last_indexed_oid
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL;
+
+-- name: GetSoftDeletedRepoByOwnerOrgAndName :one
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
+ORDER BY deleted_at DESC, id DESC
+LIMIT 1;
 
 -- name: ExistsRepoForOwnerOrg :one
 SELECT EXISTS(

@@ -67,6 +67,8 @@ type Querier interface {
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)
+	GetSoftDeletedRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerOrgAndNameParams) (Repo, error)
+	GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerUserAndNameParams) (Repo, error)
 	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
 	HardDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error
@@ -112,6 +114,11 @@ type Querier interface {
 	ListSoftDeletedReposForOwner(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListSoftDeletedReposForOwnerRow, error)
 	// Sender / repo-settings view.
 	ListTransfersForRepo(ctx context.Context, db DBTX, repoID int64) ([]RepoTransferRequest, error)
+	// Serializes DB + filesystem operations for one logical owner/name
+	// pair. Create, soft-delete, restore, and hard-delete all touch the
+	// canonical bare path; a transaction-scoped advisory lock keeps those
+	// cross-resource moves from racing.
+	LockRepoOwnerName(ctx context.Context, db DBTX, hashtextextended string) error
 	// Returns the current repo_id when (old_owner_user_id, old_name) hits
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)

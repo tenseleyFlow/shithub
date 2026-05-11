@@ -86,12 +86,18 @@ data layer; visibility flips don't cascade.
 
 * **Soft delete**: `POST /{owner}/{repo}/settings/delete` →
   `lifecycle.SoftDelete`. Sets `deleted_at = now()`. Repo disappears
-  from listings, profile pinned slot, search. `/{owner}/{repo}` 404s
-  for non-owners (auth-aware via S15 policy's `DenyRepoDeleted`).
+  from listings, profile pinned slot, search. The bare repo is moved
+  from the canonical `<owner>/<name>.git` path to an internal
+  `.deleted/<repo-id>.git` tombstone so a fresh repo can reuse the same
+  owner/name during the grace window. `/{owner}/{repo}` 404s for
+  non-owners (auth-aware via S15 policy's `DenyRepoDeleted`).
 * **Restore**: owner sees the soft-deleted repo at
   `/settings/repositories`. POST to
-  `/settings/repositories/restore/{id}` clears `deleted_at`. Past the
-  7-day grace, restore returns `ErrPastGrace` (410).
+  `/settings/repositories/restore/{id}` moves the tombstone back to the
+  canonical path and clears `deleted_at`. If the owner/name was reused,
+  restore returns `ErrNameTaken` and leaves the deleted repo in the
+  restore list. Past the 7-day grace, restore returns `ErrPastGrace`
+  (410).
 * **Hard delete**: `lifecycle:sweep` worker job (registered in
   `cmd/shithubd/worker.go`) runs periodically. The handler:
   1. `ListRepoIDsPastSoftDeleteGrace` — finds rows past 7 days.
@@ -101,7 +107,9 @@ data layer; visibility flips don't cascade.
        `push_events`, `repo_collaborators`, `repo_redirects` (rows
        pointing at this repo), `repo_transfer_requests`, and
        `webhook_events_pending`.
-     * `RemoveAll` the bare repo on disk.
+     * Remove the tombstoned bare repo on disk. Legacy soft-deleted
+       repos whose bare data still sits at the canonical path are
+       removed only when no active repo has reused the owner/name.
      * Audit `repo_hard_deleted` with the row snapshot in `meta`,
        since the repo_id no longer resolves.
   3. The same job also flips pending transfers past their TTL via
@@ -129,9 +137,10 @@ from "redirected" to "never existed."
   INSERT INTO jobs (kind, payload) VALUES ('lifecycle:sweep', '{}'::jsonb);
   NOTIFY shithub_jobs;
   ```
-* Soft-deleted repos take their disk path with them — the bare repo
-  on disk stays for the full grace window. If disk pressure becomes
-  an issue, configure the grace window down (it's a constant in
+* Soft-deleted repos keep their bare data for the full grace window,
+  but under the owner-local `.deleted/<repo-id>.git` tombstone path
+  rather than the active canonical path. If disk pressure becomes an
+  issue, configure the grace window down (it's a constant in
   `lifecycle.go::softDeleteGrace`; promote to config in S37 if needed).
 * Renaming a repo doesn't require restarting any worker or hook.
   The atomic FS move + DB update means the next hook invocation will

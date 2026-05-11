@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos"
+	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -172,6 +174,101 @@ func TestCreate_RejectsDuplicate(t *testing.T) {
 	})
 	if !errors.Is(err, repos.ErrTaken) {
 		t.Fatalf("second create: err = %v, want ErrTaken", err)
+	}
+}
+
+func TestCreate_ReusesSoftDeletedRepoName(t *testing.T) {
+	t.Parallel()
+	pool, deps, uid, uname, _ := setupCreateEnv(t)
+	ctx := context.Background()
+	first, err := repos.Create(ctx, deps, repos.Params{
+		OwnerUserID: uid, OwnerUsername: uname, Name: "reuse", Visibility: "public",
+		InitReadme: true,
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	deletedPath, err := deps.RepoFS.DeletedRepoPath(uname, "reuse", first.Repo.ID)
+	if err != nil {
+		t.Fatalf("DeletedRepoPath: %v", err)
+	}
+	ldeps := lifecycle.Deps{Pool: pool, RepoFS: deps.RepoFS, Audit: audit.NewRecorder(), Logger: deps.Logger}
+	if err := lifecycle.SoftDelete(ctx, ldeps, uid, first.Repo.ID); err != nil {
+		t.Fatalf("SoftDelete: %v", err)
+	}
+	if _, err := os.Stat(first.DiskPath); !os.IsNotExist(err) {
+		t.Fatalf("canonical path after soft-delete: err = %v, want not exist", err)
+	}
+	if _, err := os.Stat(deletedPath); err != nil {
+		t.Fatalf("deleted tombstone missing: %v", err)
+	}
+
+	second, err := repos.Create(ctx, deps, repos.Params{
+		OwnerUserID: uid, OwnerUsername: uname, Name: "reuse", Visibility: "public",
+	})
+	if err != nil {
+		t.Fatalf("recreate: %v", err)
+	}
+	if second.Repo.ID == first.Repo.ID {
+		t.Fatalf("recreate reused old repo id %d", second.Repo.ID)
+	}
+	if _, err := os.Stat(second.DiskPath); err != nil {
+		t.Fatalf("replacement canonical path missing: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE repos SET deleted_at = now() - interval '8 days' WHERE id = $1`, first.Repo.ID); err != nil {
+		t.Fatalf("backdate deleted repo: %v", err)
+	}
+	if err := lifecycle.HardDelete(ctx, ldeps, 0, first.Repo.ID); err != nil {
+		t.Fatalf("HardDelete old repo: %v", err)
+	}
+	if _, err := os.Stat(second.DiskPath); err != nil {
+		t.Fatalf("replacement path should survive hard-delete of old repo: %v", err)
+	}
+}
+
+func TestCreate_DisplacesLegacySoftDeletedOrgRepoPath(t *testing.T) {
+	t.Parallel()
+	pool, deps, uid, _, _ := setupCreateEnv(t)
+	ctx := context.Background()
+	org, err := orgs.Create(ctx, orgs.Deps{Pool: pool}, orgs.CreateParams{
+		Slug: "gardesk", DisplayName: "gardesk", CreatedByUserID: uid,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	first, err := repos.Create(ctx, deps, repos.Params{
+		OwnerOrgID: org.ID, OwnerSlug: string(org.Slug), ActorUserID: uid,
+		Name: "garterm", Visibility: "public", InitReadme: true,
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE repos SET deleted_at = now(), updated_at = now() WHERE id = $1`, first.Repo.ID); err != nil {
+		t.Fatalf("legacy soft delete: %v", err)
+	}
+
+	second, err := repos.Create(ctx, deps, repos.Params{
+		OwnerOrgID: org.ID, OwnerSlug: string(org.Slug), ActorUserID: uid,
+		Name: "garterm", Visibility: "public",
+	})
+	if err != nil {
+		t.Fatalf("recreate after legacy soft delete: %v", err)
+	}
+	if second.Repo.ID == first.Repo.ID {
+		t.Fatalf("recreate reused old repo id %d", second.Repo.ID)
+	}
+	deletedPath, err := deps.RepoFS.DeletedRepoPath(string(org.Slug), "garterm", first.Repo.ID)
+	if err != nil {
+		t.Fatalf("DeletedRepoPath: %v", err)
+	}
+	if _, err := os.Stat(deletedPath); err != nil {
+		t.Fatalf("legacy repo was not moved to tombstone: %v", err)
+	}
+	if _, err := os.Stat(second.DiskPath); err != nil {
+		t.Fatalf("replacement canonical path missing: %v", err)
 	}
 }
 
