@@ -162,6 +162,29 @@ func TestDockerExecute_RootRequiresExplicitPermission(t *testing.T) {
 	}
 }
 
+func TestDockerExecute_AddsConfiguredDNSServers(t *testing.T) {
+	t.Parallel()
+	rec := &recordingRunner{}
+	d := NewDocker(DockerConfig{
+		DefaultImage: "runner-image",
+		Network:      "actions-net",
+		Memory:       "2g",
+		CPUs:         "2",
+		DNSServers:   []string{"172.30.0.10", "172.30.0.11"},
+		Runner:       rec,
+	})
+	if _, err := d.Execute(t.Context(), Job{
+		ID:           1,
+		WorkspaceDir: t.TempDir(),
+		Steps:        []Step{{Run: "curl https://github.com"}},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if argAfterN(rec.args, "--dns", 0) != "172.30.0.10" || argAfterN(rec.args, "--dns", 1) != "172.30.0.11" {
+		t.Fatalf("dns args missing: %#v", rec.args)
+	}
+}
+
 func TestDockerExecute_StreamsStepLogs(t *testing.T) {
 	t.Parallel()
 	d := NewDocker(DockerConfig{
@@ -346,6 +369,18 @@ func argAfter(args []string, flag string) string {
 	for i, arg := range args {
 		if arg == flag && i+1 < len(args) {
 			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func argAfterN(args []string, flag string, n int) string {
+	for i, arg := range args {
+		if arg == flag {
+			if n == 0 && i+1 < len(args) {
+				return args[i+1]
+			}
+			n--
 		}
 	}
 	return ""

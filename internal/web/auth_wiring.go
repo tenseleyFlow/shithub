@@ -41,6 +41,7 @@ func buildAPIHandlers(
 	pool *pgxpool.Pool,
 	objectStore storage.ObjectStore,
 	runnerJWT *runnerjwt.Signer,
+	secretBox *secretbox.Box,
 	rateLimiter *ratelimit.Limiter,
 	logger *slog.Logger,
 ) (*apih.Handlers, error) {
@@ -50,6 +51,7 @@ func buildAPIHandlers(
 		Logger:      logger,
 		ObjectStore: objectStore,
 		RunnerJWT:   runnerJWT,
+		SecretBox:   secretBox,
 		RateLimiter: rateLimiter,
 	})
 }

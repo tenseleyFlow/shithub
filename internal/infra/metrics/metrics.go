@@ -149,6 +149,13 @@ var (
 		},
 		[]string{"result"},
 	)
+	ActionsLogScrubReplacementsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_log_scrub_replacements_total",
+			Help: "Total exact secret-value replacements performed on Actions log chunks.",
+		},
+		[]string{"location"},
+	)
 )
 
 func init() {
@@ -169,6 +176,7 @@ func init() {
 		ActionsRunnerRegistrationsTotal,
 		ActionsRunnerHeartbeatsTotal,
 		ActionsRunnerJWTTotal,
+		ActionsLogScrubReplacementsTotal,
 	)
 }
 

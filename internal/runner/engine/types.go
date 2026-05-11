@@ -46,6 +46,7 @@ type Job struct {
 	If             string
 	TimeoutMinutes int32
 	Permissions    json.RawMessage
+	Secrets        map[string]string
 	Env            map[string]string
 	Steps          []Step
 	WorkspaceDir   string

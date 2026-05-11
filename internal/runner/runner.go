@@ -353,11 +353,24 @@ func toEngineJob(job api.Job, workspaceDir, defaultImage string) engine.Job {
 		If:             job.If,
 		TimeoutMinutes: job.TimeoutMinutes,
 		Permissions:    job.Permissions,
+		Secrets:        cloneStringMap(job.Secrets),
 		Env:            job.Env,
 		Steps:          steps,
 		WorkspaceDir:   workspaceDir,
 		Image:          defaultImage,
+		MaskValues:     append([]string{}, job.MaskValues...),
 	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func defaultSleep(ctx context.Context, d time.Duration) error {

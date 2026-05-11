@@ -20,6 +20,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -34,6 +35,7 @@ type Deps struct {
 	Logger      *slog.Logger
 	ObjectStore storage.ObjectStore
 	RunnerJWT   *runnerjwt.Signer
+	SecretBox   *secretbox.Box
 	RateLimiter *ratelimit.Limiter
 }
 

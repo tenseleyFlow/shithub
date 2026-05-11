@@ -22,10 +22,12 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
+	actionsecrets "github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -161,6 +163,133 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("second heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRunnerSecretsAreClaimedAndServerScrubsLogs(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	box := testRunnerAPISecretBox(t)
+	if err := (actionsecrets.Deps{Pool: pool, Box: box}).Set(ctx, actionsecrets.RepoScope(repoID), "TOKEN", []byte("hunter2"), userID); err != nil {
+		t.Fatalf("Set secret: %v", err)
+	}
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	signer := runnerAPISigner(t, time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
+	router := newRunnerAPIRouterWithSecretBox(t, pool, logger, signer, box)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID         int64             `json:"id"`
+			RunID      int64             `json:"run_id"`
+			Secrets    map[string]string `json:"secrets"`
+			MaskValues []string          `json:"mask_values"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	if claim.Job.RunID != runID || claim.Job.Secrets["TOKEN"] != "hunter2" || !containsString(claim.Job.MaskValues, "hunter2") {
+		t.Fatalf("claim did not include masked secret context: %+v", claim.Job)
+	}
+
+	rawLog := []byte("before hunter2 after\n")
+	logBody := fmt.Sprintf(`{"seq":0,"chunk":%q}`, base64.StdEncoding.EncodeToString(rawLog))
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/logs", claim.Job.ID), strings.NewReader(logBody))
+	req.Header.Set("Authorization", "Bearer "+claim.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("logs status: got %d, want 202; body=%s", rr.Code, rr.Body.String())
+	}
+	step, err := actionsdb.New().GetFirstStepForJob(ctx, pool, claim.Job.ID)
+	if err != nil {
+		t.Fatalf("GetFirstStepForJob: %v", err)
+	}
+	chunks, err := actionsdb.New().ListStepLogChunks(ctx, pool, actionsdb.ListStepLogChunksParams{
+		StepID: step.ID,
+		Seq:    -1,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ListStepLogChunks: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("chunks: %#v", chunks)
+	}
+	got := string(chunks[0].Chunk)
+	if strings.Contains(got, "hunter2") || got != "before *** after\n" {
+		t.Fatalf("stored log chunk was not scrubbed: %q", got)
+	}
+}
+
+func TestRunnerServerScrubsSecretSplitAcrossLogPosts(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	box := testRunnerAPISecretBox(t)
+	if err := (actionsecrets.Deps{Pool: pool, Box: box}).Set(ctx, actionsecrets.RepoScope(repoID), "TOKEN", []byte("hunter2"), userID); err != nil {
+		t.Fatalf("Set secret: %v", err)
+	}
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	signer := runnerAPISigner(t, time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
+	router := newRunnerAPIRouterWithSecretBox(t, pool, logger, signer, box)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID int64 `json:"id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+
+	next := postRunnerLogChunk(t, router, claim.Job.ID, claim.Token, 0, []byte("before hun"))
+	next = postRunnerLogChunk(t, router, claim.Job.ID, next, 1, []byte("ter2 after\n"))
+
+	step, err := actionsdb.New().GetFirstStepForJob(ctx, pool, claim.Job.ID)
+	if err != nil {
+		t.Fatalf("GetFirstStepForJob: %v", err)
+	}
+	chunks, err := actionsdb.New().ListStepLogChunks(ctx, pool, actionsdb.ListStepLogChunksParams{
+		StepID: step.ID,
+		Seq:    -1,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ListStepLogChunks: %v", err)
+	}
+	var combined strings.Builder
+	for _, chunk := range chunks {
+		combined.Write(chunk.Chunk)
+	}
+	got := combined.String()
+	if strings.Contains(got, "hunter2") || got != "before *** after\n" {
+		t.Fatalf("stored log chunks were not scrubbed across boundary: chunks=%#v combined=%q next=%q", chunks, got, next)
 	}
 }
 
@@ -311,6 +440,28 @@ func TestRunnerStepStatusEnqueuesFinalizeWorker(t *testing.T) {
 	}
 }
 
+func postRunnerLogChunk(t *testing.T, router http.Handler, jobID int64, token string, seq int32, chunk []byte) string {
+	t.Helper()
+	body := fmt.Sprintf(`{"seq":%d,"chunk":%q}`, seq, base64.StdEncoding.EncodeToString(chunk))
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/logs", jobID), strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("logs status: got %d, want 202; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		NextToken string `json:"next_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode log response: %v", err)
+	}
+	if resp.NextToken == "" {
+		t.Fatalf("empty next token in log response: %s", rr.Body.String())
+	}
+	return resp.NextToken
+}
+
 func newRunnerAPIRouter(
 	t *testing.T,
 	pool *pgxpool.Pool,
@@ -335,6 +486,41 @@ func newRunnerAPIRouter(
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r
+}
+
+func newRunnerAPIRouterWithSecretBox(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	signer *runnerjwt.Signer,
+	box *secretbox.Box,
+) http.Handler {
+	t.Helper()
+	h, err := apih.New(apih.Deps{
+		Pool:      pool,
+		Logger:    logger,
+		RunnerJWT: signer,
+		SecretBox: box,
+	})
+	if err != nil {
+		t.Fatalf("api.New: %v", err)
+	}
+	r := chi.NewRouter()
+	h.Mount(r)
+	return r
+}
+
+func testRunnerAPISecretBox(t *testing.T) *secretbox.Box {
+	t.Helper()
+	key, err := secretbox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	box, err := secretbox.FromBytes(key)
+	if err != nil {
+		t.Fatalf("secretbox.FromBytes: %v", err)
+	}
+	return box
 }
 
 func setupRunnerAPIRepo(t *testing.T, pool *pgxpool.Pool) (repoID, userID int64) {
@@ -418,6 +604,15 @@ func registerRunnerForTest(t *testing.T, pool *pgxpool.Pool, labels []string, ca
 		t.Fatalf("InsertRunnerToken: %v", err)
 	}
 	return token, runner.ID
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func runnerAPISigner(t *testing.T, now time.Time) *runnerjwt.Signer {
