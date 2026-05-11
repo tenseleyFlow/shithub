@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"text/template/parse"
@@ -320,6 +321,10 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 			}
 			return ""
 		},
+		// flag reads an optional boolean-ish field from map or struct
+		// template data. Layout-level feature toggles use this so pages
+		// backed by typed structs don't fail when the toggle is absent.
+		"flag": dataFlag,
 		// csrfToken pulls the per-request token from the request context.
 		// Templates use this in <input type="hidden" name="csrf_token">.
 		"csrfToken": middleware.CSRFTokenForRequest,
@@ -344,6 +349,59 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 			}
 			return m, nil
 		},
+	}
+}
+
+func dataFlag(data any, name string) bool {
+	v := reflect.ValueOf(data)
+	if !v.IsValid() {
+		return false
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Map:
+		if v.Type().Key().Kind() != reflect.String {
+			return false
+		}
+		field := v.MapIndex(reflect.ValueOf(name))
+		return truthyValue(field)
+	case reflect.Struct:
+		field := v.FieldByName(name)
+		if !field.IsValid() || !field.CanInterface() {
+			return false
+		}
+		return truthyValue(field)
+	default:
+		return false
+	}
+}
+
+func truthyValue(v reflect.Value) bool {
+	if !v.IsValid() {
+		return false
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Bool:
+		return v.Bool()
+	case reflect.String:
+		return v.String() != ""
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() != 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() != 0
+	default:
+		return !v.IsZero()
 	}
 }
 

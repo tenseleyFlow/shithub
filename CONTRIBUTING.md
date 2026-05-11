@@ -76,6 +76,13 @@ and the TOTP/webhook AEAD keys.
 - Migrations: forward-only by convention; `down` exists for
   emergency rollback only and may drop data.
 
+## Browser interactivity
+
+HTMX is for partial-render swaps where a full page reload would feel
+jarring. SSE is for true streaming. Do not reach for either without a
+specific UX reason, and keep HTMX swap targets separate from SSE-owned
+log panes so polling cannot replace an active stream.
+
 ## Reviewing
 
 Maintainers (and other contributors with write access) review

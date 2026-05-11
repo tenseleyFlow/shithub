@@ -106,6 +106,13 @@ When object storage is configured, terminal step updates enqueue
 `actions/runs/<run_id>/jobs/<job_id>/steps/<step_id>.log`, stores that
 key and byte count on `workflow_steps`, then deletes the SQL chunks.
 
+The repository Actions UI reads logs from the same two-stage storage
+model. While chunks remain in SQL, a step log page concatenates them in
+sequence order and renders a static snapshot. After finalization, the
+page reads `workflow_steps.log_object_key` from object storage and
+offers a short-lived signed download URL. Live tailing is intentionally
+separate and lands in the S41f SSE slice.
+
 `POST /api/v1/jobs/{id}/status`
 
 Auth: job JWT. Body:

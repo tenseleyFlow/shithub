@@ -27,6 +27,7 @@ import (
 func buildRepoHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
+	objectStore storage.ObjectStore,
 	tmplFS fs.FS,
 	logger *slog.Logger,
 ) (*repoh.Handlers, error) {
@@ -75,6 +76,7 @@ func buildRepoHandlers(
 		Render:       rr,
 		Pool:         pool,
 		RepoFS:       rfs,
+		ObjectStore:  objectStore,
 		Audit:        audit.NewRecorder(),
 		Limiter:      throttle.NewLimiter(),
 		SecretBox:    hookBox,
