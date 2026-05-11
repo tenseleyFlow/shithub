@@ -21,8 +21,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
-const MaxSourceRemoteURLLen = 2048
-const SourceRemoteFetchTimeout = 45 * time.Second
+const (
+	MaxSourceRemoteURLLen    = 2048
+	SourceRemoteFetchTimeout = 45 * time.Second
+)
 
 var ErrInvalidSourceRemote = errors.New("repos: invalid source remote URL")
 

@@ -18,10 +18,6 @@ func (h *Handlers) fetchRepoSourceRemote(ctx context.Context, row reposdb.Repo, 
 	return repos.FetchSourceRemote(ctx, h.sourceRemoteDeps(""), row, ownerSlug, remoteURL)
 }
 
-func (h *Handlers) refreshFetchedRepoState(ctx context.Context, row reposdb.Repo, gitDir string) error {
-	return repos.RefreshFetchedRepoState(ctx, h.sourceRemoteDeps(""), row, gitDir)
-}
-
 func chooseFetchedDefaultBranch(current string, branches []repogit.RefEntry) (name, oid string) {
 	return repos.ChooseFetchedDefaultBranch(current, branches)
 }
