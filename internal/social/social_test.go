@@ -397,3 +397,30 @@ func TestStargazerList_ExcludesSuspended(t *testing.T) {
 		t.Errorf("expected only good user, got %d rows = %+v", len(rows), rows)
 	}
 }
+
+func TestCaptureTrendingSnapshots_FeedsCachedTrending(t *testing.T) {
+	pool, deps, _, repoID := setup(t)
+	actorID := mustCreateUser(t, pool, "bob")
+	ctx := context.Background()
+
+	if err := social.Star(ctx, deps, actorID, repoID, true); err != nil {
+		t.Fatalf("Star: %v", err)
+	}
+	if err := social.CaptureTrendingSnapshots(ctx, deps); err != nil {
+		t.Fatalf("CaptureTrendingSnapshots: %v", err)
+	}
+	repos, err := social.CachedTrendingRepos(ctx, deps, social.TrendingScopeWeek, 7, 5)
+	if err != nil {
+		t.Fatalf("CachedTrendingRepos: %v", err)
+	}
+	if len(repos) == 0 || repos[0].RepoID != repoID {
+		t.Fatalf("cached trending repos = %+v, want repo %d first", repos, repoID)
+	}
+	users, err := social.CachedTrendingUsers(ctx, deps, social.TrendingScopeWeek, 7, 5)
+	if err != nil {
+		t.Fatalf("CachedTrendingUsers: %v", err)
+	}
+	if len(users) == 0 || users[0].UserID != actorID {
+		t.Fatalf("cached trending users = %+v, want actor %d first", users, actorID)
+	}
+}

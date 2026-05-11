@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -30,6 +31,7 @@ type Deps struct {
 	StaticFS     fs.FS
 	LogoSVG      string
 	SessionStore session.Store
+	Pool         *pgxpool.Pool
 	// CookieSecure is the Secure flag for session-related cookies
 	// (currently the CSRF cookie). Mirrors session.Config.Secure
 	// from the loaded config so the CSRF cookie matches the
@@ -253,7 +255,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
 		r.Use(csrf)
-		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger}.ServeHTTP)
+		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger, pool: deps.Pool}.ServeHTTP)
+		r.Get("/explore", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeExplore)
+		r.Get("/trending", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeTrending)
 		// /internal/panic is a dev affordance: GET it to trigger the
 		// panic-recovery path so an operator can confirm the styled 500
 		// page renders. S35 will gate this behind a dev flag.

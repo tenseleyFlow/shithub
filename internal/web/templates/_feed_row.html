@@ -1,0 +1,27 @@
+{{ define "feed-row" -}}
+<li class="shithub-feed-row">
+  <a class="shithub-feed-avatar" href="/{{ .ActorUsername }}" aria-label="{{ .ActorUsername }}">
+    <img src="/avatars/{{ .ActorUsername }}" alt="" width="40" height="40">
+  </a>
+  <div class="shithub-feed-body">
+    <p class="shithub-feed-head">
+      <a href="/{{ .ActorUsername }}"><strong>{{ if .ActorDisplayName }}{{ .ActorDisplayName }}{{ else }}{{ .ActorUsername }}{{ end }}</strong></a>
+      <span>{{ .Verb }}</span>
+      {{ if .ItemURL }}<a href="{{ .ItemURL }}" class="shithub-feed-target">{{ .ItemTitle }}</a>{{ else if .ItemTitle }}<span class="shithub-feed-target">{{ .ItemTitle }}</span>{{ end }}
+      {{ if and .RepoFullName (ne .ItemTitle .RepoFullName) }}<span>in</span> <a href="{{ .RepoURL }}" class="shithub-feed-target">{{ .RepoFullName }}</a>{{ end }}
+      <time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt }}</time>
+    </p>
+    {{ if .Repo }}
+    <div class="shithub-feed-repo">
+      <a href="{{ .RepoURL }}" class="shithub-feed-repo-title">{{ octicon "repo" }} {{ .RepoFullName }}</a>
+      {{ if .Repo.Description }}<p>{{ .Repo.Description }}</p>{{ end }}
+      <ul class="shithub-feed-meta">
+        {{ if .Repo.PrimaryLanguage }}<li><span class="shithub-lang-dot" aria-hidden="true"></span>{{ .Repo.PrimaryLanguage }}</li>{{ end }}
+        <li>{{ octicon "star" }} {{ .Repo.StarCount }}</li>
+        <li>{{ octicon "repo-forked" }} {{ .Repo.ForkCount }}</li>
+      </ul>
+    </div>
+    {{ end }}
+  </div>
+</li>
+{{- end }}

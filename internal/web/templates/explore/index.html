@@ -1,0 +1,90 @@
+{{ define "page" -}}
+<section class="shithub-explore-page">
+  <div class="shithub-explore-shell">
+    <main class="shithub-explore-main">
+      <div class="shithub-explore-head">
+        <h1>{{ if eq .ActiveTab "trending" }}Trending{{ else }}Explore{{ end }}</h1>
+        <nav class="shithub-explore-tabs" aria-label="Explore">
+          <a href="/explore"{{ if eq .ActiveTab "activity" }} class="is-selected" aria-current="page"{{ end }}>{{ octicon "pulse" }} Activity</a>
+          <a href="/trending"{{ if eq .ActiveTab "trending" }} class="is-selected" aria-current="page"{{ end }}>{{ octicon "star" }} Trending</a>
+        </nav>
+      </div>
+
+      {{ if eq .ActiveTab "trending" }}
+      <section class="shithub-trending-section" aria-labelledby="trending-repositories-title">
+        <h2 id="trending-repositories-title">Trending repositories</h2>
+        {{ if .TrendingRepos }}
+        <ol class="shithub-trending-repo-list">
+          {{ range .TrendingRepos }}
+          <li class="shithub-trending-repo-row">
+            <div>
+              <h3><a href="/{{ .Owner }}/{{ .Name }}">{{ octicon "repo" }} {{ .Owner }}/{{ .Name }}</a></h3>
+              {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+              <ul class="shithub-feed-meta">
+                {{ if .PrimaryLanguage }}<li><span class="shithub-lang-dot" aria-hidden="true"></span>{{ .PrimaryLanguage }}</li>{{ end }}
+                <li>{{ octicon "star" }} {{ .StarCount }}</li>
+                <li>{{ octicon "repo-forked" }} {{ .ForkCount }}</li>
+              </ul>
+            </div>
+            <span class="shithub-trending-score">{{ .Score }}</span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}<p class="shithub-feed-empty-inline">No public repositories are trending yet.</p>{{ end }}
+      </section>
+      {{ else }}
+      <div class="shithub-feed-toolbar">
+        <h2>Public activity</h2>
+        <a class="shithub-button shithub-button-small" href="/trending">{{ octicon "star" }} Trending</a>
+      </div>
+      {{ if .Feed }}
+      <ol class="shithub-feed-list">
+        {{ range .Feed }}{{ template "feed-row" . }}{{ end }}
+      </ol>
+      {{ else }}
+      <div class="shithub-feed-empty">
+        <h2>{{ octicon "pulse" }} No public activity yet</h2>
+        <p>Public stars, forks, pushes, issues, pull requests, and follows will appear here.</p>
+      </div>
+      {{ end }}
+      {{ if .FeedHasNext }}
+      <nav class="shithub-feed-pagination" aria-label="Public activity pagination">
+        <a class="shithub-button" href="{{ .FeedNextURL }}">More</a>
+      </nav>
+      {{ end }}
+      {{ end }}
+    </main>
+
+    <aside class="shithub-explore-right" aria-label="Trending">
+      <section class="shithub-side-panel">
+        <h2>{{ octicon "star" }} Repositories</h2>
+        {{ if .TrendingRepos }}
+        <ol class="shithub-trending-mini-list">
+          {{ range .TrendingRepos }}
+          <li>
+            <a href="/{{ .Owner }}/{{ .Name }}">{{ .Owner }}/{{ .Name }}</a>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+            <span>{{ octicon "star" }} {{ .StarCount }}</span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}<p class="shithub-dashboard-empty">No public activity yet.</p>{{ end }}
+      </section>
+
+      <section class="shithub-side-panel">
+        <h2>{{ octicon "people" }} Developers</h2>
+        {{ if .TrendingUsers }}
+        <ol class="shithub-trending-user-list">
+          {{ range .TrendingUsers }}
+          <li>
+            <a href="/{{ .Username }}"><img src="/avatars/{{ .Username }}" alt="" width="24" height="24"> {{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+            <span>@{{ .Username }}</span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}<p class="shithub-dashboard-empty">No developers trending yet.</p>{{ end }}
+      </section>
+    </aside>
+  </div>
+</section>
+{{- end }}

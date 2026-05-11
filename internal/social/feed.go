@@ -5,11 +5,13 @@ package social
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	socialdb "github.com/tenseleyFlow/shithub/internal/social/sqlc"
@@ -18,6 +20,14 @@ import (
 const (
 	defaultFeedLimit     int32 = 30
 	defaultTrendingLimit int32 = 10
+)
+
+type TrendingScope string
+
+const (
+	TrendingScopeDay   TrendingScope = "day"
+	TrendingScopeWeek  TrendingScope = "week"
+	TrendingScopeMonth TrendingScope = "month"
 )
 
 // FeedCursor is S42's keyset cursor over (created_at, event_id).
@@ -180,6 +190,30 @@ func TrendingRepos(ctx context.Context, deps Deps, windowDays, limit int32) ([]T
 	return out, nil
 }
 
+func CachedTrendingRepos(ctx context.Context, deps Deps, scope TrendingScope, windowDays, limit int32) ([]TrendingRepo, error) {
+	if limit <= 0 || limit > 50 {
+		limit = defaultTrendingLimit
+	}
+	row, err := socialdb.New().LatestTrendingSnapshot(ctx, deps.Pool, socialdb.LatestTrendingSnapshotParams{
+		Scope: dbTrendingScope(scope),
+		Kind:  socialdb.TrendingKindRepos,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TrendingRepos(ctx, deps, windowDays, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest trending repos snapshot: %w", err)
+	}
+	var repos []TrendingRepo
+	if err := json.Unmarshal(row.Payload, &repos); err != nil {
+		return nil, fmt.Errorf("decode trending repos snapshot: %w", err)
+	}
+	if int32(len(repos)) > limit {
+		repos = repos[:limit]
+	}
+	return repos, nil
+}
+
 func TrendingUsers(ctx context.Context, deps Deps, windowDays, limit int32) ([]TrendingUser, error) {
 	if windowDays <= 0 {
 		windowDays = 7
@@ -202,6 +236,30 @@ func TrendingUsers(ctx context.Context, deps Deps, windowDays, limit int32) ([]T
 		})
 	}
 	return out, nil
+}
+
+func CachedTrendingUsers(ctx context.Context, deps Deps, scope TrendingScope, windowDays, limit int32) ([]TrendingUser, error) {
+	if limit <= 0 || limit > 50 {
+		limit = defaultTrendingLimit
+	}
+	row, err := socialdb.New().LatestTrendingSnapshot(ctx, deps.Pool, socialdb.LatestTrendingSnapshotParams{
+		Scope: dbTrendingScope(scope),
+		Kind:  socialdb.TrendingKindUsers,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TrendingUsers(ctx, deps, windowDays, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest trending users snapshot: %w", err)
+	}
+	var users []TrendingUser
+	if err := json.Unmarshal(row.Payload, &users); err != nil {
+		return nil, fmt.Errorf("decode trending users snapshot: %w", err)
+	}
+	if int32(len(users)) > limit {
+		users = users[:limit]
+	}
+	return users, nil
 }
 
 // CaptureTrendingSnapshots computes the S42 denormalized rankings for
@@ -396,4 +454,15 @@ func timeFromPG(t pgtype.Timestamptz) time.Time {
 		return time.Time{}
 	}
 	return t.Time
+}
+
+func dbTrendingScope(scope TrendingScope) socialdb.TrendingScope {
+	switch scope {
+	case TrendingScopeDay:
+		return socialdb.TrendingScopeDay
+	case TrendingScopeMonth:
+		return socialdb.TrendingScopeMonth
+	default:
+		return socialdb.TrendingScopeWeek
+	}
 }
