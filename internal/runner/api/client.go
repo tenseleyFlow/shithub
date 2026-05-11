@@ -148,6 +148,13 @@ type LogResponse struct {
 	NextTokenExpiresAt time.Time `json:"next_token_expires_at"`
 }
 
+type StepStatusResponse struct {
+	Status             string    `json:"status"`
+	Conclusion         *string   `json:"conclusion"`
+	NextToken          string    `json:"next_token,omitempty"`
+	NextTokenExpiresAt time.Time `json:"next_token_expires_at,omitempty"`
+}
+
 type CancelCheckResponse struct {
 	Cancelled          bool      `json:"cancelled"`
 	NextToken          string    `json:"next_token"`
@@ -169,6 +176,12 @@ func (c *Client) Heartbeat(ctx context.Context, req HeartbeatRequest) (*Claim, e
 func (c *Client) UpdateStatus(ctx context.Context, jobID int64, token string, req StatusRequest) (StatusResponse, error) {
 	var out StatusResponse
 	_, err := c.do(ctx, http.MethodPost, jobPath(jobID, "status"), token, req, &out)
+	return out, err
+}
+
+func (c *Client) UpdateStepStatus(ctx context.Context, jobID, stepID int64, token string, req StatusRequest) (StepStatusResponse, error) {
+	var out StepStatusResponse
+	_, err := c.do(ctx, http.MethodPost, jobPath(jobID, "steps/"+strconv.FormatInt(stepID, 10)+"/status"), token, req, &out)
 	return out, err
 }
 
