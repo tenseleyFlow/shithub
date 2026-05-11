@@ -121,6 +121,23 @@
   })();
 
   (function () {
+    var input = document.querySelector("[data-dashboard-repo-filter]");
+    var rows = Array.prototype.slice.call(document.querySelectorAll("[data-dashboard-repo-row]"));
+    if (!input || rows.length === 0) return;
+
+    function applyFilter() {
+      var query = input.value.trim().toLowerCase();
+      rows.forEach(function (row) {
+        var name = (row.getAttribute("data-repo-name") || "").toLowerCase();
+        row.hidden = query !== "" && name.indexOf(query) === -1;
+      });
+    }
+
+    input.addEventListener("input", applyFilter);
+    applyFilter();
+  })();
+
+  (function () {
     var root = document.querySelector("[data-search-root]");
     if (!root) return;
     var input = root.querySelector("[data-search-input]");

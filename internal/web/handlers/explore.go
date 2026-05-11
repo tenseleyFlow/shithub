@@ -11,7 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
@@ -32,18 +34,35 @@ func (h exploreHandler) ServeTrending(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, path, activeTab string) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	var (
 		feed          []social.FeedItem
 		hasNext       bool
 		nextURL       string
+		topRepos      []social.DashboardRepo
+		viewerOrgs    []orgsdb.ListOrgsForUserRow
 		trendingRepos []social.TrendingRepo
 		trendingUsers []social.TrendingUser
 	)
 	if h.pool != nil {
 		deps := social.Deps{Pool: h.pool, Logger: h.logger}
 		feed, hasNext, nextURL = feedPageFor(r, func(cursor social.FeedCursor, limit int32) ([]social.FeedItem, error) {
+			if viewer.ID != 0 {
+				return social.DashboardFeed(r.Context(), deps, viewer.ID, cursor, limit)
+			}
 			return social.PublicFeed(r.Context(), deps, cursor, limit)
 		})
+		if viewer.ID != 0 {
+			var err error
+			topRepos, err = social.DashboardRepos(r.Context(), deps, viewer.ID, 30)
+			if err != nil && h.logger != nil {
+				h.logger.WarnContext(r.Context(), "explore dashboard repos", "error", err)
+			}
+			viewerOrgs, err = orgsdb.New().ListOrgsForUser(r.Context(), h.pool, viewer.ID)
+			if err != nil && h.logger != nil {
+				h.logger.WarnContext(r.Context(), "explore org switcher", "error", err)
+			}
+		}
 		var err error
 		trendingRepos, err = social.CachedTrendingRepos(r.Context(), deps, social.TrendingScopeWeek, 7, 10)
 		if err != nil && h.logger != nil {
@@ -55,15 +74,34 @@ func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, pat
 		}
 	}
 
+	pageHeading := title
+	feedHeading := "Public activity"
+	emptyTitle := "No public activity yet"
+	emptyBody := "Public stars, forks, pushes, issues, pull requests, and follows will appear here."
+	if viewer.ID != 0 {
+		if activeTab == "activity" {
+			pageHeading = "Home"
+		}
+		feedHeading = "Feed"
+		emptyTitle = "Follow people and organizations to build your feed"
+		emptyBody = "Stars, forks, pushes, issues, pull requests, and follows from your network will appear here."
+	}
+
 	data := map[string]any{
-		"Title":         title,
-		"ActiveTab":     activeTab,
-		"Feed":          feed,
-		"FeedHasNext":   hasNext,
-		"FeedNextURL":   nextURL,
-		"TrendingRepos": trendingRepos,
-		"TrendingUsers": trendingUsers,
-		"Path":          path,
+		"Title":          title,
+		"ActiveTab":      activeTab,
+		"PageHeading":    pageHeading,
+		"FeedHeading":    feedHeading,
+		"FeedEmptyTitle": emptyTitle,
+		"FeedEmptyBody":  emptyBody,
+		"Feed":           feed,
+		"FeedHasNext":    hasNext,
+		"FeedNextURL":    nextURL,
+		"TopRepos":       topRepos,
+		"ViewerOrgs":     viewerOrgs,
+		"TrendingRepos":  trendingRepos,
+		"TrendingUsers":  trendingUsers,
+		"Path":           path,
 	}
 	if err := h.render.RenderPage(w, r, "explore/index", data); err != nil {
 		if h.logger != nil {

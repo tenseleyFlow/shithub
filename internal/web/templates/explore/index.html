@@ -1,9 +1,68 @@
 {{ define "page" -}}
 <section class="shithub-explore-page">
-  <div class="shithub-explore-shell">
+  <div class="shithub-explore-shell{{ if .Viewer.ID }} has-dashboard-left{{ end }}">
+    {{ if .Viewer.ID }}
+    <aside class="shithub-dashboard-left" aria-label="Dashboard navigation">
+      <details class="shithub-dashboard-identity">
+        <summary>
+          <img src="/avatars/{{ .Viewer.Username }}" alt="" width="20" height="20">
+          <span>{{ .Viewer.Username }}</span>
+          {{ octicon "triangle-down" }}
+        </summary>
+        <div class="shithub-dashboard-identity-menu">
+          <div class="shithub-dashboard-identity-title">Go to organization dashboard</div>
+          <label class="shithub-dashboard-org-search">
+            <span>{{ octicon "search" }}</span>
+            <input type="search" aria-label="Find an organization" autocomplete="off">
+          </label>
+          <ol class="shithub-dashboard-org-list">
+            <li>
+              <a href="/{{ .Viewer.Username }}">
+                {{ octicon "check" }}
+                <img src="/avatars/{{ .Viewer.Username }}" alt="" width="20" height="20">
+                <span>{{ .Viewer.Username }}</span>
+              </a>
+            </li>
+            {{ range .ViewerOrgs }}
+            <li>
+              <a href="/{{ .Slug }}">
+                <span aria-hidden="true"></span>
+                <img src="/avatars/{{ .Slug }}" alt="" width="20" height="20">
+                <span>{{ .Slug }}</span>
+              </a>
+            </li>
+            {{ end }}
+          </ol>
+          <div class="shithub-dashboard-identity-actions">
+            <a href="/settings/organizations">{{ octicon "organization" }} Manage organizations</a>
+            <a href="/organizations/new">{{ octicon "plus" }} Create organization</a>
+          </div>
+        </div>
+      </details>
+
+      <div class="shithub-dashboard-sidehead">
+        <h2>Top repositories</h2>
+        <a href="/new" class="shithub-button shithub-button-primary shithub-button-small">{{ octicon "repo" }} New</a>
+      </div>
+      <label class="sr-only" for="dashboard-repo-filter">Find a repository</label>
+      <input id="dashboard-repo-filter" class="shithub-dashboard-filter" type="search" placeholder="Find a repository..." autocomplete="off" data-dashboard-repo-filter>
+      {{ if .TopRepos }}
+      <ol class="shithub-dashboard-repo-list" data-dashboard-repo-list>
+        {{ range .TopRepos }}
+        <li data-dashboard-repo-row data-repo-name="{{ .Owner }}/{{ .Name }}">
+          <a href="/{{ .Owner }}/{{ .Name }}"><img src="/avatars/{{ .Owner }}" alt="" width="18" height="18"> {{ .Owner }}/{{ .Name }}</a>
+        </li>
+        {{ end }}
+      </ol>
+      {{ else }}
+      <p class="shithub-dashboard-empty">No repositories yet.</p>
+      {{ end }}
+    </aside>
+    {{ end }}
+
     <main class="shithub-explore-main">
       <div class="shithub-explore-head">
-        <h1>{{ if eq .ActiveTab "trending" }}Trending{{ else }}Explore{{ end }}</h1>
+        <h1>{{ .PageHeading }}</h1>
         <nav class="shithub-explore-tabs" aria-label="Explore">
           <a href="/explore"{{ if eq .ActiveTab "activity" }} class="is-selected" aria-current="page"{{ end }}>{{ octicon "pulse" }} Activity</a>
           <a href="/trending"{{ if eq .ActiveTab "trending" }} class="is-selected" aria-current="page"{{ end }}>{{ octicon "star" }} Trending</a>
@@ -34,8 +93,8 @@
       </section>
       {{ else }}
       <div class="shithub-feed-toolbar">
-        <h2>Public activity</h2>
-        <a class="shithub-button shithub-button-small" href="/trending">{{ octicon "star" }} Trending</a>
+        <h2>{{ .FeedHeading }}</h2>
+        <button type="button" class="shithub-button shithub-button-small" disabled>{{ octicon "list-unordered" }} Filter</button>
       </div>
       {{ if .Feed }}
       <ol class="shithub-feed-list">
@@ -43,8 +102,9 @@
       </ol>
       {{ else }}
       <div class="shithub-feed-empty">
-        <h2>{{ octicon "pulse" }} No public activity yet</h2>
-        <p>Public stars, forks, pushes, issues, pull requests, and follows will appear here.</p>
+        <h2>{{ octicon "people" }} {{ .FeedEmptyTitle }}</h2>
+        <p>{{ .FeedEmptyBody }}</p>
+        {{ if .Viewer.ID }}<a href="/trending" class="shithub-button">Explore trending repositories</a>{{ end }}
       </div>
       {{ end }}
       {{ if .FeedHasNext }}
@@ -57,7 +117,7 @@
 
     <aside class="shithub-explore-right" aria-label="Trending">
       <section class="shithub-side-panel">
-        <h2>{{ octicon "star" }} Repositories</h2>
+        <h2>{{ octicon "pulse" }} Trending repositories</h2>
         {{ if .TrendingRepos }}
         <ol class="shithub-trending-mini-list">
           {{ range .TrendingRepos }}
@@ -72,7 +132,7 @@
       </section>
 
       <section class="shithub-side-panel">
-        <h2>{{ octicon "people" }} Developers</h2>
+        <h2>{{ octicon "people" }} Trending developers</h2>
         {{ if .TrendingUsers }}
         <ol class="shithub-trending-user-list">
           {{ range .TrendingUsers }}

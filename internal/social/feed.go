@@ -56,6 +56,7 @@ type FeedItem struct {
 	Repo             *FeedRepo
 	RepoFullName     string
 	RepoURL          string
+	SourceKind       string
 	SourceName       string
 	SourceURL        string
 	ItemTitle        string
@@ -64,6 +65,7 @@ type FeedItem struct {
 
 type DashboardRepo struct {
 	ID              int64
+	Owner           string
 	Name            string
 	Description     string
 	Visibility      string
@@ -143,12 +145,12 @@ func PublicFeed(ctx context.Context, deps Deps, cursor FeedCursor, limit int32) 
 }
 
 func DashboardRepos(ctx context.Context, deps Deps, viewerUserID int64, limit int32) ([]DashboardRepo, error) {
-	if limit <= 0 || limit > 20 {
-		limit = 8
+	if limit <= 0 || limit > 50 {
+		limit = 20
 	}
 	rows, err := socialdb.New().ListDashboardReposForUser(ctx, deps.Pool, socialdb.ListDashboardReposForUserParams{
-		OwnerUserID: pgtype.Int8{Int64: viewerUserID, Valid: true},
-		Limit:       limit,
+		ViewerUserID: viewerUserID,
+		LimitCount:   limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("dashboard repos: %w", err)
@@ -156,7 +158,7 @@ func DashboardRepos(ctx context.Context, deps Deps, viewerUserID int64, limit in
 	out := make([]DashboardRepo, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, DashboardRepo{
-			ID: row.RepoID, Name: row.Name, Description: row.Description,
+			ID: row.RepoID, Owner: row.Owner, Name: row.Name, Description: row.Description,
 			Visibility: string(row.Visibility), PrimaryLanguage: row.PrimaryLanguage,
 			StarCount: row.StarCount, ForkCount: row.ForkCount,
 			UpdatedAt: timeFromPG(row.UpdatedAt),
@@ -315,7 +317,7 @@ func feedItemFromDashboardRow(row socialdb.ListDashboardFeedEventsRow) FeedItem 
 		repoID: row.RepoID, repoOwner: row.RepoOwner, repoName: row.RepoName,
 		repoDescription: row.RepoDescription, repoPrimaryLanguage: row.RepoPrimaryLanguage,
 		repoStarCount: row.RepoStarCount, repoForkCount: row.RepoForkCount,
-		sourceName: row.SourceName, payload: row.Payload,
+		sourceKind: row.SourceKind, sourceName: row.SourceName, payload: row.Payload,
 	})
 }
 
@@ -326,7 +328,7 @@ func feedItemFromPublicRow(row socialdb.ListPublicFeedEventsRow) FeedItem {
 		repoID: row.RepoID, repoOwner: row.RepoOwner, repoName: row.RepoName,
 		repoDescription: row.RepoDescription, repoPrimaryLanguage: row.RepoPrimaryLanguage,
 		repoStarCount: row.RepoStarCount, repoForkCount: row.RepoForkCount,
-		sourceName: row.SourceName, payload: row.Payload,
+		sourceKind: row.SourceKind, sourceName: row.SourceName, payload: row.Payload,
 	})
 }
 
@@ -343,6 +345,7 @@ type feedParts struct {
 	repoPrimaryLanguage string
 	repoStarCount       int64
 	repoForkCount       int64
+	sourceKind          string
 	sourceName          string
 	payload             []byte
 }
@@ -351,7 +354,7 @@ func feedItemFromParts(p feedParts) FeedItem {
 	item := FeedItem{
 		ID: p.id, Kind: p.kind, Verb: feedVerb(p.kind),
 		ActorUsername: p.actorUsername, ActorDisplayName: p.actorDisplayName,
-		CreatedAt: timeFromPG(p.createdAt), SourceName: p.sourceName,
+		CreatedAt: timeFromPG(p.createdAt), SourceKind: p.sourceKind, SourceName: p.sourceName,
 	}
 	if p.repoID.Valid && p.repoOwner != "" && p.repoName != "" {
 		item.Repo = &FeedRepo{

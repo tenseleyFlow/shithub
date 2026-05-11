@@ -8573,6 +8573,10 @@ button.shithub-repo-action {
   max-width: 1100px;
   margin: 0 auto;
 }
+.shithub-explore-shell.has-dashboard-left {
+  grid-template-columns: minmax(220px, 296px) minmax(0, 1fr) minmax(220px, 296px);
+  max-width: 1280px;
+}
 .shithub-dashboard-left,
 .shithub-dashboard-right,
 .shithub-explore-right {
@@ -8582,6 +8586,116 @@ button.shithub-repo-action {
   position: sticky;
   top: 1rem;
   align-self: start;
+}
+.shithub-dashboard-identity {
+  position: relative;
+  margin-bottom: 2rem;
+}
+.shithub-dashboard-identity summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: 100%;
+  color: var(--fg-default);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.shithub-dashboard-identity summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-dashboard-identity summary img,
+.shithub-dashboard-org-list img {
+  border-radius: 50%;
+}
+.shithub-dashboard-identity summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shithub-dashboard-identity-menu {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  left: 0;
+  z-index: 20;
+  width: min(320px, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-default);
+  box-shadow: 0 16px 32px rgba(1, 4, 9, 0.35);
+}
+.shithub-dashboard-identity-title {
+  padding: 0.25rem 0.35rem 0.65rem;
+  color: var(--fg-default);
+  font-weight: 600;
+}
+.shithub-dashboard-org-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.65rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  color: var(--fg-muted);
+}
+.shithub-dashboard-org-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.shithub-dashboard-org-search input:focus {
+  box-shadow: none;
+}
+.shithub-dashboard-org-list {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 18rem;
+  padding: 0;
+  margin: 0 0 0.65rem;
+  overflow: auto;
+  list-style: none;
+}
+.shithub-dashboard-org-list a {
+  display: grid;
+  grid-template-columns: 16px 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem;
+  border-radius: 6px;
+  color: var(--fg-default);
+  text-decoration: none;
+}
+.shithub-dashboard-org-list a:hover,
+.shithub-dashboard-identity-actions a:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-dashboard-org-list span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-dashboard-identity-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+.shithub-dashboard-identity-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-default);
+  font-weight: 600;
 }
 .shithub-dashboard-sidehead,
 .shithub-feed-toolbar,
@@ -8626,6 +8740,9 @@ button.shithub-repo-action {
   display: grid;
   gap: 0.45rem;
 }
+.shithub-dashboard-repo-list li[hidden] {
+  display: none;
+}
 .shithub-dashboard-repo-list a,
 .shithub-trending-user-list a {
   display: inline-flex;
@@ -8634,6 +8751,12 @@ button.shithub-repo-action {
   min-width: 0;
   color: var(--fg-default);
   font-weight: 600;
+}
+.shithub-dashboard-repo-list a {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .shithub-dashboard-repo-list img,
 .shithub-trending-user-list img,
@@ -8700,6 +8823,36 @@ button.shithub-repo-action {
 }
 .shithub-feed-repo p {
   margin: 0.4rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-feed-profile {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 0.8rem;
+  padding: 0.85rem;
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-feed-profile-avatar,
+.shithub-feed-profile-avatar img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+.shithub-feed-profile-copy {
+  min-width: 0;
+}
+.shithub-feed-profile-name {
+  display: block;
+  color: var(--fg-default);
+  font-weight: 600;
+}
+.shithub-feed-profile-copy span {
+  display: block;
+  margin-top: 0.15rem;
   color: var(--fg-muted);
   font-size: 0.875rem;
 }
@@ -8852,6 +9005,9 @@ button.shithub-repo-action {
   .shithub-explore-shell {
     grid-template-columns: 1fr;
   }
+  .shithub-explore-shell.has-dashboard-left {
+    grid-template-columns: 1fr;
+  }
   .shithub-dashboard-left {
     position: static;
   }
@@ -8870,6 +9026,18 @@ button.shithub-repo-action {
   .shithub-feed-avatar img {
     width: 32px;
     height: 32px;
+  }
+  .shithub-feed-profile {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  .shithub-feed-profile .shithub-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .shithub-feed-profile-avatar,
+  .shithub-feed-profile-avatar img {
+    width: 36px;
+    height: 36px;
   }
   .shithub-explore-head,
   .shithub-dashboard-sidehead,
