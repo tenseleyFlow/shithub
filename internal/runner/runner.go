@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tenseleyFlow/shithub/internal/runner/api"
@@ -21,6 +22,7 @@ type API interface {
 	UpdateStatus(ctx context.Context, jobID int64, token string, req api.StatusRequest) (api.StatusResponse, error)
 	UpdateStepStatus(ctx context.Context, jobID, stepID int64, token string, req api.StatusRequest) (api.StepStatusResponse, error)
 	AppendLog(ctx context.Context, jobID int64, token string, req api.LogRequest) (api.LogResponse, error)
+	CancelCheck(ctx context.Context, jobID int64, token string) (api.CancelCheckResponse, error)
 }
 
 type Workspaces interface {
@@ -31,29 +33,31 @@ type Workspaces interface {
 type SleepFunc func(ctx context.Context, d time.Duration) error
 
 type Options struct {
-	API          API
-	Engine       engine.Engine
-	Workspaces   Workspaces
-	Logger       *slog.Logger
-	Labels       []string
-	Capacity     int
-	PollInterval time.Duration
-	DefaultImage string
-	Clock        func() time.Time
-	Sleep        SleepFunc
+	API                API
+	Engine             engine.Engine
+	Workspaces         Workspaces
+	Logger             *slog.Logger
+	Labels             []string
+	Capacity           int
+	PollInterval       time.Duration
+	CancelPollInterval time.Duration
+	DefaultImage       string
+	Clock              func() time.Time
+	Sleep              SleepFunc
 }
 
 type Runner struct {
-	api          API
-	engine       engine.Engine
-	workspaces   Workspaces
-	logger       *slog.Logger
-	labels       []string
-	capacity     int
-	pollInterval time.Duration
-	defaultImage string
-	clock        func() time.Time
-	sleep        SleepFunc
+	api                API
+	engine             engine.Engine
+	workspaces         Workspaces
+	logger             *slog.Logger
+	labels             []string
+	capacity           int
+	pollInterval       time.Duration
+	cancelPollInterval time.Duration
+	defaultImage       string
+	clock              func() time.Time
+	sleep              SleepFunc
 }
 
 func New(opts Options) *Runner {
@@ -73,21 +77,26 @@ func New(opts Options) *Runner {
 	if poll <= 0 {
 		poll = 5 * time.Second
 	}
+	cancelPoll := opts.CancelPollInterval
+	if cancelPoll <= 0 {
+		cancelPoll = 2 * time.Second
+	}
 	capacity := opts.Capacity
 	if capacity <= 0 {
 		capacity = 1
 	}
 	return &Runner{
-		api:          opts.API,
-		engine:       opts.Engine,
-		workspaces:   opts.Workspaces,
-		logger:       logger,
-		labels:       append([]string{}, opts.Labels...),
-		capacity:     capacity,
-		pollInterval: poll,
-		defaultImage: opts.DefaultImage,
-		clock:        clock,
-		sleep:        sleep,
+		api:                opts.API,
+		engine:             opts.Engine,
+		workspaces:         opts.Workspaces,
+		logger:             logger,
+		labels:             append([]string{}, opts.Labels...),
+		capacity:           capacity,
+		pollInterval:       poll,
+		cancelPollInterval: cancelPoll,
+		defaultImage:       opts.DefaultImage,
+		clock:              clock,
+		sleep:              sleep,
 	}
 }
 
@@ -165,7 +174,19 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 		}()
 	}
 
-	outcome, execErr := r.engine.Execute(ctx, toEngineJob(claim.Job, workspaceDir, r.defaultImage))
+	execCtx, execCancel := context.WithCancel(ctx)
+	watchCtx, stopCancelWatch := context.WithCancel(ctx)
+	cancelRequested := atomic.Bool{}
+	cancelWatchErr := make(chan error, 1)
+	go func() {
+		cancelWatchErr <- r.watchCancel(watchCtx, session, claim.Job.ID, execCancel, &cancelRequested)
+	}()
+
+	outcome, execErr := r.engine.Execute(execCtx, toEngineJob(claim.Job, workspaceDir, r.defaultImage))
+	stopCancelWatch()
+	if err := <-cancelWatchErr; err != nil {
+		return true, fmt.Errorf("watch job cancellation: %w", err)
+	}
 	if err := <-drainErr; err != nil {
 		return true, fmt.Errorf("stream runner events: %w", err)
 	}
@@ -188,6 +209,11 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if conclusion == "" {
 		conclusion = engine.ConclusionFailure
 	}
+	finalStatus := "completed"
+	if cancelRequested.Load() {
+		finalStatus = "cancelled"
+		conclusion = engine.ConclusionCancelled
+	}
 	completed := outcome.CompletedAt
 	if completed.IsZero() {
 		completed = r.clock()
@@ -195,26 +221,66 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if outcome.StartedAt.IsZero() {
 		outcome.StartedAt = started
 	}
-	if err := r.complete(ctx, session, conclusion, outcome.StartedAt, completed); err != nil {
+	if err := r.finish(ctx, session, finalStatus, conclusion, outcome.StartedAt, completed); err != nil {
 		return true, err
 	}
-	if execErr != nil {
+	if execErr != nil && !cancelRequested.Load() {
 		r.logger.WarnContext(ctx, "job completed with failing engine outcome", "job_id", claim.Job.ID, "conclusion", conclusion, "error", execErr)
 	}
 	return true, nil
 }
 
 func (r *Runner) complete(ctx context.Context, session *jobSession, conclusion string, started, completed time.Time) error {
+	return r.finish(ctx, session, "completed", conclusion, started, completed)
+}
+
+func (r *Runner) finish(ctx context.Context, session *jobSession, status, conclusion string, started, completed time.Time) error {
 	_, err := session.UpdateStatus(ctx, api.StatusRequest{
-		Status:      "completed",
+		Status:      status,
 		Conclusion:  conclusion,
 		StartedAt:   started,
 		CompletedAt: completed,
 	})
 	if err != nil {
-		return fmt.Errorf("mark job completed: %w", err)
+		return fmt.Errorf("mark job %s: %w", status, err)
 	}
 	return nil
+}
+
+func (r *Runner) watchCancel(
+	ctx context.Context,
+	session *jobSession,
+	jobID int64,
+	execCancel context.CancelFunc,
+	cancelRequested *atomic.Bool,
+) error {
+	for {
+		if err := r.sleep(ctx, r.cancelPollInterval); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return err
+		}
+		resp, err := session.CancelCheck(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			r.logger.WarnContext(ctx, "runner cancel check failed", "job_id", jobID, "error", err)
+			continue
+		}
+		if !resp.Cancelled {
+			continue
+		}
+		cancelRequested.Store(true)
+		killCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := r.engine.Cancel(killCtx, jobID); err != nil && !errors.Is(err, engine.ErrUnsupported) {
+			r.logger.WarnContext(ctx, "runner engine cancel failed", "job_id", jobID, "error", err)
+		}
+		cancel()
+		execCancel()
+		return nil
+	}
 }
 
 type jobSession struct {
@@ -272,6 +338,19 @@ func (s *jobSession) AppendLog(ctx context.Context, chunk engine.LogChunk) error
 		s.token = resp.NextToken
 	}
 	return nil
+}
+
+func (s *jobSession) CancelCheck(ctx context.Context) (api.CancelCheckResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resp, err := s.api.CancelCheck(ctx, s.jobID, s.token)
+	if err != nil {
+		return resp, err
+	}
+	if resp.NextToken != "" {
+		s.token = resp.NextToken
+	}
+	return resp, nil
 }
 
 func drainLogs(ctx context.Context, session *jobSession, logs <-chan engine.LogChunk) error {

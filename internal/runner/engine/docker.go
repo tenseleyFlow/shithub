@@ -83,6 +83,7 @@ type Docker struct {
 	cfg       DockerConfig
 	streams   map[int64]chan LogChunk
 	eventSubs map[int64]chan Event
+	active    map[int64]string
 	mu        sync.Mutex
 }
 
@@ -120,7 +121,12 @@ func NewDocker(cfg DockerConfig) *Docker {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Docker{cfg: cfg, streams: make(map[int64]chan LogChunk), eventSubs: make(map[int64]chan Event)}
+	return &Docker{
+		cfg:       cfg,
+		streams:   make(map[int64]chan LogChunk),
+		eventSubs: make(map[int64]chan Event),
+		active:    make(map[int64]string),
+	}
 }
 
 func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
@@ -191,6 +197,8 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	if err != nil {
 		return err
 	}
+	d.setActiveContainer(job.ID, invocation.containerName)
+	defer d.clearActiveContainer(job.ID, invocation.containerName)
 	d.logStep(ctx, "runner step starting", job, step, invocation, "")
 	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
 	out := io.MultiWriter(d.cfg.Stdout, writer)
@@ -212,6 +220,7 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 type dockerInvocation struct {
 	args           []string
 	env            []string
+	containerName  string
 	image          string
 	network        string
 	memory         string
@@ -246,9 +255,11 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 	if d.cfg.AllowRoot && permissionsRequestRoot(job.Permissions) {
 		user = "0:0"
 	}
+	containerName := dockerContainerName(job, step)
 	args := []string{
 		"run",
 		"--rm",
+		"--name", containerName,
 		"--network=" + d.cfg.Network,
 		"--memory=" + d.cfg.Memory,
 		"--cpus=" + d.cfg.CPUs,
@@ -286,6 +297,7 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 	return dockerInvocation{
 		args:           args,
 		env:            processEnv,
+		containerName:  containerName,
 		image:          image,
 		network:        d.cfg.Network,
 		memory:         d.cfg.Memory,
@@ -357,8 +369,40 @@ func (d *Docker) StreamEvents(_ context.Context, jobID int64) (<-chan Event, err
 	return d.ensureEventStream(jobID), nil
 }
 
-func (d *Docker) Cancel(_ context.Context, _ int64) error {
-	return ErrUnsupported
+func (d *Docker) Cancel(ctx context.Context, jobID int64) error {
+	name := d.activeContainer(jobID)
+	if name == "" {
+		return nil
+	}
+	killCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := d.cfg.Runner.Run(killCtx, d.cfg.Binary, []string{"kill", name}, nil, d.cfg.Stdout, d.cfg.Stderr); err != nil {
+		return fmt.Errorf("runner engine: kill container %s: %w", name, err)
+	}
+	return nil
+}
+
+func (d *Docker) setActiveContainer(jobID int64, name string) {
+	if name == "" {
+		return
+	}
+	d.mu.Lock()
+	d.active[jobID] = name
+	d.mu.Unlock()
+}
+
+func (d *Docker) clearActiveContainer(jobID int64, name string) {
+	d.mu.Lock()
+	if d.active[jobID] == name {
+		delete(d.active, jobID)
+	}
+	d.mu.Unlock()
+}
+
+func (d *Docker) activeContainer(jobID int64) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.active[jobID]
 }
 
 func (d *Docker) ensureStream(jobID int64) chan LogChunk {
@@ -612,6 +656,14 @@ func containerWorkdir(wd string) (string, error) {
 		return "", fmt.Errorf("runner engine: working-directory escapes workspace: %q", wd)
 	}
 	return clean, nil
+}
+
+func dockerContainerName(job Job, step Step) string {
+	stepID := step.ID
+	if stepID == 0 {
+		stepID = int64(step.Index)
+	}
+	return fmt.Sprintf("shithub-job-%d-step-%d", job.ID, stepID)
 }
 
 var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
