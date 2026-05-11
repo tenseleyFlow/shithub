@@ -1,0 +1,21 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+shithub_runner_enabled: false
+shithub_runner_server_url: "https://{{ shithub_domain }}"
+shithub_runner_token: ""
+shithub_runner_labels:
+  - self-hosted
+  - linux
+  - ubuntu-latest
+shithub_runner_capacity: 1
+shithub_runner_poll_interval: 5s
+shithub_runner_workspace_root: /var/lib/shithubd-runner/workspaces
+shithub_runner_workspace_ttl: 24h
+shithub_runner_engine: docker
+shithub_runner_default_image: ghcr.io/shithub/runner-nix:1.0
+shithub_runner_network: bridge
+shithub_runner_memory: 2g
+shithub_runner_cpus: "2"
+shithub_runner_log_level: info
+shithub_runner_log_format: text

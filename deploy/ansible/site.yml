@@ -23,6 +23,9 @@
       tags: [db, postgres]
     - role: shithubd
       tags: [app, shithubd]
+    - role: shithubd-runner
+      tags: [app, shithubd-runner, actions-runner]
+      when: shithub_runner_enabled | default(false) | bool
     - role: caddy
       tags: [edge, caddy]
     - role: wireguard

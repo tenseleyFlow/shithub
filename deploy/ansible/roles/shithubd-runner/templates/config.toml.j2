@@ -1,0 +1,26 @@
+# Managed by Ansible. Secrets live in runner.env.
+
+[server]
+base_url = "{{ shithub_runner_server_url }}"
+
+[runner]
+{% if shithub_runner_labels is string %}
+labels = {{ shithub_runner_labels.split(",") | map("trim") | list | to_json }}
+{% else %}
+labels = {{ shithub_runner_labels | to_json }}
+{% endif %}
+capacity = {{ shithub_runner_capacity }}
+poll_interval = "{{ shithub_runner_poll_interval }}"
+workspace_root = "{{ shithub_runner_workspace_root }}"
+workspace_ttl = "{{ shithub_runner_workspace_ttl }}"
+
+[engine]
+kind = "{{ shithub_runner_engine }}"
+default_image = "{{ shithub_runner_default_image }}"
+network = "{{ shithub_runner_network }}"
+memory = "{{ shithub_runner_memory }}"
+cpus = "{{ shithub_runner_cpus }}"
+
+[log]
+level = "{{ shithub_runner_log_level }}"
+format = "{{ shithub_runner_log_format }}"

@@ -1,0 +1,109 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# shithubd-runner role: installs the runner binary, config, default
+# container image, and systemd unit. Docker itself is a host prerequisite.
+
+- name: Runner token is configured
+  assert:
+    that:
+      - shithub_runner_token | length > 0
+      - shithub_runner_engine == "docker"
+    fail_msg: >-
+      shithub_runner_token is required and the Ansible role supports
+      shithub_runner_engine=docker. Generate a token with
+      `shithubd admin runner register`, store it in the inventory or
+      vault, and keep Docker installed on the runner host.
+  no_log: true
+
+- name: Runner workspace is inside the systemd write path
+  assert:
+    that:
+      - (shithub_runner_workspace_root | string) is match("^/var/lib/shithubd-runner(/|$)")
+    fail_msg: >-
+      shithub_runner_workspace_root must stay under /var/lib/shithubd-runner
+      unless the shithubd-runner systemd unit's ReadWritePaths= hardening is
+      updated with the matching path.
+
+- name: Docker group exists
+  getent:
+    database: group
+    key: docker
+  when: shithub_runner_engine == "docker"
+
+- name: Runner group
+  group:
+    name: shithub-runner
+    system: yes
+
+- name: Runner user
+  user:
+    name: shithub-runner
+    group: shithub-runner
+    groups: docker
+    append: yes
+    system: yes
+    create_home: no
+    home: /var/lib/shithubd-runner
+    shell: /usr/sbin/nologin
+
+- name: Runner directories
+  file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/shithubd-runner, owner: root, group: shithub-runner, mode: "0750" }
+    - { path: /var/lib/shithubd-runner, owner: shithub-runner, group: shithub-runner, mode: "0750" }
+    - { path: "{{ shithub_runner_workspace_root }}", owner: shithub-runner, group: shithub-runner, mode: "0750" }
+    - { path: /var/lib/shithubd-runner/binaries, owner: shithub-runner, group: shithub-runner, mode: "0750" }
+
+- name: Upload shithubd-runner binary (built by `make build` locally)
+  copy:
+    src: "{{ playbook_dir }}/../../bin/shithubd-runner"
+    dest: /usr/local/bin/shithubd-runner
+    mode: "0755"
+    owner: root
+    group: root
+  notify: restart shithubd-runner
+
+- name: Archive a versioned runner binary copy
+  shell: cp /usr/local/bin/shithubd-runner /var/lib/shithubd-runner/binaries/shithubd-runner-$(date +%Y%m%d-%H%M%S)
+  args:
+    creates: /var/lib/shithubd-runner/binaries/shithubd-runner-{{ ansible_date_time.iso8601_basic_short }}
+
+- name: Runner config file
+  template:
+    src: config.toml.j2
+    dest: /etc/shithubd-runner/config.toml
+    owner: root
+    group: shithub-runner
+    mode: "0640"
+  notify: restart shithubd-runner
+
+- name: Runner env file
+  template:
+    src: runner.env.j2
+    dest: /etc/shithubd-runner/runner.env
+    owner: shithub-runner
+    group: shithub-runner
+    mode: "0600"
+  no_log: true
+  notify: restart shithubd-runner
+
+- name: Runner systemd unit
+  copy:
+    src: "{{ playbook_dir }}/../systemd/shithubd-runner.service"
+    dest: /etc/systemd/system/shithubd-runner.service
+    mode: "0644"
+  notify: [daemon-reload, restart shithubd-runner]
+
+- name: Pull default runner image
+  command: "{{ shithub_runner_engine }} pull {{ shithub_runner_default_image }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Enable + start shithubd-runner
+  systemd: { name: shithubd-runner, state: started, enabled: yes }
