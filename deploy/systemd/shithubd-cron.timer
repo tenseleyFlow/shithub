@@ -2,9 +2,9 @@
 Description=shithub periodic housekeeping timer
 
 [Timer]
-# Every hour at :07 — odd minute keeps it off shared-hour boundaries.
-OnCalendar=hourly
-# Run once at boot, ~5min in, so a fresh deploy doesn't wait an hour.
+# Daily at 03:30 UTC, after the 03:17 database backup window.
+OnCalendar=*-*-* 03:30:00 UTC
+# Run once at boot, ~5min in, so a fresh deploy doesn't wait a day.
 OnBootSec=5min
 Persistent=true
 Unit=shithubd-cron.service

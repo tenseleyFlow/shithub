@@ -38,6 +38,7 @@ avatars/<user_id>/<hash>.png          # largest rendered avatar variant
 avatars/<user_id>/<hash>-<size>.png   # smaller rendered avatar variants
 avatars/orgs/<org_id>/<hash>.png      # largest rendered org avatar variant
 avatars/orgs/<org_id>/<hash>-<size>.png
+actions/runs/<run_id>/...             # Actions logs + artifacts
 backups/...                           # S37
 ```
 
@@ -56,7 +57,7 @@ Avatar uploads are decoded from PNG, JPEG, or GIF and re-encoded to PNG before s
 The two backends share an interface but behavioral edges differ:
 
 - **Path-style addressing.** MinIO needs `force_path_style=true`. Spaces supports virtual-host-style (the default).
-- **Lifecycle rules.** Spaces and MinIO honor different subsets of the S3 lifecycle XML. Apply rules through their respective consoles, not via the SDK.
+- **Lifecycle rules.** Spaces and MinIO honor different subsets of the S3 lifecycle XML. Apply rules through their respective consoles, not via the SDK. The production Actions prefix uses `deploy/spaces/actions-lifecycle.json` (`actions/runs/`, 90-day expiry).
 - **ACL semantics.** Spaces supports `public-read` on objects; MinIO uses bucket policies. We don't rely on either today (all reads go through the app).
 - **Listing pagination.** Both honor `MaxKeys` + continuation tokens, but the page sizes they prefer differ. Don't assume an exact count per page.
 

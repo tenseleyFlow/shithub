@@ -183,5 +183,32 @@ Expected results:
 - The parent `workflow_runs` row rolls up to completed/success when all
   jobs are terminal.
 - The PR Checks tab shows the matching check run as success.
-- `/metrics` includes runner registration, heartbeat, JWT, and job
-  cancellation counters.
+- `/metrics` includes runner registration, heartbeat, JWT, job
+  cancellation, log-scrub, and retention counters.
+
+## Retention Sweep
+
+The daily housekeeping timer enqueues `workflow:cleanup` at 03:30 UTC,
+after the 03:17 backup window:
+
+```sh
+systemctl list-timers shithubd-cron.timer
+journalctl -u shithubd-cron.service -n 100
+```
+
+Manual smoke:
+
+```sh
+shithubd admin run-job workflow:cleanup
+```
+
+Expected behavior:
+
+- SQL log chunks older than 7 days for terminal steps are deleted.
+- Expired artifact rows are deleted only after their `actions/runs/...`
+  objects are deleted from object storage.
+- Unpinned terminal workflow runs older than 365 days are pruned;
+  pinned runs survive.
+- Consumed runner JWT rows older than 30 days are pruned.
+- `/metrics` exposes
+  `shithub_actions_runs_pruned_total{kind="chunks|blobs|runs|jwt_used"}`.
