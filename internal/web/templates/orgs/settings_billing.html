@@ -1,0 +1,124 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Billing and plans</h2>
+      </div>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-billing-summary-heading">
+        <h3 id="org-billing-summary-heading" class="sr-only">Billing summary</h3>
+        <div class="shithub-org-billing-summary">
+          {{ range .Summary }}
+          <section class="Box shithub-org-billing-card">
+            <div class="Box-header">
+              <h4 class="Box-title">{{ .Label }}</h4>
+            </div>
+            <div class="Box-body">
+              <p class="shithub-org-billing-card-value">{{ .Value }}</p>
+              {{ with .Detail }}<p class="shithub-org-billing-card-detail">{{ . }}</p>{{ end }}
+            </div>
+          </section>
+          {{ end }}
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-billing-manage-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-billing-manage-heading" class="Subhead-heading">Manage plan</h2>
+        </div>
+        <div class="shithub-org-settings-box">
+          <div class="shithub-org-settings-row">
+            <div>
+              <strong>Team plan</strong>
+              <p>$4 per active organization member per month. Public and private repositories stay available; billing applies to hosted organization collaboration.</p>
+            </div>
+            {{ if .CanManageSubscription }}
+            <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/portal">
+              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+              <button type="submit" class="shithub-button">Manage billing</button>
+            </form>
+            {{ else if .CanStartCheckout }}
+            <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/checkout">
+              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-primary">Upgrade to Team</button>
+            </form>
+            {{ else }}
+            <span class="shithub-empty-note">Billing is not configured on this instance.</span>
+            {{ end }}
+          </div>
+          <div class="shithub-org-settings-row">
+            <div>
+              <strong>Billing email</strong>
+              <p>Stripe customer and invoice notifications use the organization billing email when one is set.</p>
+            </div>
+            <span>{{ if .Org.BillingEmail }}{{ .Org.BillingEmail }}{{ else }}Not set{{ end }}</span>
+          </div>
+          <div class="shithub-org-settings-row">
+            <div>
+              <strong>Payment failures</strong>
+              <p>Past-due subscriptions enter a grace period before paid entitlements are cut off.</p>
+            </div>
+            <span>{{ .GracePeriodLabel }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="org-billing-invoices-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-billing-invoices-heading" class="Subhead-heading">Recent invoices</h2>
+        </div>
+        {{ if .Invoices }}
+        <div class="Box">
+          <div class="Box-body p-0">
+            <table class="shithub-org-billing-table">
+              <thead>
+                <tr>
+                  <th scope="col">Invoice</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Period</th>
+                  <th scope="col">Due</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Invoices }}
+                <tr>
+                  <td>{{ .Number }}</td>
+                  <td><span class="shithub-org-billing-status is-{{ .StatusClass }}">{{ .StatusLabel }}</span></td>
+                  <td>{{ .AmountLabel }}</td>
+                  <td>{{ .PeriodLabel }}</td>
+                  <td>{{ .DueLabel }}</td>
+                  <td class="shithub-org-billing-links">
+                    {{ if .HostedInvoiceURL }}<a href="{{ .HostedInvoiceURL }}" target="_blank" rel="noreferrer">Open</a>{{ end }}
+                    {{ if .InvoicePDFURL }}<a href="{{ .InvoicePDFURL }}" target="_blank" rel="noreferrer">PDF</a>{{ end }}
+                  </td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {{ else }}
+        <p class="shithub-empty-note">No invoices have been recorded for this organization yet.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

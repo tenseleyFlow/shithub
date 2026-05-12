@@ -3967,6 +3967,84 @@ button.shithub-contrib-setting-item:hover {
   margin: 0.15rem 0 0;
   color: var(--fg-muted);
 }
+.shithub-org-billing-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+.shithub-org-billing-card {
+  min-height: 100%;
+}
+.shithub-org-billing-card .Box-body {
+  display: grid;
+  gap: 0.35rem;
+}
+.shithub-org-billing-card-value {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.shithub-org-billing-card-detail {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-org-billing-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.shithub-org-billing-table th,
+.shithub-org-billing-table td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-muted, var(--border-default));
+  text-align: left;
+  vertical-align: top;
+}
+.shithub-org-billing-table thead th {
+  border-top: 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.shithub-org-billing-links {
+  white-space: nowrap;
+}
+.shithub-org-billing-links a + a {
+  margin-left: 0.65rem;
+}
+.shithub-org-billing-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+}
+.shithub-org-billing-status.is-paid,
+.shithub-org-billing-status.is-active {
+  background: rgba(35, 134, 54, 0.18);
+  color: var(--success-fg);
+}
+.shithub-org-billing-status.is-open,
+.shithub-org-billing-status.is-draft {
+  background: rgba(9, 105, 218, 0.16);
+  color: var(--accent-fg);
+}
+.shithub-org-billing-status.is-uncollectible,
+.shithub-org-billing-status.is-void,
+.shithub-org-billing-status.is-past-due,
+.shithub-org-billing-status.is-unpaid,
+.shithub-org-billing-status.is-canceled {
+  background: rgba(218, 54, 51, 0.16);
+  color: var(--danger-fg);
+}
 .shithub-org-import-create {
   display: grid;
   gap: 0.75rem;

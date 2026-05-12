@@ -113,16 +113,18 @@ func (h *Handlers) renderSettingsImport(w http.ResponseWriter, r *http.Request, 
 		h.d.Logger.WarnContext(r.Context(), "org import: list imports", "error", err, "org_id", org.ID)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_import", map[string]any{
-		"Title":        org.Slug + " - repository import",
-		"CSRFToken":    middleware.CSRFTokenForRequest(r),
-		"Org":          org,
-		"AvatarURL":    "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav": "settings",
-		"Form":         form,
-		"Error":        errMsg,
-		"Notice":       notice,
-		"Imports":      imports,
-		"SecretBoxOK":  h.d.SecretBox != nil,
+		"Title":             org.Slug + " - repository import",
+		"CSRFToken":         middleware.CSRFTokenForRequest(r),
+		"Org":               org,
+		"AvatarURL":         "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":      "settings",
+		"OrgSettingsActive": "import",
+		"BillingEnabled":    h.d.BillingEnabled,
+		"Form":              form,
+		"Error":             errMsg,
+		"Notice":            notice,
+		"Imports":           imports,
+		"SecretBoxOK":       h.d.SecretBox != nil,
 	})
 }
 

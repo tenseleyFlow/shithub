@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +40,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -48,16 +50,22 @@ import (
 
 // Deps wires the handler set.
 type Deps struct {
-	Logger      *slog.Logger
-	Render      *render.Renderer
-	Pool        *pgxpool.Pool
-	EmailSender authemail.Sender
-	EmailFrom   string
-	SiteName    string
-	BaseURL     string
-	ObjectStore storage.ObjectStore
-	SecretBox   *secretbox.Box
-	Audit       *audit.Recorder
+	Logger                *slog.Logger
+	Render                *render.Renderer
+	Pool                  *pgxpool.Pool
+	EmailSender           authemail.Sender
+	EmailFrom             string
+	SiteName              string
+	BaseURL               string
+	ObjectStore           storage.ObjectStore
+	SecretBox             *secretbox.Box
+	Audit                 *audit.Recorder
+	BillingEnabled        bool
+	BillingGracePeriod    time.Duration
+	Stripe                stripebilling.Remote
+	StripeSuccessURL      string
+	StripeCancelURL       string
+	StripePortalReturnURL string
 }
 
 // Handlers groups the org surface handlers.
@@ -101,6 +109,13 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Get("/organizations/{org}/settings/variables/actions", h.settingsActionsVariables)
 	r.Post("/organizations/{org}/settings/variables/actions", h.settingsActionsVariableSet)
 	r.Post("/organizations/{org}/settings/variables/actions/{name}/delete", h.settingsActionsVariableDelete)
+	if h.billingConfigured() {
+		r.Get("/organizations/{org}/settings/billing", h.settingsBilling)
+		r.Post("/organizations/{org}/billing/checkout", h.billingCheckout)
+		r.Post("/organizations/{org}/billing/portal", h.billingPortal)
+		r.Get("/organizations/{org}/billing/success", h.billingSuccess)
+		r.Get("/organizations/{org}/billing/cancel", h.billingCancel)
+	}
 }
 
 // MountOrgRoutes registers the per-org surface under /{org}/people
@@ -126,6 +141,13 @@ func (h *Handlers) MountInvitations(r chi.Router) {
 	r.Post("/invitations/{token}/decline", h.invitationDecline)
 }
 
+func (h *Handlers) MountBillingWebhook(r chi.Router) {
+	if !h.billingConfigured() {
+		return
+	}
+	r.Post("/stripe/webhook", h.billingWebhook)
+}
+
 // ─── helpers ───────────────────────────────────────────────────────
 
 func (h *Handlers) deps() orgs.Deps {
@@ -137,6 +159,10 @@ func (h *Handlers) deps() orgs.Deps {
 		SiteName:    h.d.SiteName,
 		BaseURL:     h.d.BaseURL,
 	}
+}
+
+func (h *Handlers) billingConfigured() bool {
+	return h.d.BillingEnabled && h.d.Stripe != nil
 }
 
 // orgFromSlug resolves the org from a {org} URL param, with an
