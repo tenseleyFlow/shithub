@@ -398,6 +398,85 @@ func (q *Queries) InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWork
 	return i, err
 }
 
+const listBlockingConcurrencyRunsForUpdate = `-- name: ListBlockingConcurrencyRunsForUpdate :many
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.event_payload,
+       r.actor_user_id, r.parent_run_id, r.concurrency_group,
+       r.status, r.conclusion, r.pinned, r.need_approval, r.approved_by_user_id,
+       r.started_at, r.completed_at, r.version, r.created_at, r.updated_at, r.trigger_event_id
+FROM workflow_runs r
+JOIN workflow_runs current_run ON current_run.id = $1::bigint
+WHERE r.repo_id = $2::bigint
+  AND r.concurrency_group = $3::text
+  AND r.concurrency_group <> ''
+  AND r.id <> current_run.id
+  AND r.status IN ('queued', 'running')
+  AND (r.created_at, r.id) < (current_run.created_at, current_run.id)
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_jobs j
+      WHERE j.run_id = r.id
+        AND j.status IN ('queued', 'running')
+        AND j.cancel_requested = false
+  )
+ORDER BY r.created_at ASC, r.id ASC
+FOR UPDATE OF r
+`
+
+type ListBlockingConcurrencyRunsForUpdateParams struct {
+	RunID            int64
+	RepoID           int64
+	ConcurrencyGroup string
+}
+
+// Older queued/running runs with the same group block the new run while they
+// still have at least one queued/running job that has not already received a
+// cancel request. cancel-in-progress releases the slot by flipping that job
+// flag even if the runner is still draining the old container.
+func (q *Queries) ListBlockingConcurrencyRunsForUpdate(ctx context.Context, db DBTX, arg ListBlockingConcurrencyRunsForUpdateParams) ([]WorkflowRun, error) {
+	rows, err := db.Query(ctx, listBlockingConcurrencyRunsForUpdate, arg.RunID, arg.RepoID, arg.ConcurrencyGroup)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowRun{}
+	for rows.Next() {
+		var i WorkflowRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.RunIndex,
+			&i.WorkflowFile,
+			&i.WorkflowName,
+			&i.HeadSha,
+			&i.HeadRef,
+			&i.Event,
+			&i.EventPayload,
+			&i.ActorUserID,
+			&i.ParentRunID,
+			&i.ConcurrencyGroup,
+			&i.Status,
+			&i.Conclusion,
+			&i.Pinned,
+			&i.NeedApproval,
+			&i.ApprovedByUserID,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TriggerEventID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkflowRunWorkflowsForRepo = `-- name: ListWorkflowRunWorkflowsForRepo :many
 WITH ranked AS (
     SELECT workflow_file,

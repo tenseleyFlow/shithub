@@ -213,6 +213,7 @@ runner posts terminal job status `cancelled`.
 - `shithub_actions_runner_heartbeats_total{result="claimed|no_job"}`
 - `shithub_actions_runner_jwt_total{result="issued|rejected|replay"}`
 - `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
+- `shithub_actions_concurrency_queued_total`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
 - `shithub_actions_runs_pruned_total{kind="chunks|blobs|runs|jwt_used"}`
 - `shithub_actions_step_timeouts_total`

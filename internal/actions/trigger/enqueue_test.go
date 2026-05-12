@@ -5,6 +5,7 @@ package trigger_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -64,7 +65,7 @@ func setupEnq(t *testing.T) enqFx {
 // steps. Used by every enqueue test.
 func fixtureWorkflow(t *testing.T) *workflow.Workflow {
 	t.Helper()
-	src := []byte(`name: ci
+	return workflowFromYAML(t, `name: ci
 on: push
 jobs:
   build:
@@ -73,7 +74,27 @@ jobs:
       - uses: actions/checkout@v4
       - run: echo hello
 `)
-	w, diags, err := workflow.Parse(src)
+}
+
+func concurrencyWorkflow(t *testing.T, group string, cancelInProgress bool) *workflow.Workflow {
+	t.Helper()
+	return workflowFromYAML(t, fmt.Sprintf(`name: ci
+on: push
+concurrency:
+  group: "%s"
+  cancel-in-progress: %t
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo hello
+`, group, cancelInProgress))
+}
+
+func workflowFromYAML(t *testing.T, src string) *workflow.Workflow {
+	t.Helper()
+	w, diags, err := workflow.Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
@@ -121,6 +142,174 @@ func TestEnqueue_HappyPath(t *testing.T) {
 	}
 	if run.Status != actionsdb.WorkflowRunStatusQueued {
 		t.Errorf("status: got %s want queued", run.Status)
+	}
+}
+
+func TestEnqueue_ResolvesConcurrencyGroupExpression(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/feature",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/feature"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:concurrency-expr",
+		Workflow:       concurrencyWorkflow(t, "branch-${{ shithub.ref }}", false),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	run, err := actionsdb.New().GetWorkflowRunByID(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if run.ConcurrencyGroup != "branch-refs/heads/feature" {
+		t.Fatalf("concurrency_group: got %q", run.ConcurrencyGroup)
+	}
+}
+
+func TestEnqueue_CancelInProgressCancelsOlderQueuedRun(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	q := actionsdb.New()
+	first, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:concurrency-cancel-1",
+		Workflow:       concurrencyWorkflow(t, "${{ shithub.ref }}", false),
+	})
+	if err != nil {
+		t.Fatalf("first Enqueue: %v", err)
+	}
+	second, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("b", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:concurrency-cancel-2",
+		Workflow:       concurrencyWorkflow(t, "${{ shithub.ref }}", true),
+	})
+	if err != nil {
+		t.Fatalf("second Enqueue: %v", err)
+	}
+	oldRun, err := q.GetWorkflowRunByID(ctx, f.pool, first.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID old: %v", err)
+	}
+	if oldRun.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!oldRun.Conclusion.Valid ||
+		oldRun.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("old run not cancelled: %+v", oldRun)
+	}
+	oldJobs, err := q.ListJobsForRun(ctx, f.pool, first.RunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun old: %v", err)
+	}
+	if len(oldJobs) != 1 || oldJobs[0].Status != actionsdb.WorkflowJobStatusCancelled {
+		t.Fatalf("old jobs not cancelled: %+v", oldJobs)
+	}
+	oldSteps, err := q.ListStepsForJob(ctx, f.pool, oldJobs[0].ID)
+	if err != nil {
+		t.Fatalf("ListStepsForJob old: %v", err)
+	}
+	for _, step := range oldSteps {
+		if step.Status != actionsdb.WorkflowStepStatusCancelled {
+			t.Fatalf("step %d status: got %s want cancelled", step.ID, step.Status)
+		}
+	}
+	newRun, err := q.GetWorkflowRunByID(ctx, f.pool, second.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID new: %v", err)
+	}
+	if newRun.Status != actionsdb.WorkflowRunStatusQueued {
+		t.Fatalf("new run status: got %s want queued", newRun.Status)
+	}
+}
+
+func TestClaimQueuedWorkflowJob_BlocksYoungerConcurrencyRun(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	q := actionsdb.New()
+	first, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("c", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:concurrency-block-1",
+		Workflow:       concurrencyWorkflow(t, "${{ shithub.ref }}", false),
+	})
+	if err != nil {
+		t.Fatalf("first Enqueue: %v", err)
+	}
+	second, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("d", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:concurrency-block-2",
+		Workflow:       concurrencyWorkflow(t, "${{ shithub.ref }}", false),
+	})
+	if err != nil {
+		t.Fatalf("second Enqueue: %v", err)
+	}
+	runner, err := q.InsertRunner(ctx, f.pool, actionsdb.InsertRunnerParams{
+		Name:     "runner-block",
+		Labels:   []string{"ubuntu-latest"},
+		Capacity: 2,
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner: %v", err)
+	}
+	claimed, err := q.ClaimQueuedWorkflowJob(ctx, f.pool, actionsdb.ClaimQueuedWorkflowJobParams{
+		Labels:   []string{"ubuntu-latest"},
+		RunnerID: runner.ID,
+	})
+	if err != nil {
+		t.Fatalf("first ClaimQueuedWorkflowJob: %v", err)
+	}
+	if claimed.RunID != first.RunID {
+		t.Fatalf("claimed run: got %d want first run %d", claimed.RunID, first.RunID)
+	}
+	_, err = q.ClaimQueuedWorkflowJob(ctx, f.pool, actionsdb.ClaimQueuedWorkflowJobParams{
+		Labels:   []string{"ubuntu-latest"},
+		RunnerID: runner.ID,
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("second claim error: got %v want pgx.ErrNoRows", err)
+	}
+	changed, err := q.RequestWorkflowRunCancel(ctx, f.pool, first.RunID)
+	if err != nil {
+		t.Fatalf("RequestWorkflowRunCancel: %v", err)
+	}
+	if len(changed) != 1 || !changed[0].CancelRequested {
+		t.Fatalf("cancel request did not release blocker: %+v", changed)
+	}
+	released, err := q.ClaimQueuedWorkflowJob(ctx, f.pool, actionsdb.ClaimQueuedWorkflowJobParams{
+		Labels:   []string{"ubuntu-latest"},
+		RunnerID: runner.ID,
+	})
+	if err != nil {
+		t.Fatalf("claim after cancel request: %v", err)
+	}
+	if released.RunID != second.RunID {
+		t.Fatalf("released claim run: got %d want second run %d", released.RunID, second.RunID)
 	}
 }
 

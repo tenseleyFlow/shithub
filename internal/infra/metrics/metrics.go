@@ -156,6 +156,12 @@ var (
 		},
 		[]string{"reason"},
 	)
+	ActionsConcurrencyQueuedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_concurrency_queued_total",
+			Help: "Total Actions workflow runs queued behind an older active run in the same concurrency group.",
+		},
+	)
 	ActionsLogScrubReplacementsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "shithub_actions_log_scrub_replacements_total",
@@ -197,6 +203,7 @@ func init() {
 		ActionsRunnerHeartbeatsTotal,
 		ActionsRunnerJWTTotal,
 		ActionsJobsCancelledTotal,
+		ActionsConcurrencyQueuedTotal,
 		ActionsLogScrubReplacementsTotal,
 		ActionsRunsPrunedTotal,
 		ActionsStepTimeoutsTotal,

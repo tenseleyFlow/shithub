@@ -7,16 +7,13 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/checksync"
+	"github.com/tenseleyFlow/shithub/internal/actions/runstate"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
-	"github.com/tenseleyFlow/shithub/internal/checks"
-	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
@@ -72,7 +69,7 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 		runConclusion actionsdb.CheckConclusion
 	)
 	if len(changed) > 0 {
-		runCompleted, runConclusion, err = rollupRunAfterCancel(ctx, q, tx, runID)
+		runCompleted, runConclusion, err = runstate.RollupAfterCancel(ctx, q, tx, runID)
 		if err != nil {
 			return CancelResult{}, err
 		}
@@ -137,7 +134,7 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 		runConclusion actionsdb.CheckConclusion
 	)
 	if len(changed) > 0 {
-		runCompleted, runConclusion, err = rollupRunAfterCancel(ctx, q, tx, runID)
+		runCompleted, runConclusion, err = runstate.RollupAfterCancel(ctx, q, tx, runID)
 		if err != nil {
 			return CancelResult{}, err
 		}
@@ -155,63 +152,6 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 		RunCompleted:  runCompleted,
 		RunConclusion: runConclusion,
 	}, nil
-}
-
-func rollupRunAfterCancel(
-	ctx context.Context,
-	q *actionsdb.Queries,
-	tx pgx.Tx,
-	runID int64,
-) (bool, actionsdb.CheckConclusion, error) {
-	jobs, err := q.ListJobsForRun(ctx, tx, runID)
-	if err != nil {
-		return false, "", err
-	}
-	runConclusion, complete := deriveWorkflowRunConclusion(jobs)
-	if complete {
-		if _, err := q.CompleteWorkflowRun(ctx, tx, actionsdb.CompleteWorkflowRunParams{
-			ID:         runID,
-			Conclusion: runConclusion,
-		}); err != nil {
-			return false, "", err
-		}
-		return true, runConclusion, nil
-	}
-	if err := q.MarkWorkflowRunRunning(ctx, tx, runID); err != nil {
-		return false, "", err
-	}
-	return false, "", nil
-}
-
-func deriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.CheckConclusion, bool) {
-	if len(jobs) == 0 {
-		return actionsdb.CheckConclusionFailure, true
-	}
-	worst := actionsdb.CheckConclusionSuccess
-	for _, job := range jobs {
-		switch job.Status {
-		case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusCancelled, actionsdb.WorkflowJobStatusSkipped:
-		default:
-			return "", false
-		}
-		if job.Status == actionsdb.WorkflowJobStatusCancelled {
-			worst = actionsdb.CheckConclusionCancelled
-			continue
-		}
-		if !job.Conclusion.Valid {
-			return actionsdb.CheckConclusionFailure, true
-		}
-		c := job.Conclusion.CheckConclusion
-		if c == actionsdb.CheckConclusionFailure ||
-			c == actionsdb.CheckConclusionTimedOut ||
-			c == actionsdb.CheckConclusionActionRequired {
-			return c, true
-		}
-		if c == actionsdb.CheckConclusionCancelled {
-			worst = actionsdb.CheckConclusionCancelled
-		}
-	}
-	return worst, true
 }
 
 func recordCancelledJobs(jobs []actionsdb.WorkflowJob, reason string) {
@@ -235,74 +175,12 @@ func cancelReason(reason string) string {
 }
 
 func syncChangedJobChecks(ctx context.Context, deps Deps, jobs []actionsdb.WorkflowJob) {
-	for _, job := range jobs {
-		if job.Status != actionsdb.WorkflowJobStatusRunning &&
-			job.Status != actionsdb.WorkflowJobStatusCompleted &&
-			job.Status != actionsdb.WorkflowJobStatusCancelled {
-			continue
-		}
-		if err := SyncCheckRunForJob(ctx, deps, job); err != nil && deps.Logger != nil {
-			deps.Logger.WarnContext(ctx, "actions lifecycle: sync check_run", "job_id", job.ID, "error", err)
-		}
-	}
+	checksync.ChangedJobs(ctx, checksync.Deps{Pool: deps.Pool, Logger: deps.Logger}, jobs)
 }
 
 // SyncCheckRunForJob mirrors an Actions workflow_job row into its check_run
 // row. Missing check rows are non-fatal because check creation is already
 // best-effort in the trigger path and can be reconciled independently.
 func SyncCheckRunForJob(ctx context.Context, deps Deps, job actionsdb.WorkflowJob) error {
-	if deps.Pool == nil {
-		return errors.New("actions lifecycle: nil Pool")
-	}
-	run, err := actionsdb.New().GetWorkflowRunByID(ctx, deps.Pool, job.RunID)
-	if err != nil {
-		return err
-	}
-	name := strings.TrimSpace(job.JobName)
-	if name == "" {
-		name = job.JobKey
-	}
-	checkRun, err := checksdb.New().GetCheckRunByExternalID(ctx, deps.Pool, checksdb.GetCheckRunByExternalIDParams{
-		RepoID:     run.RepoID,
-		HeadSha:    run.HeadSha,
-		Name:       name,
-		ExternalID: pgtype.Text{String: fmt.Sprintf("workflow_run:%d:job:%s", job.RunID, job.JobKey), Valid: true},
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	params := checks.UpdateParams{
-		RunID:        checkRun.ID,
-		HasStatus:    true,
-		HasStartedAt: true,
-		StartedAt:    timeFromPg(job.StartedAt),
-	}
-	switch job.Status {
-	case actionsdb.WorkflowJobStatusRunning:
-		params.Status = "in_progress"
-	case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusCancelled:
-		params.Status = "completed"
-		params.HasConclusion = true
-		if job.Conclusion.Valid {
-			params.Conclusion = string(job.Conclusion.CheckConclusion)
-		} else if job.Status == actionsdb.WorkflowJobStatusCancelled {
-			params.Conclusion = string(actionsdb.CheckConclusionCancelled)
-		}
-		params.HasCompletedAt = true
-		params.CompletedAt = timeFromPg(job.CompletedAt)
-	default:
-		return nil
-	}
-	_, err = checks.Update(ctx, checks.Deps{Pool: deps.Pool, Logger: deps.Logger}, params)
-	return err
-}
-
-func timeFromPg(ts pgtype.Timestamptz) time.Time {
-	if !ts.Valid {
-		return time.Time{}
-	}
-	return ts.Time
+	return checksync.Job(ctx, checksync.Deps{Pool: deps.Pool, Logger: deps.Logger}, job)
 }

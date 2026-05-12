@@ -67,6 +67,11 @@ type Querier interface {
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
+	// Older queued/running runs with the same group block the new run while they
+	// still have at least one queued/running job that has not already received a
+	// cancel request. cancel-in-progress releases the slot by flipping that job
+	// flag even if the runner is still draining the old container.
+	ListBlockingConcurrencyRunsForUpdate(ctx context.Context, db DBTX, arg ListBlockingConcurrencyRunsForUpdateParams) ([]WorkflowRun, error)
 	ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)
