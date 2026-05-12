@@ -23,6 +23,8 @@ var APICapabilities = []string{
 	"check-runs",
 	"stars",
 	"actions-lifecycle",
+	"user-emails",
+	"ssh-keys",
 }
 
 type metaResponse struct {
