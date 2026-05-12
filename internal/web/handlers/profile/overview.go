@@ -122,6 +122,8 @@ type profileContributionRepo struct {
 	Repo                  reposdb.Repo
 	OwnerSlug             string
 	AllowIdentityFallback bool
+	IsPrivate             bool
+	IsProfileOwnedPublic  bool
 }
 
 func (h *Handlers) visibleUserRepos(ctx context.Context, userID int64, viewer middleware.CurrentUser) []reposdb.Repo {
@@ -296,7 +298,7 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 		if !source.Repo.CreatedAt.Valid || created.Before(windowStart) || !created.Before(windowEnd) {
 			continue
 		}
-		if source.Repo.OwnerUserID.Int64 != user.ID || source.Repo.Visibility != reposdb.RepoVisibilityPublic {
+		if !source.IsProfileOwnedPublic {
 			continue
 		}
 		activity.addCreatedRepo(created, source)
@@ -370,7 +372,7 @@ func newProfileActivityBuilder() *profileActivityBuilder {
 }
 
 func (b *profileActivityBuilder) addCommit(day time.Time, source profileContributionRepo) {
-	isPrivate := source.Repo.Visibility == reposdb.RepoVisibilityPrivate
+	isPrivate := source.IsPrivate
 	fullName := source.OwnerSlug + "/" + source.Repo.Name
 	url := "/" + url.PathEscape(source.OwnerSlug) + "/" + url.PathEscape(source.Repo.Name)
 	if isPrivate {
@@ -600,14 +602,14 @@ func (h *Handlers) addProfileThreadActivity(ctx context.Context, user usersdb.Us
 	}
 	deps := policy.Deps{Pool: h.d.Pool}
 	for _, row := range rows {
-		if row.Visibility == issuesdb.RepoVisibilityPrivate && !user.IncludePrivateContributions {
-			continue
-		}
 		ref := policy.RepoRef{
 			ID:          row.RepoID,
 			OwnerUserID: row.OwnerUserID.Int64,
 			OwnerOrgID:  row.OwnerOrgID.Int64,
 			Visibility:  string(row.Visibility),
+		}
+		if ref.IsPrivate() && !user.IncludePrivateContributions {
+			continue
 		}
 		if !policy.IsVisibleTo(ctx, deps, actor, ref) {
 			continue
@@ -658,6 +660,8 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 			Repo:                  repo,
 			OwnerSlug:             ownerSlug,
 			AllowIdentityFallback: allowIdentityFallback,
+			IsPrivate:             repoRef.IsPrivate(),
+			IsProfileOwnedPublic:  isProfileOwnedPublicRepo(repo, repoRef, user.ID),
 		})
 	}
 
@@ -695,6 +699,11 @@ func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.Us
 		add(row.OwnerSlug, row.Repo, false, false)
 	}
 	return out
+}
+
+func isProfileOwnedPublicRepo(repo reposdb.Repo, ref policy.RepoRef, userID int64) bool {
+	ownerUserID := repo.OwnerUserID.Int64
+	return ownerUserID == userID && ref.IsPublic()
 }
 
 func selectedContributionYear(query url.Values, currentYear int) int {

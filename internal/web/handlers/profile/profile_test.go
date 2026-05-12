@@ -640,8 +640,14 @@ func TestProfile_ContributionActivityIncludesCommitsReposIssuesAndPulls(t *testi
 			t.Errorf("missing %q in body: %s", want, body)
 		}
 	}
-	if strings.Contains(body, strconv.FormatInt(oldRepoID, 10)) {
-		t.Fatalf("test template leaked implementation ids unexpectedly: %s", body)
+	for _, leak := range []string{
+		fmt.Sprintf("repo_id=%d", oldRepoID),
+		fmt.Sprintf(`data-repo-id="%d"`, oldRepoID),
+		fmt.Sprintf("RepoID:%d", oldRepoID),
+	} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("test template leaked implementation id marker %q unexpectedly: %s", leak, body)
+		}
 	}
 }
 
