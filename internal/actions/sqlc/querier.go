@@ -17,6 +17,7 @@ type Querier interface {
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
+	CountWorkflowCachesForRepo(ctx context.Context, db DBTX, arg CountWorkflowCachesForRepoParams) (int64, error)
 	CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error)
 	DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error)
 	DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
@@ -28,6 +29,10 @@ type Querier interface {
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
 	DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
+	DeleteWorkflowCacheByID(ctx context.Context, db DBTX, arg DeleteWorkflowCacheByIDParams) (int64, error)
+	// Returns the deleted rows' object_keys so the handler can purge the
+	// backing tarballs from object storage.
+	DeleteWorkflowCachesByKey(ctx context.Context, db DBTX, arg DeleteWorkflowCachesByKeyParams) ([]string, error)
 	// Cascades to workflow_jobs → workflow_steps → workflow_step_log_chunks
 	// and workflow_artifacts via the on-delete-cascade FK chain. The
 	// S3-side artifact blobs are NOT removed here; the handler queries
@@ -61,6 +66,7 @@ type Querier interface {
 	GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (GetRunnerByTokenHashRow, error)
 	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
 	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
+	GetWorkflowCacheByID(ctx context.Context, db DBTX, id int64) (WorkflowCache, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowJobSecretMask(ctx context.Context, db DBTX, jobID int64) (WorkflowJobSecretMask, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
@@ -72,6 +78,12 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (WorkflowRunner, error)
 	InsertRunnerToken(ctx context.Context, db DBTX, arg InsertRunnerTokenParams) (RunnerToken, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Called by the future runner-side upload handler when an
+	// actions/cache step completes its tarball upload. Idempotent on
+	// (repo_id, cache_key, cache_version, git_ref): a re-upload with the
+	// same coordinates updates size + last_accessed_at + object_key.
+	InsertWorkflowCache(ctx context.Context, db DBTX, arg InsertWorkflowCacheParams) (WorkflowCache, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowJob(ctx context.Context, db DBTX, arg InsertWorkflowJobParams) (WorkflowJob, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -107,6 +119,10 @@ type Querier interface {
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
+	// Paginated list filtered optionally by ref + key. NULL params skip
+	// the filter. Sorted by last_accessed_at DESC so an operator sees the
+	// live caches first.
+	ListWorkflowCachesForRepo(ctx context.Context, db DBTX, arg ListWorkflowCachesForRepoParams) ([]WorkflowCache, error)
 	ListWorkflowRunWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListWorkflowRunWorkflowsForRepoRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
 	LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
@@ -129,6 +145,9 @@ type Querier interface {
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
 	StartWorkflowRun(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
+	// Bumps last_accessed_at on cache hit. Called by the future
+	// restore-side handler.
+	TouchWorkflowCache(ctx context.Context, db DBTX, id int64) error
 	UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
