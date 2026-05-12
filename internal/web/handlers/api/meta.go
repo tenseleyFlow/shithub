@@ -50,6 +50,8 @@ var APICapabilities = []string{
 	"issue-events",
 	"device-code",
 	"actions-workflows",
+	"actions-artifacts",
+	"actions-job-logs",
 }
 
 type metaResponse struct {
