@@ -12,7 +12,8 @@ Account menu → "New organization". You'll need:
   existing user or org.
 - A primary email (for billing/notifications; org settings only).
 
-The creator is the first owner.
+When paid organization billing is enabled, the flow asks you to pick
+Free or Team before the form. The creator is the first owner.
 
 ## Roles
 
