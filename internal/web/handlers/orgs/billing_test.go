@@ -157,6 +157,172 @@ func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) 
 	}
 }
 
+func TestOrgBillingWebhookCheckoutCompletedStoresCustomerOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	raw := mustJSONRaw(t, map[string]any{
+		"id":                  "cs_test_completed",
+		"object":              "checkout.session",
+		"customer":            "cus_test_checkout_completed",
+		"client_reference_id": strconv.FormatInt(orgID, 10),
+	})
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:         "evt_checkout_completed",
+				Type:       stripeapi.EventType("checkout.session.completed"),
+				APIVersion: "2024-06-20",
+				Data:       &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	resp := postBillingWebhook(t, mux, "evt_checkout_completed")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("checkout webhook status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState: %v", err)
+	}
+	if !state.StripeCustomerID.Valid || state.StripeCustomerID.String != "cus_test_checkout_completed" {
+		t.Fatalf("expected checkout customer saved, got %+v", state.StripeCustomerID)
+	}
+	if state.Plan != orgbilling.PlanFree || state.SubscriptionStatus != orgbilling.SubscriptionStatusNone {
+		t.Fatalf("checkout completion must not activate paid state by itself: %+v", state)
+	}
+}
+
+func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	deps := orgbilling.Deps{Pool: pool}
+	if _, err := orgbilling.SetStripeCustomer(ctx, deps, orgID, "cus_test_lifecycle"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	start := time.Now().UTC().Truncate(time.Second)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, deps, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_test_lifecycle",
+		StripeSubscriptionItemID: "si_test_lifecycle",
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_seed_active",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+
+	var current stripeapi.Event
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return current, nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	current = stripeTestEvent(t, "evt_invoice_failed", "invoice.payment_failed", map[string]any{
+		"id":                   "in_test_lifecycle",
+		"object":               "invoice",
+		"customer":             "cus_test_lifecycle",
+		"status":               "open",
+		"number":               "INV-FAILED",
+		"currency":             "usd",
+		"amount_due":           int64(400),
+		"amount_paid":          int64(0),
+		"amount_remaining":     int64(400),
+		"hosted_invoice_url":   "https://pay.stripe.test/invoice",
+		"invoice_pdf":          "https://pay.stripe.test/invoice.pdf",
+		"period_start":         start.Unix(),
+		"period_end":           start.Add(30 * 24 * time.Hour).Unix(),
+		"due_date":             start.Add(3 * 24 * time.Hour).Unix(),
+		"status_transitions":   map[string]any{},
+		"subscription_details": map[string]any{},
+	})
+	resp := postBillingWebhook(t, mux, "evt_invoice_failed")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("payment_failed webhook status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState after failed payment: %v", err)
+	}
+	if state.Plan != orgbilling.PlanTeam || state.SubscriptionStatus != orgbilling.SubscriptionStatusPastDue {
+		t.Fatalf("payment_failed should keep Team plan and mark past_due: %+v", state)
+	}
+	if !state.LockedAt.Valid || !state.LockReason.Valid || state.LockReason.BillingLockReason != billingdb.BillingLockReasonPastDue {
+		t.Fatalf("payment_failed should set past_due lock fields: %+v", state)
+	}
+	if !state.GraceUntil.Valid {
+		t.Fatalf("payment_failed should set grace_until: %+v", state)
+	}
+
+	current = stripeTestEvent(t, "evt_invoice_paid", "invoice.payment_succeeded", map[string]any{
+		"id":                   "in_test_lifecycle",
+		"object":               "invoice",
+		"customer":             "cus_test_lifecycle",
+		"status":               "paid",
+		"number":               "INV-FAILED",
+		"currency":             "usd",
+		"amount_due":           int64(400),
+		"amount_paid":          int64(400),
+		"amount_remaining":     int64(0),
+		"period_start":         start.Unix(),
+		"period_end":           start.Add(30 * 24 * time.Hour).Unix(),
+		"status_transitions":   map[string]any{"paid_at": start.Add(time.Hour).Unix()},
+		"subscription_details": map[string]any{},
+	})
+	resp = postBillingWebhook(t, mux, "evt_invoice_paid")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("payment_succeeded webhook status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err = orgbilling.GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState after paid invoice: %v", err)
+	}
+	if state.LockedAt.Valid || state.LockReason.Valid || state.GraceUntil.Valid {
+		t.Fatalf("payment_succeeded should clear billing action lock: %+v", state)
+	}
+
+	current = stripeTestEvent(t, "evt_subscription_deleted", "customer.subscription.deleted", map[string]any{
+		"id":                   "sub_test_lifecycle",
+		"object":               "subscription",
+		"customer":             "cus_test_lifecycle",
+		"status":               "canceled",
+		"cancel_at_period_end": false,
+		"trial_end":            int64(0),
+		"canceled_at":          start.Add(2 * time.Hour).Unix(),
+		"metadata":             map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_test_lifecycle",
+			"current_period_start": start.Unix(),
+			"current_period_end":   start.Add(30 * 24 * time.Hour).Unix(),
+		}}},
+	})
+	resp = postBillingWebhook(t, mux, "evt_subscription_deleted")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("subscription deleted webhook status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err = orgbilling.GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState after cancellation: %v", err)
+	}
+	if state.Plan != orgbilling.PlanFree || state.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
+		t.Fatalf("subscription deletion should downgrade to Free canceled state: %+v", state)
+	}
+	if !state.LockedAt.Valid || !state.LockReason.Valid || state.LockReason.BillingLockReason != billingdb.BillingLockReasonCanceled {
+		t.Fatalf("subscription deletion should set canceled lock fields: %+v", state)
+	}
+}
+
 type fakeStripeRemote struct {
 	createCustomerFn func(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error)
 	createCheckoutFn func(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error)
@@ -198,6 +364,34 @@ func (f *fakeStripeRemote) VerifyWebhook(payload []byte, signatureHeader string)
 		return stripeapi.Event{}, nil
 	}
 	return f.verifyWebhookFn(payload, signatureHeader)
+}
+
+func stripeTestEvent(t *testing.T, id, typ string, raw map[string]any) stripeapi.Event {
+	t.Helper()
+	return stripeapi.Event{
+		ID:         id,
+		Type:       stripeapi.EventType(typ),
+		APIVersion: "2024-06-20",
+		Data:       &stripeapi.EventData{Raw: mustJSONRaw(t, raw)},
+	}
+}
+
+func mustJSONRaw(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal stripe raw object: %v", err)
+	}
+	return raw
+}
+
+func postBillingWebhook(t *testing.T, mux *chi.Mux, eventID string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/stripe/webhook", strings.NewReader(`{"id":"`+eventID+`"}`))
+	req.Header.Set("Stripe-Signature", "sig_test")
+	resp := httptest.NewRecorder()
+	mux.ServeHTTP(resp, req)
+	return resp
 }
 
 func newOrgBillingMux(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote stripebilling.Remote) *chi.Mux {
