@@ -231,13 +231,40 @@
     var openers = document.querySelectorAll("[data-pins-open]");
     var closeButton = modal.querySelector("[data-pins-close]");
     var filter = modal.querySelector("[data-pins-filter]");
+    var list = modal.querySelector("[data-pins-list]");
     var rows = Array.prototype.slice.call(modal.querySelectorAll("[data-pins-row]"));
     var checkboxes = Array.prototype.slice.call(modal.querySelectorAll("[data-pins-checkbox]"));
     var remaining = modal.querySelector("[data-pins-remaining]");
     var submit = modal.querySelector("[data-pins-submit]");
 
+    rows.forEach(function (row, index) {
+      row.setAttribute("data-pins-index", String(index));
+    });
+
     function checkedCount() {
       return checkboxes.filter(function (box) { return box.checked; }).length;
+    }
+
+    function rowCheckbox(row) {
+      return row.querySelector("[data-pins-checkbox]");
+    }
+
+    function rowIndex(row) {
+      return Number(row.getAttribute("data-pins-index") || "0");
+    }
+
+    function arrangeRows(query) {
+      if (!list) return;
+      var ordered = rows.slice();
+      ordered.sort(function (left, right) {
+        if (query === "") {
+          var leftChecked = !!(rowCheckbox(left) && rowCheckbox(left).checked);
+          var rightChecked = !!(rowCheckbox(right) && rowCheckbox(right).checked);
+          if (leftChecked !== rightChecked) return leftChecked ? -1 : 1;
+        }
+        return rowIndex(left) - rowIndex(right);
+      });
+      ordered.forEach(function (row) { list.appendChild(row); });
     }
 
     function refreshPins() {
@@ -256,6 +283,7 @@
     function applyFilter() {
       if (!filter) return;
       var query = filter.value.trim().toLowerCase();
+      arrangeRows(query);
       rows.forEach(function (row) {
         var haystack = (row.getAttribute("data-pins-search") || "").toLowerCase();
         row.hidden = query !== "" && haystack.indexOf(query) === -1;
@@ -287,7 +315,10 @@
     });
     if (filter) filter.addEventListener("input", applyFilter);
     checkboxes.forEach(function (box) {
-      box.addEventListener("change", refreshPins);
+      box.addEventListener("change", function () {
+        refreshPins();
+        applyFilter();
+      });
     });
     refreshPins();
   })();

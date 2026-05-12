@@ -125,7 +125,7 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 		return
 	}
 
-	candidates := h.publicUserPinCandidates(ctx, user.ID, user.Username)
+	candidates := h.publicUserPinCandidates(ctx, user.ID)
 	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates)
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
@@ -156,7 +156,7 @@ func (h *Handlers) orgPinData(ctx context.Context, orgID int64, orgSlug string, 
 }
 
 func (h *Handlers) userPinData(ctx context.Context, user usersdb.User) ([]profilePinCandidate, []profilePinCandidate) {
-	candidates := h.publicUserPinCandidates(ctx, user.ID, user.Username)
+	candidates := h.publicUserPinCandidates(ctx, user.ID)
 	var selectedIDs []int64
 
 	setID, explicit, err := h.lookupUserPinSet(ctx, user.ID)
@@ -210,18 +210,18 @@ func (h *Handlers) savedOrgPins(ctx context.Context, setID int64, repos []orgPro
 	return selectedOrgProfileRepos(repos, h.savedPinIDs(ctx, setID))
 }
 
-func (h *Handlers) publicUserPinCandidates(ctx context.Context, userID int64, ownerSlug string) []profilePinCandidate {
-	rows, err := reposdb.New().ListReposForOwnerUser(ctx, h.d.Pool, pgtype.Int8{Int64: userID, Valid: true})
+func (h *Handlers) publicUserPinCandidates(ctx context.Context, userID int64) []profilePinCandidate {
+	rows, err := reposdb.New().ListProfilePinCandidateReposForUser(ctx, h.d.Pool, pgtype.Int8{Int64: userID, Valid: true})
 	if err != nil {
 		h.d.Logger.WarnContext(ctx, "profile pins: list user repos", "user_id", userID, "error", err)
 		return nil
 	}
 	out := make([]profilePinCandidate, 0, len(rows))
 	for _, row := range rows {
-		if !policy.NewRepoRefFromRepo(row).IsPublic() {
+		if !policy.NewRepoRefFromRepo(row.Repo).IsPublic() {
 			continue
 		}
-		out = append(out, profilePinCandidateFromRepo(ownerSlug, row))
+		out = append(out, profilePinCandidateFromRepo(row.OwnerSlug, row.Repo))
 	}
 	sortPinCandidates(out)
 	return out

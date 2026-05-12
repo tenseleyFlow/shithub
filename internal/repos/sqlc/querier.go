@@ -94,6 +94,7 @@ type Querier interface {
 	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
+	ListProfilePinCandidateReposForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListProfilePinCandidateReposForUserRow, error)
 	ListProfilePinsForSet(ctx context.Context, db DBTX, setID int64) ([]ListProfilePinsForSetRow, error)
 	ListPublicContributionRepos(ctx context.Context, db DBTX, limit int32) ([]ListPublicContributionReposRow, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────

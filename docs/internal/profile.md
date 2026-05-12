@@ -112,9 +112,12 @@ When the viewer's session matches the profile's user (`viewer.ID == user.ID`):
 
 - A small "you" badge renders next to the display name.
 - An "Edit profile" button links to `/settings/profile` (S10).
-- A "Customize pins" modal lists the user's public repositories with a
-  live client-side filter and persists up to six selected repos through
-  `profile_pin_sets` / `profile_pins` (migration 0040).
+- A "Customize pins" modal lists public repositories affiliated with the
+  user: user-owned repositories, repositories owned by organizations the
+  user belongs to, and repositories where the user is an explicit
+  collaborator. The modal has a live client-side filter and persists up
+  to six selected repos through `profile_pin_sets` / `profile_pins`
+  (migration 0040).
 - The "Contribution settings" menu toggles the owner's
   `users.include_private_contributions` preference. The checked state
   mirrors the persisted setting, and the graph is recomputed after the
@@ -123,9 +126,9 @@ When the viewer's session matches the profile's user (`viewer.ID == user.ID`):
 
 Pinned repositories are intentionally public-only. Private repos are
 not offered in the picker and saved pin IDs are revalidated against the
-current public owner repo list before write. A `profile_pin_sets` row
-records that the owner customized the set, so "zero pins" is distinct
-from "never customized."
+current public affiliated repo list before write. A `profile_pin_sets`
+row records that the owner customized the set, so "zero pins" is
+distinct from "never customized."
 
 ## OG metadata
 
