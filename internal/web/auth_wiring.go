@@ -20,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
@@ -67,6 +68,26 @@ func buildAPIHandlers(
 			shithubdPath = abs
 		}
 	}
+	// X25519 sealed-box keypair for the REST `actions/secrets/public-key`
+	// endpoint. Loaded from config when present; auto-generated with a
+	// loud warning otherwise (dev convenience — production deployments
+	// MUST set the env knob so secrets survive process restart).
+	var secretsBox *sealbox.Box
+	if pk := cfg.Actions.Secrets.BoxPrivateKeyB64; pk != "" {
+		b, err := sealbox.FromBase64(pk)
+		if err != nil {
+			return nil, fmt.Errorf("api: actions secrets box: %w", err)
+		}
+		secretsBox = b
+	} else {
+		b, err := sealbox.New()
+		if err != nil {
+			return nil, fmt.Errorf("api: actions secrets box (auto): %w", err)
+		}
+		logger.Warn("actions secrets box: auto-generated keypair; secrets PUT against this process will not be decryptable after restart",
+			"hint", "set SHITHUB_ACTIONS__SECRETS__BOX_PRIVATE_KEY_B64=$(openssl rand -base64 32) for persistence")
+		secretsBox = b
+	}
 	return apih.New(apih.Deps{
 		Pool:         pool,
 		Debouncer:    sharedPATDebouncer,
@@ -75,6 +96,7 @@ func buildAPIHandlers(
 		RepoFS:       rfs,
 		RunnerJWT:    runnerJWT,
 		SecretBox:    secretBox,
+		SecretsBox:   secretsBox,
 		RateLimiter:  rateLimiter,
 		Audit:        audit.NewRecorder(),
 		Throttle:     throttle.NewLimiter(),

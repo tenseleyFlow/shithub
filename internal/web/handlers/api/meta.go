@@ -52,6 +52,8 @@ var APICapabilities = []string{
 	"actions-workflows",
 	"actions-artifacts",
 	"actions-job-logs",
+	"actions-secrets",
+	"actions-variables",
 }
 
 type metaResponse struct {

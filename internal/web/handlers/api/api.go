@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -41,6 +42,12 @@ type Deps struct {
 	RepoFS      *storage.RepoFS
 	RunnerJWT   *runnerjwt.Signer
 	SecretBox   *secretbox.Box
+	// SecretsBox holds the X25519 keypair used by the
+	// `/actions/secrets/public-key` endpoint to encrypt secret values
+	// in transit. Distinct from `SecretBox` (the symmetric at-rest
+	// AEAD key shared with the runner). Nil disables the secrets
+	// REST surface.
+	SecretsBox  *sealbox.Box
 	RateLimiter *ratelimit.Limiter
 	// Audit records security-sensitive mutations (repo create/delete,
 	// settings changes). Required for any handler that mutates server
@@ -194,6 +201,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsWorkflows(r)
 		// S50 §13 — workflow enable/disable + run delete + artifacts + job logs.
 		h.mountActionsLifecycleREST(r)
+		// S50 §13 — actions secrets CRUD (repo + org) + sealed-box public-key.
+		h.mountActionsSecrets(r)
+		// S50 §13 — actions variables CRUD (repo + org).
+		h.mountActionsVariables(r)
 	})
 }
 

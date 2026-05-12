@@ -41,6 +41,7 @@ type Config struct {
 	Notif          NotifConfig          `toml:"notif"`
 	RateLimit      RateLimitConfig      `toml:"ratelimit"`
 	Billing        BillingConfig        `toml:"billing"`
+	Actions        ActionsConfig        `toml:"actions"`
 }
 
 // RateLimitConfig configures runtime rate-limit budgets for surfaces that
@@ -60,6 +61,27 @@ type RateLimitConfig struct {
 type APIRateLimitConfig struct {
 	AuthedPerHour int `toml:"authed_per_hour"`
 	AnonPerHour   int `toml:"anon_per_hour"`
+}
+
+// ActionsConfig groups configuration for the Actions subsystem. Today
+// it carries only the sealed-box keypair used by the REST secrets
+// surface; secrets storage encryption (at-rest) is handled by the
+// shared `auth.totp_key_b64` AEAD key.
+type ActionsConfig struct {
+	Secrets ActionsSecretsConfig `toml:"secrets"`
+}
+
+// ActionsSecretsConfig configures the NaCl sealed-box keypair the
+// REST `actions/secrets/public-key` endpoint serves. Clients encrypt
+// secret values against this public key; the server decrypts on PUT
+// before re-encrypting with the storage AEAD.
+//
+// BoxPrivateKeyB64 is base64 of a 32-byte X25519 private key. When
+// empty the server auto-generates a per-process keypair on startup
+// and logs a warning — secrets PUT against one process won't be
+// decryptable by another, so production deployments MUST set it.
+type ActionsSecretsConfig struct {
+	BoxPrivateKeyB64 string `toml:"box_private_key_b64"`
 }
 
 // NotifConfig configures the S29 notification surface. UnsubscribeKeyB64
