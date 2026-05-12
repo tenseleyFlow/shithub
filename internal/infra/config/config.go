@@ -38,6 +38,26 @@ type Config struct {
 	Storage        StorageConfig        `toml:"storage"`
 	Auth           AuthConfig           `toml:"auth"`
 	Notif          NotifConfig          `toml:"notif"`
+	RateLimit      RateLimitConfig      `toml:"ratelimit"`
+}
+
+// RateLimitConfig configures runtime rate-limit budgets for surfaces that
+// don't carry a domain-specific limiter. The /api/v1/ JSON surface uses
+// the API.* sub-block; future surfaces (search, git transports) get their
+// own sub-blocks here as they're factored out of their handlers.
+type RateLimitConfig struct {
+	API APIRateLimitConfig `toml:"api"`
+}
+
+// APIRateLimitConfig sets the per-hour budgets for /api/v1/* requests.
+// AuthedPerHour applies when the caller presents a valid PAT (keyed by
+// token id). AnonPerHour applies to unauthenticated callers (keyed by
+// remote IP). Defaults are GitHub-aligned: 5000/h authed, 60/h anon —
+// operators tune via SHITHUB_RATELIMIT__API__AUTHED_PER_HOUR /
+// SHITHUB_RATELIMIT__API__ANON_PER_HOUR.
+type APIRateLimitConfig struct {
+	AuthedPerHour int `toml:"authed_per_hour"`
+	AnonPerHour   int `toml:"anon_per_hour"`
 }
 
 // NotifConfig configures the S29 notification surface. UnsubscribeKeyB64
@@ -205,6 +225,12 @@ func Defaults() Config {
 				ForcePathStyle: true,
 			},
 		},
+		RateLimit: RateLimitConfig{
+			API: APIRateLimitConfig{
+				AuthedPerHour: 5000,
+				AnonPerHour:   60,
+			},
+		},
 		Auth: AuthConfig{
 			RequireEmailVerification: true,
 			BaseURL:                  "http://127.0.0.1:8080",
@@ -320,6 +346,18 @@ func Validate(c *Config) error {
 	}
 	if c.Auth.EmailFrom == "" {
 		return errors.New("config: auth.email_from is required")
+	}
+	if c.RateLimit.API.AuthedPerHour < 0 {
+		return fmt.Errorf("config: ratelimit.api.authed_per_hour: must be >= 0, got %d", c.RateLimit.API.AuthedPerHour)
+	}
+	if c.RateLimit.API.AnonPerHour < 0 {
+		return fmt.Errorf("config: ratelimit.api.anon_per_hour: must be >= 0, got %d", c.RateLimit.API.AnonPerHour)
+	}
+	if c.RateLimit.API.AuthedPerHour == 0 {
+		c.RateLimit.API.AuthedPerHour = 5000
+	}
+	if c.RateLimit.API.AnonPerHour == 0 {
+		c.RateLimit.API.AnonPerHour = 60
 	}
 	return nil
 }

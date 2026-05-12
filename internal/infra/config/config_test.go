@@ -108,3 +108,62 @@ func TestMergeFlags_OverridesEnv(t *testing.T) {
 		t.Errorf("Web.Addr: got %q, want :7777", cfg.Web.Addr)
 	}
 }
+
+func TestDefaults_RateLimitAPI(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if cfg.RateLimit.API.AuthedPerHour != 5000 {
+		t.Errorf("RateLimit.API.AuthedPerHour: got %d, want 5000", cfg.RateLimit.API.AuthedPerHour)
+	}
+	if cfg.RateLimit.API.AnonPerHour != 60 {
+		t.Errorf("RateLimit.API.AnonPerHour: got %d, want 60", cfg.RateLimit.API.AnonPerHour)
+	}
+}
+
+func TestValidate_RejectsNegativeRateLimit(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.RateLimit.API.AuthedPerHour = -1
+	if err := Validate(&cfg); err == nil {
+		t.Errorf("expected validation error for ratelimit.api.authed_per_hour=-1")
+	}
+	cfg = Defaults()
+	cfg.RateLimit.API.AnonPerHour = -5
+	if err := Validate(&cfg); err == nil {
+		t.Errorf("expected validation error for ratelimit.api.anon_per_hour=-5")
+	}
+}
+
+func TestValidate_RateLimitZeroFillsDefault(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.RateLimit.API.AuthedPerHour = 0
+	cfg.RateLimit.API.AnonPerHour = 0
+	if err := Validate(&cfg); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if cfg.RateLimit.API.AuthedPerHour != 5000 {
+		t.Errorf("zero-fill authed: got %d, want 5000", cfg.RateLimit.API.AuthedPerHour)
+	}
+	if cfg.RateLimit.API.AnonPerHour != 60 {
+		t.Errorf("zero-fill anon: got %d, want 60", cfg.RateLimit.API.AnonPerHour)
+	}
+}
+
+func TestMergeEnv_RateLimitAPI(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	env := []string{
+		"SHITHUB_RATELIMIT__API__AUTHED_PER_HOUR=10000",
+		"SHITHUB_RATELIMIT__API__ANON_PER_HOUR=120",
+	}
+	if err := mergeEnv(&cfg, env); err != nil {
+		t.Fatalf("mergeEnv: %v", err)
+	}
+	if cfg.RateLimit.API.AuthedPerHour != 10000 {
+		t.Errorf("AuthedPerHour: got %d, want 10000", cfg.RateLimit.API.AuthedPerHour)
+	}
+	if cfg.RateLimit.API.AnonPerHour != 120 {
+		t.Errorf("AnonPerHour: got %d, want 120", cfg.RateLimit.API.AnonPerHour)
+	}
+}
