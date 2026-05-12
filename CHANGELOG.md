@@ -276,6 +276,21 @@ between minor releases.
   preserved verbatim. Paginated with the standard `Link:` headers,
   sorted oldest-first. Scope: `repo:read`.
 - **Capability:** `issue-events` added to `/api/v1/meta`.
+- **Device-code login (S50 §1, RFC 8628).**
+  `POST /login/device/code` issues a fresh authorization grant for
+  a non-browser client (CLI / TV / IoT). `POST /login/oauth/access_token`
+  polls for the user's approval and, on success, mints a PAT bound
+  to the requested scopes. The browser-facing verification page is
+  served at `GET /login/device` (CSRF-protected). The matching CLI
+  endpoints are CSRF-exempt. `client_id` is enforced against an
+  allowlist (default: `shithub-cli`); requested scopes go through
+  the standard `pat.ValidScope` filter so unknown scopes fail
+  cleanly with `invalid_scope`. The minted PAT is disclosed exactly
+  once — subsequent exchanges of the same `device_code` return
+  `invalid_grant` even after successful approval. RFC 8628 §3.5
+  error semantics (`authorization_pending`, `slow_down`,
+  `access_denied`, `expired_token`) are honored.
+- **Capability:** `device-code` added to `/api/v1/meta`.
 
 ### Added (internal)
 

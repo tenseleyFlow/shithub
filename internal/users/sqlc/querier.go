@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// Records the user's approval and links the freshly minted PAT.
+	// Idempotency is preserved by the caller — the orchestrator only
+	// calls this once per row.
+	ApproveDeviceAuthorization(ctx context.Context, db DBTX, arg ApproveDeviceAuthorizationParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Increments the hit counter for (scope, identifier). When the existing
 	// window is older than the supplied window-start cutoff, resets to 1 and
@@ -47,6 +51,9 @@ type Querier interface {
 	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
+	// Janitor invocation: a small forensics window past expiry is fine,
+	// but eventually drop the row so the user_code index stays small.
+	DeleteExpiredDeviceAuthorizations(ctx context.Context, db DBTX) error
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
 	DeleteExpiredPasswordResets(ctx context.Context, db DBTX) error
 	// Scoped delete: caller must pass owning user_id. Refuses to delete
@@ -58,6 +65,14 @@ type Querier interface {
 	// handler can never delete keys it doesn't own.
 	DeleteUserSSHKey(ctx context.Context, db DBTX, arg DeleteUserSSHKeyParams) (int64, error)
 	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
+	DenyDeviceAuthorization(ctx context.Context, db DBTX, id int64) error
+	// Hot path for the polling /access_token endpoint. The middleware
+	// enforces interval_seconds via last_polled_at downstream.
+	GetDeviceAuthorizationByCodeHash(ctx context.Context, db DBTX, deviceCodeHash []byte) (DeviceAuthorization, error)
+	// Lookup path for the verification page. Returns even non-pending rows
+	// so the handler can render a clean "already approved" / "expired" page
+	// instead of a generic 404.
+	GetDeviceAuthorizationByUserCode(ctx context.Context, db DBTX, userCode string) (DeviceAuthorization, error)
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
 	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
@@ -82,6 +97,8 @@ type Querier interface {
 	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertDeviceAuthorization(ctx context.Context, db DBTX, arg InsertDeviceAuthorizationParams) (DeviceAuthorization, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -133,6 +150,7 @@ type Querier interface {
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
+	TouchDeviceAuthorizationPoll(ctx context.Context, db DBTX, id int64) error
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error

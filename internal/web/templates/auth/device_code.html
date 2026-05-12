@@ -1,0 +1,47 @@
+{{ define "page" -}}
+<section class="shithub-auth">
+  <h1>Authorize device</h1>
+  {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+  {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+  {{ if .Terminal }}
+    <p>You can close this window and return to your device.</p>
+    <p class="shithub-auth-aside"><a href="/">Back to shithub</a></p>
+  {{ else if .Approval }}
+    <p>
+      A device using <code>{{ .ClientID }}</code> is asking for access to your shithub
+      account.
+    </p>
+    {{ if .Scopes }}
+    <p>Requested scopes:</p>
+    <ul>
+      {{ range .Scopes }}<li><code>{{ . }}</code></li>{{ end }}
+    </ul>
+    {{ else }}
+    <p>This device is asking for read access only.</p>
+    {{ end }}
+    <p>
+      User code: <code>{{ .UserCode }}</code>
+    </p>
+    <form method="POST" action="/login/device" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <input type="hidden" name="user_code" value="{{ .UserCode }}">
+      <button type="submit" name="action" value="approve"
+              class="shithub-button shithub-button-primary">Authorize</button>
+      <button type="submit" name="action" value="deny"
+              class="shithub-button">Deny</button>
+    </form>
+  {{ else }}
+    <p>Enter the code shown on your device.</p>
+    <form method="GET" action="/login/device" novalidate>
+      <label>
+        <span>User code</span>
+        <input type="text" name="user_code" required autofocus
+               autocomplete="off" inputmode="text"
+               pattern="[A-Za-z0-9-]+"
+               value="{{ .UserCode }}">
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Continue</button>
+    </form>
+  {{ end }}
+</section>
+{{- end }}

@@ -168,6 +168,7 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("auth handlers: %w", err)
 		}
 		deps.AuthMounter = auth.Mount
+		deps.DeviceCodeAPIMounter = auth.MountDeviceCodeAPI
 
 		var (
 			runnerJWT  *runnerjwt.Signer
