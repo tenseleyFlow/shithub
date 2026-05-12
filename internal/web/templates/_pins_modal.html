@@ -17,11 +17,11 @@
       <div class="shithub-pins-list" data-pins-list>
         {{ if .PinCandidates }}
           {{ range .PinCandidates }}
-          <label class="shithub-pins-row" data-pins-row data-pins-search="{{ .Name }} {{ .Description }} {{ .PrimaryLanguage }}">
+          <label class="shithub-pins-row" data-pins-row data-pins-search="{{ .OwnerSlug }} {{ .Name }} {{ .Description }} {{ .PrimaryLanguage }}">
             <input type="checkbox" name="repo_id" value="{{ .ID }}" data-pins-checkbox{{ if .IsPinned }} checked{{ end }}>
             <span class="shithub-pins-row-icon">{{ octicon "repo" }}</span>
             <span class="shithub-pins-row-main">
-              <span class="shithub-pins-row-name">{{ .Name }}</span>
+              <span class="shithub-pins-row-name">{{ .OwnerSlug }}/{{ .Name }}</span>
               {{ if .Description }}<span class="shithub-pins-row-desc">{{ .Description }}</span>{{ end }}
             </span>
             <span class="shithub-pins-row-stars">{{ .StarCount }} {{ octicon "star" }}</span>

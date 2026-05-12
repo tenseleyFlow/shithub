@@ -134,6 +134,34 @@ FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
 
+-- name: ListProfilePinCandidateReposForUser :many
+SELECT sqlc.embed(r), COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
+FROM repos r
+LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+  AND r.visibility = 'public'
+  AND (
+    (r.owner_user_id IS NOT NULL AND owner_user.deleted_at IS NULL AND owner_user.suspended_at IS NULL)
+    OR (r.owner_org_id IS NOT NULL AND owner_org.deleted_at IS NULL)
+  )
+  AND (
+    r.owner_user_id = $1
+    OR EXISTS (
+      SELECT 1
+      FROM org_members m
+      WHERE m.org_id = r.owner_org_id
+        AND m.user_id = $1
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM repo_collaborators c
+      WHERE c.repo_id = r.id
+        AND c.user_id = $1
+    )
+  )
+ORDER BY lower(COALESCE(owner_user.username::text, owner_org.slug::text, '')), lower(r.name::text), r.id;
+
 -- name: ListPublicContributionRepos :many
 SELECT sqlc.embed(r), COALESCE(u.username, o.slug)::text AS owner_slug
 FROM repos r

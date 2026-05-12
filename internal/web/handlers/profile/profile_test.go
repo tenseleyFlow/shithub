@@ -61,7 +61,7 @@ func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repo
 	tmplFS := fstest.MapFS{
 		"_layout.html":             {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":               {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
+		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} CANDIDATENAMES={{range .PinCandidates}}{{.OwnerSlug}}/{{.Name}};{{end}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
 		"profile/follows_tab.html": {Data: []byte(`{{ define "page" }}FOLLOWTAB={{.ActiveTab}} USER={{.User.Username}} TOTAL={{len .Items}} ITEMS={{range .Items}}{{.Kind}}:{{.Username}};{{end}}{{ end }}`)},
 		"profile/suspended.html":   {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":        {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowerCount}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
@@ -208,6 +208,15 @@ func (e *profileEnv) insertUserRepo(t *testing.T, userID int64, name, desc, visi
 		t.Fatalf("insert user repo: %v", err)
 	}
 	return repoID
+}
+
+func (e *profileEnv) insertRepoCollaborator(t *testing.T, repoID, userID int64, role string) {
+	t.Helper()
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO repo_collaborators (repo_id, user_id, role) VALUES ($1, $2, $3)`,
+		repoID, userID, role); err != nil {
+		t.Fatalf("insert repo collaborator: %v", err)
+	}
 }
 
 func (e *profileEnv) writeInitialCommit(t *testing.T, owner, repoName, authorName, authorEmail string, when time.Time) string {
@@ -784,6 +793,58 @@ func TestProfile_UserPinsCanBeCustomized(t *testing.T) {
 	}
 	if strings.Contains(got, "CUSTOMIZE=1") {
 		t.Fatalf("anonymous viewer saw customize affordance: %s", got)
+	}
+}
+
+func TestProfile_UserPinsIncludeAffiliatedOrgAndCollaboratorRepos(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+	bob := env.insertUser(t, "bob", "Bob", "")
+	env.insertUserRepo(t, alice.ID, "owned", "user-owned work", "public", "Go", 0, 0)
+	orgID := env.insertOrg(t, "tenseleyflow", "tenseleyFlow", "workflows", alice)
+	orgToolID := env.insertOrgRepo(t, orgID, "org-tool", "org-owned work", "public", "Go", 2, 0)
+	env.insertOrgRepo(t, orgID, "secret-org-tool", "hidden org work", "private", "Rust", 0, 0)
+	otherOrgID := env.insertOrg(t, "strangers", "Strangers", "", bob)
+	strangerRepoID := env.insertOrgRepo(t, otherOrgID, "stranger-tool", "unaffiliated public repo", "public", "Go", 0, 0)
+	collabID := env.insertUserRepo(t, bob.ID, "collab-tool", "collaborator work", "public", "Python", 1, 0)
+	env.insertRepoCollaborator(t, collabID, alice.ID, "write")
+
+	got := env.getAs(t, "/alice", alice)
+	for _, want := range []string{
+		"CANDIDATES=3",
+		"alice/owned;",
+		"bob/collab-tool;",
+		"tenseleyflow/org-tool;",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+	for _, notWant := range []string{"secret-org-tool", "strangers/stranger-tool"} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("unavailable repo %q was offered as a pin candidate: %s", notWant, got)
+		}
+	}
+
+	resp := env.postPins(t, "/alice/pins", alice, orgToolID, collabID)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/alice#pinned" {
+		t.Fatalf("Location = %q", loc)
+	}
+
+	got = env.getAs(t, "/alice", alice)
+	for _, want := range []string{"PINS=2", "PINNAMES=org-tool;collab-tool;", "SELECTED=org-tool;collab-tool;"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in body: %s", want, got)
+		}
+	}
+
+	resp = env.postPins(t, "/alice/pins", alice, strangerRepoID)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unaffiliated repo status %d, want 400", resp.StatusCode)
 	}
 }
 

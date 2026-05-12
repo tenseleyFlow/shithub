@@ -732,6 +732,90 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 	return items, nil
 }
 
+const listProfilePinCandidateReposForUser = `-- name: ListProfilePinCandidateReposForUser :many
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
+FROM repos r
+LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+  AND r.visibility = 'public'
+  AND (
+    (r.owner_user_id IS NOT NULL AND owner_user.deleted_at IS NULL AND owner_user.suspended_at IS NULL)
+    OR (r.owner_org_id IS NOT NULL AND owner_org.deleted_at IS NULL)
+  )
+  AND (
+    r.owner_user_id = $1
+    OR EXISTS (
+      SELECT 1
+      FROM org_members m
+      WHERE m.org_id = r.owner_org_id
+        AND m.user_id = $1
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM repo_collaborators c
+      WHERE c.repo_id = r.id
+        AND c.user_id = $1
+    )
+  )
+ORDER BY lower(COALESCE(owner_user.username::text, owner_org.slug::text, '')), lower(r.name::text), r.id
+`
+
+type ListProfilePinCandidateReposForUserRow struct {
+	Repo      Repo
+	OwnerSlug string
+}
+
+func (q *Queries) ListProfilePinCandidateReposForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListProfilePinCandidateReposForUserRow, error) {
+	rows, err := db.Query(ctx, listProfilePinCandidateReposForUser, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProfilePinCandidateReposForUserRow{}
+	for rows.Next() {
+		var i ListProfilePinCandidateReposForUserRow
+		if err := rows.Scan(
+			&i.Repo.ID,
+			&i.Repo.OwnerUserID,
+			&i.Repo.OwnerOrgID,
+			&i.Repo.Name,
+			&i.Repo.Description,
+			&i.Repo.Visibility,
+			&i.Repo.DefaultBranch,
+			&i.Repo.IsArchived,
+			&i.Repo.ArchivedAt,
+			&i.Repo.DeletedAt,
+			&i.Repo.DiskUsedBytes,
+			&i.Repo.ForkOfRepoID,
+			&i.Repo.LicenseKey,
+			&i.Repo.PrimaryLanguage,
+			&i.Repo.HasIssues,
+			&i.Repo.HasPulls,
+			&i.Repo.CreatedAt,
+			&i.Repo.UpdatedAt,
+			&i.Repo.DefaultBranchOid,
+			&i.Repo.AllowSquashMerge,
+			&i.Repo.AllowRebaseMerge,
+			&i.Repo.AllowMergeCommit,
+			&i.Repo.DefaultMergeMethod,
+			&i.Repo.StarCount,
+			&i.Repo.WatcherCount,
+			&i.Repo.ForkCount,
+			&i.Repo.InitStatus,
+			&i.Repo.LastIndexedOid,
+			&i.OwnerSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProfilePinsForSet = `-- name: ListProfilePinsForSet :many
 SELECT repo_id, position
 FROM profile_pins
