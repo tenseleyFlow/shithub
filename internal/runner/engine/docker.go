@@ -71,6 +71,7 @@ type DockerConfig struct {
 	LogChunkBytes    int
 	LogFlushInterval time.Duration
 	StepLogLimit     int64
+	TimeoutMinute    time.Duration
 	Stdout           io.Writer
 	Stderr           io.Writer
 	Runner           CommandRunner
@@ -99,6 +100,9 @@ func NewDocker(cfg DockerConfig) *Docker {
 	}
 	if cfg.StepLogLimit <= 0 {
 		cfg.StepLogLimit = 10 * 1024 * 1024
+	}
+	if cfg.TimeoutMinute <= 0 {
+		cfg.TimeoutMinute = time.Minute
 	}
 	if cfg.Stdout == nil {
 		cfg.Stdout = io.Discard
@@ -136,7 +140,7 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 	defer d.closeEventStream(job.ID)
 	if job.TimeoutMinutes > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(job.TimeoutMinutes)*time.Minute)
+		ctx, cancel = context.WithTimeoutCause(ctx, time.Duration(job.TimeoutMinutes)*d.cfg.TimeoutMinute, ErrJobTimedOut)
 		defer cancel()
 	}
 	if err := os.MkdirAll(job.WorkspaceDir, 0o700); err != nil {
@@ -156,12 +160,12 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 				CompletedAt: stepCompleted,
 			}
 			outcome.StepOutcomes = append(outcome.StepOutcomes, stepOutcome)
-			if emitErr := d.emitStepOutcome(ctx, job.ID, stepOutcome); emitErr != nil {
+			if emitErr := d.emitStepOutcomeAfterRun(ctx, job.ID, stepOutcome); emitErr != nil {
 				outcome.Conclusion = conclusionForError(emitErr)
 				outcome.CompletedAt = time.Now().UTC()
 				return outcome, emitErr
 			}
-			if step.ContinueOnError {
+			if step.ContinueOnError && !errors.Is(err, ErrJobTimedOut) {
 				continue
 			}
 			outcome.Conclusion = conclusionForError(err)
@@ -176,7 +180,7 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 			CompletedAt: time.Now().UTC(),
 		}
 		outcome.StepOutcomes = append(outcome.StepOutcomes, stepOutcome)
-		if err := d.emitStepOutcome(ctx, job.ID, stepOutcome); err != nil {
+		if err := d.emitStepOutcomeAfterRun(ctx, job.ID, stepOutcome); err != nil {
 			outcome.Conclusion = conclusionForError(err)
 			outcome.CompletedAt = time.Now().UTC()
 			return outcome, err
@@ -204,6 +208,15 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	out := io.MultiWriter(d.cfg.Stdout, writer)
 	errOut := io.MultiWriter(d.cfg.Stderr, writer)
 	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, invocation.args, invocation.env, out, errOut); err != nil {
+		if isJobTimeout(ctx, err) {
+			killCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			killErr := d.killContainer(killCtx, invocation.containerName)
+			cancel()
+			if killErr != nil {
+				err = errors.Join(err, killErr)
+			}
+			err = fmt.Errorf("%w: %w", ErrJobTimedOut, err)
+		}
 		d.logStep(ctx, "runner step completed", job, step, invocation, conclusionForError(err))
 		if closeErr := writer.Close(); closeErr != nil {
 			return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), errors.Join(err, closeErr))
@@ -376,7 +389,11 @@ func (d *Docker) Cancel(ctx context.Context, jobID int64) error {
 	}
 	killCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := d.cfg.Runner.Run(killCtx, d.cfg.Binary, []string{"kill", name}, nil, d.cfg.Stdout, d.cfg.Stderr); err != nil {
+	return d.killContainer(killCtx, name)
+}
+
+func (d *Docker) killContainer(ctx context.Context, name string) error {
+	if err := d.cfg.Runner.Run(ctx, d.cfg.Binary, []string{"kill", name}, nil, d.cfg.Stdout, d.cfg.Stderr); err != nil {
 		return fmt.Errorf("runner engine: kill container %s: %w", name, err)
 	}
 	return nil
@@ -475,6 +492,15 @@ func (d *Docker) emitStepOutcome(ctx context.Context, jobID int64, step StepOutc
 	case ch <- Event{Step: &copied}:
 		return nil
 	}
+}
+
+func (d *Docker) emitStepOutcomeAfterRun(ctx context.Context, jobID int64, step StepOutcome) error {
+	if ctx.Err() == nil {
+		return d.emitStepOutcome(ctx, jobID, step)
+	}
+	emitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return d.emitStepOutcome(emitCtx, jobID, step)
 }
 
 func (d *Docker) newStepLogWriter(ctx context.Context, jobID, stepID int64, jobMasks []string) *stepLogWriter {
@@ -634,13 +660,23 @@ func (w *stepLogWriter) emitChunkLocked(chunk []byte) error {
 }
 
 func conclusionForError(err error) string {
+	if errors.Is(err, ErrJobTimedOut) {
+		return ConclusionTimedOut
+	}
 	if errors.Is(err, context.Canceled) {
 		return ConclusionCancelled
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return ConclusionTimedOut
-	}
 	return ConclusionFailure
+}
+
+func isJobTimeout(ctx context.Context, err error) bool {
+	if errors.Is(err, ErrJobTimedOut) {
+		return true
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return errors.Is(context.Cause(ctx), ErrJobTimedOut)
 }
 
 func containerWorkdir(wd string) (string, error) {

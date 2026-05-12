@@ -382,6 +382,24 @@ Other admin surfaces are scoped to later sub-sprints:
   `shithubd-cron.service`. Operators can run it manually with
   `shithubd admin run-job workflow:cleanup`.
 
+## Runner timeouts (S41g)
+
+`jobs.<key>.timeout-minutes` is enforced by `shithubd-runner` as a
+whole-job deadline. The parser stores the value in
+`workflow_jobs.timeout_minutes` with the GitHub-compatible default of
+360 minutes and a 1..4320 cap.
+
+When the deadline expires, the Docker engine explicitly kills the
+active step container, emits a terminal step update with
+`status=completed` and `conclusion=timed_out`, and the runner reports
+the job itself as `completed/timed_out`. The server rolls the parent
+workflow run up to `timed_out` when all jobs are terminal. A timed-out
+step is not masked by `continue-on-error`; the job deadline always wins.
+
+The runner API increments `shithub_actions_step_timeouts_total` the
+first time a step reaches `conclusion=timed_out`. Duplicate terminal
+step-status retries do not increment the counter again.
+
 ## Retention cleanup (S41g)
 
 `workflow:cleanup` applies the durable Actions retention contract in

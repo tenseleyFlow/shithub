@@ -170,6 +170,12 @@ var (
 		},
 		[]string{"kind"},
 	)
+	ActionsStepTimeoutsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_step_timeouts_total",
+			Help: "Total Actions steps reported as timed out by runners.",
+		},
+	)
 )
 
 func init() {
@@ -193,6 +199,7 @@ func init() {
 		ActionsJobsCancelledTotal,
 		ActionsLogScrubReplacementsTotal,
 		ActionsRunsPrunedTotal,
+		ActionsStepTimeoutsTotal,
 	)
 }
 

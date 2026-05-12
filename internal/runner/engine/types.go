@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -15,6 +16,10 @@ const (
 	ConclusionCancelled = "cancelled"
 	ConclusionTimedOut  = "timed_out"
 )
+
+// ErrJobTimedOut marks an execution failure caused by the workflow job's
+// timeout-minutes deadline, not by runner shutdown or user cancellation.
+var ErrJobTimedOut = errors.New("runner engine: job timed out")
 
 type Engine interface {
 	Execute(ctx context.Context, job Job) (Outcome, error)

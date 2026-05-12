@@ -459,6 +459,7 @@ func (h *Handlers) runnerStepStatus(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "step status update failed")
 		return
 	}
+	recordStepTimeout(step, updated)
 	h.writeNextTokenResponse(w, r, http.StatusOK, auth, map[string]any{
 		"status":     string(updated.Status),
 		"conclusion": nullableConclusion(updated.Conclusion),
@@ -620,6 +621,16 @@ func validWorkflowStepTransition(from, to actionsdb.WorkflowStepStatus) bool {
 	default:
 		return false
 	}
+}
+
+func recordStepTimeout(before, after actionsdb.WorkflowStep) {
+	if !after.Conclusion.Valid || after.Conclusion.CheckConclusion != actionsdb.CheckConclusionTimedOut {
+		return
+	}
+	if before.Conclusion.Valid && before.Conclusion.CheckConclusion == actionsdb.CheckConclusionTimedOut {
+		return
+	}
+	metrics.ActionsStepTimeoutsTotal.Inc()
 }
 
 func (h *Handlers) applyStepStatus(

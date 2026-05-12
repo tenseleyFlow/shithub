@@ -131,6 +131,12 @@ Completed jobs require a valid check conclusion. The handler updates
 `workflow_jobs`, rolls up `workflow_runs`, and best-effort updates the
 matching `check_runs` row created by the trigger pipeline.
 
+`timeout-minutes` is enforced by `shithubd-runner` as a whole-job
+deadline. When it expires, the runner kills the active container,
+reports the current step as `completed/timed_out`, and reports the job
+as `completed/timed_out`. The server treats that conclusion as terminal
+failure for the workflow run rollup.
+
 When a runner reports `status:"cancelled"`, any still-open steps in the
 job are marked cancelled too. This keeps a killed job from leaving queued
 step rows that the UI would otherwise treat as live.
@@ -209,3 +215,4 @@ runner posts terminal job status `cancelled`.
 - `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
 - `shithub_actions_runs_pruned_total{kind="chunks|blobs|runs|jwt_used"}`
+- `shithub_actions_step_timeouts_total`
