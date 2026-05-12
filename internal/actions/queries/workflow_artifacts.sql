@@ -16,6 +16,14 @@ SELECT id, run_id, name, object_key, byte_count, expires_at, created_at
 FROM workflow_artifacts
 WHERE id = $1;
 
--- name: DeleteExpiredArtifacts :many
-DELETE FROM workflow_artifacts WHERE expires_at < now()
-RETURNING id, object_key;
+-- name: ListExpiredWorkflowArtifactsForCleanup :many
+SELECT id, object_key
+FROM workflow_artifacts
+WHERE expires_at < $1
+  AND object_key LIKE 'actions/runs/%'
+ORDER BY expires_at ASC, id ASC
+LIMIT $2;
+
+-- name: DeleteWorkflowArtifactsByIDs :execrows
+DELETE FROM workflow_artifacts
+WHERE id = ANY($1::bigint[]);

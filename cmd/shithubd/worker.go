@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/cleanup"
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
@@ -184,6 +185,9 @@ var workerCmd = &cobra.Command{
 		} else {
 			logger.Info("actions: object storage not configured; workflow step log finalization disabled")
 		}
+		p.Register(cleanup.KindWorkflowCleanup, cleanup.Handler(cleanup.Deps{
+			Pool: pool, ObjectStore: objectStore, Logger: logger,
+		}))
 
 		return p.Run(ctx)
 	},

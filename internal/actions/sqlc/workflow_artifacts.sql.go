@@ -11,34 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteExpiredArtifacts = `-- name: DeleteExpiredArtifacts :many
-DELETE FROM workflow_artifacts WHERE expires_at < now()
-RETURNING id, object_key
+const deleteWorkflowArtifactsByIDs = `-- name: DeleteWorkflowArtifactsByIDs :execrows
+DELETE FROM workflow_artifacts
+WHERE id = ANY($1::bigint[])
 `
 
-type DeleteExpiredArtifactsRow struct {
-	ID        int64
-	ObjectKey string
-}
-
-func (q *Queries) DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error) {
-	rows, err := db.Query(ctx, deleteExpiredArtifacts)
+func (q *Queries) DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error) {
+	result, err := db.Exec(ctx, deleteWorkflowArtifactsByIDs, dollar_1)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	items := []DeleteExpiredArtifactsRow{}
-	for rows.Next() {
-		var i DeleteExpiredArtifactsRow
-		if err := rows.Scan(&i.ID, &i.ObjectKey); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected(), nil
 }
 
 const getArtifactByID = `-- name: GetArtifactByID :one
@@ -132,6 +115,45 @@ func (q *Queries) ListArtifactsForRun(ctx context.Context, db DBTX, runID int64)
 			&i.ExpiresAt,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpiredWorkflowArtifactsForCleanup = `-- name: ListExpiredWorkflowArtifactsForCleanup :many
+SELECT id, object_key
+FROM workflow_artifacts
+WHERE expires_at < $1
+  AND object_key LIKE 'actions/runs/%'
+ORDER BY expires_at ASC, id ASC
+LIMIT $2
+`
+
+type ListExpiredWorkflowArtifactsForCleanupParams struct {
+	ExpiresAt pgtype.Timestamptz
+	Limit     int32
+}
+
+type ListExpiredWorkflowArtifactsForCleanupRow struct {
+	ID        int64
+	ObjectKey string
+}
+
+func (q *Queries) ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error) {
+	rows, err := db.Query(ctx, listExpiredWorkflowArtifactsForCleanup, arg.ExpiresAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredWorkflowArtifactsForCleanupRow{}
+	for rows.Next() {
+		var i ListExpiredWorkflowArtifactsForCleanupRow
+		if err := rows.Scan(&i.ID, &i.ObjectKey); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

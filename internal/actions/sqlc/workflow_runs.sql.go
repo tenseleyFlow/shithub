@@ -101,6 +101,22 @@ func (q *Queries) CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg Cou
 	return column_1, err
 }
 
+const deleteOldWorkflowRunsForCleanup = `-- name: DeleteOldWorkflowRunsForCleanup :execrows
+DELETE FROM workflow_runs
+WHERE pinned = false
+  AND status IN ('completed', 'cancelled')
+  AND completed_at IS NOT NULL
+  AND completed_at < $1
+`
+
+func (q *Queries) DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error) {
+	result, err := db.Exec(ctx, deleteOldWorkflowRunsForCleanup, completedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const enqueueWorkflowRun = `-- name: EnqueueWorkflowRun :one
 INSERT INTO workflow_runs (
     repo_id, run_index, workflow_file, workflow_name,

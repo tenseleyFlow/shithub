@@ -11,13 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteExpiredRunnerJWTUses = `-- name: DeleteExpiredRunnerJWTUses :exec
-DELETE FROM runner_jwt_used WHERE expires_at < now()
+const deleteOldRunnerJWTUsesForCleanup = `-- name: DeleteOldRunnerJWTUsesForCleanup :execrows
+DELETE FROM runner_jwt_used WHERE expires_at < $1
 `
 
-func (q *Queries) DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error {
-	_, err := db.Exec(ctx, deleteExpiredRunnerJWTUses)
-	return err
+func (q *Queries) DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error) {
+	result, err := db.Exec(ctx, deleteOldRunnerJWTUsesForCleanup, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markRunnerJWTUsed = `-- name: MarkRunnerJWTUsed :one

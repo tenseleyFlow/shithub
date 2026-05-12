@@ -45,6 +45,23 @@ func (q *Queries) AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendSte
 	return i, err
 }
 
+const deleteStaleStepLogChunksForCleanup = `-- name: DeleteStaleStepLogChunksForCleanup :execrows
+DELETE FROM workflow_step_log_chunks c
+USING workflow_steps s
+WHERE c.step_id = s.id
+  AND s.status IN ('completed', 'cancelled', 'skipped')
+  AND s.completed_at IS NOT NULL
+  AND s.completed_at < $1
+`
+
+func (q *Queries) DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error) {
+	result, err := db.Exec(ctx, deleteStaleStepLogChunksForCleanup, completedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteStepLogChunks = `-- name: DeleteStepLogChunks :exec
 DELETE FROM workflow_step_log_chunks WHERE step_id = $1
 `

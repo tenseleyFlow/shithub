@@ -163,6 +163,13 @@ var (
 		},
 		[]string{"location"},
 	)
+	ActionsRunsPrunedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runs_pruned_total",
+			Help: "Total Actions retention deletions by kind (chunks, blobs, runs, jwt_used).",
+		},
+		[]string{"kind"},
+	)
 )
 
 func init() {
@@ -185,6 +192,7 @@ func init() {
 		ActionsRunnerJWTTotal,
 		ActionsJobsCancelledTotal,
 		ActionsLogScrubReplacementsTotal,
+		ActionsRunsPrunedTotal,
 	)
 }
 
