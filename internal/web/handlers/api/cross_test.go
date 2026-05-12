@@ -19,8 +19,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
-	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	"github.com/tenseleyFlow/shithub/internal/version"
+	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 )
 
