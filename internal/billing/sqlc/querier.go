@@ -23,6 +23,7 @@ type Querier interface {
 	GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) (OrgBillingState, error)
 	GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error)
 	GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error)
+	GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
 	ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoicesForOrgParams) ([]BillingInvoice, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)

@@ -288,6 +288,11 @@ VALUES (
 ON CONFLICT (provider, provider_event_id) DO NOTHING
 RETURNING *;
 
+-- name: GetWebhookEventReceipt :one
+SELECT * FROM billing_webhook_events
+WHERE provider = 'stripe'
+  AND provider_event_id = $1;
+
 -- name: MarkWebhookEventProcessed :one
 UPDATE billing_webhook_events
    SET processed_at = now(),

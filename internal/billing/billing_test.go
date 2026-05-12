@@ -155,16 +155,29 @@ func TestRecordWebhookEventIsIdempotent(t *testing.T) {
 		t.Fatalf("first receipt created=%v row=%+v", created, row)
 	}
 
-	_, created, err = billing.RecordWebhookEvent(ctx, deps, event)
+	dup, created, err := billing.RecordWebhookEvent(ctx, deps, event)
 	if err != nil {
 		t.Fatalf("RecordWebhookEvent duplicate: %v", err)
 	}
 	if created {
 		t.Fatalf("duplicate receipt should not be created")
 	}
+	if dup.ID != row.ID || dup.ProcessedAt.Valid {
+		t.Fatalf("duplicate should return existing unprocessed receipt: first=%+v dup=%+v", row, dup)
+	}
 
 	if _, err := billing.MarkWebhookEventProcessed(ctx, deps, event.ProviderEventID); err != nil {
 		t.Fatalf("MarkWebhookEventProcessed: %v", err)
+	}
+	dup, created, err = billing.RecordWebhookEvent(ctx, deps, event)
+	if err != nil {
+		t.Fatalf("RecordWebhookEvent after processed: %v", err)
+	}
+	if created {
+		t.Fatalf("processed duplicate should not be created")
+	}
+	if dup.ID != row.ID || !dup.ProcessedAt.Valid {
+		t.Fatalf("processed duplicate should return existing processed receipt: first=%+v dup=%+v", row, dup)
 	}
 	if _, err := billing.MarkWebhookEventFailed(ctx, deps, event.ProviderEventID, "late duplicate"); err != nil {
 		t.Fatalf("MarkWebhookEventFailed: %v", err)

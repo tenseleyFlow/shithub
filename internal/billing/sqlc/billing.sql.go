@@ -487,6 +487,30 @@ func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db
 	return i, err
 }
 
+const getWebhookEventReceipt = `-- name: GetWebhookEventReceipt :one
+SELECT id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts FROM billing_webhook_events
+WHERE provider = 'stripe'
+  AND provider_event_id = $1
+`
+
+func (q *Queries) GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error) {
+	row := db.QueryRow(ctx, getWebhookEventReceipt, providerEventID)
+	var i BillingWebhookEvent
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.ProviderEventID,
+		&i.EventType,
+		&i.ApiVersion,
+		&i.Payload,
+		&i.ReceivedAt,
+		&i.ProcessedAt,
+		&i.ProcessError,
+		&i.ProcessingAttempts,
+	)
+	return i, err
+}
+
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
 SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at FROM billing_invoices
 WHERE org_id = $1

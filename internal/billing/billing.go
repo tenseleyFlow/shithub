@@ -223,7 +223,11 @@ func RecordWebhookEvent(ctx context.Context, deps Deps, event WebhookEvent) (bil
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return billingdb.BillingWebhookEvent{}, false, nil
+			row, err = billingdb.New().GetWebhookEventReceipt(ctx, deps.Pool, event.ProviderEventID)
+			if err != nil {
+				return billingdb.BillingWebhookEvent{}, false, err
+			}
+			return row, false, nil
 		}
 		return billingdb.BillingWebhookEvent{}, false, err
 	}
@@ -300,6 +304,22 @@ func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billin
 		return billingdb.BillingInvoice{}, err
 	}
 	return row, nil
+}
+
+func ListInvoicesForOrg(ctx context.Context, deps Deps, orgID int64, limit int32) ([]billingdb.BillingInvoice, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if orgID == 0 {
+		return nil, ErrOrgIDRequired
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	return billingdb.New().ListInvoicesForOrg(ctx, deps.Pool, billingdb.ListInvoicesForOrgParams{
+		OrgID: orgID,
+		Limit: limit,
+	})
 }
 
 func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billingdb.BillingSeatSnapshot, error) {
