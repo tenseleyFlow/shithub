@@ -110,7 +110,7 @@ func TestOrgActionsSettingsBlocksWritesWithoutTeamEntitlement(t *testing.T) {
 		"value": {"super-secret"},
 	})
 	mux.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK {
+	if resp.Code != http.StatusPaymentRequired {
 		t.Fatalf("POST org secret status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	if got := resp.Body.String(); !strings.Contains(got, "require Team billing") {

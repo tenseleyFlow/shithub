@@ -156,8 +156,11 @@ func (h *Handlers) teamCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if !decision.Allowed {
 			notice := "secret-teams-upgrade"
-			if decision.Reason == entitlements.ReasonBillingActionNeeded {
+			switch decision.Reason {
+			case entitlements.ReasonBillingActionNeeded:
 				notice = "secret-teams-billing"
+			case entitlements.ReasonEnterpriseContactSales:
+				notice = "secret-teams-enterprise"
 			}
 			http.Redirect(w, r, "/"+string(org.Slug)+"/teams?notice="+notice, http.StatusSeeOther)
 			return
@@ -186,6 +189,8 @@ func teamsNoticeMessage(code string) string {
 		return "Secret teams require Team billing. Upgrade this organization to create them."
 	case "secret-teams-billing":
 		return "Secret teams are read-only until Team billing is brought back into good standing."
+	case "secret-teams-enterprise":
+		return "Secret teams are unavailable for Enterprise preview organizations. Contact sales to enable them."
 	default:
 		return ""
 	}

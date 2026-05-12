@@ -219,13 +219,19 @@ func (h *Handlers) branchProtectionEntitlementNotice(ctx context.Context, row re
 
 func branchProtectionNoticeCode(decision entitlements.Decision, requiredReviewers bool) string {
 	if requiredReviewers {
-		if decision.Reason == entitlements.ReasonBillingActionNeeded {
+		switch decision.Reason {
+		case entitlements.ReasonBillingActionNeeded:
 			return "required-reviewers-billing"
+		case entitlements.ReasonEnterpriseContactSales:
+			return "required-reviewers-enterprise"
 		}
 		return "required-reviewers-upgrade"
 	}
-	if decision.Reason == entitlements.ReasonBillingActionNeeded {
+	switch decision.Reason {
+	case entitlements.ReasonBillingActionNeeded:
 		return "branch-protection-billing"
+	case entitlements.ReasonEnterpriseContactSales:
+		return "branch-protection-enterprise"
 	}
 	return "branch-protection-upgrade"
 }
@@ -332,10 +338,14 @@ func settingsBranchesNoticeMessage(code string) string {
 		return "Advanced branch protection on private organization repositories requires Team billing."
 	case "branch-protection-billing":
 		return "Advanced branch protection is read-only until Team billing is brought back into good standing."
+	case "branch-protection-enterprise":
+		return "Advanced branch protection is unavailable for Enterprise preview organizations. Contact sales to enable it."
 	case "required-reviewers-upgrade":
 		return "Required reviewers on private organization repositories require Team billing."
 	case "required-reviewers-billing":
 		return "Required reviewers are read-only until Team billing is brought back into good standing."
+	case "required-reviewers-enterprise":
+		return "Required reviewers are unavailable for Enterprise preview organizations. Contact sales to enable them."
 	default:
 		return ""
 	}
