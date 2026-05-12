@@ -24,6 +24,17 @@ between minor releases.
 - **Pagination helper** `internal/web/handlers/api/apipage` —
   emits canonical RFC 8288 Link headers (`first`/`prev`/`next`/`last`)
   with absolute URLs rooted at the configured public base URL.
+- **REST: user emails (S50 §1).** `GET /api/v1/user/emails` lists
+  the authenticated user's emails. Optional `?verified=true|false`
+  filter. Scope: `user:read`.
+- **REST: user SSH keys (S50 §1).** `GET/POST /api/v1/user/keys`
+  and `GET/DELETE /api/v1/user/keys/{id}` expose CRUD for git
+  authentication keys. Signing keys are tracked separately by a
+  new `kind` column on `user_ssh_keys` and remain on the HTML
+  surface for now. Scopes: `user:read` for GETs, `user:write` for
+  mutations.
+- **Capabilities:** `user-emails`, `ssh-keys` added to
+  `/api/v1/meta` response.
 
 ### Changed
 

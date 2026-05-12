@@ -21,6 +21,22 @@ func (q *Queries) CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (
 	return count, err
 }
 
+const countUserSSHKeysByKind = `-- name: CountUserSSHKeysByKind :one
+SELECT count(*) FROM user_ssh_keys WHERE user_id = $1 AND kind = $2
+`
+
+type CountUserSSHKeysByKindParams struct {
+	UserID int64
+	Kind   string
+}
+
+func (q *Queries) CountUserSSHKeysByKind(ctx context.Context, db DBTX, arg CountUserSSHKeysByKindParams) (int64, error) {
+	row := db.QueryRow(ctx, countUserSSHKeysByKind, arg.UserID, arg.Kind)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteUserSSHKey = `-- name: DeleteUserSSHKey :execrows
 DELETE FROM user_ssh_keys WHERE id = $1 AND user_id = $2
 `
@@ -40,9 +56,42 @@ func (q *Queries) DeleteUserSSHKey(ctx context.Context, db DBTX, arg DeleteUserS
 	return result.RowsAffected(), nil
 }
 
+const getUserSSHKey = `-- name: GetUserSSHKey :one
+SELECT id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
+       last_used_at, last_used_ip, created_at, kind
+FROM user_ssh_keys
+WHERE id = $1 AND user_id = $2
+`
+
+type GetUserSSHKeyParams struct {
+	ID     int64
+	UserID int64
+}
+
+// Single-key lookup for the REST GET-by-id endpoint. user_id filter so
+// one caller can't read another's key by ID.
+func (q *Queries) GetUserSSHKey(ctx context.Context, db DBTX, arg GetUserSSHKeyParams) (UserSshKey, error) {
+	row := db.QueryRow(ctx, getUserSSHKey, arg.ID, arg.UserID)
+	var i UserSshKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.FingerprintSha256,
+		&i.KeyType,
+		&i.KeyBits,
+		&i.PublicKey,
+		&i.LastUsedAt,
+		&i.LastUsedIp,
+		&i.CreatedAt,
+		&i.Kind,
+	)
+	return i, err
+}
+
 const getUserSSHKeyByFingerprint = `-- name: GetUserSSHKeyByFingerprint :one
 SELECT id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
-       last_used_at, last_used_ip, created_at
+       last_used_at, last_used_ip, created_at, kind
 FROM user_ssh_keys
 WHERE fingerprint_sha256 = $1
 `
@@ -63,16 +112,17 @@ func (q *Queries) GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, finge
 		&i.LastUsedAt,
 		&i.LastUsedIp,
 		&i.CreatedAt,
+		&i.Kind,
 	)
 	return i, err
 }
 
 const insertUserSSHKey = `-- name: InsertUserSSHKey :one
 
-INSERT INTO user_ssh_keys (user_id, title, fingerprint_sha256, key_type, key_bits, public_key)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO user_ssh_keys (user_id, title, fingerprint_sha256, key_type, key_bits, public_key, kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
-          last_used_at, last_used_ip, created_at
+          last_used_at, last_used_ip, created_at, kind
 `
 
 type InsertUserSSHKeyParams struct {
@@ -82,6 +132,7 @@ type InsertUserSSHKeyParams struct {
 	KeyType           string
 	KeyBits           int32
 	PublicKey         string
+	Kind              string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -93,6 +144,7 @@ func (q *Queries) InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserS
 		arg.KeyType,
 		arg.KeyBits,
 		arg.PublicKey,
+		arg.Kind,
 	)
 	var i UserSshKey
 	err := row.Scan(
@@ -106,13 +158,14 @@ func (q *Queries) InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserS
 		&i.LastUsedAt,
 		&i.LastUsedIp,
 		&i.CreatedAt,
+		&i.Kind,
 	)
 	return i, err
 }
 
 const listUserSSHKeys = `-- name: ListUserSSHKeys :many
 SELECT id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
-       last_used_at, last_used_ip, created_at
+       last_used_at, last_used_ip, created_at, kind
 FROM user_ssh_keys
 WHERE user_id = $1
 ORDER BY created_at DESC
@@ -138,6 +191,63 @@ func (q *Queries) ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([
 			&i.LastUsedAt,
 			&i.LastUsedIp,
 			&i.CreatedAt,
+			&i.Kind,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserSSHKeysByKind = `-- name: ListUserSSHKeysByKind :many
+SELECT id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
+       last_used_at, last_used_ip, created_at, kind
+FROM user_ssh_keys
+WHERE user_id = $1 AND kind = $2
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $4
+`
+
+type ListUserSSHKeysByKindParams struct {
+	UserID int64
+	Kind   string
+	Limit  int32
+	Offset int32
+}
+
+// Paginated kind-filtered list used by the REST surface. Order matches
+// ListUserSSHKeys so callers can swap between them without observing a
+// reshuffle.
+func (q *Queries) ListUserSSHKeysByKind(ctx context.Context, db DBTX, arg ListUserSSHKeysByKindParams) ([]UserSshKey, error) {
+	rows, err := db.Query(ctx, listUserSSHKeysByKind,
+		arg.UserID,
+		arg.Kind,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserSshKey{}
+	for rows.Next() {
+		var i UserSshKey
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Title,
+			&i.FingerprintSha256,
+			&i.KeyType,
+			&i.KeyBits,
+			&i.PublicKey,
+			&i.LastUsedAt,
+			&i.LastUsedIp,
+			&i.CreatedAt,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}

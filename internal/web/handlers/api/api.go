@@ -121,6 +121,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsLifecycle(r)
 		// S26 stars: PUT/DELETE need user:write, GET needs user:read.
 		h.mountStars(r)
+		// S50 §1 — user emails (read-only over REST).
+		h.mountUserEmails(r)
+		// S50 §1 — user SSH keys CRUD.
+		h.mountUserKeys(r)
 	})
 }
 
