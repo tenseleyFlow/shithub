@@ -398,6 +398,68 @@ func (q *Queries) InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWork
 	return i, err
 }
 
+const listActiveWorkflowRunsForAdmin = `-- name: ListActiveWorkflowRunsForAdmin :many
+SELECT id, repo_id, run_index, workflow_file, workflow_name,
+       head_sha, head_ref, event, event_payload,
+       actor_user_id, parent_run_id, concurrency_group,
+       status, conclusion, pinned, need_approval, approved_by_user_id,
+       started_at, completed_at, version, created_at, updated_at, trigger_event_id
+FROM workflow_runs
+WHERE status IN ('queued', 'running')
+  AND ($1::bigint = 0 OR repo_id = $1::bigint)
+ORDER BY created_at ASC, id ASC
+LIMIT $2::int
+`
+
+type ListActiveWorkflowRunsForAdminParams struct {
+	RepoID     int64
+	LimitCount int32
+}
+
+func (q *Queries) ListActiveWorkflowRunsForAdmin(ctx context.Context, db DBTX, arg ListActiveWorkflowRunsForAdminParams) ([]WorkflowRun, error) {
+	rows, err := db.Query(ctx, listActiveWorkflowRunsForAdmin, arg.RepoID, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowRun{}
+	for rows.Next() {
+		var i WorkflowRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.RunIndex,
+			&i.WorkflowFile,
+			&i.WorkflowName,
+			&i.HeadSha,
+			&i.HeadRef,
+			&i.Event,
+			&i.EventPayload,
+			&i.ActorUserID,
+			&i.ParentRunID,
+			&i.ConcurrencyGroup,
+			&i.Status,
+			&i.Conclusion,
+			&i.Pinned,
+			&i.NeedApproval,
+			&i.ApprovedByUserID,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TriggerEventID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBlockingConcurrencyRunsForUpdate = `-- name: ListBlockingConcurrencyRunsForUpdate :many
 SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
        r.head_sha, r.head_ref, r.event, r.event_payload,

@@ -65,6 +65,7 @@ type Querier interface {
 	InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWorkflowRunParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
+	ListActiveWorkflowRunsForAdmin(ctx context.Context, db DBTX, arg ListActiveWorkflowRunsForAdminParams) ([]WorkflowRun, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
 	// Older queued/running runs with the same group block the new run while they

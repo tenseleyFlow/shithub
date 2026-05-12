@@ -176,6 +176,18 @@ WHERE r.repo_id = sqlc.arg(repo_id)::bigint
   AND (sqlc.narg(conclusion)::check_conclusion IS NULL OR r.conclusion = sqlc.narg(conclusion)::check_conclusion)
   AND (sqlc.narg(actor_username)::text IS NULL OR u.username = sqlc.narg(actor_username)::citext);
 
+-- name: ListActiveWorkflowRunsForAdmin :many
+SELECT id, repo_id, run_index, workflow_file, workflow_name,
+       head_sha, head_ref, event, event_payload,
+       actor_user_id, parent_run_id, concurrency_group,
+       status, conclusion, pinned, need_approval, approved_by_user_id,
+       started_at, completed_at, version, created_at, updated_at, trigger_event_id
+FROM workflow_runs
+WHERE status IN ('queued', 'running')
+  AND (sqlc.arg(repo_id)::bigint = 0 OR repo_id = sqlc.arg(repo_id)::bigint)
+ORDER BY created_at ASC, id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
 -- name: ListWorkflowRunWorkflowsForRepo :many
 WITH ranked AS (
     SELECT workflow_file,
