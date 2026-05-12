@@ -4,8 +4,11 @@ package entitlements_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,34 +42,31 @@ func TestCheckOrgFeature(t *testing.T) {
 		{
 			name: "team active allows feature",
 			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
-				_, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
-					OrgID:                    orgID,
-					Plan:                     billing.PlanTeam,
-					Status:                   billing.SubscriptionStatusActive,
-					StripeSubscriptionID:     "sub_active",
-					StripeSubscriptionItemID: "si_active",
-					CurrentPeriodStart:       now,
-					CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
-					LastWebhookEventID:       "evt_active",
-				})
-				return err
+				return setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusActive, "active")
 			},
 			want:   true,
 			reason: entitlements.ReasonNone,
 		},
 		{
+			name: "team trialing allows feature",
+			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
+				return setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusTrialing, "trialing")
+			},
+			want:   true,
+			reason: entitlements.ReasonNone,
+		},
+		{
+			name: "team incomplete needs billing action",
+			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
+				return setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusIncomplete, "incomplete")
+			},
+			want:   false,
+			reason: entitlements.ReasonBillingActionNeeded,
+		},
+		{
 			name: "team past due within grace still allows feature",
 			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
-				if _, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
-					OrgID:                    orgID,
-					Plan:                     billing.PlanTeam,
-					Status:                   billing.SubscriptionStatusActive,
-					StripeSubscriptionID:     "sub_grace",
-					StripeSubscriptionItemID: "si_grace",
-					CurrentPeriodStart:       now,
-					CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
-					LastWebhookEventID:       "evt_active",
-				}); err != nil {
+				if err := setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusActive, "grace"); err != nil {
 					return err
 				}
 				_, err := billing.MarkPastDue(ctx, deps, orgID, now.Add(24*time.Hour), "evt_past_due")
@@ -79,16 +79,7 @@ func TestCheckOrgFeature(t *testing.T) {
 		{
 			name: "team past due after grace needs billing action",
 			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
-				if _, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
-					OrgID:                    orgID,
-					Plan:                     billing.PlanTeam,
-					Status:                   billing.SubscriptionStatusActive,
-					StripeSubscriptionID:     "sub_lapsed",
-					StripeSubscriptionItemID: "si_lapsed",
-					CurrentPeriodStart:       now,
-					CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
-					LastWebhookEventID:       "evt_active",
-				}); err != nil {
+				if err := setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusActive, "lapsed"); err != nil {
 					return err
 				}
 				_, err := billing.MarkPastDue(ctx, deps, orgID, now.Add(24*time.Hour), "evt_past_due")
@@ -97,6 +88,22 @@ func TestCheckOrgFeature(t *testing.T) {
 			now:    func(now time.Time) time.Time { return now.Add(48 * time.Hour) },
 			want:   false,
 			reason: entitlements.ReasonBillingActionNeeded,
+		},
+		{
+			name: "team locked without grace needs billing action",
+			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
+				return setSubscription(ctx, deps, orgID, now, billing.PlanTeam, billing.SubscriptionStatusPastDue, "locked")
+			},
+			want:   false,
+			reason: entitlements.ReasonBillingActionNeeded,
+		},
+		{
+			name: "enterprise stub does not unlock team features",
+			mutate: func(ctx context.Context, deps billing.Deps, orgID int64, now time.Time) error {
+				return setSubscription(ctx, deps, orgID, now, billing.PlanEnterprise, billing.SubscriptionStatusActive, "enterprise")
+			},
+			want:   false,
+			reason: entitlements.ReasonEnterpriseContactSales,
 		},
 	}
 
@@ -128,6 +135,103 @@ func TestCheckOrgFeature(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestForOrgCanUseAndLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool, orgID := setupEntitlementOrg(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := setSubscription(ctx, billing.Deps{Pool: pool}, orgID, now, billing.PlanTeam, billing.SubscriptionStatusActive, "limits"); err != nil {
+		t.Fatalf("set subscription: %v", err)
+	}
+
+	set, err := entitlements.ForOrg(ctx, entitlements.Deps{
+		Pool: pool,
+		Now:  func() time.Time { return now },
+	}, orgID)
+	if err != nil {
+		t.Fatalf("ForOrg: %v", err)
+	}
+	for _, feature := range []entitlements.Feature{
+		entitlements.FeatureOrgSecretTeams,
+		entitlements.FeatureOrgAdvancedBranchProtection,
+		entitlements.FeatureOrgRequiredReviewers,
+		entitlements.FeatureOrgActionsSecrets,
+		entitlements.FeatureOrgActionsVariables,
+		entitlements.FeatureOrgPrivateCollaboration,
+		entitlements.FeatureOrgStorageQuota,
+		entitlements.FeatureOrgActionsMinutesQuota,
+	} {
+		if decision := set.CanUse(feature); !decision.Allowed {
+			t.Fatalf("feature %s decision=%+v, want allowed", feature, decision)
+		}
+	}
+	collab, err := set.Limit(entitlements.LimitOrgPrivateCollaboration)
+	if err != nil {
+		t.Fatalf("Limit private collaboration: %v", err)
+	}
+	if !collab.Allowed || !collab.Defined || !collab.Unlimited || collab.Unit != "collaborators" {
+		t.Fatalf("private collaboration limit = %+v", collab)
+	}
+	storage, err := set.Limit(entitlements.LimitOrgStorageQuota)
+	if err != nil {
+		t.Fatalf("Limit storage: %v", err)
+	}
+	if !storage.Allowed || storage.Defined || storage.Unit != "bytes" {
+		t.Fatalf("storage limit = %+v, want allowed but deferred concrete quota", storage)
+	}
+}
+
+func TestUnknownFeatureAndLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool, orgID := setupEntitlementOrg(t)
+	_, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: pool}, orgID, entitlements.Feature("org.mystery"))
+	if !errors.Is(err, entitlements.ErrUnknownFeature) {
+		t.Fatalf("CheckOrgFeature unknown err=%v, want ErrUnknownFeature", err)
+	}
+	set, err := entitlements.ForOrg(ctx, entitlements.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("ForOrg: %v", err)
+	}
+	_, err = set.Limit(entitlements.Limit("org.mystery_limit"))
+	if !errors.Is(err, entitlements.ErrUnknownLimit) {
+		t.Fatalf("Limit unknown err=%v, want ErrUnknownLimit", err)
+	}
+}
+
+func TestDecisionUpgradeBanner(t *testing.T) {
+	t.Parallel()
+	decision := entitlements.Decision{
+		Feature:      entitlements.FeatureOrgSecretTeams,
+		RequiredPlan: billing.PlanTeam,
+		Reason:       entitlements.ReasonUpgradeRequired,
+	}
+	banner := decision.UpgradeBanner("Secret teams", "acme inc")
+	if banner.StatusCode != http.StatusPaymentRequired {
+		t.Fatalf("status=%d, want 402", banner.StatusCode)
+	}
+	if banner.ActionHref != "/organizations/acme%20inc/settings/billing" {
+		t.Fatalf("href=%q", banner.ActionHref)
+	}
+	if !strings.Contains(banner.Message, "require Team billing") {
+		t.Fatalf("message=%q", banner.Message)
+	}
+}
+
+func setSubscription(ctx context.Context, deps billing.Deps, orgID int64, now time.Time, plan billing.Plan, status billing.SubscriptionStatus, suffix string) error {
+	_, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     plan,
+		Status:                   status,
+		StripeSubscriptionID:     "sub_" + suffix,
+		StripeSubscriptionItemID: "si_" + suffix,
+		CurrentPeriodStart:       now,
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_" + suffix,
+	})
+	return err
 }
 
 func setupEntitlementOrg(t *testing.T) (*pgxpool.Pool, int64) {

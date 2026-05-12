@@ -189,6 +189,13 @@ as scattered `orgs.plan` checks in handlers.
 store and scan the plan value, but product behavior should ask the
 entitlement package whether a feature key is available.
 
+The package entrypoint is `entitlements.ForOrg(ctx, deps, orgID)`,
+which loads the local `org_billing_states` projection and returns a
+request-scoped entitlement set. Callers then use `CanUse(feature)` for
+feature decisions and `Limit(name)` for paid limit metadata. The legacy
+`CheckOrgFeature` helper is a thin wrapper for handlers that need only
+one feature. These calls are deterministic and never call Stripe.
+
 Expected feature keys:
 
 - `org.secret_teams`
@@ -204,6 +211,23 @@ Authorization and entitlement are separate gates. A user must have both
 the policy permission and the paid entitlement for gated writes. Denials
 must preserve existing `policy.Maybe404` behavior where existence leaks
 matter.
+
+Entitlement outcomes are:
+
+- Free organizations receive `upgrade_required` for Team features.
+- Team organizations with `active` or `trialing` subscriptions receive
+  the feature.
+- Team organizations in `past_due` remain usable only while their local
+  grace window has not expired.
+- Team organizations with incomplete, unpaid, paused, canceled, or
+  expired-grace billing receive `billing_action_needed`.
+- Enterprise remains a contact-sales stub and receives
+  `enterprise_contact_sales` until a later Enterprise sprint defines a
+  real feature set.
+
+Handler upgrade helpers map paid-feature denials to HTTP 402 metadata
+and a billing-settings path, but handlers must still perform normal
+authorization first and preserve 404 masking for private resources.
 
 ## Downgrade behavior
 

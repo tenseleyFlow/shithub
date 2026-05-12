@@ -131,6 +131,13 @@ That keeps security authorization independent from commercial product
 packaging, and makes downgrades/grace periods possible without
 rewriting role checks.
 
+For paid-feature UI, handlers should use the entitlement decision's
+upgrade metadata instead of inventing per-surface billing state. A
+missing Team feature maps to HTTP 402 semantics and a billing-settings
+path after the normal authorization result has already been accepted.
+Enterprise is not implicitly Team-plus; it is a contact-sales
+entitlement result until the Enterprise product contract ships.
+
 ## Existence-leak guard
 
 `policy.Maybe404(decision, repo, actor)` maps a denial to a status
