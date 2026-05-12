@@ -18,10 +18,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="shithub — GitHub. Open source. Without Copilot.">
-  {{ if .OGTitle }}<meta property="og:title" content="{{ .OGTitle }}">{{ end }}
-  {{ if .OGDescription }}<meta property="og:description" content="{{ .OGDescription }}">{{ end }}
-  {{ if .OGImage }}<meta property="og:image" content="{{ .OGImage }}">{{ end }}
+  {{ if stringField . "MetaDescription" }}<meta name="description" content="{{ stringField . "MetaDescription" }}">{{ else }}<meta name="description" content="shithub is an AGPL self-hosted GitHub alternative: Git repositories, pull requests, issues, Actions-style CI, organizations, and code search without Copilot.">{{ end }}
+  {{ with stringField . "CanonicalURL" }}<link rel="canonical" href="{{ . }}">{{ end }}
+  <meta property="og:site_name" content="shithub">
+  {{ if stringField . "OGType" }}<meta property="og:type" content="{{ stringField . "OGType" }}">{{ else }}<meta property="og:type" content="website">{{ end }}
+  {{ if stringField . "OGTitle" }}<meta property="og:title" content="{{ stringField . "OGTitle" }}">{{ else }}<meta property="og:title" content="{{ .Title }} · shithub">{{ end }}
+  {{ if stringField . "OGDescription" }}<meta property="og:description" content="{{ stringField . "OGDescription" }}">{{ else if stringField . "MetaDescription" }}<meta property="og:description" content="{{ stringField . "MetaDescription" }}">{{ end }}
+  {{ with stringField . "CanonicalURL" }}<meta property="og:url" content="{{ . }}">{{ end }}
+  {{ with stringField . "OGImage" }}<meta property="og:image" content="{{ . }}">{{ end }}
+  {{ if stringField . "OGImage" }}<meta name="twitter:card" content="summary_large_image">{{ else }}<meta name="twitter:card" content="summary">{{ end }}
+  {{ if stringField . "OGTitle" }}<meta name="twitter:title" content="{{ stringField . "OGTitle" }}">{{ else }}<meta name="twitter:title" content="{{ .Title }} · shithub">{{ end }}
+  {{ if stringField . "OGDescription" }}<meta name="twitter:description" content="{{ stringField . "OGDescription" }}">{{ else if stringField . "MetaDescription" }}<meta name="twitter:description" content="{{ stringField . "MetaDescription" }}">{{ end }}
+  {{ with jsField . "StructuredData" }}<script type="application/ld+json">{{ . }}</script>{{ end }}
   <title>{{ .Title }} · shithub</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo/favicon.svg">
   <link rel="stylesheet" href="/static/primer/primer.css" onerror="this.remove()">

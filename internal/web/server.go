@@ -146,6 +146,7 @@ func Run(ctx context.Context, opts Options) error {
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
 		Pool:         pool,
+		BaseURL:      cfg.Auth.BaseURL,
 		CookieSecure: cfg.Session.Secure,
 	}
 	if pool != nil {

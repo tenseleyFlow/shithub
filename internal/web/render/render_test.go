@@ -4,6 +4,7 @@ package render
 
 import (
 	"bytes"
+	"html/template"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -103,6 +104,65 @@ func TestFlagHelperSupportsOptionalLayoutToggles(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "HTMX") {
 		t.Fatalf("map flag did not render HTMX: %q", buf.String())
+	}
+}
+
+func TestStringFieldHelperSupportsOptionalLayoutMetadata(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}<html><head>{{ with stringField . "MetaDescription" }}<meta name="description" content="{{ . }}">{{ end }}</head>{{ template "page" . }}</html>{{ end }}`,
+		)},
+		"page.html": &fstest.MapFile{Data: []byte(`{{ define "page" }}body{{ end }}`)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var buf bytes.Buffer
+	type typedPageData struct {
+		Title string
+	}
+	if err := r.Render(&buf, "page", typedPageData{Title: "typed"}); err != nil {
+		t.Fatalf("render typed data without metadata: %v", err)
+	}
+	if strings.Contains(buf.String(), `name="description"`) {
+		t.Fatalf("absent typed metadata rendered meta tag: %q", buf.String())
+	}
+	buf.Reset()
+	if err := r.Render(&buf, "page", map[string]any{"MetaDescription": "self-hosted git forge"}); err != nil {
+		t.Fatalf("render map data with metadata: %v", err)
+	}
+	if !strings.Contains(buf.String(), `content="self-hosted git forge"`) {
+		t.Fatalf("map metadata did not render: %q", buf.String())
+	}
+}
+
+func TestJSFieldHelperOnlyRendersTrustedJS(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}<html><head>{{ with jsField . "StructuredData" }}<script type="application/ld+json">{{ . }}</script>{{ end }}</head>{{ template "page" . }}</html>{{ end }}`,
+		)},
+		"page.html": &fstest.MapFile{Data: []byte(`{{ define "page" }}body{{ end }}`)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := r.Render(&buf, "page", map[string]any{"StructuredData": `{"unsafe":true}`}); err != nil {
+		t.Fatalf("render map data with plain string metadata: %v", err)
+	}
+	if strings.Contains(buf.String(), "application/ld+json") {
+		t.Fatalf("plain string JSON-LD should not render as trusted JS: %q", buf.String())
+	}
+	buf.Reset()
+	if err := r.Render(&buf, "page", map[string]any{"StructuredData": template.JS(`{"@type":"Organization"}`)}); err != nil {
+		t.Fatalf("render map data with trusted metadata: %v", err)
+	}
+	if !strings.Contains(buf.String(), `{"@type":"Organization"}`) {
+		t.Fatalf("trusted JSON-LD did not render: %q", buf.String())
 	}
 }
 

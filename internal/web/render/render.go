@@ -325,6 +325,16 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 		// template data. Layout-level feature toggles use this so pages
 		// backed by typed structs don't fail when the toggle is absent.
 		"flag": dataFlag,
+		// stringField reads an optional string-ish field from map or
+		// struct template data. Shared document metadata uses this so
+		// typed page-data structs don't all have to define every optional
+		// SEO/social field.
+		"stringField": dataString,
+		// jsField returns only server-marked template.JS values. It is
+		// intentionally stricter than stringField so JSON-LD can be
+		// emitted from trusted marshaled data without giving templates a
+		// generic raw-JS escape hatch for arbitrary strings.
+		"jsField": dataJS,
 		// csrfToken pulls the per-request token from the request context.
 		// Templates use this in <input type="hidden" name="csrf_token">.
 		"csrfToken": middleware.CSRFTokenForRequest,
@@ -353,31 +363,93 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 }
 
 func dataFlag(data any, name string) bool {
+	field, ok := dataField(data, name)
+	if !ok {
+		return false
+	}
+	return truthyValue(field)
+}
+
+func dataString(data any, name string) string {
+	field, ok := dataField(data, name)
+	if !ok {
+		return ""
+	}
+	for field.Kind() == reflect.Pointer || field.Kind() == reflect.Interface {
+		if field.IsNil() {
+			return ""
+		}
+		field = field.Elem()
+	}
+	switch field.Kind() {
+	case reflect.String:
+		return field.String()
+	default:
+		if field.CanInterface() {
+			return fmt.Sprint(field.Interface())
+		}
+		return ""
+	}
+}
+
+func dataJS(data any, name string) template.JS {
+	field, ok := dataField(data, name)
+	if !ok {
+		return ""
+	}
+	if field.CanInterface() {
+		switch v := field.Interface().(type) {
+		case template.JS:
+			return v
+		case *template.JS:
+			if v != nil {
+				return *v
+			}
+		}
+	}
+	for field.Kind() == reflect.Pointer || field.Kind() == reflect.Interface {
+		if field.IsNil() {
+			return ""
+		}
+		field = field.Elem()
+		if field.CanInterface() {
+			if v, ok := field.Interface().(template.JS); ok {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+func dataField(data any, name string) (reflect.Value, bool) {
 	v := reflect.ValueOf(data)
 	if !v.IsValid() {
-		return false
+		return reflect.Value{}, false
 	}
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
-			return false
+			return reflect.Value{}, false
 		}
 		v = v.Elem()
 	}
 	switch v.Kind() {
 	case reflect.Map:
 		if v.Type().Key().Kind() != reflect.String {
-			return false
+			return reflect.Value{}, false
 		}
 		field := v.MapIndex(reflect.ValueOf(name))
-		return truthyValue(field)
+		if !field.IsValid() {
+			return reflect.Value{}, false
+		}
+		return field, true
 	case reflect.Struct:
 		field := v.FieldByName(name)
 		if !field.IsValid() || !field.CanInterface() {
-			return false
+			return reflect.Value{}, false
 		}
-		return truthyValue(field)
+		return field, true
 	default:
-		return false
+		return reflect.Value{}, false
 	}
 }
 

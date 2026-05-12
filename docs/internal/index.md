@@ -60,6 +60,8 @@ site.
 - [orgs.md](./orgs.md), [teams.md](./teams.md)
 - [notifications.md](./notifications.md)
 - [search.md](./search.md), [markdown.md](./markdown.md)
+- [seo.md](./seo.md) — crawler endpoints, metadata, sitemap, and
+  public positioning.
 
 ## Operations
 

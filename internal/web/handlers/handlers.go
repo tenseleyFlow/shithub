@@ -32,6 +32,10 @@ type Deps struct {
 	LogoSVG      string
 	SessionStore session.Store
 	Pool         *pgxpool.Pool
+	// BaseURL is the public scheme+host for canonical crawler URLs
+	// (for example https://shithub.sh). Empty falls back to the request
+	// host, which keeps tests and local dev working.
+	BaseURL string
 	// CookieSecure is the Secure flag for session-related cookies
 	// (currently the CSRF cookie). Mirrors session.Config.Secure
 	// from the loaded config so the CSRF cookie matches the
@@ -213,6 +217,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
 		r.Handle("/static/*", http.StripPrefix("/static/", staticFileServer(deps.StaticFS)))
+		crawlers := crawlerHandler{baseURL: deps.BaseURL}
+		r.Get("/robots.txt", crawlers.serveRobots)
+		r.Get("/sitemap.xml", crawlers.serveSitemap)
 		// S17: Chroma highlight CSS is generated at runtime from the
 		// theme; serve under /static/css/chroma.css so the layout can
 		// link it without a build step.
@@ -255,7 +262,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
 		r.Use(csrf)
-		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, logger: deps.Logger}.ServeHTTP)
+		marketing := marketingHandler{render: rr, baseURL: deps.BaseURL, logger: deps.Logger}
+		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, baseURL: deps.BaseURL, logger: deps.Logger}.ServeHTTP)
+		r.Get("/about", marketing.serveAbout)
 		r.Get("/explore", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeExplore)
 		r.Get("/trending", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeTrending)
 		globalNavH := globalNavHandler{render: rr, logger: deps.Logger, pool: deps.Pool}
