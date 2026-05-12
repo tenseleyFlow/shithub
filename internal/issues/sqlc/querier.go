@@ -19,6 +19,7 @@ type Querier interface {
 	AllocateIssueNumber(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	// ─── assignees ───────────────────────────────────────────────────────
 	AssignUserToIssue(ctx context.Context, db DBTX, arg AssignUserToIssueParams) error
+	CountIssueEvents(ctx context.Context, db DBTX, issueID int64) (int64, error)
 	CountIssues(ctx context.Context, db DBTX, arg CountIssuesParams) (int64, error)
 	// ─── issues ──────────────────────────────────────────────────────────
 	CreateIssue(ctx context.Context, db DBTX, arg CreateIssueParams) (Issue, error)
@@ -48,6 +49,12 @@ type Querier interface {
 	ListIssueAssignees(ctx context.Context, db DBTX, issueID int64) ([]ListIssueAssigneesRow, error)
 	ListIssueComments(ctx context.Context, db DBTX, issueID int64) ([]IssueComment, error)
 	ListIssueEvents(ctx context.Context, db DBTX, issueID int64) ([]IssueEvent, error)
+	// Paginated timeline shape for the REST `/issues/{n}/events` endpoint:
+	// the same event rows ListIssueEvents returns, but LEFT-joined to users
+	// so the response can carry `actor_username` without a second round-trip.
+	// Suspended/deleted actor rows still appear (the timeline is historical
+	// truth), with NULL username when the user row is unrecoverable.
+	ListIssueEventsWithActor(ctx context.Context, db DBTX, arg ListIssueEventsWithActorParams) ([]ListIssueEventsWithActorRow, error)
 	// Filterable list. Caller passes a state filter (open/closed/all
 	// where 'all' is encoded as NULL); label/assignee/author/milestone
 	// filtering happens after this query in Go for v1 — see the

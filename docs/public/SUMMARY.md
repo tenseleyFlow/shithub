@@ -33,6 +33,7 @@
 - [Contents](./api/contents.md)
 - [Forks](./api/forks.md)
 - [Issues](./api/issues.md)
+- [Issue events / timeline](./api/issue-events.md)
 - [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)
 - [Status checks](./api/checks.md)
