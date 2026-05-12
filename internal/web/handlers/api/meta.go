@@ -32,6 +32,7 @@ var APICapabilities = []string{
 	"pr-reviews",
 	"search",
 	"orgs",
+	"webhooks",
 }
 
 type metaResponse struct {

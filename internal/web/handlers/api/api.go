@@ -28,6 +28,7 @@ import (
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 // Deps is the wiring the API handlers need. Constructed by the web
@@ -61,6 +62,10 @@ type Deps struct {
 	// APILimit configures the /api/v1/* rate-limit middleware. Zero
 	// values inherit apilimit.Middleware's no-op fallback.
 	APILimit apilimit.Config
+	// WebhookSSRF is the SSRF policy applied at webhook create/update.
+	// Defaults to webhook.DefaultSSRFConfig() when zero; tests override
+	// to allow loopback URLs.
+	WebhookSSRF webhook.SSRFConfig
 }
 
 // Handlers is the registered API handler set. Construct with New.
@@ -156,6 +161,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountSearch(r)
 		// S50 §7 — orgs.
 		h.mountOrgs(r)
+		// S50 §8 — webhooks.
+		h.mountHooks(r)
 	})
 }
 
