@@ -151,6 +151,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountIssues(r)
 		// S50 §3 — repo labels CRUD.
 		h.mountLabels(r)
+		// S50 §3 follow-up — milestones CRUD.
+		h.mountMilestones(r)
+		// S50 §3 follow-up — assignees suggestion.
+		h.mountAssignees(r)
 		// S50 §4 — pull requests core (list/get/create/patch/merge).
 		h.mountPulls(r)
 		// S50 §4b — pull-request reviews + inline comments + requested

@@ -28,6 +28,8 @@ var APICapabilities = []string{
 	"repos",
 	"issues",
 	"labels",
+	"milestones",
+	"assignees",
 	"pulls",
 	"pr-reviews",
 	"search",

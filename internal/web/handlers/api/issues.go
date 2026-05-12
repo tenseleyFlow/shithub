@@ -273,6 +273,18 @@ type issuePatchRequest struct {
 	Body        *string `json:"body,omitempty"`
 	State       *string `json:"state,omitempty"`
 	StateReason *string `json:"state_reason,omitempty"`
+	// Labels, when non-nil, replaces the issue's label set verbatim
+	// (matches GitHub's PATCH semantics — passing `["bug"]` strips
+	// every other label). Passing an empty slice clears all labels;
+	// omitting the field leaves them untouched.
+	Labels *[]string `json:"labels,omitempty"`
+	// Assignees, when non-nil, replaces the assignee set verbatim
+	// (same convention as Labels). Each entry is a username; unknown
+	// usernames return 422.
+	Assignees *[]string `json:"assignees,omitempty"`
+	// Milestone, when non-nil, sets the issue's milestone id. Pass
+	// 0 to clear; omit to leave unchanged.
+	Milestone *int64 `json:"milestone,omitempty"`
 }
 
 func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +364,59 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := issues.SetState(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, newState, reason); err != nil {
+			writeIssuesError(w, err)
+			return
+		}
+	}
+
+	// Labels, assignees, milestone — each gates on its own policy
+	// action so a write collaborator who lacks (e.g.) ActionIssueLabel
+	// still gets a clean 403 instead of a partial update.
+	if body.Labels != nil {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueLabel, policy.NewRepoRefFromRepo(*repo)).Allow {
+			writeAPIError(w, http.StatusForbidden, "lack permission to set labels")
+			return
+		}
+		labelIDs, err := h.resolveLabelIDs(r, repo.ID, *body.Labels)
+		if err != nil {
+			writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if err := issues.ApplyLabels(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, labelIDs); err != nil {
+			writeIssuesError(w, err)
+			return
+		}
+	}
+
+	if body.Assignees != nil {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(*repo)).Allow {
+			writeAPIError(w, http.StatusForbidden, "lack permission to set assignees")
+			return
+		}
+		if err := h.applyIssueAssignees(r, auth.UserID, issue.ID, *body.Assignees); err != nil {
+			if errors.Is(err, errUnknownAssignee) {
+				writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
+			writeIssuesError(w, err)
+			return
+		}
+	}
+
+	if body.Milestone != nil {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(*repo)).Allow {
+			writeAPIError(w, http.StatusForbidden, "lack permission to set milestone")
+			return
+		}
+		mid := *body.Milestone
+		if mid != 0 {
+			m, err := q.GetMilestone(r.Context(), h.d.Pool, mid)
+			if err != nil || m.RepoID != repo.ID {
+				writeAPIError(w, http.StatusUnprocessableEntity, "milestone does not belong to this repo")
+				return
+			}
+		}
+		if err := issues.AssignMilestone(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, mid); err != nil {
 			writeIssuesError(w, err)
 			return
 		}
@@ -620,4 +685,79 @@ func writeIssuesError(w http.ResponseWriter, err error) {
 	default:
 		writeAPIError(w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// errUnknownAssignee is the sentinel applyIssueAssignees returns when
+// the caller asked for a username that has no matching user row. The
+// handler converts it into a 422.
+var errUnknownAssignee = errors.New("issues: unknown assignee username")
+
+// resolveLabelIDs maps caller-supplied label names → ids for the
+// supplied repo. Names are case-sensitive (the schema is). Returns
+// errUnknownAssignee-shaped error for missing names (422-mapped).
+func (h *Handlers) resolveLabelIDs(r *http.Request, repoID int64, names []string) ([]int64, error) {
+	q := issuesdb.New()
+	ids := make([]int64, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		l, err := q.GetLabelByName(r.Context(), h.d.Pool, issuesdb.GetLabelByNameParams{
+			RepoID: repoID, Name: n,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, errors.New("unknown label: " + n)
+			}
+			return nil, err
+		}
+		ids = append(ids, l.ID)
+	}
+	return ids, nil
+}
+
+// applyIssueAssignees diffs the requested assignee set against the
+// current one and emits the minimal AssignUser / UnassignUser calls.
+func (h *Handlers) applyIssueAssignees(r *http.Request, actorUserID, issueID int64, want []string) error {
+	wantIDs := make(map[int64]struct{}, len(want))
+	for _, name := range want {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		u, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, name)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errUnknownAssignee
+			}
+			return err
+		}
+		wantIDs[u.ID] = struct{}{}
+	}
+	current, err := issuesdb.New().ListIssueAssignees(r.Context(), h.d.Pool, issueID)
+	if err != nil {
+		return err
+	}
+	haveIDs := make(map[int64]struct{}, len(current))
+	for _, c := range current {
+		haveIDs[c.UserID] = struct{}{}
+	}
+	for id := range wantIDs {
+		if _, ok := haveIDs[id]; ok {
+			continue
+		}
+		if err := issues.AssignUser(r.Context(), h.issuesDeps(), actorUserID, issueID, id); err != nil {
+			return err
+		}
+	}
+	for id := range haveIDs {
+		if _, ok := wantIDs[id]; ok {
+			continue
+		}
+		if err := issues.UnassignUser(r.Context(), h.issuesDeps(), actorUserID, issueID, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
