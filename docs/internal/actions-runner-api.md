@@ -165,6 +165,23 @@ Running jobs keep `status = running` and get
 `cancel-check`, kills the active container, then reports terminal
 `cancelled`.
 
+`POST /api/v1/runs/{id}/rerun`
+
+Auth: PAT with `repo:write`, and the actor must have write permission on
+the repository that owns the workflow run. Browser UI forms use
+CSRF-protected repo routes for the same operation.
+
+Only terminal workflow runs are rerunnable. A re-run reads the original
+workflow file from the source run's `head_sha`, not from the current
+branch tip, then enqueues a new `workflow_runs` row with:
+
+- the same `repo_id`, `workflow_file`, `head_sha`, `head_ref`, event,
+  and event payload
+- `actor_user_id` set to the user requesting the re-run
+- `parent_run_id` set to the source run
+- a fresh `trigger_event_id` in the `rerun:<source_run_id>:<random>`
+  namespace
+
 `POST /api/v1/jobs/{id}/cancel-check`
 
 Auth: job JWT. Returns:
