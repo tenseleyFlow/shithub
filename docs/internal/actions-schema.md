@@ -46,7 +46,9 @@ later schema diff:
   S41g's race between a cancel request and a state transition.
 - **`workflow_runs.concurrency_group`** — the concurrency-slot key,
   resolved at trigger time from the workflow's `concurrency.group:`
-  expression. S41g's slot manager keys off this column.
+  expression. S41g's slot manager keys off this column and runner
+  claim blocks younger runs while an older same-group run still has a
+  queued/running job without `cancel_requested=true`.
 - **`workflow_runs.parent_run_id`** — for re-runs. The new run
   references the original; the UI shows a "re-ran from #N" link.
 - **`workflow_jobs.runner_id`** — FK added in 0046 (after the
@@ -378,9 +380,39 @@ Other admin surfaces are scoped to later sub-sprints:
   UI re-run completed/cancelled runs. Re-runs read the workflow YAML
   from the original run's `head_sha`, create a fresh queued
   `workflow_runs` row, and set `parent_run_id` to the source run.
+- S41g: workflow-level `concurrency.group` is resolved at enqueue time
+  against the trigger context (`shithub.ref`, `shithub.sha`, and
+  `shithub.event.*`). With `cancel-in-progress: true`, enqueue requests
+  cancellation for older active runs in the same group. Without it,
+  runner claim leaves the younger run queued until the older run no
+  longer has uncancelled queued/running jobs.
 - S41g: `workflow:cleanup` is a daily retention worker enqueued by
   `shithubd-cron.service`. Operators can run it manually with
   `shithubd admin run-job workflow:cleanup`.
+
+## Workflow concurrency (S41g)
+
+`concurrency.group` is a workflow-level slot key. The parser stores the
+raw value, and `internal/actions/concurrency` evaluates `${{ ... }}`
+fragments when the run is enqueued. The trigger-time context deliberately
+does not include secrets; event-derived values may be tainted but are
+safe here because the value is only used as a database key.
+
+When a run enters a non-empty group:
+
+- `cancel-in-progress: false` leaves the new run queued behind older
+  same-repo, same-group runs while those older runs still have
+  queued/running jobs with `cancel_requested=false`.
+- `cancel-in-progress: true` requests cancellation on those older jobs.
+  Queued jobs become terminal immediately; running jobs keep running
+  with `cancel_requested=true` so the runner can kill the active
+  container. Once every active older job is cancel-requested, the group
+  is released for the newer run.
+
+The runner claim query enforces the queueing rule, not the web handler
+or UI. This keeps heartbeat races honest: multiple runners can poll at
+the same time, but only jobs whose dependency and concurrency blockers
+are clear can be claimed.
 
 ## Runner timeouts (S41g)
 
