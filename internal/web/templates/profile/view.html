@@ -137,26 +137,28 @@
 
         <div class="shithub-profile-contrib-layout">
           <div class="shithub-profile-calendar" role="img" aria-label="{{ .Contributions.Total }} contributions {{ .Contributions.Period }}">
-            <div class="shithub-contrib-months" aria-hidden="true">
-              {{ range .Contributions.Weeks }}<span>{{ .MonthLabel }}</span>{{ end }}
-            </div>
-            <div class="shithub-contrib-grid-wrap">
-              <div class="shithub-contrib-weekdays" aria-hidden="true">
-                <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+            <div class="shithub-profile-calendar-scroll" style="--shithub-contrib-weeks: {{ len .Contributions.Weeks }};">
+              <div class="shithub-contrib-months" aria-hidden="true">
+                {{ range .Contributions.Weeks }}<span>{{ .MonthLabel }}</span>{{ end }}
               </div>
-              <div class="shithub-contrib-weeks">
-                {{ range .Contributions.Weeks }}
-                <div class="shithub-contrib-week">
-                  {{ range .Days }}
-                  <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" data-title="{{ .Title }}" data-date="{{ .Date }}" data-count="{{ .Count }}" aria-label="{{ .Title }}" tabindex="0"></span>
+              <div class="shithub-contrib-grid-wrap">
+                <div class="shithub-contrib-weekdays" aria-hidden="true">
+                  <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+                </div>
+                <div class="shithub-contrib-weeks">
+                  {{ range .Contributions.Weeks }}
+                  <div class="shithub-contrib-week">
+                    {{ range .Days }}
+                    <span class="shithub-contrib-day level-{{ .Level }}{{ if .IsFuture }} is-future{{ end }}{{ if not .IsInWindow }} is-outside{{ end }}" data-title="{{ .Title }}" data-date="{{ .Date }}" data-count="{{ .Count }}" aria-label="{{ .Title }}" tabindex="0"></span>
+                    {{ end }}
+                  </div>
                   {{ end }}
                 </div>
-                {{ end }}
               </div>
-            </div>
-            <div class="shithub-profile-calendar-foot">
-              <a href="/docs">Learn how we count contributions</a>
-              <span class="shithub-contrib-legend">Less <i class="level-0"></i><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i> More</span>
+              <div class="shithub-profile-calendar-foot">
+                <a href="/docs">Learn how we count contributions</a>
+                <span class="shithub-contrib-legend">Less <i class="level-0"></i><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i> More</span>
+              </div>
             </div>
           </div>
           <ol class="shithub-profile-years" aria-label="Contribution years">

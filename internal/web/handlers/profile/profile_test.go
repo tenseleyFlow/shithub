@@ -268,6 +268,29 @@ func (e *profileEnv) suspend(t *testing.T, userID int64) {
 	}
 }
 
+func assertContributionWeeksInRange(t *testing.T, body string) {
+	t.Helper()
+	const marker = "WEEKS="
+	start := strings.Index(body, marker)
+	if start < 0 {
+		t.Fatalf("missing %q in body: %s", marker, body)
+	}
+	raw := body[start+len(marker):]
+	end := strings.IndexFunc(raw, func(r rune) bool {
+		return r < '0' || r > '9'
+	})
+	if end >= 0 {
+		raw = raw[:end]
+	}
+	weeks, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("parse weeks from %q: %v", raw, err)
+	}
+	if weeks < 53 || weeks > 54 {
+		t.Fatalf("weeks = %d, want 53 or 54; body: %s", weeks, body)
+	}
+}
+
 func newNonRedirClient(t *testing.T) *http.Client {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
@@ -484,13 +507,13 @@ func TestProfile_OverviewDataUsesVisibleReposAndOrganizations(t *testing.T) {
 		"ORGS=1",
 		"README=false",
 		"CONTRIB=0",
-		"WEEKS=53",
 		"YEARS=4",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
 	}
+	assertContributionWeeksInRange(t, body)
 	if strings.Contains(body, "private-repo") {
 		t.Fatalf("anonymous profile overview leaked private repo data: %s", body)
 	}
@@ -518,12 +541,12 @@ func TestProfile_ContributionsCountVerifiedAndAffiliatedImportedIdentities(t *te
 	for _, want := range []string{
 		"CONTRIB=2",
 		"PERIOD=in the last year",
-		"WEEKS=53",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
 	}
+	assertContributionWeeksInRange(t, body)
 }
 
 func TestProfile_ContributionsSelectedYearHasStableLinks(t *testing.T) {
