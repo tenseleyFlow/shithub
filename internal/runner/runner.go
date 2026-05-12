@@ -421,6 +421,8 @@ func toEngineJob(job api.Job, workspaceDir, defaultImage string) engine.Job {
 		RunIndex:       job.RunIndex,
 		WorkflowFile:   job.WorkflowFile,
 		WorkflowName:   job.WorkflowName,
+		CheckoutURL:    job.CheckoutURL,
+		CheckoutToken:  job.CheckoutToken,
 		HeadSHA:        job.HeadSHA,
 		HeadRef:        job.HeadRef,
 		Event:          job.Event,

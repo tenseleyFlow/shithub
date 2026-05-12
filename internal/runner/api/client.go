@@ -62,6 +62,8 @@ type Job struct {
 	RunIndex       int64             `json:"run_index"`
 	WorkflowFile   string            `json:"workflow_file"`
 	WorkflowName   string            `json:"workflow_name"`
+	CheckoutURL    string            `json:"checkout_url"`
+	CheckoutToken  string            `json:"checkout_token"`
 	HeadSHA        string            `json:"head_sha"`
 	HeadRef        string            `json:"head_ref"`
 	Event          string            `json:"event"`

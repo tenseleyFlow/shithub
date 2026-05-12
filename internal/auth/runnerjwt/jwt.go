@@ -28,6 +28,9 @@ const (
 	// DefaultTTL is the runner job-token lifetime from the S41c contract.
 	DefaultTTL = 15 * time.Minute
 
+	PurposeAPI      = "api"
+	PurposeCheckout = "checkout"
+
 	signingKeySize = 32
 	hkdfInfo       = "actions-runner-jwt-v1"
 	jtiBytes       = 32
@@ -45,12 +48,13 @@ var (
 
 // Claims are the JWT payload fields accepted by runner job endpoints.
 type Claims struct {
-	Sub    string `json:"sub"`
-	JobID  int64  `json:"job_id"`
-	RunID  int64  `json:"run_id"`
-	RepoID int64  `json:"repo_id"`
-	Exp    int64  `json:"exp"`
-	JTI    string `json:"jti"`
+	Sub     string `json:"sub"`
+	JobID   int64  `json:"job_id"`
+	RunID   int64  `json:"run_id"`
+	RepoID  int64  `json:"repo_id"`
+	Exp     int64  `json:"exp"`
+	JTI     string `json:"jti"`
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // RunnerID extracts the runner id encoded in sub="runner:<id>".
@@ -73,6 +77,7 @@ type MintParams struct {
 	RunID    int64
 	RepoID   int64
 	TTL      time.Duration
+	Purpose  string
 }
 
 // Signer signs and verifies HS256 runner JWTs.
@@ -165,13 +170,18 @@ func (s *Signer) Mint(p MintParams) (string, Claims, error) {
 	if err != nil {
 		return "", Claims{}, err
 	}
+	purpose := p.Purpose
+	if purpose == "" {
+		purpose = PurposeAPI
+	}
 	claims := Claims{
-		Sub:    fmt.Sprintf("runner:%d", p.RunnerID),
-		JobID:  p.JobID,
-		RunID:  p.RunID,
-		RepoID: p.RepoID,
-		Exp:    s.now().Add(ttl).Unix(),
-		JTI:    jti,
+		Sub:     fmt.Sprintf("runner:%d", p.RunnerID),
+		JobID:   p.JobID,
+		RunID:   p.RunID,
+		RepoID:  p.RepoID,
+		Exp:     s.now().Add(ttl).Unix(),
+		JTI:     jti,
+		Purpose: purpose,
 	}
 	if err := validateClaims(claims); err != nil {
 		return "", Claims{}, err
@@ -271,6 +281,11 @@ func validateClaims(c Claims) error {
 		return err
 	}
 	if c.JobID <= 0 || c.RunID <= 0 || c.RepoID <= 0 || c.Exp <= 0 {
+		return ErrInvalidClaims
+	}
+	switch c.Purpose {
+	case "", PurposeAPI, PurposeCheckout:
+	default:
 		return ErrInvalidClaims
 	}
 	if len(c.JTI) < 16 || len(c.JTI) > 128 {

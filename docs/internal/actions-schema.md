@@ -134,7 +134,7 @@ Exactly three aliases are reserved at parse time, no exceptions:
 
 | Alias                            | Parser status | Runner status                              |
 | -------------------------------- | ------------- | ------------------------------------------ |
-| `actions/checkout@v4`            | accepted      | rejected until checkout support lands      |
+| `actions/checkout@v4`            | accepted      | executable with scoped checkout token      |
 | `shithub/upload-artifact@v1`     | accepted      | rejected until artifact upload lands       |
 | `shithub/download-artifact@v1`   | accepted      | rejected until artifact download lands     |
 
@@ -143,11 +143,18 @@ actions) is an Error-severity diagnostic. The marketplace problem is
 explicitly out of scope for v1; revisit only if a real demand exists
 and we have an answer for supply-chain trust.
 
-The current Docker executor runs `run:` steps only. It fails a reserved
-`uses:` alias deliberately instead of pretending checkout/artifact
-semantics exist. This keeps the first end-to-end smoke path honest:
-`run:`-only workflows are executable now, while repository checkout and
-artifact transfer remain explicit follow-up work.
+The current Docker executor runs `actions/checkout@v4` and `run:` steps.
+Checkout happens on the runner host before a containerized step mounts the
+workspace. The server issues a short-lived checkout-purpose JWT scoped to
+the claimed repository and running job; the smart-HTTP handler accepts it
+only for read-only `git-upload-pack`. Artifact transfer remains explicit
+follow-up work, and the artifact aliases fail deliberately until that path
+exists.
+
+Checkout v1 accepts only `with.fetch-depth`. The default is a depth-1 fetch
+of the workflow run's `head_sha`; `fetch-depth: 0` requests full history.
+Submodules, LFS, `path`, persisted credentials, and marketplace actions are
+rejected because they are not part of this dialect yet.
 
 ### File-size + parser caps
 

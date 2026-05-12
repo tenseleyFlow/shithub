@@ -1,0 +1,13 @@
+name: checkout canary
+on: [push, workflow_dispatch]
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify checkout
+        env:
+          EXPECTED_SHA: ${{ shithub.sha }}
+        run: |
+          test -f go.mod
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"

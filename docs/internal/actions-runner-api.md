@@ -28,18 +28,18 @@ the response includes a job payload and a 15-minute job JWT. That JWT
 has claims:
 
 ```json
-{"sub":"runner:<id>","job_id":1,"run_id":1,"repo_id":1,"exp":0,"jti":"..."}
+{"sub":"runner:<id>","purpose":"api","job_id":1,"run_id":1,"repo_id":1,"exp":0,"jti":"..."}
 ```
 
 The signing key is derived from `auth.totp_key_b64` with HKDF label
 `actions-runner-jwt-v1`; the raw TOTP/secretbox key is not used
 directly for JWT signing.
 
-Job JWTs are single-use. Every job endpoint verifies the signature and
-expiry, checks that the path job belongs to the claimed runner/run, and
-then inserts `jti` into `runner_jwt_used`. A replay returns 401. To
-support multi-step runner flows, successful in-flight job endpoints
-return `next_token` and `next_token_expires_at`.
+API-purpose job JWTs are single-use. Every job endpoint verifies the
+signature and expiry, checks that the path job belongs to the claimed
+runner/run, and then inserts `jti` into `runner_jwt_used`. A replay
+returns 401. To support multi-step runner flows, successful in-flight job
+endpoints return `next_token` and `next_token_expires_at`.
 
 Consumed JWT rows are retained for 30 days after token expiry, then
 pruned by the daily `workflow:cleanup` worker. This keeps the replay
@@ -47,11 +47,21 @@ gate audit trail available for recent jobs without letting the table
 grow unbounded.
 
 `shithubd-runner` consumes the same token chain: it claims with the
-registration token, marks the job `running` with the first job JWT, then
-uses each returned `next_token` serially for log chunks, step-status
-updates, cancel checks, artifact upload requests, and finally the
-terminal job-status update. Reusing any consumed job JWT is a replay and
-must fail with 401.
+registration token, marks the job `running` with the first API-purpose job
+JWT, then uses each returned `next_token` serially for log chunks,
+step-status updates, cancel checks, artifact upload requests, and finally
+the terminal job-status update. Reusing any consumed API-purpose job JWT
+is a replay and must fail with 401.
+
+The heartbeat claim also returns `job.checkout_url` and
+`job.checkout_token` for `actions/checkout@v4`. The checkout token is a
+separate JWT with `purpose:"checkout"` and the same runner/job/run/repo
+scope. It is intentionally reusable while the job is `running`, because
+Git smart HTTP performs multiple Basic-authenticated requests during one
+checkout. The git HTTP handler accepts it only for `git-upload-pack`, only
+for the claimed repository, and only while the database still shows that
+the claimed runner is running the job. It is never accepted for pushes or
+runner API endpoints.
 
 ## Endpoints
 
@@ -67,11 +77,11 @@ Returns 204 when no matching job is claimable. Returns 200 with
 `token`, `expires_at`, and `job` when a job is claimed. Capacity is
 enforced server-side by counting current `workflow_jobs.status =
 'running'` rows for the runner while holding a row lock on the runner.
-The job payload includes resolved `secrets` and `mask_values`; repo
-secrets shadow org secrets with the same name. The server also stores
-an encrypted claim-time copy of the mask values on
-`workflow_job_secret_masks` so later log uploads are scrubbed against
-the secrets that were actually handed to the runner, even if an
+The job payload includes `checkout_url`, `checkout_token`, resolved
+`secrets`, and `mask_values`; repo secrets shadow org secrets with the
+same name. The server also stores an encrypted claim-time copy of the mask
+values on `workflow_job_secret_masks` so later log uploads are scrubbed
+against the secrets that were actually handed to the runner, even if an
 operator rotates or deletes a secret mid-job.
 
 `POST /api/v1/jobs/{id}/logs`
@@ -141,11 +151,10 @@ When a runner reports `status:"cancelled"`, any still-open steps in the
 job are marked cancelled too. This keeps a killed job from leaving queued
 step rows that the UI would otherwise treat as live.
 
-S41d PR2 runner execution supports containerized `run:` steps with
-per-step log streaming and server-side log finalization. `uses:` aliases
-such as `actions/checkout@v4` and artifact upload/download remain
-reserved for the later S41d slices that add checkout metadata and
-artifact transfer.
+Runner execution supports host-side `actions/checkout@v4` followed by
+containerized `run:` steps with per-step log streaming and server-side log
+finalization. Artifact upload/download aliases remain reserved until the
+artifact transfer path lands.
 
 `POST /api/v1/jobs/{id}/artifacts/upload`
 

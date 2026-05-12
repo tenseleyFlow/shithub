@@ -19,14 +19,17 @@ workflow_runs + workflow_jobs + workflow_steps + check_runs
 registered runner heartbeat claims a matching queued job
         |
         v
-containerized run: steps -> log chunks -> step/job status -> run rollup
+actions/checkout@v4 -> containerized run: steps
+        |
+        v
+log chunks -> step/job status -> run rollup
 ```
 
-The v1 executor supports containerized `run:` steps. The parser reserves
-`actions/checkout@v4`, `shithub/upload-artifact@v1`, and
-`shithub/download-artifact@v1`, but the Docker runner rejects `uses:` steps
-until checkout metadata and artifact transfer are wired end to end. Do not use
-`actions/checkout@v4` in production smoke workflows yet.
+The v1 executor supports host-side `actions/checkout@v4` plus containerized
+`run:` steps. The checkout token is short-lived, repository-scoped, tied to a
+running job, and accepted only for read-only smart-HTTP fetches.
+`shithub/upload-artifact@v1` and `shithub/download-artifact@v1` are still
+reserved aliases and fail until artifact transfer is wired end to end.
 
 ## First smoke
 
@@ -66,6 +69,31 @@ jobs:
 - `/{owner}/{repo}/actions.atom` includes the completed run.
 
 Repeat with `exit 1`; the check should complete with `failure`.
+
+## Checkout smoke
+
+After the run-only smoke passes, verify repository checkout with:
+
+```yaml
+name: checkout smoke
+on: [push, workflow_dispatch]
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: test -f README.md
+      - run: test "$(git rev-parse HEAD)" = "${{ shithub.sha }}"
+```
+
+Expected result:
+
+- The claim response contains `checkout_url` and `checkout_token`.
+- Git smart HTTP sees the checkout token as Basic auth and permits
+  `git-upload-pack` for the claimed repo.
+- `git-receive-pack` rejects the same credential with 403.
+- The job workspace contains the exact `shithub.sha` commit before the first
+  `run:` step starts.
 
 ## Live log tail
 
@@ -168,8 +196,12 @@ active container, and reports terminal `cancelled`.
   capacity, then inspect runner journal output and heartbeat metrics.
 - **Step logs buffer:** verify the Caddy route above and confirm the SSE route
   is still mounted outside compression and short timeouts.
-- **`uses:` step fails:** expected for now. Replace with a `run:` step until
-  checkout/artifact support lands.
+- **`actions/checkout@v4` fails:** confirm the job is still running, the repo
+  URL in the runner claim points at this shithub instance, and the runner host
+  can reach smart HTTP. The checkout token is not valid after the job leaves
+  `running`.
+- **Artifact `uses:` step fails:** expected for now. Replace with a `run:`
+  step until artifact support lands.
 - **Secrets appear masked inconsistently:** check
   `shithub_actions_log_scrub_replacements_total{location="server"}` and confirm
   the job was claimed after the secret was created or rotated. Mask snapshots

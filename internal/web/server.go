@@ -338,7 +338,7 @@ func Run(ctx context.Context, opts Options) error {
 			})
 		}
 
-		gitHTTPH, err := buildGitHTTPHandlers(cfg, pool, logger)
+		gitHTTPH, err := buildGitHTTPHandlers(cfg, pool, runnerJWT, logger)
 		if err != nil {
 			return fmt.Errorf("git-http handlers: %w", err)
 		}

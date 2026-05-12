@@ -27,6 +27,7 @@ a check run on matching pull requests.
 ## What works today
 
 - `push`, `pull_request`, `schedule`, and `workflow_dispatch` triggers
+- `actions/checkout@v4` for repository checkout
 - `run:` steps executed in the operator-configured runner image
 - `runs-on:` label matching against registered runners
 - workflow, job, and step `env:`
@@ -41,16 +42,27 @@ runner uses. On shithub.sh, use the labels published by the instance operator.
 
 ## Current limit
 
-Use `run:` steps for now. The parser accepts these reserved aliases:
+The runner executes `actions/checkout@v4` and `run:` steps. Checkout accepts
+the default shallow fetch and `with.fetch-depth`; use `fetch-depth: 0` when a
+workflow needs full history:
 
-- `actions/checkout@v4`
+```yaml
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: "0"
+  - run: git describe --tags --always
+```
+
+The parser also accepts these artifact aliases:
+
 - `shithub/upload-artifact@v1`
 - `shithub/download-artifact@v1`
 
-The runner does not execute them yet. A workflow containing those `uses:` steps
-will fail until checkout and artifact execution land. If you need repository
-files in a smoke workflow today, keep the command self-contained or fetch what
-you need explicitly inside a `run:` step.
+The runner does not execute artifact aliases yet. A workflow containing those
+artifact `uses:` steps will fail until artifact execution lands. Checkout
+inputs such as `path`, submodules, LFS, and persisted credentials are not
+implemented yet.
 
 ## Expressions
 
@@ -84,9 +96,10 @@ Repo-scoped values shadow organization-scoped values with the same name.
 Most simple CI files need three edits:
 
 1. Move the workflow file from `.github/workflows/` to `.shithub/workflows/`.
-2. Replace `uses:` actions with equivalent `run:` commands.
+2. Keep `actions/checkout@v4`, but replace marketplace and artifact `uses:`
+   actions with equivalent `run:` commands for now.
 3. Confirm `runs-on:` matches a label registered by your shithub operator.
 
 Marketplace actions, Docker actions, composite actions, hosted runner images,
-matrix expansion, service containers, and built-in checkout are not part of the
-current v1 runner.
+matrix expansion, service containers, submodules, LFS, and artifact transfer
+are not part of the current v1 runner.

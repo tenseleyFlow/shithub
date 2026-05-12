@@ -40,6 +40,8 @@ type Job struct {
 	RunIndex       int64
 	WorkflowFile   string
 	WorkflowName   string
+	CheckoutURL    string
+	CheckoutToken  string
 	HeadSHA        string
 	HeadRef        string
 	Event          string

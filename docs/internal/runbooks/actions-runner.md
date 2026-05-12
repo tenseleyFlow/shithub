@@ -1,8 +1,9 @@
 # Actions runner smoke runbook
 
 This runbook validates the runner-facing Actions path. `shithubd-runner`
-now claims jobs and executes containerized `run:` steps through Docker or
-Podman. The curl flow below remains useful for token/replay debugging.
+now claims jobs, performs scoped `actions/checkout@v4`, and executes
+containerized `run:` steps through Docker or Podman. The curl flow below
+remains useful for token/replay debugging.
 
 For host provisioning and the systemd/Ansible path, see
 [runner-deploy.md](./runner-deploy.md).
@@ -15,8 +16,8 @@ Prereqs:
 - Docker or Podman is installed on the runner host.
 - A repo has a workflow under `.shithub/workflows/*.yml` with
   `runs-on: ubuntu-latest`, and a push/dispatch has enqueued a run.
-  S41d PR1 supports `run:` steps; checkout and artifact aliases land in
-  the following S41d slices.
+  Checkout and `run:` steps are executable; artifact aliases remain
+  reserved until artifact transfer lands.
 
 `runs-on` is a runner-label selector, not a hard-coded image name.
 A workflow that says `runs-on: ubuntu-latest` can be claimed by any
