@@ -207,6 +207,19 @@ between minor releases.
   Scopes: `user:read` on GETs, `user:write` on mutations. All
   routes are implicitly scoped to the authenticated user.
 - **Capability:** `notifications` added to `/api/v1/meta`.
+- **REST: watching / subscriptions (S50 §15).** Per-repo
+  watch-level management mirroring GitHub's
+  `/repos/{o}/{r}/subscription` shape:
+  `GET .../subscribers` (paginated watcher list excluding
+  `ignore` and suspended users), `GET .../subscription`
+  (viewer's level + `explicit` flag distinguishing the
+  implicit `participating` default from an explicit choice),
+  `PUT .../subscription` (set `all` / `participating` /
+  `ignore`), and `DELETE .../subscription` (revert to implicit).
+  Reuses `internal/social.SetWatch` / `UnsetWatch` and
+  `socialdb.ListWatchersForRepo`. Scope: `repo:read` on GETs,
+  `user:write` on mutations.
+- **Capability:** `watching` added to `/api/v1/meta`.
 
 ### Added (internal)
 

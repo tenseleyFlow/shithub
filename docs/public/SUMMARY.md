@@ -41,6 +41,7 @@
 - [Webhooks](./api/webhooks.md)
 - [Search](./api/search.md)
 - [Notifications](./api/notifications.md)
+- [Watching / subscriptions](./api/watching.md)
 - [Admin (site-admin only)](./api/admin.md)
 
 # Self-hosting

@@ -178,6 +178,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountForks(r)
 		// S50 §14 — notifications inbox.
 		h.mountNotifications(r)
+		// S50 §15 — watching / subscriptions.
+		h.mountWatching(r)
 	})
 }
 
