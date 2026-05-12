@@ -267,6 +267,15 @@ between minor releases.
   routes (`/api/v1/user/starred` and `/api/v1/user/starred/{o}/{r}`)
   are unchanged.
 - **Capability:** `stargazers` added to `/api/v1/meta`.
+- **REST: issue events / timeline (S50 §20).**
+  `GET /api/v1/repos/{owner}/{repo}/issues/{number}/events` returns
+  the issue's recorded timeline (every `closed` / `reopened` /
+  `labeled` / `unlabeled` / `milestoned` / `demilestoned` /
+  `locked` / `unlocked` / `referenced` / merged / push event), with
+  `actor_username` LEFT-joined and the raw event `meta` payload
+  preserved verbatim. Paginated with the standard `Link:` headers,
+  sorted oldest-first. Scope: `repo:read`.
+- **Capability:** `issue-events` added to `/api/v1/meta`.
 
 ### Added (internal)
 
