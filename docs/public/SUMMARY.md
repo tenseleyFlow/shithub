@@ -40,6 +40,7 @@
 - [Actions runner API](./api/actions-runner.md)
 - [Webhooks](./api/webhooks.md)
 - [Search](./api/search.md)
+- [Notifications](./api/notifications.md)
 - [Admin (site-admin only)](./api/admin.md)
 
 # Self-hosting

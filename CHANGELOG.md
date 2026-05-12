@@ -196,6 +196,17 @@ between minor releases.
   immediately with `init_status: "init_pending"`. Org-target
   forks land in a follow-up.
 - **Capability:** `forks` added to `/api/v1/meta`.
+- **REST: notifications (S50 §14).** User-scoped inbox surface:
+  `GET /api/v1/notifications` (defaults to unread only;
+  `?all=true` includes read; paginated with `Link:` headers),
+  `GET /api/v1/notifications/threads/{id}` (single fetch with
+  existence-leak-safe cross-user 404),
+  `PATCH /api/v1/notifications/threads/{id}` (mark read/unread
+  — empty body / `unread:false` → read; `unread:true` flips
+  back), and `PUT /api/v1/notifications` (mark all read).
+  Scopes: `user:read` on GETs, `user:write` on mutations. All
+  routes are implicitly scoped to the authenticated user.
+- **Capability:** `notifications` added to `/api/v1/meta`.
 
 ### Added (internal)
 
