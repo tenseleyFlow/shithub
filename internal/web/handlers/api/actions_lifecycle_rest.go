@@ -119,7 +119,7 @@ func (h *Handlers) actionsRunDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.d.ObjectStore != nil && len(objectKeys) > 0 {
-		go h.purgeArtifactObjects(objectKeys)
+		go h.purgeArtifactObjects(context.WithoutCancel(r.Context()), objectKeys)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -128,8 +128,12 @@ func (h *Handlers) actionsRunDelete(w http.ResponseWriter, r *http.Request) {
 // request lifecycle. Failures are logged but never surfaced — the
 // authoritative DB row is gone, and the cleanup sweeper retries
 // orphan-object deletion on its own schedule.
-func (h *Handlers) purgeArtifactObjects(keys []string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//
+// parent is expected to be `context.WithoutCancel(r.Context())` so
+// the goroutine survives response completion while still carrying
+// trace/log values from the originating request.
+func (h *Handlers) purgeArtifactObjects(parent context.Context, keys []string) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	for _, k := range keys {
 		if err := h.d.ObjectStore.Delete(ctx, k); err != nil {
@@ -247,7 +251,7 @@ func (h *Handlers) actionsArtifactDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if h.d.ObjectStore != nil {
-		go h.purgeArtifactObjects([]string{artifact.ObjectKey})
+		go h.purgeArtifactObjects(context.WithoutCancel(r.Context()), []string{artifact.ObjectKey})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
