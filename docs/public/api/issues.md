@@ -93,10 +93,13 @@ modified; everything else stays.
 
 ```json
 {
-  "title": "first bug — root cause found",
-  "body": "see comment #3",
-  "state": "closed",
-  "state_reason": "completed"
+  "title":     "first bug — root cause found",
+  "body":      "see comment #3",
+  "state":     "closed",
+  "state_reason": "completed",
+  "labels":    ["bug", "needs-triage"],
+  "assignees": ["alice"],
+  "milestone": 7
 }
 ```
 
@@ -107,6 +110,17 @@ Permission rules:
 - **State / state_reason** — any caller with `ActionIssueClose`
   on the repo. `state_reason` must be one of `completed`,
   `not_planned`, `duplicate`, `reopened` (or empty).
+- **Labels** — caller needs `ActionIssueLabel`. The payload is a
+  *full replace*: `["bug"]` strips every other label;
+  `[]` clears them all. Omit the field to leave labels untouched.
+  Unknown label names return `422`.
+- **Assignees** — caller needs `ActionIssueAssign`. Same
+  full-replace semantics, names are usernames; unknown usernames
+  return `422`.
+- **Milestone** — caller needs `ActionIssueAssign`. Pass the
+  milestone `id` (see [Milestones](#milestones) below); `0`
+  clears the milestone. The milestone must belong to the same
+  repo; cross-repo ids return `422`.
 
 Returns the freshly-loaded issue.
 
@@ -173,8 +187,53 @@ on the repo (moderation affordance, matches the gh shape).
 
 Returns `204`.
 
+## Milestones
+
+```
+GET    /api/v1/repos/{owner}/{repo}/milestones[?state=open|closed|all]
+POST   /api/v1/repos/{owner}/{repo}/milestones
+GET    /api/v1/repos/{owner}/{repo}/milestones/{id}
+PATCH  /api/v1/repos/{owner}/{repo}/milestones/{id}
+DELETE /api/v1/repos/{owner}/{repo}/milestones/{id}
+```
+
+Required scope: `repo:read` on GETs, `repo:write` on mutations.
+Mutations gate on `ActionIssueLabel` (write collaborator role
+on the repo).
+
+Create payload:
+
+```json
+{
+  "title":       "v1.0",
+  "description": "first stable release",
+  "due_on":      "2026-06-01T00:00:00Z",
+  "state":       "open"
+}
+```
+
+`due_on` is RFC3339; omit or pass `null` to leave it unset. The
+response shape mirrors GitHub's milestone with the repo-local
+`id`, the `state` (`open` / `closed`), and live `open_issues` /
+`closed_issues` counters.
+
+Identifier: the path takes the milestone primary key `id`
+(returned by list / create), not a per-repo number — shithub's
+schema doesn't carry a number column. The CLI gets the id back
+from `POST` or list responses.
+
+## Assignees
+
+```
+GET /api/v1/repos/{owner}/{repo}/assignees
+```
+
+Required scope: `repo:read`. Returns the users eligible to be
+assigned: the repo owner (when user-owned) plus every direct
+repo collaborator. Org-level expansion of org-owned repos is a
+follow-up.
+
 ## Not yet shipped
 
-`POST /api/v1/repos/{o}/{r}/issues/{n}/transfer`, pinning,
-applying labels / assignees / milestones over the issue PATCH —
-all queued for a follow-up batch.
+`POST /api/v1/repos/{o}/{r}/issues/{n}/transfer` and issue
+pinning are queued for a follow-up batch.
