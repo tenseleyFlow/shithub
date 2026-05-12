@@ -27,6 +27,7 @@
 - [Users](./api/users.md)
 - [Repositories](./api/repos.md)
 - [Issues](./api/issues.md)
+- [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)
 - [Status checks](./api/checks.md)
 - [Actions workflow API](./api/actions.md)
