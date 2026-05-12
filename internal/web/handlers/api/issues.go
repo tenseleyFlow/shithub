@@ -304,22 +304,18 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Title/body: author OR repo collaborator with at least
-	// triage-equivalent permissions can edit. We gate via
-	// ActionIssueComment since it matches the "trusted contributor"
-	// archetype (comment + edit-own-issue privileges).
+	// Title/body: only the author or a repo collaborator with write
+	// access can edit. We deliberately gate via ActionRepoWrite (not
+	// ActionIssueComment) — comment-create is open to any logged-in
+	// reader on a public repo, but editing someone else's issue is a
+	// moderation action.
 	if body.Title != nil || body.Body != nil {
-		// Only the author (or someone with comment-equivalent
-		// privileges on the repo) edits.
-		canEdit := false
-		if issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID {
-			canEdit = true
+		canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
+		if !canEdit {
+			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(*repo)).Allow
 		}
 		if !canEdit {
-			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueComment, policy.NewRepoRefFromRepo(*repo)).Allow
-		}
-		if !canEdit {
-			writeAPIError(w, http.StatusForbidden, "only the author or a collaborator may edit this issue")
+			writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may edit this issue")
 			return
 		}
 		updated, err := issues.Edit(r.Context(), h.issuesDeps(), issues.EditParams{
