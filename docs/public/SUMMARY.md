@@ -30,6 +30,7 @@
 - [Branches and tags](./api/branches.md)
 - [Repo collaborators](./api/collaborators.md)
 - [Commits](./api/commits.md)
+- [Contents](./api/contents.md)
 - [Issues](./api/issues.md)
 - [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)

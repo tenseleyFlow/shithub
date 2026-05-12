@@ -39,6 +39,7 @@ var APICapabilities = []string{
 	"tags",
 	"collaborators",
 	"commits",
+	"contents",
 }
 
 type metaResponse struct {
