@@ -55,6 +55,9 @@ var APICapabilities = []string{
 	"actions-secrets",
 	"actions-variables",
 	"actions-caches",
+	"readme",
+	"topics",
+	"merge-upstream",
 }
 
 type metaResponse struct {

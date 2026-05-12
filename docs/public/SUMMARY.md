@@ -27,6 +27,7 @@
 - [Users](./api/users.md)
 - [Organizations](./api/orgs.md)
 - [Repositories](./api/repos.md)
+- [Repository follow-ups (README/topics/merge-upstream)](./api/repos-followups.md)
 - [Branches and tags](./api/branches.md)
 - [Repo collaborators](./api/collaborators.md)
 - [Commits](./api/commits.md)

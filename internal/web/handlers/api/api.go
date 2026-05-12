@@ -207,6 +207,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsVariables(r)
 		// S50 §13 — actions caches list + delete.
 		h.mountActionsCaches(r)
+		// S50 §2 follow-ups — README + topics + fork-sync.
+		h.mountReposFollowups(r)
 	})
 }
 
