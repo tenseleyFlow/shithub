@@ -1,0 +1,6 @@
+{{ define "page" -}}
+<div id="shithub-feed-fragment-rows">
+  {{ range .Feed }}{{ template "feed-row" . }}{{ end }}
+</div>
+{{ template "explore-feed-pagination" . }}
+{{- end }}

@@ -52,6 +52,10 @@ func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, pat
 			}
 			return social.PublicFeed(r.Context(), deps, cursor, limit)
 		})
+		if activeTab == "activity" && isExploreFeedFragmentRequest(r) {
+			h.renderFeedFragment(w, r, feed, hasNext, nextURL)
+			return
+		}
 		if viewer.ID != 0 {
 			var err error
 			topRepos, err = social.DashboardRepos(r.Context(), deps, viewer.ID, 30)
@@ -72,6 +76,10 @@ func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, pat
 		if err != nil && h.logger != nil {
 			h.logger.WarnContext(r.Context(), "explore trending users", "error", err)
 		}
+	}
+	if activeTab == "activity" && isExploreFeedFragmentRequest(r) {
+		h.renderFeedFragment(w, r, feed, hasNext, nextURL)
+		return
 	}
 
 	pageHeading := title
@@ -102,6 +110,7 @@ func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, pat
 		"TrendingRepos":  trendingRepos,
 		"TrendingUsers":  trendingUsers,
 		"Path":           path,
+		"UseHTMX":        true,
 	}
 	if err := h.render.RenderPage(w, r, "explore/index", data); err != nil {
 		if h.logger != nil {
@@ -109,6 +118,24 @@ func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, pat
 		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
+}
+
+func (h exploreHandler) renderFeedFragment(w http.ResponseWriter, r *http.Request, feed []social.FeedItem, hasNext bool, nextURL string) {
+	data := map[string]any{
+		"Feed":        feed,
+		"FeedHasNext": hasNext,
+		"FeedNextURL": nextURL,
+	}
+	if err := h.render.RenderFragment(w, "explore/feed_page", data); err != nil {
+		if h.logger != nil {
+			h.logger.ErrorContext(r.Context(), "render explore feed fragment", "error", err)
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func isExploreFeedFragmentRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true" && r.URL.Query().Get("before") != ""
 }
 
 func feedPageFor(r *http.Request, load func(social.FeedCursor, int32) ([]social.FeedItem, error)) ([]social.FeedItem, bool, string) {
