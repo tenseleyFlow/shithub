@@ -14,10 +14,13 @@ func testTemplatesFS(t *testing.T) fs.FS {
 	t.Helper()
 	return fstest.MapFS{
 		"_layout.html": &fstest.MapFile{
-			Data: []byte(`{{ define "layout" }}<!DOCTYPE html><html><head><title>{{ .Title }} · shithub</title></head><body>{{ template "page" . }}</body></html>{{ end }}`),
+			Data: []byte(`{{ define "layout" }}<!DOCTYPE html><html><head>{{ if stringField . "MetaDescription" }}<meta name="description" content="{{ stringField . "MetaDescription" }}">{{ end }}{{ with stringField . "CanonicalURL" }}<link rel="canonical" href="{{ . }}">{{ end }}<title>{{ .Title }} · shithub</title></head><body>{{ template "page" . }}</body></html>{{ end }}`),
 		},
 		"hello.html": &fstest.MapFile{
 			Data: []byte(`{{ define "page" }}<main>shithub - GitHub. Open source. Without Copilot. Sprint 00 v{{ .Version }}</main>{{ end }}`),
+		},
+		"about.html": &fstest.MapFile{
+			Data: []byte(`{{ define "page" }}<main>No hard feelings to GitHub. I just don't want AI training on my code.</main>{{ end }}`),
 		},
 	}
 }

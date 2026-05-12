@@ -1,0 +1,64 @@
+{{ define "page" -}}
+<section class="shithub-about">
+  <header class="shithub-about-hero">
+    <p class="shithub-about-kicker">Self-hosted GitHub alternative</p>
+    <h1>Git hosting with GitHub muscle memory and no AI training on your code.</h1>
+    <p>
+      shithub is an AGPL git forge for teams who like GitHub's product,
+      workflows, and interface, but want a self-hostable home for source
+      code that is not part of a Copilot training pipeline.
+    </p>
+  </header>
+
+  <section class="shithub-about-section">
+    <h2>No hard feelings</h2>
+    <p>
+      GitHub is good software. The goal here is not to pretend otherwise.
+      The issue is simpler: I just don't want AI training on my code.
+      shithub keeps the parts that work: repositories, pull requests,
+      issues, code review, organizations, search, and Actions-style CI,
+      while making the hosted service and the self-hosted product open
+      under the AGPL.
+    </p>
+  </section>
+
+  <section class="shithub-about-section">
+    <h2>What shithub is trying to be</h2>
+    <ul class="shithub-about-list">
+      <li>
+        <strong>A real forge, not a demo.</strong>
+        <span>Git repositories, HTTPS push and pull, reviews, required checks, webhooks, notifications, teams, scoped tokens, and code search are product requirements, not stretch goals.</span>
+      </li>
+      <li>
+        <strong>Familiar on purpose.</strong>
+        <span>The closer the GitHub-style UI and workflows are, the less expensive it is for a team to move.</span>
+      </li>
+      <li>
+        <strong>Open when hosted.</strong>
+        <span>AGPLv3 means modified network services have to publish the matching source, so hosted shithub instances stay accountable to their users.</span>
+      </li>
+      <li>
+        <strong>Honest about gaps.</strong>
+        <span>The public docs and README call out what is live, what is rough, and what is still in flight.</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="shithub-about-section">
+    <h2>Community posture</h2>
+    <p>
+      Contributions are welcome under the same AGPL terms, security reports
+      go through coordinated disclosure, and the project follows the
+      Contributor Covenant. Be direct, be civil, and keep the work focused
+      on making an open GitHub alternative that people can actually use.
+    </p>
+  </section>
+
+  <nav class="shithub-about-actions" aria-label="About links">
+    <a class="shithub-landing-cta-primary" href="/signup">Create an account</a>
+    <a class="shithub-landing-cta-secondary" href="https://docs.shithub.sh/self-host/deploy.html">Self-host shithub</a>
+    <a class="shithub-landing-cta-secondary" href="/shithub/shithub">Read the source</a>
+    <a class="shithub-landing-cta-secondary" href="https://docs.shithub.sh/security.html">Security policy</a>
+  </nav>
+</section>
+{{- end }}

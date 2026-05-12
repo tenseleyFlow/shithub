@@ -15,6 +15,7 @@ import (
 type helloHandler struct {
 	render  *render.Renderer
 	logoSVG string
+	baseURL string
 	logger  *slog.Logger
 }
 
@@ -25,17 +26,19 @@ type helloData struct {
 	BuiltAt string
 	LogoSVG template.HTML
 	// Viewer + CSRFToken mirror the fields _nav.html branches on. Typed
-	// page-data structs must populate them explicitly — the renderer
+	// page-data structs must populate them explicitly - the renderer
 	// only auto-injects for map[string]any data.
 	Viewer    middleware.CurrentUser
 	CSRFToken string
-	// OG* are referenced by the shared _layout.html (S09). The fields
-	// must exist on every typed page-data struct that goes through the
-	// layout — html/template evaluates `{{ if .X }}` even on nil-checks
-	// and errors when X is missing.
-	OGTitle       string
-	OGDescription string
-	OGImage       string
+	// SEO/social fields are read by optional layout helpers, so typed
+	// page-data structs may provide only the fields they actually need.
+	MetaDescription string
+	CanonicalURL    string
+	OGTitle         string
+	OGDescription   string
+	OGImage         string
+	OGType          string
+	StructuredData  template.JS
 	// GlobalSearchQuery is referenced by _nav.html's search input to
 	// preserve the query when re-rendering after a search. Hello has
 	// no query of its own, but the field must exist or template
@@ -51,13 +54,19 @@ type helloData struct {
 func (h helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	data := helloData{
-		Title:     "Welcome",
-		Version:   version.Version,
-		Commit:    version.Commit,
-		BuiltAt:   version.BuiltAt,
-		LogoSVG:   template.HTML(h.logoSVG), // #nosec G203 — embedded server-owned asset
-		Viewer:    viewer,
-		CSRFToken: middleware.CSRFTokenForRequest(r),
+		Title:           "Welcome",
+		Version:         version.Version,
+		Commit:          version.Commit,
+		BuiltAt:         version.BuiltAt,
+		LogoSVG:         template.HTML(h.logoSVG), // #nosec G203 - embedded server-owned asset
+		Viewer:          viewer,
+		CSRFToken:       middleware.CSRFTokenForRequest(r),
+		MetaDescription: defaultMetaDescription,
+		CanonicalURL:    canonicalURL(h.baseURL, r, "/"),
+		OGTitle:         "shithub: GitHub-style git hosting without Copilot",
+		OGDescription:   "A self-hostable, AGPL GitHub alternative with familiar repositories, pull requests, issues, organizations, code search, and Actions-style CI.",
+		OGType:          "website",
+		StructuredData:  organizationStructuredData(publicBaseURL(h.baseURL, r)),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.render.RenderPage(w, r, "hello", data); err != nil {
