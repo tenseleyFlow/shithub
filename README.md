@@ -12,7 +12,7 @@
 
 **Status: v0.1.0 launched — early days. Honest about WIP areas.**
 
-shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are not there yet. The core forge loop works end-to-end (see "What works today"); large surfaces (SSH transport, Actions/CI, GraphQL, Packages) are explicitly not shipped at v0.1.0.
+shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are not there yet. The core forge loop works end-to-end (see "What works today"); large surfaces such as GraphQL, Packages, Pages, Projects, Releases, and Gists are still explicitly outside the current shipped surface.
 
 The hosted instance is at **[shithub.sh](https://shithub.sh)**. The project's own source has migrated here from GitHub; this GitHub repo is a one-way mirror for the first 90 days post-launch as a recovery surface.
 
@@ -33,13 +33,14 @@ The core forge loop works end-to-end against the codebase you're reading:
 - **Organizations & teams** — create, member roles (member/owner), invitations, one-level team nesting, team grants on repos with max-of-sources policy aggregation.
 - **Repo settings** — General (description, topics, features, merge methods), Access (collaborators + team grants), Branches (protection rules), Danger (rename/transfer/archive/visibility/delete).
 - **Webhooks** — outbound delivery with HMAC-SHA256 signing, exponential backoff with jitter, auto-disable on persistent failure, SSRF defense (DNS resolve + IP block-list + dial-the-IP transport, no redirect-following), redelivery UI, ping events.
+- **Actions / CI v1** — `.shithub/workflows` parser, push/PR/schedule/dispatch triggers, per-repo/org secrets and variables, runner registration, single-use job JWTs, scoped checkout, containerized `run:` steps, live logs, cancel/re-run, retention, check-run sync, Atom feed, and monitoring. v1 intentionally supports `actions/checkout@v4` plus `run:` steps, not arbitrary marketplace actions.
 
 ## What doesn't work yet
 
 Pulled directly from the sprint plan we're working through:
 
 - **SSH git service** — HTTPS works; the SSH front-end is planned. Use HTTPS clone URLs for now.
-- **Actions / CI** — there is no CI runner. Status checks are wired into PR gates so a future runner can publish into them.
+- **Actions marketplace parity** — shithub Actions does not execute arbitrary `uses:` steps, matrix builds, service containers, composite actions, or hosted runner images. The project's full CI remains on GitHub Actions until the first-party runner image/Nix toolchain can run it without marketplace setup actions; `.shithub/workflows/checkout-canary.yml` is the current dogfood canary.
 - **Packages, Pages, Projects, Releases, Gists** — none of these surfaces exist yet.
 - **GraphQL API** — only the internal HTTP surface exists. There is no public REST or GraphQL API.
 - **Admin / site-admin surface** — there is no `/admin` UI. Operator tooling is via `shithubd` subcommands and SQL.
