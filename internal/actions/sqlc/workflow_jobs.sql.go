@@ -334,6 +334,55 @@ func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]L
 	return items, nil
 }
 
+const listQueuedWorkflowJobRunsOn = `-- name: ListQueuedWorkflowJobRunsOn :many
+SELECT
+    COALESCE(NULLIF(j.runs_on, ''), '(none)')::text AS runs_on,
+    COUNT(*)::integer AS queued_jobs,
+    COUNT(DISTINCT wr.id)::integer AS matching_runner_count,
+    MIN(j.created_at)::timestamptz AS oldest_queued_at
+FROM workflow_jobs j
+LEFT JOIN workflow_runners wr
+  ON (j.runs_on = '' OR j.runs_on = ANY(wr.labels))
+ AND wr.status IN ('idle', 'busy')
+WHERE j.status = 'queued'
+  AND j.cancel_requested = false
+  AND j.runner_id IS NULL
+GROUP BY COALESCE(NULLIF(j.runs_on, ''), '(none)')
+ORDER BY queued_jobs DESC, runs_on ASC
+`
+
+type ListQueuedWorkflowJobRunsOnRow struct {
+	RunsOn              string
+	QueuedJobs          int32
+	MatchingRunnerCount int32
+	OldestQueuedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) ListQueuedWorkflowJobRunsOn(ctx context.Context, db DBTX) ([]ListQueuedWorkflowJobRunsOnRow, error) {
+	rows, err := db.Query(ctx, listQueuedWorkflowJobRunsOn)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListQueuedWorkflowJobRunsOnRow{}
+	for rows.Next() {
+		var i ListQueuedWorkflowJobRunsOnRow
+		if err := rows.Scan(
+			&i.RunsOn,
+			&i.QueuedJobs,
+			&i.MatchingRunnerCount,
+			&i.OldestQueuedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const requestWorkflowJobCancel = `-- name: RequestWorkflowJobCancel :one
 UPDATE workflow_jobs
 SET cancel_requested = true,

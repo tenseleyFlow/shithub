@@ -172,3 +172,19 @@ SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC;
+
+-- name: ListQueuedWorkflowJobRunsOn :many
+SELECT
+    COALESCE(NULLIF(j.runs_on, ''), '(none)')::text AS runs_on,
+    COUNT(*)::integer AS queued_jobs,
+    COUNT(DISTINCT wr.id)::integer AS matching_runner_count,
+    MIN(j.created_at)::timestamptz AS oldest_queued_at
+FROM workflow_jobs j
+LEFT JOIN workflow_runners wr
+  ON (j.runs_on = '' OR j.runs_on = ANY(wr.labels))
+ AND wr.status IN ('idle', 'busy')
+WHERE j.status = 'queued'
+  AND j.cancel_requested = false
+  AND j.runner_id IS NULL
+GROUP BY COALESCE(NULLIF(j.runs_on, ''), '(none)')
+ORDER BY queued_jobs DESC, runs_on ASC;
