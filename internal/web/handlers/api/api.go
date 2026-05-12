@@ -182,6 +182,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountWatching(r)
 		// S50 §16 — events / activity feed.
 		h.mountEvents(r)
+		// S50 §17 — followers / following.
+		h.mountFollowers(r)
 	})
 }
 

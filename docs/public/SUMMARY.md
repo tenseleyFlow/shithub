@@ -43,6 +43,7 @@
 - [Notifications](./api/notifications.md)
 - [Watching / subscriptions](./api/watching.md)
 - [Events / activity](./api/events.md)
+- [Followers / following](./api/followers.md)
 - [Admin (site-admin only)](./api/admin.md)
 
 # Self-hosting

@@ -230,6 +230,17 @@ between minor releases.
   `socialdb.ListEventsForRepo` and
   `socialdb.ListPublicEventsForActor` queries.
 - **Capability:** `events` added to `/api/v1/meta`.
+- **REST: followers / following (S50 §17).**
+  `GET /api/v1/users/{username}/followers` and
+  `GET /api/v1/users/{username}/following` (both paginated;
+  `Link:` headers), plus the authenticated-user-scoped
+  `GET /api/v1/user/following/{target}` (204/404 membership
+  probe matching gh), `PUT /api/v1/user/following/{target}`
+  (follow), and `DELETE` (unfollow). Self-follow returns 422.
+  Reuses `internal/social.FollowUser` / `UnfollowUser` so the
+  follow rate-limit and `followed_user` domain event stay in
+  one place. Org-follow variants remain on the HTML surface.
+- **Capability:** `followers` added to `/api/v1/meta`.
 
 ### Added (internal)
 

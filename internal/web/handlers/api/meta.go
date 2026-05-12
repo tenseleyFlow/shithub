@@ -44,6 +44,7 @@ var APICapabilities = []string{
 	"notifications",
 	"watching",
 	"events",
+	"followers",
 }
 
 type metaResponse struct {
