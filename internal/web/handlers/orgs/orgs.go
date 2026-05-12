@@ -2,7 +2,8 @@
 
 // Package orgs wires the S30 organization web surface:
 //
-//	GET  /organizations/new            plan selection / create form
+//	GET  /organizations/plan           plan selection
+//	GET  /organizations/new            create form
 //	POST /organizations                create submit
 //	GET  /orgs/{org}/repositories                          repository list
 //	GET  /{org}/people                                      members + pending invites + invite form
@@ -87,12 +88,13 @@ func New(d Deps) (*Handlers, error) {
 	return &Handlers{d: d}, nil
 }
 
-// MountCreate registers /organizations/new, POST /organizations, and
+// MountCreate registers /organizations/plan, /organizations/new, POST /organizations, and
 // organization settings routes under /organizations/{org}/settings/*.
 // Caller wraps these in RequireUser since they require a logged-in
 // actor. The /organizations prefix is on the auth-reserved list so it
 // never shadows a user/org slug.
 func (h *Handlers) MountCreate(r chi.Router) {
+	r.Get("/organizations/plan", h.planSelection)
 	r.Get("/organizations/new", h.newForm)
 	r.Post("/organizations", h.createSubmit)
 	r.Get("/organizations/{org}/settings/profile", h.settingsProfile)
@@ -183,6 +185,15 @@ func parseUserIDParam(s string) (int64, error) {
 
 // ─── create ────────────────────────────────────────────────────────
 
+func (h *Handlers) planSelection(w http.ResponseWriter, r *http.Request) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next=/organizations/plan", http.StatusSeeOther)
+		return
+	}
+	h.renderPlanSelection(w, r, "")
+}
+
 func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
@@ -209,6 +220,7 @@ type orgCreateForm struct {
 	BillingEmail string
 	GitHubOrg    string
 	GitHubToken  string
+	AcceptTerms  bool
 }
 
 func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
@@ -228,9 +240,14 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 		BillingEmail: strings.TrimSpace(r.PostFormValue("billing_email")),
 		GitHubOrg:    strings.TrimSpace(r.PostFormValue("github_org")),
 		GitHubToken:  strings.TrimSpace(r.PostFormValue("github_token")),
+		AcceptTerms:  r.PostFormValue("accept_terms") != "",
 	}
 	if form.SelectedTier == orgCreatePlanEnterprise {
 		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
+		return
+	}
+	if !form.AcceptTerms {
+		h.renderNewForm(w, r, form.withoutToken(), "You must accept the terms to create an organization.")
 		return
 	}
 	if form.GitHubOrg != "" {
@@ -335,8 +352,9 @@ func orgCreateTitle(plan string) string {
 
 func (h *Handlers) renderPlanSelection(w http.ResponseWriter, r *http.Request, errMsg string) {
 	if err := h.d.Render.RenderPage(w, r, "orgs/new_plan", map[string]any{
-		"Title": "Choose a plan",
-		"Error": errMsg,
+		"Title":             "Pick a plan for your organization",
+		"Error":             errMsg,
+		"BillingConfigured": h.billingConfigured(),
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new_plan", "error", err)
 	}

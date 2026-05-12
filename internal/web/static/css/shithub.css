@@ -1041,33 +1041,156 @@ code {
   color: var(--fg-muted);
   font-size: 0.9rem;
 }
-.shithub-auth-plans {
+.shithub-org-plan-page {
   max-width: 72rem;
+  margin: 3rem auto;
+  padding: 0 1rem 3rem;
 }
-.shithub-auth-plans .shithub-auth-aside {
-  text-align: left;
+.shithub-org-plan-page h1 {
+  margin: 0;
+  font-size: 1.65rem;
+  text-align: center;
+}
+.shithub-org-plan-kicker {
+  margin: 0 0 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-align: center;
+}
+.shithub-org-plan-lede {
+  max-width: 42rem;
+  margin: 0.75rem auto 2rem;
+  color: var(--fg-muted);
+  text-align: center;
 }
 .shithub-billing-plan-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: stretch;
 }
-.shithub-billing-plan-grid .Box {
-  min-height: 100%;
-}
-.shithub-billing-plan-grid .Box-body {
+.shithub-pricing-card {
+  position: relative;
   display: grid;
-  gap: 0.75rem;
-  align-content: start;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 0.9rem;
+  padding: 1.25rem;
+  min-height: 100%;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-pricing-card.is-featured {
+  border-color: var(--accent-fg);
+  box-shadow: inset 0 3px 0 var(--accent-fg);
 }
 .shithub-billing-plan-grid .shithub-button {
   width: 100%;
   justify-content: center;
 }
+.shithub-pricing-card-head h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+.shithub-pricing-card-head p,
+.shithub-pricing-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-pricing-badge {
+  margin: -1.25rem -1.25rem 0;
+  padding: 0.35rem 1rem;
+  color: #fff;
+  background: var(--accent-fg);
+  border-radius: 6px 6px 0 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+.shithub-pricing-price {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.shithub-pricing-price span {
+  color: var(--fg-default);
+  font-size: 2rem;
+  font-weight: 600;
+}
+.shithub-pricing-price small {
+  font-size: 0.8rem;
+}
+.shithub-pricing-features {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+.shithub-pricing-features li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 0.5rem;
+}
+.shithub-pricing-features svg {
+  margin-top: 0.15rem;
+  color: var(--fg-muted);
+}
 .shithub-billing-plan-compare {
   margin-top: 1.5rem;
   overflow-x: auto;
+}
+.shithub-plan-compare {
+  margin-top: 3rem;
+  overflow-x: auto;
+}
+.shithub-plan-compare h2 {
+  margin: 0 0 1rem;
+  text-align: center;
+}
+.shithub-org-setup {
+  max-width: 38rem;
+}
+.shithub-org-setup .shithub-org-plan-kicker {
+  text-align: left;
+}
+.shithub-org-owner-choice,
+.shithub-org-import-create {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-org-owner-choice legend,
+.shithub-org-import-create legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+.shithub-org-owner-choice label,
+.shithub-org-terms {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+  align-items: start;
+  font-weight: 400;
+}
+.shithub-org-owner-choice label small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--fg-muted);
+}
+.shithub-org-owner-choice label.is-disabled {
+  color: var(--fg-muted);
+}
+.shithub-org-terms {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
 }
 .shithub-org-billing-compare {
   margin-top: 0;

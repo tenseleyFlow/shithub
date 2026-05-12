@@ -20,7 +20,8 @@ already present from 0017 with the XOR CHECK).
 ## Routing
 
 ```
-GET  /organizations/new            plan picker / create form (auth required)
+GET  /organizations/plan           plan picker (auth required)
+GET  /organizations/new            create form (auth required)
 POST /organizations                create submit
 GET  /{slug}                       /{user-or-org} — dispatched via principals.Resolve
 POST /{slug}/pins                  owner-only org profile pin customization
@@ -195,8 +196,10 @@ the human-facing summary, but product behavior goes through
 `org_billing_states`; production handlers must not branch directly on
 `orgs.plan` for paid feature access.
 
-When billing is fully configured, `/organizations/new` starts with a
-Free / Team / Enterprise plan picker. Choosing Team creates the
+`/organizations/plan` is the canonical Free / Team / Enterprise plan
+picker. Existing "New organization" links route there. When Stripe
+Billing is not fully configured, Team remains visible but disabled;
+site admins see operator setup copy. Choosing Team creates the
 organization first and then redirects the owner to
 `/organizations/{org}/settings/billing` to begin Stripe Checkout.
 Existing owner-managed orgs also link to that billing page from

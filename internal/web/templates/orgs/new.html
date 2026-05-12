@@ -1,5 +1,6 @@
 {{ define "page" -}}
-<section class="shithub-auth">
+<section class="shithub-auth shithub-org-setup">
+  <p class="shithub-org-plan-kicker">Tell us about your organization</p>
   <h1>{{ if eq .Form.SelectedTier "team" }}Set up your organization{{ else }}Create an organization{{ end }}</h1>
   {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
   <form method="POST" action="/organizations" novalidate>
@@ -23,6 +24,23 @@
       <span>Billing email (optional)</span>
       <input type="email" name="billing_email" autocomplete="email" value="{{ .Form.BillingEmail }}">
     </label>
+    <fieldset class="shithub-org-owner-choice">
+      <legend>This organization belongs to:</legend>
+      <label>
+        <input type="radio" name="owner_account" value="personal" checked>
+        <span>
+          <strong>My personal account</strong>
+          <small>{{ .Viewer.Username }}</small>
+        </span>
+      </label>
+      <label class="is-disabled">
+        <input type="radio" name="owner_account" value="business" disabled>
+        <span>
+          <strong>A business or institution</strong>
+          <small>Business-owned organizations are planned for the Enterprise track.</small>
+        </span>
+      </label>
+    </fieldset>
     <fieldset class="shithub-org-import-create">
       <legend>Import repositories from GitHub</legend>
       <p>Optionally mirror repositories from a GitHub organization after this organization is created.</p>
@@ -36,6 +54,10 @@
       </label>
       <p class="shithub-auth-aside">Without a token, shithub imports public repositories only. With a token, repositories visible to that token are imported and private repositories stay private.</p>
     </fieldset>
+    <label class="shithub-org-terms">
+      <input type="checkbox" name="accept_terms" value="1"{{ if .Form.AcceptTerms }} checked{{ end }}>
+      <span>I accept the shithub Terms of Service and understand that organization billing is managed through hosted checkout when a paid plan is selected.</span>
+    </label>
     <button type="submit" class="shithub-button shithub-button-primary">Create organization</button>
   </form>
   <p class="shithub-auth-aside">

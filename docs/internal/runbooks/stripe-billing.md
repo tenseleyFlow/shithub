@@ -77,7 +77,7 @@ worker uses the same Stripe credentials for seat quantity sync.
 ## Smoke test
 
 1. Sign in as an owner.
-2. Visit `/organizations/new`.
+2. Visit `/organizations/plan`.
 3. Confirm the plan picker appears.
 4. Choose Team, create a test organization, and confirm redirect to
    `/organizations/<org>/settings/billing?notice=team-created`.

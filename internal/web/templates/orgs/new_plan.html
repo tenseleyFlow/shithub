@@ -1,90 +1,90 @@
 {{ define "page" -}}
-<section class="shithub-auth shithub-auth-plans">
+<section class="shithub-org-plan-page">
+  <p class="shithub-org-plan-kicker">Choose a plan</p>
   <h1>Pick a plan for your organization</h1>
-  <p class="shithub-auth-aside">Start free, or choose Team if you want paid organization features and hosted billing from the beginning.</p>
+  <p class="shithub-org-plan-lede">Start with Free for public and basic private collaboration, or choose Team when your organization needs paid controls from the beginning.</p>
   {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
 
   <div class="shithub-billing-plan-grid">
-    <section class="Box">
-      <div class="Box-header"><h2 class="Box-title">Free</h2></div>
-      <div class="Box-body">
-        <p><strong>$0</strong> USD per user/month</p>
-        <p>Basic organizations for public work, visible teams, and standard collaboration.</p>
-        <p><a href="/organizations/new?plan=free" class="shithub-button">Create a free organization</a></p>
+    <section class="shithub-pricing-card">
+      <div class="shithub-pricing-card-head">
+        <h2>Free</h2>
+        <p>For individuals and small open-source organizations.</p>
       </div>
+      <p class="shithub-pricing-price"><span>$0</span> USD <small>per user/month</small></p>
+      <p><a href="/organizations/new?plan=free" class="shithub-button">Create a free organization</a></p>
+      <ul class="shithub-pricing-features">
+        <li>{{ octicon "check" }} Public and private org repositories</li>
+        <li>{{ octicon "check" }} Org members and invitations</li>
+        <li>{{ octicon "check" }} Visible teams</li>
+        <li>{{ octicon "check" }} Basic branch protection</li>
+        <li>{{ octicon "dash" }} Upgrade for secret teams</li>
+      </ul>
     </section>
 
-    <section class="Box">
-      <div class="Box-header"><h2 class="Box-title">Team</h2></div>
-      <div class="Box-body">
-        <p><strong>$4</strong> USD per active member/month</p>
-        <p>Unlock secret teams, advanced private-repo branch protection, required reviewers, and org-level Actions secrets and variables.</p>
-        <p><a href="/organizations/new?plan=team" class="shithub-button shithub-button-primary">Continue with Team</a></p>
+    <section class="shithub-pricing-card is-featured">
+      <div class="shithub-pricing-badge">Most popular</div>
+      <div class="shithub-pricing-card-head">
+        <h2>Team</h2>
+        <p>For organizations that need paid collaboration controls.</p>
       </div>
+      <p class="shithub-pricing-price"><span>$4</span> USD <small>per active member/month</small></p>
+      {{ if .BillingConfigured }}
+      <p><a href="/organizations/new?plan=team" class="shithub-button shithub-button-primary">Continue with Team</a></p>
+      {{ else }}
+      <p><button type="button" class="shithub-button shithub-button-primary" disabled>Continue with Team</button></p>
+      {{ if .Viewer.IsSiteAdmin }}
+      <p class="shithub-pricing-note">Stripe Billing is not fully configured. Set the secret key, webhook secret, and Team price ID before accepting Team checkout.</p>
+      {{ end }}
+      {{ end }}
+      <ul class="shithub-pricing-features">
+        <li>{{ octicon "check" }} Everything in Free</li>
+        <li>{{ octicon "check" }} Secret teams</li>
+        <li>{{ octicon "check" }} Advanced private-repo branch protection</li>
+        <li>{{ octicon "check" }} Required reviewers on private org repos</li>
+        <li>{{ octicon "check" }} Org-level Actions secrets and variables</li>
+      </ul>
     </section>
 
-    <section class="Box">
-      <div class="Box-header"><h2 class="Box-title">Enterprise</h2></div>
-      <div class="Box-body">
-        <p><strong>Contact sales</strong></p>
-        <p>Enterprise remains a stub until the hosted product grows into those promises.</p>
-        <p><a href="/organizations/new?plan=enterprise" class="shithub-button">Contact sales</a></p>
+    <section class="shithub-pricing-card">
+      <div class="shithub-pricing-card-head">
+        <h2>Enterprise</h2>
+        <p>For larger installations that need a contract and custom support.</p>
       </div>
+      <p class="shithub-pricing-price"><span>$21</span> USD <small>starting point</small></p>
+      <p><a href="/organizations/new?plan=enterprise" class="shithub-button">Contact sales</a></p>
+      <ul class="shithub-pricing-features">
+        <li>{{ octicon "check" }} Contact-sales planning</li>
+        <li>{{ octicon "check" }} Future enterprise account structure</li>
+        <li>{{ octicon "check" }} Future compliance and support options</li>
+      </ul>
     </section>
   </div>
 
-  <div class="Box shithub-billing-plan-compare">
-    <div class="Box-header"><h2 class="Box-title">Compare features</h2></div>
-    <div class="Box-body">
-      <table class="shithub-org-billing-table">
-        <thead>
-          <tr>
-            <th scope="col">Feature</th>
-            <th scope="col">Free</th>
-            <th scope="col">Team</th>
-            <th scope="col">Enterprise</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Public and private org repositories</td>
-            <td>Included</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-          <tr>
-            <td>Visible teams</td>
-            <td>Included</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-          <tr>
-            <td>Secret teams</td>
-            <td>Upgrade</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-          <tr>
-            <td>Advanced private-repo branch protection</td>
-            <td>Upgrade</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-          <tr>
-            <td>Required reviewers on private org repos</td>
-            <td>Upgrade</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-          <tr>
-            <td>Org-level Actions secrets and variables</td>
-            <td>Upgrade</td>
-            <td>Included</td>
-            <td>Contact sales</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+  <section class="shithub-plan-compare" aria-labelledby="org-plan-compare-heading">
+    <h2 id="org-plan-compare-heading">Compare features</h2>
+    <table class="shithub-org-billing-table">
+      <thead>
+        <tr>
+          <th scope="col">Capability</th>
+          <th scope="col">Free</th>
+          <th scope="col">Team</th>
+          <th scope="col">Enterprise</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Public org repositories</td><td>Included</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Basic private org repositories</td><td>Included</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Org members and invitations</td><td>Included</td><td>Billed by active member</td><td>Contact sales</td></tr>
+        <tr><td>Visible teams</td><td>Included</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Secret teams</td><td>Upgrade</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Basic branch protection</td><td>Included</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Advanced private-repo branch protection</td><td>Upgrade</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Required reviewers on private org repos</td><td>Upgrade</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Org-level Actions secrets</td><td>Upgrade</td><td>Included</td><td>Contact sales</td></tr>
+        <tr><td>Org-level Actions variables</td><td>Upgrade</td><td>Included</td><td>Contact sales</td></tr>
+      </tbody>
+    </table>
+  </section>
 </section>
 {{- end }}
