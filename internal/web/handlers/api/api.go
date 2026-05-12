@@ -147,6 +147,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountIssues(r)
 		// S50 §3 — repo labels CRUD.
 		h.mountLabels(r)
+		// S50 §4 — pull requests core (list/get/create/patch/merge).
+		h.mountPulls(r)
 	})
 }
 

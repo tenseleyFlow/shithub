@@ -1,0 +1,588 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls"
+	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+)
+
+// mountPulls registers the S50 §4 pull-request REST surface.
+//
+//	GET    /api/v1/repos/{o}/{r}/pulls                    list
+//	POST   /api/v1/repos/{o}/{r}/pulls                    create
+//	GET    /api/v1/repos/{o}/{r}/pulls/{number}           get
+//	PATCH  /api/v1/repos/{o}/{r}/pulls/{number}           update (title/body/state/draft)
+//	GET    /api/v1/repos/{o}/{r}/pulls/{number}/commits   list commits
+//	GET    /api/v1/repos/{o}/{r}/pulls/{number}/files     list files
+//	PUT    /api/v1/repos/{o}/{r}/pulls/{number}/merge     merge
+//
+// Reviews, review comments, requested reviewers, update-branch,
+// auto-merge land in follow-up batches.
+func (h *Handlers) mountPulls(r chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireScope(pat.ScopeRepoRead))
+		r.Get("/api/v1/repos/{owner}/{repo}/pulls", h.pullsList)
+		r.Get("/api/v1/repos/{owner}/{repo}/pulls/{number}", h.pullGet)
+		r.Get("/api/v1/repos/{owner}/{repo}/pulls/{number}/commits", h.pullCommitsList)
+		r.Get("/api/v1/repos/{owner}/{repo}/pulls/{number}/files", h.pullFilesList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireScope(pat.ScopeRepoWrite))
+		r.Post("/api/v1/repos/{owner}/{repo}/pulls", h.pullCreate)
+		r.Patch("/api/v1/repos/{owner}/{repo}/pulls/{number}", h.pullPatch)
+		r.Put("/api/v1/repos/{owner}/{repo}/pulls/{number}/merge", h.pullMerge)
+	})
+}
+
+// ─── presentation ───────────────────────────────────────────────────
+
+type pullResponse struct {
+	ID             int64  `json:"id"`
+	Number         int64  `json:"number"`
+	Title          string `json:"title"`
+	Body           string `json:"body"`
+	State          string `json:"state"`
+	Draft          bool   `json:"draft"`
+	BaseRef        string `json:"base_ref"`
+	HeadRef        string `json:"head_ref"`
+	BaseOID        string `json:"base_oid"`
+	HeadOID        string `json:"head_oid"`
+	Mergeable      *bool  `json:"mergeable,omitempty"`
+	MergeableState string `json:"mergeable_state"`
+	Merged         bool   `json:"merged"`
+	MergeCommit    string `json:"merge_commit_sha,omitempty"`
+	MergeMethod    string `json:"merge_method,omitempty"`
+	MergedAt       string `json:"merged_at,omitempty"`
+	AuthorID       int64  `json:"author_id,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+	ClosedAt       string `json:"closed_at,omitempty"`
+}
+
+func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest) pullResponse {
+	out := pullResponse{
+		ID:             issue.ID,
+		Number:         issue.Number,
+		Title:          issue.Title,
+		Body:           issue.Body,
+		State:          string(issue.State),
+		Draft:          pr.Draft,
+		BaseRef:        pr.BaseRef,
+		HeadRef:        pr.HeadRef,
+		BaseOID:        pr.BaseOid,
+		HeadOID:        pr.HeadOid,
+		MergeableState: string(pr.MergeableState),
+		Merged:         pr.MergedAt.Valid,
+		CreatedAt:      issue.CreatedAt.Time.UTC().Format(time.RFC3339),
+		UpdatedAt:      issue.UpdatedAt.Time.UTC().Format(time.RFC3339),
+	}
+	if pr.Mergeable.Valid {
+		v := pr.Mergeable.Bool
+		out.Mergeable = &v
+	}
+	if pr.MergeCommitSha.Valid {
+		out.MergeCommit = pr.MergeCommitSha.String
+	}
+	if pr.MergeMethod.Valid {
+		out.MergeMethod = string(pr.MergeMethod.PrMergeMethod)
+	}
+	if pr.MergedAt.Valid {
+		out.MergedAt = pr.MergedAt.Time.UTC().Format(time.RFC3339)
+	}
+	if issue.AuthorUserID.Valid {
+		out.AuthorID = issue.AuthorUserID.Int64
+	}
+	if issue.ClosedAt.Valid {
+		out.ClosedAt = issue.ClosedAt.Time.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+type commitResponse2 struct {
+	SHA            string `json:"sha"`
+	Subject        string `json:"subject"`
+	Body           string `json:"body,omitempty"`
+	AuthorName     string `json:"author_name"`
+	AuthorEmail    string `json:"author_email"`
+	CommitterName  string `json:"committer_name"`
+	CommitterEmail string `json:"committer_email"`
+	AuthoredAt     string `json:"authored_at,omitempty"`
+	CommittedAt    string `json:"committed_at,omitempty"`
+}
+
+type prFileResponse struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"`
+	Status    string `json:"status"`
+	Additions int32  `json:"additions"`
+	Deletions int32  `json:"deletions"`
+	Changes   int32  `json:"changes"`
+}
+
+// ─── list ───────────────────────────────────────────────────────────
+
+func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
+	stateFilter := normalizeIssueState(r.URL.Query().Get("state"))
+	draftFilter := normalizeDraftFilter(r.URL.Query().Get("draft"))
+
+	q := pullsdb.New()
+	total, err := q.CountPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.CountPullRequestsByRepoParams{
+		RepoID:      repo.ID,
+		StateFilter: stateFilter,
+		Draft:       draftFilter,
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: count pulls", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	rows, err := q.ListPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.ListPullRequestsByRepoParams{
+		RepoID:      repo.ID,
+		Limit:       int32(perPage),
+		Offset:      int32((page - 1) * perPage),
+		StateFilter: stateFilter,
+		Draft:       draftFilter,
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list pulls", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	link := apipage.Page{Current: page, PerPage: perPage, Total: int(total)}.LinkHeader(h.d.BaseURL, sanitizedURL(r))
+	if link != "" {
+		w.Header().Set("Link", link)
+	}
+	out := make([]pullResponse, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, presentPull(issuesdb.Issue{
+			ID:           row.ID,
+			RepoID:       row.RepoID,
+			Number:       row.Number,
+			Title:        row.Title,
+			Body:         row.Body,
+			AuthorUserID: row.AuthorUserID,
+			State:        issuesdb.IssueState(row.State),
+			CreatedAt:    row.CreatedAt,
+			UpdatedAt:    row.UpdatedAt,
+		}, pullsdb.PullRequest{
+			IssueID:        row.IssueID,
+			BaseRef:        row.BaseRef,
+			HeadRef:        row.HeadRef,
+			HeadRepoID:     row.HeadRepoID,
+			BaseOid:        row.BaseOid,
+			HeadOid:        row.HeadOid,
+			Draft:          row.Draft,
+			Mergeable:      row.Mergeable,
+			MergeableState: row.MergeableState,
+			MergeCommitSha: row.MergeCommitSha,
+			MergedAt:       row.MergedAt,
+			MergedByUserID: row.MergedByUserID,
+			MergeMethod:    row.MergeMethod,
+		}))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func normalizeDraftFilter(s string) pgtype.Bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true":
+		return pgtype.Bool{Bool: true, Valid: true}
+	case "false":
+		return pgtype.Bool{Bool: false, Valid: true}
+	default:
+		return pgtype.Bool{}
+	}
+}
+
+// ─── single ─────────────────────────────────────────────────────────
+
+func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	issue, pr, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, presentPull(issue, pr))
+}
+
+// ─── create ─────────────────────────────────────────────────────────
+
+type pullCreateRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Base  string `json:"base"`
+	Head  string `json:"head"`
+	Draft bool   `json:"draft"`
+}
+
+func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullCreate)
+	if !ok {
+		return
+	}
+	auth := middleware.PATAuthFromContext(r.Context())
+	var body pullCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	gitDir, err := h.repoGitDir(r.Context(), repo)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "create failed")
+		return
+	}
+	res, err := pulls.Create(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, pulls.CreateParams{
+		RepoID:       repo.ID,
+		AuthorUserID: auth.UserID,
+		Title:        body.Title,
+		Body:         body.Body,
+		BaseRef:      body.Base,
+		HeadRef:      body.Head,
+		Draft:        body.Draft,
+		GitDir:       gitDir,
+	})
+	if err != nil {
+		writePullsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, presentPull(res.Issue, res.PullRequest))
+}
+
+// ─── patch ──────────────────────────────────────────────────────────
+
+type pullPatchRequest struct {
+	Title *string `json:"title,omitempty"`
+	Body  *string `json:"body,omitempty"`
+	State *string `json:"state,omitempty"`
+	Draft *bool   `json:"draft,omitempty"`
+}
+
+func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	auth := middleware.PATAuthFromContext(r.Context())
+	if auth.UserID == 0 {
+		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	issue, pr, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	var body pullPatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	if body.Title != nil || body.Body != nil {
+		canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
+		if !canEdit {
+			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(*repo)).Allow
+		}
+		if !canEdit {
+			writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may edit this pull request")
+			return
+		}
+		title := issue.Title
+		if body.Title != nil {
+			title = *body.Title
+		}
+		bodyText := issue.Body
+		if body.Body != nil {
+			bodyText = *body.Body
+		}
+		if err := pulls.EditPR(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, issue.ID, title, bodyText); err != nil {
+			writePullsError(w, err)
+			return
+		}
+	}
+
+	if body.Draft != nil && pr.Draft && !*body.Draft {
+		// Only the author can flip draft→ready in v1.
+		isAuthor := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
+		if !isAuthor {
+			writeAPIError(w, http.StatusForbidden, "only the author may mark a draft PR as ready")
+			return
+		}
+		if err := pulls.SetReady(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, auth.UserID, issue.ID); err != nil {
+			writePullsError(w, err)
+			return
+		}
+	}
+	if body.Draft != nil && !pr.Draft && *body.Draft {
+		writeAPIError(w, http.StatusUnprocessableEntity, "ready→draft is not supported")
+		return
+	}
+
+	if body.State != nil {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionPullClose, policy.NewRepoRefFromRepo(*repo)).Allow {
+			writeAPIError(w, http.StatusForbidden, "lack permission to change PR state")
+			return
+		}
+		newState := strings.ToLower(*body.State)
+		if newState != "open" && newState != "closed" {
+			writeAPIError(w, http.StatusUnprocessableEntity, "state must be open or closed")
+			return
+		}
+		gitDir, err := h.repoGitDir(r.Context(), repo)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "state change failed")
+			return
+		}
+		if err := pulls.SetState(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, gitDir, auth.UserID, issue.ID, newState); err != nil {
+			writePullsError(w, err)
+			return
+		}
+	}
+
+	// Reload everything for the response.
+	freshIssue, _ := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, issue.ID)
+	freshPR, _ := pullsdb.New().GetPullRequestByIssueID(r.Context(), h.d.Pool, issue.ID)
+	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR))
+}
+
+// ─── commits + files ────────────────────────────────────────────────
+
+func (h *Handlers) pullCommitsList(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	_, pr, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	rows, err := pullsdb.New().ListPullRequestCommits(r.Context(), h.d.Pool, pr.IssueID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list pr commits", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	out := make([]commitResponse2, 0, len(rows))
+	for _, c := range rows {
+		entry := commitResponse2{
+			SHA:            c.Sha,
+			Subject:        c.Subject,
+			Body:           c.Body,
+			AuthorName:     c.AuthorName,
+			AuthorEmail:    c.AuthorEmail,
+			CommitterName:  c.CommitterName,
+			CommitterEmail: c.CommitterEmail,
+		}
+		if c.AuthoredAt.Valid {
+			entry.AuthoredAt = c.AuthoredAt.Time.UTC().Format(time.RFC3339)
+		}
+		if c.CommittedAt.Valid {
+			entry.CommittedAt = c.CommittedAt.Time.UTC().Format(time.RFC3339)
+		}
+		out = append(out, entry)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handlers) pullFilesList(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	_, pr, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	rows, err := pullsdb.New().ListPullRequestFiles(r.Context(), h.d.Pool, pr.IssueID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list pr files", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	out := make([]prFileResponse, 0, len(rows))
+	for _, f := range rows {
+		entry := prFileResponse{
+			Path:      f.Path,
+			Status:    string(f.Status),
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+			Changes:   f.Changes,
+		}
+		if f.OldPath.Valid {
+			entry.OldPath = f.OldPath.String
+		}
+		out = append(out, entry)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// ─── merge ──────────────────────────────────────────────────────────
+
+type pullMergeRequest struct {
+	CommitTitle   string `json:"commit_title"`
+	CommitMessage string `json:"commit_message"`
+	MergeMethod   string `json:"merge_method"`
+	SHA           string `json:"sha"`
+}
+
+func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullMerge)
+	if !ok {
+		return
+	}
+	auth := middleware.PATAuthFromContext(r.Context())
+	if auth.UserID == 0 {
+		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	_, pr, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	var body pullMergeRequest
+	_ = json.NewDecoder(r.Body).Decode(&body) // body is optional
+	method := strings.ToLower(strings.TrimSpace(body.MergeMethod))
+	if method == "" {
+		method = string(repo.DefaultMergeMethod)
+	}
+	if body.SHA != "" && body.SHA != pr.HeadOid {
+		writeAPIError(w, http.StatusConflict, "head sha mismatch")
+		return
+	}
+	gitDir, err := h.repoGitDir(r.Context(), repo)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "merge failed")
+		return
+	}
+	if err := pulls.Merge(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, pulls.MergeParams{
+		PRID:        pr.IssueID,
+		ActorUserID: auth.UserID,
+		GitDir:      gitDir,
+		Method:      method,
+		Subject:     body.CommitTitle,
+		Body:        body.CommitMessage,
+	}); err != nil {
+		writePullsError(w, err)
+		return
+	}
+	freshIssue, _ := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, pr.IssueID)
+	freshPR, _ := pullsdb.New().GetPullRequestByIssueID(r.Context(), h.d.Pool, pr.IssueID)
+	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR))
+}
+
+// ─── helpers ────────────────────────────────────────────────────────
+
+// resolvePRByNumber resolves a PR by repo+number. The repo gate has
+// already been satisfied by resolveAPIRepo; non-PR issues (kind="issue")
+// 404 here.
+func (h *Handlers) resolvePRByNumber(w http.ResponseWriter, r *http.Request, repoID int64, numberRaw string) (issuesdb.Issue, pullsdb.PullRequest, bool) {
+	num, err := strconv.ParseInt(numberRaw, 10, 64)
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "pull request not found")
+		return issuesdb.Issue{}, pullsdb.PullRequest{}, false
+	}
+	issue, err := issuesdb.New().GetIssueByNumber(r.Context(), h.d.Pool, issuesdb.GetIssueByNumberParams{
+		RepoID: repoID, Number: num,
+	})
+	if err != nil || issue.Kind != issuesdb.IssueKindPr {
+		writeAPIError(w, http.StatusNotFound, "pull request not found")
+		return issuesdb.Issue{}, pullsdb.PullRequest{}, false
+	}
+	pr, err := pullsdb.New().GetPullRequestByIssueID(r.Context(), h.d.Pool, issue.ID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeAPIError(w, http.StatusNotFound, "pull request not found")
+			return issuesdb.Issue{}, pullsdb.PullRequest{}, false
+		}
+		h.d.Logger.ErrorContext(r.Context(), "api: load pr row", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
+		return issuesdb.Issue{}, pullsdb.PullRequest{}, false
+	}
+	return issue, pr, true
+}
+
+// writePullsError maps the orchestrator's typed errors to HTTP codes.
+func writePullsError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, pulls.ErrSameBranch),
+		errors.Is(err, pulls.ErrBaseNotFound),
+		errors.Is(err, pulls.ErrHeadNotFound),
+		errors.Is(err, pulls.ErrNoCommitsToMerge),
+		errors.Is(err, pulls.ErrMergeMethodOff):
+		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, pulls.ErrAlreadyMerged),
+		errors.Is(err, pulls.ErrAlreadyClosed),
+		errors.Is(err, pulls.ErrMergeBlocked):
+		writeAPIError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, pulls.ErrConcurrentMerge):
+		writeAPIError(w, http.StatusServiceUnavailable, "another merge is in flight")
+	case errors.Is(err, pulls.ErrPRNotFound):
+		writeAPIError(w, http.StatusNotFound, "pull request not found")
+	default:
+		writeAPIError(w, http.StatusInternalServerError, "internal error")
+	}
+}
+
+// repoGitDir resolves the on-disk bare-repo path for a row through
+// RepoFS. User-owned repos use the username as the on-disk slug;
+// org-owned repos use the org slug. Mirrors the layout repos.Create
+// established at creation time.
+func (h *Handlers) repoGitDir(ctx context.Context, repo *reposdb.Repo) (string, error) {
+	if h.d.RepoFS == nil {
+		return "", errors.New("api: RepoFS not configured")
+	}
+	slug, err := h.repoOwnerSlug(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	return h.d.RepoFS.RepoPath(slug, repo.Name)
+}
+
+func (h *Handlers) repoOwnerSlug(ctx context.Context, repo *reposdb.Repo) (string, error) {
+	if repo.OwnerUserID.Valid {
+		user, err := usersdb.New().GetUserByID(ctx, h.d.Pool, repo.OwnerUserID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return user.Username, nil
+	}
+	if repo.OwnerOrgID.Valid {
+		org, err := orgsdb.New().GetOrgByID(ctx, h.d.Pool, repo.OwnerOrgID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return string(org.Slug), nil
+	}
+	return "", errors.New("api: repo has no owner")
+}
