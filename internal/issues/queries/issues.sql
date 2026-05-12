@@ -206,6 +206,23 @@ SELECT * FROM issue_events
 WHERE issue_id = $1
 ORDER BY created_at ASC;
 
+-- name: ListIssueEventsWithActor :many
+-- Paginated timeline shape for the REST `/issues/{n}/events` endpoint:
+-- the same event rows ListIssueEvents returns, but LEFT-joined to users
+-- so the response can carry `actor_username` without a second round-trip.
+-- Suspended/deleted actor rows still appear (the timeline is historical
+-- truth), with NULL username when the user row is unrecoverable.
+SELECT e.id, e.issue_id, e.actor_user_id, e.kind, e.meta, e.ref_target_id,
+       e.created_at, u.username AS actor_username
+FROM issue_events e
+LEFT JOIN users u ON u.id = e.actor_user_id
+WHERE e.issue_id = $1
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT $2 OFFSET $3;
+
+-- name: CountIssueEvents :one
+SELECT COUNT(*) FROM issue_events WHERE issue_id = $1;
+
 -- name: ListProfileAuthoredIssuesForUser :many
 -- Cross-repository profile contribution activity. The handler performs the
 -- final repo visibility gate with policy.IsVisibleTo so private issues and

@@ -66,6 +66,17 @@ func (q *Queries) AssignUserToIssue(ctx context.Context, db DBTX, arg AssignUser
 	return err
 }
 
+const countIssueEvents = `-- name: CountIssueEvents :one
+SELECT COUNT(*) FROM issue_events WHERE issue_id = $1
+`
+
+func (q *Queries) CountIssueEvents(ctx context.Context, db DBTX, issueID int64) (int64, error) {
+	row := db.QueryRow(ctx, countIssueEvents, issueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countIssues = `-- name: CountIssues :one
 SELECT count(*)::bigint FROM issues
 WHERE repo_id = $1
@@ -587,6 +598,67 @@ func (q *Queries) ListIssueEvents(ctx context.Context, db DBTX, issueID int64) (
 			&i.Meta,
 			&i.RefTargetID,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueEventsWithActor = `-- name: ListIssueEventsWithActor :many
+SELECT e.id, e.issue_id, e.actor_user_id, e.kind, e.meta, e.ref_target_id,
+       e.created_at, u.username AS actor_username
+FROM issue_events e
+LEFT JOIN users u ON u.id = e.actor_user_id
+WHERE e.issue_id = $1
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT $2 OFFSET $3
+`
+
+type ListIssueEventsWithActorParams struct {
+	IssueID int64
+	Limit   int32
+	Offset  int32
+}
+
+type ListIssueEventsWithActorRow struct {
+	ID            int64
+	IssueID       int64
+	ActorUserID   pgtype.Int8
+	Kind          string
+	Meta          []byte
+	RefTargetID   pgtype.Int8
+	CreatedAt     pgtype.Timestamptz
+	ActorUsername pgtype.Text
+}
+
+// Paginated timeline shape for the REST `/issues/{n}/events` endpoint:
+// the same event rows ListIssueEvents returns, but LEFT-joined to users
+// so the response can carry `actor_username` without a second round-trip.
+// Suspended/deleted actor rows still appear (the timeline is historical
+// truth), with NULL username when the user row is unrecoverable.
+func (q *Queries) ListIssueEventsWithActor(ctx context.Context, db DBTX, arg ListIssueEventsWithActorParams) ([]ListIssueEventsWithActorRow, error) {
+	rows, err := db.Query(ctx, listIssueEventsWithActor, arg.IssueID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIssueEventsWithActorRow{}
+	for rows.Next() {
+		var i ListIssueEventsWithActorRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.ActorUserID,
+			&i.Kind,
+			&i.Meta,
+			&i.RefTargetID,
+			&i.CreatedAt,
+			&i.ActorUsername,
 		); err != nil {
 			return nil, err
 		}
