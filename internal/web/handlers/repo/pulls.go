@@ -99,6 +99,7 @@ func (h *Handlers) MountPulls(r chi.Router) {
 		r.Post("/{owner}/{repo}/pulls/{number}/state", h.pullSetState)
 		r.Post("/{owner}/{repo}/pulls/{number}/ready", h.pullSetReady)
 		r.Post("/{owner}/{repo}/pulls/{number}/merge", h.pullMerge)
+		r.Post("/{owner}/{repo}/pulls/{number}/delete-branch", h.pullDeleteHeadBranch)
 	})
 	// S23 review surface — its own group so the auth-required wrapper
 	// is shared cleanly without rewriting this file's existing one.
@@ -396,24 +397,6 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		pr.BaseOid != "" && pr.HeadOid != "" {
 		h.kickMergeability(r, pr.IID)
 	}
-	checkGroups := h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid)
-	stats := h.pullStats(r.Context(), pr, checkGroups)
-	data := map[string]any{
-		"Title":        "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
-		"Owner":        owner.Username,
-		"Repo":         row,
-		"PR":           pr,
-		"AuthorName":   authorName,
-		"MergedByName": mergedByName,
-		"Tab":          tab,
-		"PullStats":    stats,
-		"CheckGroups":  checkGroups,
-		"CSRFToken":    middleware.CSRFTokenForRequest(r),
-		"RepoActions":  h.repoActions(r, row.ID),
-		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
-		"ActiveSubnav": "pulls",
-	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := viewer.PolicyActor()
 	pdeps := policy.Deps{Pool: h.d.Pool}
@@ -422,15 +405,99 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	if pr.IAuthorUserID.Valid {
 		stateRef.AuthorUserID = pr.IAuthorUserID.Int64
 	}
-	data["CanReviewPull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullReview, repoRef).Allow
-	data["CanMergePull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullMerge, repoRef).Allow
-	data["CanSetPullState"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullClose, stateRef).Allow
-	data["CanReadyPull"] = policy.Can(r.Context(), pdeps, actor, policy.ActionPullCreate, repoRef).Allow
+	canReviewPull := policy.Can(r.Context(), pdeps, actor, policy.ActionPullReview, repoRef).Allow
+	canMergePull := policy.Can(r.Context(), pdeps, actor, policy.ActionPullMerge, repoRef).Allow
+	canSetPullState := policy.Can(r.Context(), pdeps, actor, policy.ActionPullClose, stateRef).Allow
+	canReadyPull := policy.Can(r.Context(), pdeps, actor, policy.ActionPullCreate, repoRef).Allow
+	headOwner := owner.Username
+	if pr.HeadRepoID != 0 {
+		if headRepo, err := h.rq.GetRepoOwnerUsernameByID(r.Context(), h.d.Pool, pr.HeadRepoID); err == nil {
+			if ownerName := repoOwnerName(headRepo.OwnerUsername); ownerName != "" {
+				headOwner = ownerName
+			}
+		}
+	}
+	headBranchExists := false
+	if pr.HeadRepoID == row.ID && pr.HeadRef != "" && pr.HeadRef != row.DefaultBranch {
+		if gitDir, err := h.d.RepoFS.RepoPath(owner.Username, row.Name); err == nil {
+			if _, err := repogit.ResolveRefOID(r.Context(), gitDir, "refs/heads/"+pr.HeadRef); err == nil {
+				headBranchExists = true
+			}
+		}
+	}
+	defaultMethod := string(row.DefaultMergeMethod)
+	if defaultMethod == "" {
+		defaultMethod = "merge"
+	}
+	checkGroups := h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid)
+	stats := h.pullStats(r.Context(), pr, checkGroups)
+	data := map[string]any{
+		"Title":                 "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
+		"Owner":                 owner.Username,
+		"Repo":                  row,
+		"PR":                    pr,
+		"AuthorName":            authorName,
+		"MergedByName":          mergedByName,
+		"Tab":                   tab,
+		"PullStats":             stats,
+		"CheckGroups":           checkGroups,
+		"CSRFToken":             middleware.CSRFTokenForRequest(r),
+		"RepoActions":           h.repoActions(r, row.ID),
+		"RepoCounts":            h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":           h.canViewSettings(viewer),
+		"ActiveSubnav":          "pulls",
+		"UsePullViewJS":         true,
+		"MergeDefaultMethod":    defaultMethod,
+		"MergeFormSubject":      defaultMergeSubject(pr, headOwner),
+		"MergeFormBody":         strings.TrimSpace(pr.ITitle),
+		"MergeAuthorLine":       h.mergeAuthorLine(r.Context(), viewer),
+		"CanDeleteHeadBranch":   canMergePull && pr.MergedAt.Valid && pr.HeadRepoID == row.ID && pr.HeadRef != row.DefaultBranch && headBranchExists,
+		"HeadBranchAlreadyGone": pr.MergedAt.Valid && pr.HeadRepoID == row.ID && pr.HeadRef != row.DefaultBranch && !headBranchExists,
+	}
+	data["CanReviewPull"] = canReviewPull
+	data["CanMergePull"] = canMergePull
+	data["CanSetPullState"] = canSetPullState
+	data["CanReadyPull"] = canReadyPull
 	for k, v := range extras {
 		data[k] = v
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/pull_view", data)
+}
+
+func repoOwnerName(raw interface{}) string {
+	switch v := raw.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
+	}
+}
+
+func defaultMergeSubject(pr pullsdb.GetPullRequestByRepoAndNumberRow, headOwner string) string {
+	head := strings.TrimSpace(headOwner)
+	if head == "" {
+		head = "head"
+	}
+	if pr.HeadRef != "" {
+		head += "/" + pr.HeadRef
+	}
+	return "Merge pull request #" + strconv.FormatInt(pr.INumber, 10) + " from " + head
+}
+
+func (h *Handlers) mergeAuthorLine(ctx context.Context, viewer middleware.CurrentUser) string {
+	if viewer.IsAnonymous() {
+		return ""
+	}
+	email := viewer.Username + "@noreply.shithub.local"
+	if u, err := h.uq.GetUserByID(ctx, h.d.Pool, viewer.ID); err == nil && u.PrimaryEmailID.Valid {
+		if em, err := h.uq.GetUserEmailByID(ctx, h.d.Pool, u.PrimaryEmailID.Int64); err == nil && em.Verified {
+			email = string(em.Email)
+		}
+	}
+	return "This commit will be authored by " + email + "."
 }
 
 func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRepoAndNumberRow, checkGroups []pullCheckSuiteView) pullPageStats {
@@ -967,6 +1034,44 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 		Body:        r.PostFormValue("body"),
 	}); err != nil {
 		h.handlePullWriteError(w, r, err)
+		return
+	}
+	h.redirectPull(w, r, owner.Username, row.Name, pr.INumber)
+}
+
+func (h *Handlers) pullDeleteHeadBranch(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullMerge)
+	if !ok {
+		return
+	}
+	pr, ok := h.loadPullByNumber(w, r, row.ID)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
+		return
+	}
+	if !pr.MergedAt.Valid || pr.HeadRepoID != row.ID || strings.TrimSpace(pr.HeadRef) == "" || pr.HeadRef == row.DefaultBranch {
+		h.d.Render.HTTPError(w, r, http.StatusConflict, "head branch cannot be deleted from this pull request")
+		return
+	}
+	gitDir, err := h.d.RepoFS.RepoPath(owner.Username, row.Name)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	if err := repogit.DeleteBranch(r.Context(), gitDir, pr.HeadRef, pr.HeadOid); err != nil {
+		if errors.Is(err, repogit.ErrRefNotFound) {
+			h.redirectPull(w, r, owner.Username, row.Name, pr.INumber)
+			return
+		}
+		if errors.Is(err, repogit.ErrRefRaced) {
+			h.d.Render.HTTPError(w, r, http.StatusConflict, "branch moved after this pull request was merged")
+			return
+		}
+		h.d.Logger.WarnContext(r.Context(), "pulls: delete head branch", "error", err, "repo_id", row.ID, "pr", pr.INumber, "branch", pr.HeadRef)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.redirectPull(w, r, owner.Username, row.Name, pr.INumber)

@@ -99,6 +99,39 @@ func UpdateRefCAS(ctx context.Context, gitDir, ref, newOID, oldOID string) error
 // ref moved between our read and our update.
 var ErrRefRaced = errors.New("repogit: ref moved concurrently")
 
+// DeleteBranch removes refs/heads/<branch>. When oldOID is non-empty,
+// git's update-ref compare-and-delete guard is used so a branch that
+// moved after the caller rendered the page is not deleted accidentally.
+func DeleteBranch(ctx context.Context, gitDir, branch, oldOID string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return ErrRefNotFound
+	}
+	check := exec.CommandContext(ctx, "git", "-C", gitDir, "check-ref-format", "--branch", branch)
+	if out, err := check.CombinedOutput(); err != nil {
+		return fmt.Errorf("check-ref-format %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))
+	}
+	ref := "refs/heads/" + branch
+	args := []string{"-C", gitDir, "update-ref", "-d", ref}
+	if strings.TrimSpace(oldOID) != "" {
+		args = append(args, oldOID)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	switch {
+	case strings.Contains(msg, "unable to resolve reference"), strings.Contains(msg, "reference does not exist"):
+		return ErrRefNotFound
+	case strings.Contains(msg, "cannot lock ref"), strings.Contains(msg, "expected"):
+		return ErrRefRaced
+	default:
+		return fmt.Errorf("delete-ref %s: %w (%s)", ref, err, msg)
+	}
+}
+
 // FetchIntoNamespace fetches a single ref from `srcRepoDir` into
 // `dstRepoDir` under the supplied refspec. The dst-side ref name is
 // the second half of the refspec. Used by S27 cross-fork PR support
