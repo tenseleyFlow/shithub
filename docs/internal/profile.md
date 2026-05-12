@@ -7,8 +7,10 @@ S09 shipped the public `/{username}` page and the `/avatars/{username}` route. L
 | Route | Source | Notes |
 |---|---|---|
 | `GET /{username}` | profile.serveProfile | Public profile. citext lookup; canonical-case 301; reserved short-circuit. |
+| `GET /{username}?tab=repositories` | profile.serveRepositoriesTab | Visibility-filtered user-owned repositories. |
+| `GET /{username}?tab=stars` | profile.serveStarsTab | Visibility-filtered starred repositories with search, type, language, and sort controls. |
 | `POST /{username}/contribution-settings` | profile.contributionSettingsUpdate | Auth required. Profile owner toggles private contribution counts. |
-| `POST /{username}/pins` | profile.pinsUpdate | Auth required. Profile owner saves up to six public owned repositories. |
+| `POST /{username}/pins` | profile.pinsUpdate | Auth required. Profile owner saves up to six public affiliated repositories. |
 | `GET /avatars/{username}` | profile.serveAvatar | Streams uploaded avatar OR falls back to deterministic SVG identicon. |
 
 `/{username}` is the **catch-all** — chi matches static routes in registration order, so the wildcard is registered last via the `ProfileMounter` hook. The reserved-name list (`internal/auth/reserved.go`) is the second line of defense if a future top-level route is added but not registered before the wildcard.
@@ -105,6 +107,34 @@ The overview contribution calendar is computed from local Git history:
 - On affiliated repositories (user-owned repos and repos owned by organizations the user belongs to), shithub also accepts username, display-name, and GitHub noreply-address matches as a best-effort imported-history signal.
 - Arbitrary public repositories outside the user's affiliation remain verified-email-only to avoid spoofed username/display-name commits.
 - Private repositories are excluded by default. When the profile owner enables "Private contributions", private user-owned and member-org repositories contribute to the aggregate graph counts, but repository names and commit metadata are not exposed.
+
+The "Contribution activity" timeline below the graph reuses the same
+visibility gates:
+
+- Commit rows are grouped by month and repository, with private repository
+  names collapsed to "Private repositories".
+- Public user-owned repositories created during the selected contribution
+  window are shown as "Created repositories" entries.
+- Issues and pull requests authored by the profile user are loaded through
+  the issues sqlc package and then post-filtered with `policy.IsVisibleTo`
+  before rendering. PR rows distinguish open, closed, and merged counts.
+- The first month is shown initially; the "Show more activity" button expands
+  older months in place without another request.
+
+## Stars tab
+
+`/{username}?tab=stars` uses the same profile shell as the GitHub stars page:
+
+- The left profile sidebar matches the overview profile metadata and
+  organization badges.
+- The placeholder Lists panel is rendered so the page layout matches GitHub
+  while list management remains future work.
+- Starred repositories are loaded in one bounded scan (`starsTabScanLimit`) and
+  then visibility-filtered with `policy.IsVisibleTo`.
+- Both user-owned and organization-owned repository stars render from the
+  stored owner slug, so org-owned stars do not require an extra owner lookup.
+- Filters are applied server-side for search text, repository type, language,
+  and sort order (`recently-starred`, `recently-active`, `stars`).
 
 ## Self-view enrichment
 

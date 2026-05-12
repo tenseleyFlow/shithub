@@ -1,39 +1,136 @@
 {{ define "page" -}}
-<section class="shithub-profile">
-  <header class="shithub-profile-header">
-    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="120" height="120">
-    <div class="shithub-profile-id">
-      <h1 class="shithub-profile-name">
-        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
-      </h1>
-      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
-    </div>
-  </header>
+<section class="shithub-user-profile shithub-profile-stars-page">
+  <div class="shithub-profile-tabs-shell">
+    {{ template "profile-tabs" . }}
+  </div>
 
-  {{ template "profile-tabs" . }}
+  <div class="shithub-user-profile-container">
+    <aside class="shithub-user-profile-sidebar" aria-label="{{ .User.Username }} profile">
+      <a class="shithub-profile-avatar-link" href="{{ .AvatarURL }}">
+        <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="@{{ .User.Username }}" width="296" height="296">
+      </a>
+      <div class="shithub-profile-names">
+        <h1>
+          <span class="shithub-profile-name">{{ .DisplayName }}</span>
+          <span class="shithub-profile-handle">{{ .User.Username }}</span>
+        </h1>
+        {{ if .User.Pronouns }}<span class="shithub-profile-pronouns">{{ .User.Pronouns }}</span>{{ end }}
+      </div>
 
-  {{ if .Stars }}
-  <ul class="shithub-social-list">
-    {{ range .Stars }}
-    <li>
-      <a href="/{{ .OwnerName }}/{{ .RepoName }}"><strong>{{ .OwnerName }}/{{ .RepoName }}</strong></a>
-      {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ end }}
-      {{ if .PrimaryLanguage }}<small>{{ .PrimaryLanguage }}</small>{{ end }}
-      <small>★ {{ .StarCount }}</small>
-      <small><time datetime="{{ .StarredAt.Format "2006-01-02T15:04:05Z" }}">starred {{ relativeTime .StarredAt }}</time></small>
-      {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
-    </li>
-    {{ end }}
-  </ul>
-  {{ else }}
-  <p class="shithub-empty">No starred repositories visible.</p>
-  {{ end }}
+      {{ if .User.Bio }}<div class="shithub-profile-bio">{{ .User.Bio }}</div>{{ end }}
+      {{ if .IsSelf }}<a href="/settings/profile" class="shithub-button shithub-button-block">Edit profile</a>{{ end }}
 
-  {{ if or .HasPrev .HasNext }}
-  <nav class="shithub-pagination">
-    {{ if .HasPrev }}<a href="?tab=stars&page={{ sub .Page 1 }}" class="shithub-button">Previous</a>{{ end }}
-    {{ if .HasNext }}<a href="?tab=stars&page={{ add .Page 1 }}" class="shithub-button">Next</a>{{ end }}
-  </nav>
-  {{ end }}
+      <p class="shithub-profile-follow-counts">
+        {{ octicon "people" }}
+        <a href="/{{ .User.Username }}?tab=followers"><strong>{{ .FollowersCount }}</strong> followers</a>
+        <span class="shithub-profile-dot" aria-hidden="true">·</span>
+        <a href="/{{ .User.Username }}?tab=following"><strong>{{ .FollowingCount }}</strong> following</a>
+      </p>
+
+      <ul class="shithub-profile-vcard">
+        {{ if .User.Company }}<li>{{ octicon "organization" }} <span>{{ .User.Company }}</span></li>{{ end }}
+        {{ if .User.Location }}<li>{{ octicon "location" }} <span>{{ .User.Location }}</span></li>{{ end }}
+        {{ if .WebsiteSafe }}<li>{{ octicon "link" }} <a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .User.Website }}</a></li>{{ end }}
+        <li>{{ octicon "calendar" }} <span>Joined {{ .JoinedFormatted }}</span></li>
+      </ul>
+
+      {{ if .Orgs }}
+      <section class="shithub-profile-sidebar-section" aria-labelledby="stars-profile-orgs-heading">
+        <h2 id="stars-profile-orgs-heading">Organizations</h2>
+        <div class="shithub-profile-orgs">
+          {{ range .Orgs }}
+          <a href="/{{ .Slug }}" aria-label="{{ .DisplayName }}">
+            <img src="{{ .AvatarURL }}" alt="" width="32" height="32">
+          </a>
+          {{ end }}
+        </div>
+      </section>
+      {{ end }}
+    </aside>
+
+    <main class="shithub-user-profile-main shithub-stars-main">
+      <section class="shithub-stars-lists" aria-labelledby="stars-lists-heading">
+        <div class="shithub-stars-section-head">
+          <h2 id="stars-lists-heading">Lists <span>(0)</span></h2>
+          <div class="shithub-stars-list-actions">
+            <button type="button" class="shithub-button" disabled>Sort {{ octicon "triangle-down" }}</button>
+            <button type="button" class="shithub-button shithub-button-primary" disabled>Create list</button>
+          </div>
+        </div>
+        <div class="shithub-stars-empty-list">
+          <span>{{ octicon "star" }}</span>
+          <strong>Create your first list</strong>
+          <p>Lists make it easier to organize and curate repositories that you have starred. <a href="/{{ .User.Username }}?tab=stars">Create your first list.</a></p>
+        </div>
+      </section>
+
+      <section class="shithub-stars-results" aria-labelledby="stars-heading">
+        <h2 id="stars-heading">Stars</h2>
+        <form class="shithub-stars-toolbar" method="get" action="/{{ .User.Username }}" aria-label="{{ .StarsSearchLabel }}">
+          <input type="hidden" name="tab" value="stars">
+          <label class="shithub-stars-search">
+            <span class="sr-only">Search stars</span>
+            {{ octicon "search" }}
+            <input type="search" name="q" value="{{ .StarFilters.Query }}" placeholder="Search stars" autocomplete="off">
+          </label>
+          <button type="submit" class="shithub-button">Search</button>
+          <label>
+            <span class="sr-only">Repository type</span>
+            <select name="type" onchange="this.form.submit()">
+              <option value="all"{{ if eq .StarFilters.Type "all" }} selected{{ end }}>Type: All</option>
+              <option value="public"{{ if eq .StarFilters.Type "public" }} selected{{ end }}>Public</option>
+              <option value="private"{{ if eq .StarFilters.Type "private" }} selected{{ end }}>Private</option>
+            </select>
+          </label>
+          <label>
+            <span class="sr-only">Language</span>
+            <select name="language" onchange="this.form.submit()">
+              <option value=""{{ if not .StarFilters.Language }} selected{{ end }}>Language</option>
+              {{ range .LanguageOptions }}<option value="{{ . }}"{{ if eq $.StarFilters.Language . }} selected{{ end }}>{{ . }}</option>{{ end }}
+            </select>
+          </label>
+          <label>
+            <span class="sr-only">Sort</span>
+            <select name="sort" onchange="this.form.submit()">
+              <option value="recently-starred"{{ if eq .StarFilters.Sort "recently-starred" }} selected{{ end }}>Sort by: Recently starred</option>
+              <option value="recently-active"{{ if eq .StarFilters.Sort "recently-active" }} selected{{ end }}>Recently active</option>
+              <option value="stars"{{ if eq .StarFilters.Sort "stars" }} selected{{ end }}>Most stars</option>
+            </select>
+          </label>
+        </form>
+
+        {{ if .Stars }}
+        <ol class="shithub-stars-list">
+          {{ range .Stars }}
+          <li class="shithub-stars-row">
+            <div class="shithub-stars-row-main">
+              <h3>
+                <a href="{{ .URL }}">{{ .FullName }}</a>
+                {{ if .IsPrivate }}<span class="shithub-pill shithub-pill-private">Private</span>{{ end }}
+              </h3>
+              {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+              <ul class="shithub-stars-meta">
+                {{ if .PrimaryLanguage }}<li><span class="shithub-language-dot" style="background-color: {{ .LanguageColor }};"></span>{{ .PrimaryLanguage }}</li>{{ end }}
+                <li>{{ octicon "star" }} {{ .StarCount }}</li>
+                <li>Updated <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .UpdatedAt }}</time></li>
+              </ul>
+            </div>
+            <button type="button" class="shithub-button shithub-stars-starred" disabled>{{ octicon "star" }} Starred {{ octicon "triangle-down" }}</button>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <p class="shithub-empty">No starred repositories visible.</p>
+        {{ end }}
+
+        {{ if or .HasPrev .HasNext }}
+        <nav class="shithub-pagination">
+          {{ if .HasPrev }}<a href="{{ .PrevHref }}" class="shithub-button">Previous</a>{{ end }}
+          {{ if .HasNext }}<a href="{{ .NextHref }}" class="shithub-button">Next</a>{{ end }}
+        </nav>
+        {{ end }}
+      </section>
+    </main>
+  </div>
 </section>
 {{- end }}
