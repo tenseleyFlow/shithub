@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -24,9 +25,12 @@ var patAuthKey = ctxKey{name: "pat_auth"}
 // the auth check passed via PAT, `Token != nil` and Scopes is the parsed
 // scope list. Pure session callers see the zero value.
 type PATAuth struct {
-	UserID  int64
-	TokenID int64
-	Scopes  []string
+	UserID      int64
+	Username    string
+	TokenID     int64
+	Scopes      []string
+	IsSuspended bool
+	IsSiteAdmin bool
 }
 
 // PATAuthFromContext returns the resolved PAT auth state, or the zero
@@ -36,6 +40,14 @@ func PATAuthFromContext(ctx context.Context) PATAuth {
 		return v
 	}
 	return PATAuth{}
+}
+
+// PolicyActor returns the canonical policy actor for a resolved PAT request.
+func (p PATAuth) PolicyActor() policy.Actor {
+	if p.UserID == 0 {
+		return policy.AnonymousActor()
+	}
+	return policy.UserActor(p.UserID, p.Username, p.IsSuspended, p.IsSiteAdmin)
 }
 
 // PATConfig configures the PAT auth middleware.
@@ -134,9 +146,12 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), patAuthKey, PATAuth{
-				UserID:  row.UserID,
-				TokenID: row.ID,
-				Scopes:  row.Scopes,
+				UserID:      row.UserID,
+				Username:    user.Username,
+				TokenID:     row.ID,
+				Scopes:      row.Scopes,
+				IsSuspended: user.SuspendedAt.Valid,
+				IsSiteAdmin: user.IsSiteAdmin,
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

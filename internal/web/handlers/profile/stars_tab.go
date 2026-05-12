@@ -107,7 +107,7 @@ func (h *Handlers) serveStarsTab(w http.ResponseWriter, r *http.Request, user us
 			URL:             "/" + url.PathEscape(ownerName) + "/" + url.PathEscape(row.RepoName),
 			Description:     row.Description,
 			Visibility:      string(row.Visibility),
-			IsPrivate:       row.Visibility == socialdb.RepoVisibilityPrivate,
+			IsPrivate:       ref.IsPrivate(),
 			StarCount:       row.StarCount,
 			PrimaryLanguage: language,
 			LanguageColor:   template.CSS(orgLanguageColor(language)), //nolint:gosec // server-side constant map.

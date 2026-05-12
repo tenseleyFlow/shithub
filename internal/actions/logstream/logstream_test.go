@@ -12,6 +12,9 @@ func TestChannelAndListenSQL(t *testing.T) {
 	if got := ListenSQL(42); got != `LISTEN "step_log_42"` {
 		t.Fatalf("ListenSQL=%q", got)
 	}
+	if got := UnlistenSQL(42); got != `UNLISTEN "step_log_42"` {
+		t.Fatalf("UnlistenSQL=%q", got)
+	}
 }
 
 func TestParsePayload(t *testing.T) {

@@ -133,12 +133,17 @@ func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
 	r.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", h.repoActionsDispatch)
 }
 
+// MountRepoActionsStreams registers long-lived Actions streaming routes.
+// Caller must mount this outside compression and request-timeout middleware.
+func (h *Handlers) MountRepoActionsStreams(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", h.repoActionStepLogStream)
+}
+
 // MountRepoHome registers the root repository route plus product-tab shells
 // that are intentionally public and read-gated like the Code tab. The
 // two-segment route doesn't collide with the /{username} catch-all from S09;
 // caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
-	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", h.repoActionStepLogStream)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)

@@ -211,6 +211,7 @@ func Run(ctx context.Context, opts Options) error {
 			})
 		}
 		deps.RepoHomeMounter = repoH.MountRepoHome
+		deps.RepoActionsStreamMounter = repoH.MountRepoActionsStreams
 		deps.RepoCodeMounter = repoH.MountCode
 		deps.RepoHistoryMounter = repoH.MountHistory
 		deps.RepoRefsMounter = repoH.MountRefs

@@ -88,6 +88,10 @@ type Deps struct {
 	// workflow_dispatch endpoint (S41b). Auth-required + per-handler
 	// repo-write check.
 	RepoActionsAPIMounter func(chi.Router)
+	// RepoActionsStreamMounter registers long-lived Actions log-stream
+	// routes. It MUST bypass response compression and request timeout;
+	// the handler still runs the normal repo-read policy gate.
+	RepoActionsStreamMounter func(chi.Router)
 	// RepoSettingsGeneralMounter registers the General/Access tabs and
 	// the deferred-tab placeholders (webhooks, keys, notifications,
 	// tags) under /{owner}/{repo}/settings/* (S32). Auth-required.
@@ -255,9 +259,20 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		})
 	}
 
+	// Actions step-log SSE also streams for minutes. Keep it out of the
+	// app group's timeout/compression stack so EventSource receives each
+	// event as the handler flushes it. Browser CSRF protection is not
+	// needed for this GET-only route; repo visibility is enforced inside
+	// the handler through policy.ActionRepoRead.
+	if deps.RepoActionsStreamMounter != nil {
+		r.Group(func(r chi.Router) {
+			deps.RepoActionsStreamMounter(r)
+		})
+	}
+
 	// Application routes — CSRF protected. Compress + Timeout live in
 	// this group (and the static one above) rather than globally so the
-	// git-HTTP group can opt out.
+	// streaming groups can opt out.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))

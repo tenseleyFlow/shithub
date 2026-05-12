@@ -8,7 +8,8 @@ instead of PATs.
 > **Status.** The API is intentionally narrow today. Endpoints
 > currently shipped: `GET /api/v1/user`, the
 > `/api/v1/repos/{owner}/{repo}/check-runs` family, and the
-> `/api/v1/user/starred*` stars endpoints. Other sections of this
+> `/api/v1/user/starred*` stars endpoints, plus the Actions lifecycle
+> routes in [Actions workflow API](actions.md). Other sections of this
 > reference (Issues, Pull requests, Webhooks, etc.) describe the
 > **planned** shape and will land in subsequent sprints. Pages
 > that document planned-only endpoints carry a banner.

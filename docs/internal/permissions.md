@@ -147,10 +147,10 @@ that constructs an actor must source it correctly:
   suspending an account takes effect on the user's next click.
 * **Web (PAT)** — `middleware.PATAuthMiddleware` rejects requests
   whose owning user has `suspended_at IS NOT NULL` with a 401 before
-  the handler runs. Code paths under PAT auth construct
-  `policy.UserActor(..., IsSuspended: false, ...)` because the gate
-  is upstream; the field is still passed for honesty and is correct
-  by construction.
+  the handler runs. It still binds username, suspension, and site-admin
+  fields into `middleware.PATAuth`; API policy gates must construct
+  actors through `PATAuth.PolicyActor()` so the request actor stays
+  honest even as the middleware evolves.
 * **git over HTTPS (`internal/web/handlers/githttp`)** — the basic-
   auth resolver (`auth.go::resolveViaPAT`/`resolveViaPassword`)
   rejects suspended owners with `errBadCredentials` *before* the
