@@ -241,6 +241,21 @@ between minor releases.
   follow rate-limit and `followed_user` domain event stay in
   one place. Org-follow variants remain on the HTML surface.
 - **Capability:** `followers` added to `/api/v1/meta`.
+- **REST: actions workflow runs (S50 §18).** Read-only access to
+  the Actions run history:
+  `GET /api/v1/repos/{o}/{r}/actions/runs` (paginated; filterable
+  by `workflow_file`, `head_ref`, `actor`, `event`, `status`,
+  `conclusion`),
+  `GET /api/v1/repos/{o}/{r}/actions/runs/{run_id}` (single
+  run; existence-leak-safe cross-repo 404), and
+  `GET /api/v1/repos/{o}/{r}/actions/runs/{run_id}/jobs`
+  (job-index-ordered jobs list with `needs_jobs` graph). Reuses
+  the existing `actionsdb.ListWorkflowRunsForRepo` /
+  `GetWorkflowRunByID` / `ListJobsForRun` queries. Scope:
+  `repo:read`. Lifecycle controls (cancel / rerun / approve)
+  remain on the actions-lifecycle routes; this surface is
+  read-only.
+- **Capability:** `actions-runs` added to `/api/v1/meta`.
 
 ### Added (internal)
 
