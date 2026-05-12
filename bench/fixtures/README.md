@@ -43,6 +43,9 @@ done" land with the generators above.
 
 `actions/smoke-run-only.yml` is the canonical first end-to-end Actions
 workflow fixture. Copy it into `.shithub/workflows/smoke.yml` in a
-repository with a registered `ubuntu-latest` runner. It intentionally uses only
-`run:` steps because the current executor rejects reserved `uses:` aliases
-until checkout and artifact execution are implemented.
+repository with a registered `ubuntu-latest` runner.
+
+`actions/checkout-canary.yml` is the next fixture once the run-only smoke is
+green. It verifies `actions/checkout@v4` and pins that the runner workspace is
+on the workflow run's exact `shithub.sha`. Artifact aliases remain reserved
+until artifact execution is implemented.
