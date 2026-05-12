@@ -120,6 +120,34 @@ func TestOrgPagesRenderSingleSharedOrgNav(t *testing.T) {
 	}
 }
 
+func TestExploreFeedFragmentAppendsRowsAndReplacesPagination(t *testing.T) {
+	t.Parallel()
+	r, err := render.New(TemplatesFS(), render.Options{})
+	if err != nil {
+		t.Fatalf("render.New: %v", err)
+	}
+	rw := httptest.NewRecorder()
+	if err := r.RenderFragment(rw, "explore/feed_page", map[string]any{
+		"FeedHasNext": true,
+		"FeedNextURL": "/explore?before=2026-05-12T03%3A00%3A00Z~42",
+	}); err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	body := rw.Body.String()
+	for _, want := range []string{
+		`id="shithub-feed-fragment-rows"`,
+		`hx-target="#shithub-feed-list"`,
+		`hx-swap="beforeend"`,
+		`hx-select="#shithub-feed-fragment-rows > *"`,
+		`hx-select-oob="#shithub-feed-pagination:outerHTML"`,
+		`Loading...`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("fragment missing %q in:\n%s", want, body)
+		}
+	}
+}
+
 // errorOriginatesInPartial returns true when an html/template execute
 // error blames a file whose basename starts with `_`. Errors from such
 // files are bugs in the partial because we render with an empty map

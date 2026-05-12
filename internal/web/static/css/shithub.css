@@ -10483,6 +10483,21 @@ button.shithub-repo-action {
   justify-content: center;
   padding-top: 1rem;
 }
+.shithub-feed-pagination:empty {
+  display: none;
+}
+.shithub-feed-more-button {
+  min-width: 4.5rem;
+}
+.shithub-feed-more-loading {
+  display: none;
+}
+.shithub-feed-more-button.htmx-request .shithub-feed-more-label {
+  display: none;
+}
+.shithub-feed-more-button.htmx-request .shithub-feed-more-loading {
+  display: inline;
+}
 .shithub-side-panel {
   padding: 0 0 1.25rem;
   margin-bottom: 1.25rem;

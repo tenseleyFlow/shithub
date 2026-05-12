@@ -1,0 +1,21 @@
+{{ define "explore-feed-pagination" -}}
+{{ if .FeedHasNext }}
+<nav id="shithub-feed-pagination" class="shithub-feed-pagination" aria-label="Activity pagination">
+  <a
+    class="shithub-button shithub-feed-more-button"
+    href="{{ .FeedNextURL }}"
+    hx-get="{{ .FeedNextURL }}"
+    hx-target="#shithub-feed-list"
+    hx-swap="beforeend"
+    hx-select="#shithub-feed-fragment-rows > *"
+    hx-select-oob="#shithub-feed-pagination:outerHTML"
+    hx-indicator="this"
+  >
+    <span class="shithub-feed-more-label">More</span>
+    <span class="shithub-feed-more-loading">Loading...</span>
+  </a>
+</nav>
+{{ else }}
+<nav id="shithub-feed-pagination" class="shithub-feed-pagination" aria-label="Activity pagination"></nav>
+{{ end }}
+{{- end }}

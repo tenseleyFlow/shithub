@@ -46,7 +46,11 @@ The signed-in `/explore` feed includes:
 - public org-scoped activity for followed orgs.
 
 Anonymous Explore uses the global public feed. Both feeds page with a
-keyset cursor over `(created_at, id)`.
+keyset cursor over `(created_at, id)`. Full-page requests with a
+`before` cursor still render that cursor window for no-JavaScript
+fallbacks; HTMX requests return only the next feed rows plus a replacement
+`More` control, so the browser appends activity in place like GitHub's
+dashboard feed.
 
 ## Event Kinds
 

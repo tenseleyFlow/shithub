@@ -97,7 +97,7 @@
         <button type="button" class="shithub-button shithub-button-small" disabled>{{ octicon "list-unordered" }} Filter</button>
       </div>
       {{ if .Feed }}
-      <ol class="shithub-feed-list">
+      <ol id="shithub-feed-list" class="shithub-feed-list" aria-live="polite">
         {{ range .Feed }}{{ template "feed-row" . }}{{ end }}
       </ol>
       {{ else }}
@@ -107,11 +107,7 @@
         {{ if .Viewer.ID }}<a href="/trending" class="shithub-button">Explore trending repositories</a>{{ end }}
       </div>
       {{ end }}
-      {{ if .FeedHasNext }}
-      <nav class="shithub-feed-pagination" aria-label="Public activity pagination">
-        <a class="shithub-button" href="{{ .FeedNextURL }}">More</a>
-      </nav>
-      {{ end }}
+      {{ template "explore-feed-pagination" . }}
       {{ end }}
     </main>
 
