@@ -15,6 +15,7 @@ import (
 	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	"github.com/tenseleyFlow/shithub/internal/actions/runstate"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
+	actionstelemetry "github.com/tenseleyFlow/shithub/internal/actions/telemetry"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
@@ -68,6 +69,7 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 	var (
 		runCompleted  bool
 		runConclusion actionsdb.CheckConclusion
+		terminalRun   actionsdb.WorkflowRun
 	)
 	if len(changed) > 0 {
 		runCompleted, runConclusion, err = runstate.RollupAfterCancel(ctx, q, tx, runID)
@@ -77,6 +79,9 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 		run, err := q.GetWorkflowRunByID(ctx, tx, runID)
 		if err != nil {
 			return CancelResult{}, err
+		}
+		if runCompleted {
+			terminalRun = run
 		}
 		if err := emitCancelEvents(ctx, tx, run, changed, runCompleted); err != nil {
 			return CancelResult{}, err
@@ -88,6 +93,9 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 	committed = true
 
 	recordCancelledJobs(changed, reason)
+	if runCompleted {
+		actionstelemetry.RecordRunTerminal(terminalRun)
+	}
 	syncChangedJobChecks(ctx, deps, changed)
 	return CancelResult{
 		RunID:         runID,
@@ -140,6 +148,7 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 	var (
 		runCompleted  bool
 		runConclusion actionsdb.CheckConclusion
+		terminalRun   actionsdb.WorkflowRun
 	)
 	if len(changed) > 0 {
 		runCompleted, runConclusion, err = runstate.RollupAfterCancel(ctx, q, tx, runID)
@@ -149,6 +158,9 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 		run, err := q.GetWorkflowRunByID(ctx, tx, runID)
 		if err != nil {
 			return CancelResult{}, err
+		}
+		if runCompleted {
+			terminalRun = run
 		}
 		if err := emitCancelEvents(ctx, tx, run, changed, runCompleted); err != nil {
 			return CancelResult{}, err
@@ -160,6 +172,9 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 	committed = true
 
 	recordCancelledJobs(changed, reason)
+	if runCompleted {
+		actionstelemetry.RecordRunTerminal(terminalRun)
+	}
 	syncChangedJobChecks(ctx, deps, changed)
 	return CancelResult{
 		RunID:         runID,
