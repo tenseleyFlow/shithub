@@ -87,7 +87,7 @@
               <time datetime="{{ .PR.ICreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .PR.ICreatedAt.Time }}</time>
             </div>
             <div class="shithub-comment-body markdown-body">
-              {{ if .PR.IBodyHtmlCached.Valid }}{{ safeHTML .PR.IBodyHtmlCached.String }}{{ else }}<p>{{ .PR.IBody }}</p>{{ end }}
+              {{ if .PR.IBodyHtmlCached.Valid }}{{ safeHTML .PR.IBodyHtmlCached.String }}{{ else if .PR.IBody }}<p>{{ .PR.IBody }}</p>{{ else }}<p><em>No description provided.</em></p>{{ end }}
             </div>
           </div>
 
@@ -108,6 +108,7 @@
               <span class="shithub-event-icon" aria-hidden="true">
                 {{ if eq .E.Kind "closed" }}{{ octicon "issue-closed" }}
                 {{ else if eq .E.Kind "reopened" }}{{ octicon "issue-opened" }}
+                {{ else if eq .E.Kind "merged" }}{{ octicon "git-merge" }}
                 {{ else if eq .E.Kind "locked" }}{{ octicon "lock" }}
                 {{ else if eq .E.Kind "unlocked" }}{{ octicon "unlock" }}
                 {{ else if or (eq .E.Kind "labeled") (eq .E.Kind "unlabeled") }}{{ octicon "tag" }}
@@ -115,9 +116,13 @@
                 {{ else if or (eq .E.Kind "milestoned") (eq .E.Kind "demilestoned") }}{{ octicon "milestone" }}
                 {{ else }}{{ octicon "comment" }}{{ end }}
               </span>
-              <span>
+              <span class="shithub-event-text">
                 {{ if .ActorName }}<a href="/{{ .ActorName }}">{{ .ActorName }}</a>{{ else }}Someone{{ end }}
-                {{ if .LabelName }}
+                {{ if eq .E.Kind "merged" }}
+                  merged commit
+                  {{ if .CommitSHA }}<a class="shithub-mono-link" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .CommitSHA }}">{{ .ShortCommit }}</a>{{ end }}
+                  into <a class="shithub-branch-name" href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ $.PR.BaseRef }}">{{ $.PR.BaseRef }}</a>
+                {{ else if .LabelName }}
                   {{ if eq .E.Kind "labeled" }}added the{{ else }}removed the{{ end }}
                   <span class="shithub-label" style="background-color: #{{ .LabelColor }}">{{ .LabelName }}</span>
                   label
@@ -126,6 +131,11 @@
                 {{ end }}
                 <time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt }}</time>
               </span>
+              {{ if and (eq .E.Kind "merged") .CommitSHA }}
+              <span class="shithub-event-actions">
+                <a class="shithub-button" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .CommitSHA }}">View details</a>
+              </span>
+              {{ end }}
             </div>
             {{ end }}
           {{ end }}
@@ -140,14 +150,22 @@
           </section>
           {{ end }}
 
-          <section class="shithub-pull-merge-box shithub-pull-merge-box-{{ if .PR.MergedAt.Valid }}merged{{ else if eq (printf "%s" .PR.IState) "closed" }}closed{{ else if eq $mergeable "clean" }}ready{{ else if eq $mergeable "dirty" }}blocked{{ else }}pending{{ end }}">
+          <section class="shithub-pull-merge-box shithub-pull-merge-box-{{ if .PR.MergedAt.Valid }}merged{{ else if eq (printf "%s" .PR.IState) "closed" }}closed{{ else if eq $mergeable "clean" }}ready{{ else if eq $mergeable "dirty" }}blocked{{ else }}pending{{ end }}" data-pull-merge-box>
             {{ if .PR.MergedAt.Valid }}
               <div class="shithub-pull-merge-row">
                 <span class="shithub-pull-status-icon shithub-pull-status-icon-merged">{{ octicon "git-merge" }}</span>
                 <div>
                   <strong>Pull request successfully merged and closed</strong>
-                  <p class="shithub-muted">Merged via <code>{{ printf "%s" .PR.MergeMethod.PrMergeMethod }}</code>.</p>
+                  <p class="shithub-muted">You're all set &mdash; the <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.HeadRef }}">{{ .PR.HeadRef }}</a> branch can be safely deleted.</p>
                 </div>
+                {{ if .CanDeleteHeadBranch }}
+                <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/delete-branch" class="shithub-pull-delete-branch-form">
+                  <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                  <button type="submit" class="shithub-button">Delete branch</button>
+                </form>
+                {{ else if .HeadBranchAlreadyGone }}
+                  <span class="shithub-muted shithub-pull-branch-deleted">Branch deleted</span>
+                {{ end }}
               </div>
             {{ else if eq (printf "%s" .PR.IState) "closed" }}
               <div class="shithub-pull-merge-row">
@@ -227,14 +245,30 @@
               <div class="shithub-pull-merge-actions">
                 {{ if .CanMergePull }}
                   {{ if eq $mergeable "clean" }}
-                  <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/merge" class="shithub-pull-merge-form">
-                    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-                    <button type="submit" class="shithub-button shithub-button-primary">Merge pull request</button>
-                    <select name="method" aria-label="Merge method">
+                  <div class="shithub-pull-merge-choice" data-pull-merge-choice>
+                    <button type="button" class="shithub-button shithub-button-primary" data-pull-merge-open>Merge pull request</button>
+                    <select aria-label="Merge method" data-pull-merge-method>
                       {{ if .Repo.AllowMergeCommit }}<option value="merge" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "merge" }}selected{{ end }}>Merge commit</option>{{ end }}
                       {{ if .Repo.AllowSquashMerge }}<option value="squash" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "squash" }}selected{{ end }}>Squash and merge</option>{{ end }}
                       {{ if .Repo.AllowRebaseMerge }}<option value="rebase" {{ if eq (printf "%s" .Repo.DefaultMergeMethod) "rebase" }}selected{{ end }}>Rebase and merge</option>{{ end }}
                     </select>
+                  </div>
+                  <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/merge" class="shithub-pull-merge-confirm" data-pull-merge-confirm hidden>
+                    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                    <input type="hidden" name="method" value="{{ .MergeDefaultMethod }}" data-pull-merge-confirm-method>
+                    <label>
+                      <span>Commit message</span>
+                      <input type="text" name="subject" value="{{ .MergeFormSubject }}" data-pull-merge-subject>
+                    </label>
+                    <label>
+                      <span>Extended description</span>
+                      <textarea name="body" rows="8">{{ .MergeFormBody }}</textarea>
+                    </label>
+                    {{ if .MergeAuthorLine }}<p class="shithub-muted">{{ .MergeAuthorLine }}</p>{{ end }}
+                    <div class="shithub-form-actions shithub-form-actions-start">
+                      <button type="submit" class="shithub-button shithub-button-primary">Confirm merge</button>
+                      <button type="button" class="shithub-button" data-pull-merge-cancel>Cancel</button>
+                    </div>
                   </form>
                   {{ end }}
                 {{ end }}

@@ -370,6 +370,8 @@ type issueTimelineRow struct {
 	LabelName   string
 	LabelColor  string
 	CommentID   int64
+	CommitSHA   string
+	ShortCommit string
 	LinkedState bool
 }
 
@@ -410,6 +412,10 @@ func (h *Handlers) issueTimelineRows(
 		if id := metaInt64(meta, "comment_id"); id != 0 {
 			row.CommentID = id
 			row.LinkedState = e.Kind == "closed" || e.Kind == "reopened"
+		}
+		if commit := metaString(meta, "commit"); commit != "" {
+			row.CommitSHA = commit
+			row.ShortCommit = shortSHA(commit)
 		}
 		if id := metaInt64(meta, "label_id"); id != 0 {
 			if l, ok := labelByID[id]; ok {
@@ -471,6 +477,16 @@ func metaInt64(meta map[string]any, key string) int64 {
 	}
 }
 
+func metaString(meta map[string]any, key string) string {
+	if meta == nil {
+		return ""
+	}
+	if s, ok := meta[key].(string); ok {
+		return s
+	}
+	return ""
+}
+
 func issueEventMessage(kind string) string {
 	switch kind {
 	case "closed":
@@ -495,6 +511,8 @@ func issueEventMessage(kind string) string {
 		return "unassigned a user"
 	case "referenced":
 		return "referenced this issue"
+	case "merged":
+		return "merged commit"
 	default:
 		return kind
 	}

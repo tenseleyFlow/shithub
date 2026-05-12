@@ -51,6 +51,7 @@ so a self-merge can't be opened. Cross-fork PRs land in S27.
 | `POST /{owner}/{repo}/pulls/{number}/state`           | RequireUser   |
 | `POST /{owner}/{repo}/pulls/{number}/ready`           | RequireUser   |
 | `POST /{owner}/{repo}/pulls/{number}/merge`           | RequireUser   |
+| `POST /{owner}/{repo}/pulls/{number}/delete-branch`   | RequireUser   |
 
 The pull-request list's "New pull request" button starts at
 `/{owner}/{repo}/compare`, where the user picks base/head refs. Once
@@ -170,8 +171,17 @@ noreply emails are post-MVP.
 - Files tab uses the existing S19 diff renderer fed from
   `compareSourceMergeBase` (three-dot diff, base...head).
 - The Checks tab is a placeholder — real check runs land in S24.
-- The merge form hides disallowed methods and preselects the repo's
-  `default_merge_method`.
+- The merge action is a GitHub-style two-step flow: the ready merge
+  row opens a confirmation panel with editable commit subject/body,
+  hidden disallowed methods, and the repo's `default_merge_method`
+  preselected. The handler still validates the selected method
+  server-side.
+- After a successful same-repo merge, the conversation shows the
+  merged timeline event plus the "successfully merged and closed"
+  branch-cleanup card. The timeline event links to the merge commit's
+  commit detail page. Deleting the head branch uses
+  `git update-ref -d refs/heads/<head> <expected_head_oid>` so a
+  branch that moved after merge cannot be removed accidentally.
 
 ## Errors
 
