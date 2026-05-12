@@ -150,6 +150,19 @@ between minor releases.
   `GET /api/v1/repos/{o}/{r}/tags` (paginated). Scope: `repo:read`.
   Empty / uninitialised repos return `[]` rather than `404`.
 - **Capabilities:** `branches`, `tags` added to `/api/v1/meta`.
+- **REST: repo collaborators (S50 §10).**
+  `GET /api/v1/repos/{o}/{r}/collaborators` (list),
+  `GET .../collaborators/{username}` (204 membership probe),
+  `GET .../collaborators/{username}/permission` (permission
+  level — `"none"` when not a collaborator),
+  `PUT .../collaborators/{username}` (add / upgrade, body
+  `{"role": "..."}` accepting both shithub names and gh-style
+  aliases `pull`/`push`),
+  `DELETE .../collaborators/{username}` (remove). Scope:
+  `repo:read` on GETs, `repo:write` on mutations; mutations
+  layer `ActionRepoAdmin` on top. Refuses (422) to enrol the
+  repo owner.
+- **Capability:** `collaborators` added to `/api/v1/meta`.
 
 ### Added (internal)
 
