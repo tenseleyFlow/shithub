@@ -36,7 +36,8 @@ backstop poll (every 5s by default) covers dropped notifications.
 | `repo:size_recalc`           | enqueued by `push:process`           | overwrite-last-wins              |
 | `org:github_import_discover` | org import request                   | `org_github_imports.status`      |
 | `org:github_import_repo`     | import discovery per GitHub repo     | `org_github_import_repos.status` |
-| `jobs:purge_completed`       | future cron / manual ad-hoc          | always safe to re-run            |
+| `jobs:purge_completed`       | cron / manual ad-hoc                 | always safe to re-run            |
+| `workflow:cleanup`           | cron / manual ad-hoc                 | retention cutoff + idempotent deletes |
 | `trending:compute`           | recurring self-scheduled S42 job     | append-only snapshots            |
 
 Adding a new kind: write the handler in `internal/worker/jobs/<kind>.go`,

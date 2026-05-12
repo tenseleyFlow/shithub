@@ -18,13 +18,15 @@ type Querier interface {
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
 	CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error)
-	DeleteExpiredArtifacts(ctx context.Context, db DBTX) ([]DeleteExpiredArtifactsRow, error)
-	DeleteExpiredRunnerJWTUses(ctx context.Context, db DBTX) error
+	DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error)
+	DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
 	DeleteOrgVariable(ctx context.Context, db DBTX, arg DeleteOrgVariableParams) error
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
+	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
 	// Idempotent insert: if a row with the same (repo_id, workflow_file,
 	// trigger_event_id) already exists, returns no rows (pgx.ErrNoRows in
 	// Go). The handler treats that as a successful no-op so worker
@@ -65,6 +67,7 @@ type Querier interface {
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
+	ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)
 	ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error)

@@ -128,7 +128,10 @@ Two layers, both mandatory:
 Cross-region copy (`deploy/spaces/sync-cross-region.sh`) mirrors
 both buckets to a second region for DR. Lifecycle in
 `deploy/spaces/lifecycle.json` prunes WAL after 30 days and dumps
-after 90.
+after 90. Actions log/artifact objects use the primary object bucket's
+`actions/runs/` prefix; apply `deploy/spaces/actions-lifecycle.json`
+with `deploy/cutover/apply-actions-lifecycle.sh` so provider-side blob
+retention matches the `workflow:cleanup` database sweep.
 
 The recovery target is **PITR within 30 days, full restore within
 1 hour**. We verify this every quarter with the restore drill —

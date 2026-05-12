@@ -12,10 +12,11 @@ without churning under them.
 
 ## SQL schema
 
-Actions migrations currently span 0042–0051, 0053, and 0057. Migration
-0052 belongs to the repo source-remotes feature, 0054 belongs to push
-event protocol tracking, 0055 belongs to the social feed, and 0056
-belongs to user profile contribution settings.
+Actions migrations currently span 0042–0051, 0053, 0057, and 0060.
+Migration 0052 belongs to the repo source-remotes feature, 0054
+belongs to push event protocol tracking, 0055 belongs to the social
+feed, 0056 belongs to user profile contribution settings, 0058 belongs
+to repo name reuse, and 0059 belongs to GitHub org imports.
 
 | #     | Table                       | Purpose                                                       |
 | ----- | --------------------------- | ------------------------------------------------------------- |
@@ -31,6 +32,7 @@ belongs to user profile contribution settings.
 | 0051  | `workflow_runs.trigger_event_id` | Trigger idempotency for retries/admin replays            |
 | 0053  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
 | 0057  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
+| 0060  | Actions retention indexes   | Narrow cleanup indexes for terminal steps/runs                |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -376,6 +378,43 @@ Other admin surfaces are scoped to later sub-sprints:
   UI re-run completed/cancelled runs. Re-runs read the workflow YAML
   from the original run's `head_sha`, create a fresh queued
   `workflow_runs` row, and set `parent_run_id` to the source run.
+- S41g: `workflow:cleanup` is a daily retention worker enqueued by
+  `shithubd-cron.service`. Operators can run it manually with
+  `shithubd admin run-job workflow:cleanup`.
+
+## Retention cleanup (S41g)
+
+`workflow:cleanup` applies the durable Actions retention contract in
+this order:
+
+1. Delete hot `workflow_step_log_chunks` for steps completed more than
+   7 days ago. Finalized logs already live in object storage.
+2. Delete expired `workflow_artifacts` rows after deleting their
+   `actions/runs/...` blob objects. The row's `expires_at` value is
+   authoritative so per-upload retention overrides keep working.
+3. Delete unpinned terminal `workflow_runs` older than 365 days. Child
+   jobs, steps, artifacts, and consumed JWT rows cascade through FK
+   ownership.
+4. Delete consumed `runner_jwt_used` rows whose JWT expiry is more than
+   30 days old. This preserves replay/audit evidence for recent jobs
+   without letting the replay table grow forever.
+
+The defaults can be overridden in the worker payload:
+
+```json
+{"step_log_chunk_days":7,"run_days":365,"jwt_used_days":30,"artifact_batch":1000}
+```
+
+`artifact_batch` caps each object-delete page and may not exceed 10000.
+Negative values are poison-job errors. The worker exports
+`shithub_actions_runs_pruned_total{kind}` where `kind` is one of
+`chunks`, `blobs`, `runs`, or `jwt_used`.
+
+Production object storage also needs provider-side lifecycle on the
+same prefix: `deploy/spaces/actions-lifecycle.json` expires
+`actions/runs/` objects after 90 days and aborts stale multipart
+uploads after 2 days. Apply it with
+`deploy/cutover/apply-actions-lifecycle.sh`.
 
 ## Trigger pipeline (S41b)
 

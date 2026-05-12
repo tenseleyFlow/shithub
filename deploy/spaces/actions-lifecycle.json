@@ -1,0 +1,17 @@
+{
+  "_comment": "DigitalOcean Spaces lifecycle for the primary shithub object bucket. Apply with `s3cmd setlifecycle actions-lifecycle.json s3://<object-bucket>`. Actions logs and artifacts live under actions/runs/; DB metadata retention is handled by workflow:cleanup.",
+  "Rules": [
+    {
+      "ID": "actions-runs-90day-retention",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "actions/runs/"},
+      "Expiration": {"Days": 90}
+    },
+    {
+      "ID": "actions-abort-stale-multipart",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "actions/runs/"},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 2}
+    }
+  ]
+}

@@ -150,3 +150,10 @@ SELECT workflow_file,
 FROM ranked
 WHERE rn = 1
 ORDER BY lower(COALESCE(NULLIF(workflow_name, ''), workflow_file)), workflow_file;
+
+-- name: DeleteOldWorkflowRunsForCleanup :execrows
+DELETE FROM workflow_runs
+WHERE pinned = false
+  AND status IN ('completed', 'cancelled')
+  AND completed_at IS NOT NULL
+  AND completed_at < $1;

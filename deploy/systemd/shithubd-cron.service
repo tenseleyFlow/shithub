@@ -13,3 +13,4 @@ EnvironmentFile=/etc/shithub/worker.env
 ExecStart=/usr/local/bin/shithubd admin run-job lifecycle:sweep
 ExecStart=/usr/local/bin/shithubd admin run-job jobs:purge_completed
 ExecStart=/usr/local/bin/shithubd admin run-job webhook:purge_old
+ExecStart=/usr/local/bin/shithubd admin run-job workflow:cleanup

@@ -38,3 +38,11 @@ WHERE id = $1;
 
 -- name: DeleteStepLogChunks :exec
 DELETE FROM workflow_step_log_chunks WHERE step_id = $1;
+
+-- name: DeleteStaleStepLogChunksForCleanup :execrows
+DELETE FROM workflow_step_log_chunks c
+USING workflow_steps s
+WHERE c.step_id = s.id
+  AND s.status IN ('completed', 'cancelled', 'skipped')
+  AND s.completed_at IS NOT NULL
+  AND s.completed_at < $1;

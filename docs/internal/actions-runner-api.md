@@ -41,6 +41,11 @@ then inserts `jti` into `runner_jwt_used`. A replay returns 401. To
 support multi-step runner flows, successful in-flight job endpoints
 return `next_token` and `next_token_expires_at`.
 
+Consumed JWT rows are retained for 30 days after token expiry, then
+pruned by the daily `workflow:cleanup` worker. This keeps the replay
+gate audit trail available for recent jobs without letting the table
+grow unbounded.
+
 `shithubd-runner` consumes the same token chain: it claims with the
 registration token, marks the job `running` with the first job JWT, then
 uses each returned `next_token` serially for log chunks, step-status
@@ -203,3 +208,4 @@ runner posts terminal job status `cancelled`.
 - `shithub_actions_runner_jwt_total{result="issued|rejected|replay"}`
 - `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
+- `shithub_actions_runs_pruned_total{kind="chunks|blobs|runs|jwt_used"}`
