@@ -74,6 +74,35 @@ func (r *cancellableRunner) Run(ctx context.Context, _ string, args []string, _ 
 	}
 }
 
+type timeoutRunner struct {
+	started   chan struct{}
+	killed    chan struct{}
+	killArgs  []string
+	startOnce sync.Once
+	killOnce  sync.Once
+	mu        sync.Mutex
+}
+
+func newTimeoutRunner() *timeoutRunner {
+	return &timeoutRunner{
+		started: make(chan struct{}),
+		killed:  make(chan struct{}),
+	}
+}
+
+func (r *timeoutRunner) Run(ctx context.Context, _ string, args []string, _ []string, _, _ io.Writer) error {
+	if len(args) > 0 && args[0] == "kill" {
+		r.mu.Lock()
+		r.killArgs = append([]string{}, args...)
+		r.mu.Unlock()
+		r.killOnce.Do(func() { close(r.killed) })
+		return nil
+	}
+	r.startOnce.Do(func() { close(r.started) })
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	t.Parallel()
 	rec := &recordingRunner{}
@@ -433,6 +462,63 @@ func TestDockerCancelKillsActiveContainer(t *testing.T) {
 	want := []string{"kill", "shithub-job-99-step-123"}
 	if !reflect.DeepEqual(killArgs, want) {
 		t.Fatalf("kill args: got %#v want %#v", killArgs, want)
+	}
+}
+
+func TestDockerExecute_TimeoutKillsActiveContainerAndReportsTimedOut(t *testing.T) {
+	t.Parallel()
+	rec := newTimeoutRunner()
+	d := NewDocker(DockerConfig{
+		DefaultImage:     "runner-image",
+		Network:          "bridge",
+		Memory:           "2g",
+		CPUs:             "2",
+		Runner:           rec,
+		TimeoutMinute:    time.Millisecond,
+		LogChunkBytes:    4,
+		StepLogLimit:     1024,
+		LogFlushInterval: time.Hour,
+	})
+	events, err := d.StreamEvents(t.Context(), 99)
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	out, err := d.Execute(t.Context(), Job{
+		ID:             99,
+		TimeoutMinutes: 1,
+		WorkspaceDir:   t.TempDir(),
+		Steps:          []Step{{ID: 123, Run: "sleep 600", ContinueOnError: true}},
+	})
+	if !errors.Is(err, ErrJobTimedOut) {
+		t.Fatalf("Execute error: got %v, want ErrJobTimedOut", err)
+	}
+	if out.Conclusion != ConclusionTimedOut {
+		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+	if len(out.StepOutcomes) != 1 ||
+		out.StepOutcomes[0].StepID != 123 ||
+		out.StepOutcomes[0].Status != "completed" ||
+		out.StepOutcomes[0].Conclusion != ConclusionTimedOut {
+		t.Fatalf("StepOutcomes: %#v", out.StepOutcomes)
+	}
+	select {
+	case <-rec.killed:
+	case <-time.After(time.Second):
+		t.Fatal("timeout did not kill active container")
+	}
+	rec.mu.Lock()
+	killArgs := append([]string{}, rec.killArgs...)
+	rec.mu.Unlock()
+	want := []string{"kill", "shithub-job-99-step-123"}
+	if !reflect.DeepEqual(killArgs, want) {
+		t.Fatalf("kill args: got %#v want %#v", killArgs, want)
+	}
+	var got []Event
+	for event := range events {
+		got = append(got, event)
+	}
+	if len(got) != 1 || got[0].Step == nil || got[0].Step.Conclusion != ConclusionTimedOut {
+		t.Fatalf("timeout step event: %#v", got)
 	}
 }
 

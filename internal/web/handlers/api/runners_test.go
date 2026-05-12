@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
@@ -29,6 +30,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -448,6 +450,74 @@ func TestRunnerStepStatusEnqueuesFinalizeWorker(t *testing.T) {
 	}
 }
 
+func TestRunnerStepStatusRecordsTimeoutMetricOnce(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID    int64 `json:"id"`
+			Steps []struct {
+				ID int64 `json:"id"`
+			} `json:"steps"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	if len(claim.Job.Steps) == 0 {
+		t.Fatalf("claim steps: %+v", claim.Job.Steps)
+	}
+	stepID := claim.Job.Steps[0].ID
+	before := actionsStepTimeoutsValue(t)
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/steps/%d/status", claim.Job.ID, stepID),
+		strings.NewReader(`{"status":"completed","conclusion":"timed_out"}`))
+	req.Header.Set("Authorization", "Bearer "+claim.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("step status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var statusResp struct {
+		NextToken string `json:"next_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusResp.NextToken == "" {
+		t.Fatalf("missing next token: %s", rr.Body.String())
+	}
+	if got := actionsStepTimeoutsValue(t); got != before+1 {
+		t.Fatalf("timeout metric after first report: got %v, want %v", got, before+1)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/steps/%d/status", claim.Job.ID, stepID),
+		strings.NewReader(`{"status":"completed","conclusion":"timed_out"}`))
+	req.Header.Set("Authorization", "Bearer "+statusResp.NextToken)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("duplicate step status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if got := actionsStepTimeoutsValue(t); got != before+1 {
+		t.Fatalf("timeout metric after duplicate report: got %v, want still %v", got, before+1)
+	}
+}
+
 func TestWorkflowJobCancelAPIRequestsCancellation(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
@@ -665,6 +735,18 @@ func newRunnerAPIRouterWithSecretBox(
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r
+}
+
+func actionsStepTimeoutsValue(t *testing.T) float64 {
+	t.Helper()
+	var metric dto.Metric
+	if err := metrics.ActionsStepTimeoutsTotal.Write(&metric); err != nil {
+		t.Fatalf("read timeout metric: %v", err)
+	}
+	if metric.Counter == nil {
+		return 0
+	}
+	return metric.Counter.GetValue()
 }
 
 const runnerAPIOldWorkflow = `name: CI
