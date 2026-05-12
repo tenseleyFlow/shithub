@@ -35,6 +35,20 @@ between minor releases.
   mutations.
 - **Capabilities:** `user-emails`, `ssh-keys` added to
   `/api/v1/meta` response.
+- **REST: repos core (S50 §2).**
+  `GET /api/v1/user/repos`, `GET /api/v1/users/{username}/repos`,
+  `GET /api/v1/orgs/{org}/repos`,
+  `GET /api/v1/repos/{owner}/{repo}`,
+  `POST /api/v1/user/repos`,
+  `POST /api/v1/orgs/{org}/repos`,
+  `PATCH /api/v1/repos/{owner}/{repo}` (description, has_issues,
+  has_pulls, archived, visibility), and
+  `DELETE /api/v1/repos/{owner}/{repo}` (soft-delete).
+  Visibility-aware listing: a user's `/users/{u}/repos` shows
+  private rows only to that user; an org's `/orgs/{o}/repos`
+  shows private rows only to members. Single-repo GETs `404`
+  for callers who can't see the row (no existence leak).
+- **Capability:** `repos` added to `/api/v1/meta`.
 
 ### Changed
 
