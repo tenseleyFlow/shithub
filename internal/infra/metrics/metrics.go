@@ -156,6 +156,28 @@ var (
 		},
 		[]string{"reason"},
 	)
+	ActionsRunsCompletedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runs_completed_total",
+			Help: "Total terminal Actions workflow runs by event kind and conclusion.",
+		},
+		[]string{"event", "conclusion"},
+	)
+	ActionsRunDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "shithub_actions_run_duration_seconds",
+			Help:    "Actions workflow run duration from started_at or created_at to completed_at, by event kind and conclusion.",
+			Buckets: prometheus.ExponentialBuckets(1, 2.5, 12),
+		},
+		[]string{"event", "conclusion"},
+	)
+	ActionsStepsCompletedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_steps_completed_total",
+			Help: "Total terminal Actions steps by bounded step type and conclusion.",
+		},
+		[]string{"step_type", "conclusion"},
+	)
 	ActionsConcurrencyQueuedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "shithub_actions_concurrency_queued_total",
@@ -166,6 +188,20 @@ var (
 		prometheus.CounterOpts{
 			Name: "shithub_actions_log_scrub_replacements_total",
 			Help: "Total exact secret-value replacements performed on Actions log chunks.",
+		},
+		[]string{"location"},
+	)
+	ActionsLogChunksTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_log_chunks_total",
+			Help: "Total Actions log chunks accepted by location.",
+		},
+		[]string{"location"},
+	)
+	ActionsLogChunkBytesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_log_chunk_bytes_total",
+			Help: "Total Actions log chunk bytes accepted by location before durable storage.",
 		},
 		[]string{"location"},
 	)
@@ -181,6 +217,48 @@ var (
 			Name: "shithub_actions_step_timeouts_total",
 			Help: "Total Actions steps reported as timed out by runners.",
 		},
+	)
+	ActionsQueueDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_queue_depth",
+			Help: "Current queued Actions workflow items by resource (runs, jobs).",
+		},
+		[]string{"resource"},
+	)
+	ActionsActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_active",
+			Help: "Current running Actions workflow items by resource (runs, jobs).",
+		},
+		[]string{"resource"},
+	)
+	ActionsRunnerHeartbeatAgeSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_heartbeat_age_seconds",
+			Help: "Seconds since each registered Actions runner last heartbeated. Offline runners that never heartbeated are omitted.",
+		},
+		[]string{"runner", "status"},
+	)
+	ActionsRunnerCapacity = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_capacity",
+			Help: "Configured Actions runner capacity by runner and status.",
+		},
+		[]string{"runner", "status"},
+	)
+	ActionsStorageObjects = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_storage_objects",
+			Help: "Current durable Actions storage object count by kind.",
+		},
+		[]string{"kind"},
+	)
+	ActionsStorageBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_storage_bytes",
+			Help: "Current durable Actions storage byte count by kind.",
+		},
+		[]string{"kind"},
 	)
 )
 
@@ -203,10 +281,21 @@ func init() {
 		ActionsRunnerHeartbeatsTotal,
 		ActionsRunnerJWTTotal,
 		ActionsJobsCancelledTotal,
+		ActionsRunsCompletedTotal,
+		ActionsRunDurationSeconds,
+		ActionsStepsCompletedTotal,
 		ActionsConcurrencyQueuedTotal,
 		ActionsLogScrubReplacementsTotal,
+		ActionsLogChunksTotal,
+		ActionsLogChunkBytesTotal,
 		ActionsRunsPrunedTotal,
 		ActionsStepTimeoutsTotal,
+		ActionsQueueDepth,
+		ActionsActive,
+		ActionsRunnerHeartbeatAgeSeconds,
+		ActionsRunnerCapacity,
+		ActionsStorageObjects,
+		ActionsStorageBytes,
 	)
 }
 

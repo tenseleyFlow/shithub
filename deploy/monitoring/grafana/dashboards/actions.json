@@ -1,0 +1,247 @@
+{
+  "uid": "shithubd-actions",
+  "title": "shithubd - Actions",
+  "tags": ["shithubd", "actions"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up{job=\"shithubd-web\"}, instance)",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Queued jobs",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(shithub_actions_queue_depth{resource=\"jobs\",instance=~\"$instance\"})", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Running jobs",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(shithub_actions_active{resource=\"jobs\",instance=~\"$instance\"})", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Stale runners",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "count(shithub_actions_runner_heartbeat_age_seconds{status!=\"offline\",instance=~\"$instance\"} > 60)", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Log MB/day",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(increase(shithub_actions_log_chunk_bytes_total{instance=~\"$instance\"}[24h])) / 1024 / 1024", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Run p99",
+      "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "histogram_quantile(0.99, sum(rate(shithub_actions_run_duration_seconds_bucket{instance=~\"$instance\"}[30m])) by (le))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Storage MB",
+      "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(shithub_actions_storage_bytes{instance=~\"$instance\"}) / 1024 / 1024", "refId": "A"}]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Queue depth",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(shithub_actions_queue_depth{instance=~\"$instance\"}) by (resource)",
+          "legendFormat": "{{resource}} queued",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Active runs and jobs",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(shithub_actions_active{instance=~\"$instance\"}) by (resource)",
+          "legendFormat": "{{resource}} active",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Run duration p95 and p99",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(shithub_actions_run_duration_seconds_bucket{instance=~\"$instance\"}[15m])) by (le, event))",
+          "legendFormat": "p95 {{event}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(shithub_actions_run_duration_seconds_bucket{instance=~\"$instance\"}[15m])) by (le, event))",
+          "legendFormat": "p99 {{event}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Runner heartbeat age",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "shithub_actions_runner_heartbeat_age_seconds{instance=~\"$instance\"}",
+          "legendFormat": "{{runner}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Runs per minute",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(shithub_actions_runs_enqueued_total{result=\"fresh\",instance=~\"$instance\"}[5m])) * 60",
+          "legendFormat": "enqueued",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(shithub_actions_runs_completed_total{instance=~\"$instance\"}[5m])) * 60",
+          "legendFormat": "completed",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Run conclusions",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(shithub_actions_runs_completed_total{instance=~\"$instance\"}[15m])) by (conclusion)",
+          "legendFormat": "{{conclusion}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Step outcomes",
+      "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(shithub_actions_steps_completed_total{instance=~\"$instance\"}[15m])) by (step_type, conclusion)",
+          "legendFormat": "{{step_type}} {{conclusion}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Log throughput",
+      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(shithub_actions_log_chunk_bytes_total{instance=~\"$instance\"}[5m])) by (location)",
+          "legendFormat": "{{location}} bytes/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(shithub_actions_log_chunks_total{instance=~\"$instance\"}[5m])) by (location)",
+          "legendFormat": "{{location}} chunks/sec",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Actions storage",
+      "gridPos": {"x": 0, "y": 36, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(shithub_actions_storage_bytes{instance=~\"$instance\"}) by (kind)",
+          "legendFormat": "{{kind}} bytes",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(shithub_actions_storage_objects{instance=~\"$instance\"}) by (kind)",
+          "legendFormat": "{{kind}} objects",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Cancellations and retention",
+      "gridPos": {"x": 12, "y": 36, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(shithub_actions_jobs_cancelled_total{instance=~\"$instance\"}[15m])) by (reason)",
+          "legendFormat": "cancel {{reason}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(shithub_actions_runs_pruned_total{instance=~\"$instance\"}[1h])) by (kind)",
+          "legendFormat": "pruned {{kind}}",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

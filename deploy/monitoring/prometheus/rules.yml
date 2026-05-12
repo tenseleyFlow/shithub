@@ -72,6 +72,52 @@ groups:
         annotations:
           summary: "webhook failure rate > 50% sustained"
 
+  - name: shithubd-actions
+    interval: 30s
+    rules:
+      - alert: ActionsRunnerHeartbeatStale
+        expr: shithub_actions_runner_heartbeat_age_seconds{status!="offline"} > 60
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "Actions runner {{ $labels.runner }} heartbeat stale for > 60s"
+          runbook: "runbooks/incidents.md#actions-runner-heartbeat-stale"
+
+      - alert: ActionsQueueDepthHigh
+        expr: shithub_actions_queue_depth{resource="jobs"} > 100
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Actions queued jobs > 100 for 10m"
+          runbook: "runbooks/incidents.md#actions-queue-depth-high"
+
+      - alert: ActionsRunDurationP99Regressed
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(shithub_actions_run_duration_seconds_bucket[30m])) by (le)
+          )
+            >
+          1.5 *
+          histogram_quantile(0.99,
+            sum(rate(shithub_actions_run_duration_seconds_bucket[30m] offset 24h)) by (le)
+          )
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Actions run duration p99 regressed by > 50% versus 24h ago"
+          runbook: "runbooks/incidents.md#actions-run-duration-p99-regressed"
+
+      - alert: ActionsLogScrubberPossiblyMissing
+        expr: |
+          sum(rate(shithub_actions_log_chunk_bytes_total{location="server"}[15m])) > 1048576
+            and
+          sum(rate(shithub_actions_log_scrub_replacements_total{location="server"}[15m])) == 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Actions logs are flowing but no server-side secret masks have matched"
+          runbook: "runbooks/incidents.md#actions-log-scrubber-possibly-missing"
+
   - name: shithubd-backups
     interval: 5m
     rules:

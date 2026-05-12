@@ -72,3 +72,67 @@ write; reads through cache may still appear to work briefly.
    pattern lets multiple workers coexist safely).
 4. To purge a poison job: mark it `failed` (don't delete — we want
    the audit trail).
+
+## actions-runner-heartbeat-stale
+
+**Symptom:** `shithub_actions_runner_heartbeat_age_seconds{status!="offline"} >
+60` for 5m. Actions jobs can remain queued even while the runner appears
+registered.
+
+1. Identify the runner from the alert label.
+2. On the runner host: `systemctl status shithubd-runner` and
+   `journalctl -u shithubd-runner -n 200 --no-pager`.
+3. On the app host: `shithubd admin actions runner list` and confirm the
+   runner labels still match queued jobs.
+4. If the runner is wedged, restart `shithubd-runner`. If it cannot
+   authenticate, rotate the runner token and redeploy the service env.
+5. Record whether the stale heartbeat happened during a deploy, network
+   partition, token rotation, or runner engine failure.
+
+## actions-queue-depth-high
+
+**Symptom:** `shithub_actions_queue_depth{resource="jobs"} > 100` for 10m.
+
+1. Check runner availability:
+   `shithubd admin actions runner list`.
+2. Compare queued labels with runner labels. A workflow using an unsupported
+   `runs-on` value will sit queued until a compatible runner exists.
+3. Inspect web and worker logs for trigger storms, claim errors, and DB pool
+   saturation.
+4. If legitimate load exceeds capacity, add runners or raise capacity on idle
+   runner hosts. If one repository dominates, cancel or throttle that workload.
+5. After mitigation, watch `shithub_actions_queue_depth` drain and confirm
+   `shithub_actions_active` does not flatline.
+
+## actions-run-duration-p99-regressed
+
+**Symptom:** Actions p99 duration over 30m is >50% above the same window 24h
+ago.
+
+1. Split by event in the Actions dashboard. A single event type usually points
+   to one workflow shape rather than runner infrastructure.
+2. Compare `shithub_actions_active` and runner capacity. High duration with
+   low active jobs suggests slow jobs; high duration with saturated active jobs
+   suggests insufficient runner capacity.
+3. Check runner host CPU, memory, disk, and Docker/engine logs.
+4. If the regression started with a deploy, review runner API, log streaming,
+   checkout, and container execution changes first.
+5. Capture representative slow run IDs and their step durations before
+   canceling or pruning anything.
+
+## actions-log-scrubber-possibly-missing
+
+**Symptom:** server-side Actions log bytes are flowing for 30m, but
+`shithub_actions_log_scrub_replacements_total{location="server"}` remains zero.
+
+This is a warning, not proof of leaked secrets. Some periods legitimately have
+no secret-bearing logs.
+
+1. Confirm secrets or variables with sensitive values exist for workloads that
+   ran during the window.
+2. Trigger a controlled workflow that echoes a known test secret value and
+   verify the rendered logs contain `***`, not plaintext.
+3. Check runner claims happened after the secret was created or rotated; mask
+   snapshots are captured at claim time.
+4. If the controlled workflow is not masked, stop affected runners, rotate the
+   exposed secret, and open a security incident.

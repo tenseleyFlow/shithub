@@ -35,6 +35,11 @@ push-only. No Prometheus or Grafana running locally.
 | `shithub_db_pool_acquired` | gauge | Active Postgres connections. Approaching `shithub_db_pool_total` = saturation. |
 | `shithub_db_pool_acquire_wait_seconds_total` | counter | Cumulative wait time. Sudden derivative climb = pool too small. |
 | `shithub_panics_total` | counter | Recovered panics. Should be 0 in steady state. |
+| `shithub_actions_queue_depth` | gauge | Queued Actions runs/jobs. Sustained job depth means runners cannot keep up. |
+| `shithub_actions_active` | gauge | Running Actions runs/jobs. Use with capacity to distinguish slow jobs from lack of runners. |
+| `shithub_actions_runner_heartbeat_age_seconds` | gauge | Seconds since each runner heartbeat. >60s sustained means the runner is stale. |
+| `shithub_actions_run_duration_seconds` | histogram | Terminal Actions run duration by event and conclusion. |
+| `shithub_actions_log_chunk_bytes_total` | counter | Accepted Actions log bytes, used for throughput and scrubber health alerts. |
 
 ## Operator setup (one-time)
 
@@ -132,10 +137,15 @@ Within a minute, metrics start landing. From the Cloud portal:
 
 ## Building a starter dashboard
 
-Cloud → Dashboards → New → import. Use the panels below as a
-spine. (We're not committing the dashboard JSON to the repo yet
-because Grafana's UUIDs are stack-specific; doc the queries and
-let the operator import once.)
+Cloud → Dashboards → New → import. Dashboard JSON is committed under:
+
+```text
+deploy/monitoring/grafana/dashboards/shithubd-overview.json
+deploy/monitoring/grafana/dashboards/actions.json
+```
+
+Use the panels below as fallback queries if the dashboard import UI drifts or
+you need to rebuild by hand.
 
 | Panel | Query |
 |---|---|
