@@ -103,8 +103,8 @@ func (h *Handlers) actionsCachesList(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Link", link)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total_count":     total,
-		"actions_caches":  out,
+		"total_count":    total,
+		"actions_caches": out,
 	})
 }
 
@@ -154,9 +154,9 @@ func (h *Handlers) actionsCachesDeleteByKey(w http.ResponseWriter, r *http.Reque
 	}
 	ref := pgTextOrNull(r.URL.Query().Get("ref"))
 	objectKeys, err := actionsdb.New().DeleteWorkflowCachesByKey(r.Context(), h.d.Pool, actionsdb.DeleteWorkflowCachesByKeyParams{
-		RepoID:    repo.ID,
-		CacheKey:  key,
-		GitRef:    ref,
+		RepoID:   repo.ID,
+		CacheKey: key,
+		GitRef:   ref,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: delete caches by key", "error", err)
