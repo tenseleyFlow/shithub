@@ -27,3 +27,14 @@ LIMIT $2;
 -- name: DeleteWorkflowArtifactsByIDs :execrows
 DELETE FROM workflow_artifacts
 WHERE id = ANY($1::bigint[]);
+
+-- name: ListArtifactObjectKeysForRun :many
+-- Used by the run-delete REST handler to drive a best-effort S3
+-- cleanup after the workflow_runs row (and its cascaded
+-- workflow_artifacts rows) have been removed.
+SELECT object_key
+FROM workflow_artifacts
+WHERE run_id = $1;
+
+-- name: DeleteWorkflowArtifactByID :execrows
+DELETE FROM workflow_artifacts WHERE id = $1;

@@ -26,7 +26,14 @@ type Querier interface {
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
+	// Cascades to workflow_jobs → workflow_steps → workflow_step_log_chunks
+	// and workflow_artifacts via the on-delete-cascade FK chain. The
+	// S3-side artifact blobs are NOT removed here; the handler queries
+	// the artifact object_keys first and deletes them best-effort after
+	// the row is gone.
+	DeleteWorkflowRunByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	// Idempotent: re-disabling an already-disabled workflow is a no-op
 	// and does not bump disabled_at.
 	DisableWorkflow(ctx context.Context, db DBTX, arg DisableWorkflowParams) error
@@ -76,6 +83,10 @@ type Querier interface {
 	IsWorkflowDisabled(ctx context.Context, db DBTX, arg IsWorkflowDisabledParams) (bool, error)
 	ListActiveWorkflowRunsForAdmin(ctx context.Context, db DBTX, arg ListActiveWorkflowRunsForAdminParams) ([]WorkflowRun, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
+	// Used by the run-delete REST handler to drive a best-effort S3
+	// cleanup after the workflow_runs row (and its cascaded
+	// workflow_artifacts rows) have been removed.
+	ListArtifactObjectKeysForRun(ctx context.Context, db DBTX, runID int64) ([]string, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
 	// Older queued/running runs with the same group block the new run while they
 	// still have at least one queued/running job that has not already received a
