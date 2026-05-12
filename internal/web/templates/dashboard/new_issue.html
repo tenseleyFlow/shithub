@@ -1,0 +1,42 @@
+{{ define "page" -}}
+<section class="shithub-global-page">
+  <div class="shithub-global-centered">
+    <main class="shithub-global-main">
+      <header class="shithub-global-head">
+        <h1>{{ .Heading }}</h1>
+      </header>
+
+      <form action="/issues/new" method="get" class="shithub-global-query">
+        <label class="sr-only" for="global-new-issue-query">Find a repository</label>
+        <input id="global-new-issue-query" type="text" name="q" value="{{ .Query }}" placeholder="Find a repository..." autocomplete="off">
+        <button type="submit" aria-label="Search repositories">{{ octicon "search" }}</button>
+      </form>
+
+      <section class="shithub-global-panel" aria-label="Choose repository">
+        <div class="shithub-global-panel-head">
+          <strong>Choose a repository</strong>
+          <span class="shithub-global-muted">{{ .TotalCount }} available</span>
+        </div>
+        {{ if .Repos }}
+        <ol class="shithub-global-repo-list">
+          {{ range .Repos }}
+          <li class="shithub-global-repo-row shithub-global-repo-row-action">
+            <div class="shithub-global-repo-main">
+              <h2><a href="{{ .URL }}">{{ .Owner }}/{{ .Name }}</a> {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}</h2>
+              {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+            </div>
+            <a class="shithub-button" href="{{ .URL }}/issues/new">New issue</a>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <div class="shithub-global-empty">
+          <h2>{{ .EmptyTitle }}</h2>
+          <p>{{ .EmptyBody }}</p>
+        </div>
+        {{ end }}
+      </section>
+    </main>
+  </div>
+</section>
+{{- end }}

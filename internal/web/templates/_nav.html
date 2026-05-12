@@ -34,8 +34,25 @@
     {{ end }}
     <div class="shithub-nav-actions">
   {{- if .Viewer.ID }}
-    <a href="/notifications" class="shithub-button shithub-button-ghost" title="Notifications" aria-label="Notifications">{{ octicon "bell" }}</a>
-    <a href="/new" class="shithub-button shithub-button-ghost shithub-nav-new" title="New repository">{{ octicon "plus" }} <span class="shithub-nav-new-label">New</span></a>
+    <a href="/settings/organizations" class="shithub-button shithub-button-ghost shithub-button-icon shithub-nav-icon" title="Your organizations" aria-label="Your organizations">{{ octicon "people" }}</a>
+    <span class="shithub-nav-actions-divider" aria-hidden="true"></span>
+    <details class="shithub-nav-action-menu shithub-create-menu">
+      <summary class="shithub-button shithub-button-ghost shithub-nav-create" aria-label="Create new" title="Create new">
+        {{ octicon "plus" }} {{ octicon "triangle-down" }}
+      </summary>
+      <div class="shithub-nav-action-panel" role="menu">
+        <a role="menuitem" class="shithub-nav-action-item" href="/issues/new">{{ octicon "issue-opened" }} <span>New issue</span></a>
+        <a role="menuitem" class="shithub-nav-action-item" href="/new">{{ octicon "repo" }} <span>New repository</span></a>
+        <span role="menuitem" aria-disabled="true" class="shithub-nav-action-item is-disabled">{{ octicon "upload" }} <span>Import repository</span></span>
+        <div class="shithub-nav-action-divider" role="separator"></div>
+        <a role="menuitem" class="shithub-nav-action-item" href="/organizations/new">{{ octicon "organization" }} <span>New organization</span></a>
+        <span role="menuitem" aria-disabled="true" class="shithub-nav-action-item is-disabled">{{ octicon "table" }} <span>New project</span></span>
+      </div>
+    </details>
+    <a href="/issues/assigned" class="shithub-button shithub-button-ghost shithub-button-icon shithub-nav-icon" title="All issues" aria-label="All issues">{{ octicon "issue-opened" }}</a>
+    <a href="/pulls" class="shithub-button shithub-button-ghost shithub-button-icon shithub-nav-icon" title="All pull requests" aria-label="All pull requests">{{ octicon "git-pull-request" }}</a>
+    <a href="/repos" class="shithub-button shithub-button-ghost shithub-button-icon shithub-nav-icon" title="All repositories" aria-label="All repositories">{{ octicon "repo" }}</a>
+    <a href="/notifications?filter=unread" class="shithub-button shithub-button-ghost shithub-button-icon shithub-nav-icon" title="Notifications" aria-label="Notifications">{{ octicon "bell" }}</a>
     <details class="shithub-user-menu">
       <summary aria-label="User menu" aria-haspopup="menu">
         <img src="/avatars/{{ .Viewer.Username }}" alt="" class="shithub-user-menu-avatar" width="24" height="24">

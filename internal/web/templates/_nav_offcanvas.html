@@ -13,9 +13,9 @@
       {{ else }}
       <a href="/" class="shithub-offcanvas-link">{{ octicon "home" }} <span>Home</span></a>
       {{ end }}
-      <a href="/search?type=issues" class="shithub-offcanvas-link">{{ octicon "issue-opened" }} <span>All issues</span></a>
-      <a href="/search?type=pullrequests" class="shithub-offcanvas-link">{{ octicon "git-pull-request" }} <span>All pull requests</span></a>
-      <a href="/search?type=repositories" class="shithub-offcanvas-link">{{ octicon "repo" }} <span>All repositories</span></a>
+      <a href="{{ if .Viewer.ID }}/issues/assigned{{ else }}/search?type=issues{{ end }}" class="shithub-offcanvas-link">{{ octicon "issue-opened" }} <span>All issues</span></a>
+      <a href="{{ if .Viewer.ID }}/pulls{{ else }}/search?type=pullrequests{{ end }}" class="shithub-offcanvas-link">{{ octicon "git-pull-request" }} <span>All pull requests</span></a>
+      <a href="{{ if .Viewer.ID }}/repos{{ else }}/search?type=repositories{{ end }}" class="shithub-offcanvas-link">{{ octicon "repo" }} <span>All repositories</span></a>
       <a href="/projects" class="shithub-offcanvas-link">{{ octicon "table" }} <span>Projects</span></a>
       <a href="/discussions" class="shithub-offcanvas-link">{{ octicon "comment-discussion" }} <span>Discussions</span></a>
       <a href="/codespaces" class="shithub-offcanvas-link">{{ octicon "code-square" }} <span>Codespaces</span></a>

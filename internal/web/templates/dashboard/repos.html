@@ -1,0 +1,72 @@
+{{ define "page" -}}
+<section class="shithub-global-page">
+  <div class="shithub-global-shell shithub-global-shell-wide">
+    <aside class="shithub-global-sidebar" aria-label="Repository views">
+      <nav class="shithub-global-side-nav">
+        {{ range .Views }}
+        <a href="{{ .Href }}" class="shithub-global-side-link{{ if .Selected }} is-selected{{ end }}"{{ if .Selected }} aria-current="page"{{ end }}>
+          {{ octicon .Icon }} <span>{{ .Label }}</span>
+        </a>
+        {{ end }}
+      </nav>
+      <div class="shithub-global-side-section">
+        <h2>Views</h2>
+        <button type="button" class="shithub-global-side-add" disabled aria-label="Create saved view">{{ octicon "plus" }}</button>
+        <p>No saved views</p>
+      </div>
+    </aside>
+
+    <main class="shithub-global-main">
+      <header class="shithub-global-head">
+        <h1>{{ .Heading }}</h1>
+        <a href="{{ .NewRepoHref }}" class="shithub-button shithub-button-primary">New repository</a>
+      </header>
+
+      <form action="/repos" method="get" class="shithub-global-query">
+        {{ range .Views }}{{ if .Selected }}{{ if ne .Key "contributions" }}<input type="hidden" name="view" value="{{ .Key }}">{{ end }}{{ end }}{{ end }}
+        <label class="sr-only" for="global-repos-query">Search repositories</label>
+        <input id="global-repos-query" type="text" name="q" value="{{ .Query }}" placeholder="Find a repository..." autocomplete="off">
+        <button type="submit" aria-label="Search repositories">{{ octicon "search" }}</button>
+      </form>
+
+      <section class="shithub-global-panel" aria-label="Repositories">
+        <div class="shithub-global-panel-head">
+          <strong>{{ .TotalCount }} repositories</strong>
+          <div class="shithub-global-filter-set" aria-label="Repository layout">
+            <button type="button" disabled>{{ octicon "list-unordered" }} Relevance {{ octicon "triangle-down" }}</button>
+            <button type="button" disabled aria-label="List view">{{ octicon "list-unordered" }}</button>
+          </div>
+        </div>
+
+        {{ if .Repos }}
+        <ol class="shithub-global-repo-list">
+          {{ range .Repos }}
+          <li class="shithub-global-repo-row">
+            <div class="shithub-global-repo-main">
+              <h2><a href="{{ .URL }}">{{ .Owner }}/{{ .Name }}</a> {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}</h2>
+              {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+              <ul class="shithub-global-repo-meta">
+                {{ if .PrimaryLanguage }}<li><span class="shithub-lang-dot" aria-hidden="true"></span>{{ .PrimaryLanguage }}</li>{{ end }}
+                {{ if .LicenseKey }}<li>{{ octicon "law" }} {{ .LicenseKey }}</li>{{ end }}
+                <li>{{ octicon "repo-forked" }} {{ .ForkCount }}</li>
+                <li>{{ octicon "star" }} {{ .StarCount }}</li>
+                <li>{{ octicon "eye" }} {{ .WatcherCount }}</li>
+                {{ if .IsFork }}<li>Fork</li>{{ end }}
+                <li>Updated {{ relativeTime .UpdatedAt }}</li>
+              </ul>
+            </div>
+            <span class="shithub-global-sparkline" aria-hidden="true"></span>
+          </li>
+          {{ end }}
+        </ol>
+        {{ else }}
+        <div class="shithub-global-empty">
+          <h2>{{ .EmptyTitle }}</h2>
+          <p>{{ .EmptyBody }}</p>
+        </div>
+        {{ end }}
+      </section>
+    </main>
+  </div>
+</section>
+{{- end }}
