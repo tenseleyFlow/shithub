@@ -201,6 +201,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsWorkflows(r)
 		// S50 §13 — workflow enable/disable + run delete + artifacts + job logs.
 		h.mountActionsLifecycleREST(r)
+		// S50 §13 — actions secrets CRUD (repo + org) + sealed-box public-key.
+		h.mountActionsSecrets(r)
+		// S50 §13 — actions variables CRUD (repo + org).
+		h.mountActionsVariables(r)
 	})
 }
 
