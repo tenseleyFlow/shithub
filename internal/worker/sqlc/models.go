@@ -1889,6 +1889,22 @@ type CodeSearchPath struct {
 	Tsv     interface{}
 }
 
+type DeviceAuthorization struct {
+	ID              int64
+	DeviceCodeHash  []byte
+	UserCode        string
+	ClientID        string
+	Scopes          []string
+	UserID          pgtype.Int8
+	ApprovedAt      pgtype.Timestamptz
+	DeniedAt        pgtype.Timestamptz
+	IssuedTokenID   pgtype.Int8
+	IntervalSeconds int32
+	ExpiresAt       pgtype.Timestamptz
+	LastPolledAt    pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
 type DomainEvent struct {
 	ID          int64
 	ActorUserID pgtype.Int8
