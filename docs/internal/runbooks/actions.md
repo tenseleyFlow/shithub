@@ -39,12 +39,17 @@ reserved aliases and fail until artifact transfer is wired end to end.
 ```sh
 shithubd admin runner register \
   --name smoke-runner-1 \
-  --labels self-hosted,linux,ubuntu-latest \
-  --capacity 1
+  --labels self-hosted,linux,ubuntu-latest,x64 \
+  --capacity 1 \
+  --output json
 ```
 
-3. Start `shithubd-runner` with the printed token. For production hosts, use
-   the Ansible/systemd path in [runner-deploy.md](./runner-deploy.md).
+3. Start `shithubd-runner` with the returned token. For production hosts, use
+   one token per host and store it in ansible-vault, host vars, or the deployment
+   secret store. The role writes `/etc/shithubd-runner/config.toml` with
+   restrictive permissions. Use `--expires-in` only when the automation rotates
+   the runner token before that deadline; the current runner uses the
+   registration token for every heartbeat.
 4. Push a `run:`-only workflow:
 
 ```yaml
@@ -155,6 +160,13 @@ On the app host, inspect runner registration and heartbeat state:
 shithubd admin actions runner list
 ```
 
+Inspect queued jobs by requested `runs-on` label:
+
+```sh
+shithubd admin runner queue
+shithubd admin runner queue --output json
+```
+
 Important metrics:
 
 - `shithub_actions_queue_depth{resource="runs|jobs"}`
@@ -198,7 +210,7 @@ Useful knobs:
 
 - `SHITHUB_ACTIONS_VUS=50` controls concurrent virtual users.
 - `SHITHUB_ACTIONS_DURATION=10m` controls the steady-state window.
-- `SHITHUB_RUNNER_LABELS=self-hosted,linux,ubuntu-latest` sets heartbeat
+- `SHITHUB_RUNNER_LABELS=self-hosted,linux,ubuntu-latest,x64` sets heartbeat
   labels.
 - `SHITHUB_RUNNER_CAPACITY=17` keeps three runners near the 50-concurrent
   target.
@@ -240,8 +252,11 @@ active container, and reports terminal `cancelled`.
 - **Run never appears:** confirm the workflow file is under
   `.shithub/workflows/`, parse it with `shithubd admin actions parse <file>`,
   and verify the trigger event matches `on:`.
-- **Run stays queued:** confirm a runner is registered with matching labels and
-  capacity, then inspect runner journal output and heartbeat metrics.
+- **Run stays queued:** open the run page to see the requested runner labels,
+  then run `shithubd admin runner queue` and confirm a live runner is registered
+  with matching labels and capacity. Unsupported hosted labels such as
+  `windows-latest` and `macos-latest` intentionally remain queued until an
+  operator registers matching runners.
 - **Step logs buffer:** verify the Caddy route above and confirm the SSE route
   is still mounted outside compression and short timeouts.
 - **`actions/checkout@v4` fails:** confirm the job is still running, the repo

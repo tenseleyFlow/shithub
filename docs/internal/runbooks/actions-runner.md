@@ -31,11 +31,12 @@ Register a runner:
 ```sh
 shithubd admin runner register \
   --name runner-1 \
-  --labels self-hosted,linux,ubuntu-latest \
-  --capacity 1
+  --labels self-hosted,linux,ubuntu-latest,x64 \
+  --capacity 1 \
+  --output json
 ```
 
-Save the printed token:
+Save the returned token:
 
 ```sh
 export RUNNER_TOKEN='<printed-token>'
@@ -48,7 +49,7 @@ Run the binary:
 shithubd-runner run \
   --server-url "$BASE" \
   --token "$RUNNER_TOKEN" \
-  --labels self-hosted,linux,ubuntu-latest \
+  --labels self-hosted,linux,ubuntu-latest,x64 \
   --workspace-root /var/lib/shithubd-runner/workspaces \
   --network shithub-actions \
   --dns-servers 172.30.0.1
@@ -62,7 +63,7 @@ base_url = "https://shithub.example"
 
 [runner]
 token = "<printed-token>"
-labels = ["self-hosted", "linux", "ubuntu-latest"]
+labels = ["self-hosted", "linux", "ubuntu-latest", "x64"]
 capacity = 1
 poll_interval = "5s"
 workspace_root = "/var/lib/shithubd-runner/workspaces"
@@ -93,6 +94,8 @@ dns_servers = ["172.30.0.1"]
 The config path defaults to `/etc/shithubd-runner/config.toml`.
 Environment variables use the `SHITHUB_RUNNER_` prefix, for example
 `SHITHUB_RUNNER_TOKEN` or `SHITHUB_RUNNER_SERVER__BASE_URL`.
+Use `--expires-in` only for tokens that your automation rotates before expiry;
+the runner presents its registration token on every heartbeat.
 
 The Ansible runner role creates the `shithub-actions` bridge, runs the
 allowlist resolver at `172.30.0.1`, and installs firewall rules that
@@ -108,7 +111,7 @@ Claim a job:
 curl -fsS "$BASE/api/v1/runners/heartbeat" \
   -H "Authorization: Bearer $RUNNER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"labels":["self-hosted","linux","ubuntu-latest"],"capacity":1}' \
+  -d '{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1}' \
   | tee /tmp/shithub-claim.json
 ```
 

@@ -11,11 +11,18 @@ short-lived per-job JWTs.
 Operators register a runner with:
 
 ```sh
-shithubd admin runner register --name runner-1 --labels self-hosted,linux,ubuntu-latest
+shithubd admin runner register \
+  --name runner-1 \
+  --labels self-hosted,linux,ubuntu-latest,x64 \
+  --capacity 1 \
+  --output json
 ```
 
 The command inserts `workflow_runners`, stores only a SHA-256 hash in
-`runner_tokens`, and prints the 32-byte hex token once.
+`runner_tokens`, and returns the raw 32-byte hex token once.
+`--expires-in` is optional and should only be used when the deployment rotates
+the runner token before it expires, because the runner uses that same token for
+heartbeat authentication.
 
 `POST /api/v1/runners/heartbeat` accepts:
 
@@ -70,7 +77,7 @@ runner API endpoints.
 Request body:
 
 ```json
-{"labels":["ubuntu-latest","linux"],"capacity":1}
+{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1}
 ```
 
 Returns 204 when no matching job is claimable. Returns 200 with

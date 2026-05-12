@@ -40,6 +40,22 @@ refuses `0.0.0.0/0` and `::/0` for SSH.
 
 Replace the generated token placeholders with per-host values from
 `shithubd admin runner register`, preferably through ansible-vault or host_vars.
+Generate one token per runner host:
+
+```sh
+shithubd admin runner register \
+  --name actions-runner-1 \
+  --labels self-hosted,linux,ubuntu-latest,x64 \
+  --capacity 1 \
+  --output json
+```
+
+Store the returned `token` in inventory/vault, not in shell history. Rotate by
+registering a replacement token, deploying it to the host, confirming heartbeat,
+then revoking the old runner token.
+Use `--expires-in` only when that rotation is automated before the token
+expires.
+
 Then run:
 
 ```sh
