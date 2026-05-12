@@ -174,6 +174,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountCommits(r)
 		// S50 §12 — repo contents (file/dir at ref).
 		h.mountContents(r)
+		// S50 §13 — repo forks (list + create).
+		h.mountForks(r)
 	})
 }
 
