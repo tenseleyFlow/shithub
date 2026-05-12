@@ -159,10 +159,12 @@ func rerunTriggerEventID(parentRunID int64) (string, error) {
 	return fmt.Sprintf("rerun:%d:%s", parentRunID, hex.EncodeToString(b)), nil
 }
 
-func lifecycleRepoOwnerLogin(ctx context.Context, db interface {
+type lifecycleOwnerDB interface {
 	usersdb.DBTX
 	orgsdb.DBTX
-}, repo reposdb.Repo) (string, error) {
+}
+
+func lifecycleRepoOwnerLogin(ctx context.Context, db lifecycleOwnerDB, repo reposdb.Repo) (string, error) {
 	if repo.OwnerUserID.Valid {
 		u, err := usersdb.New().GetUserByID(ctx, db, repo.OwnerUserID.Int64)
 		if err != nil {
