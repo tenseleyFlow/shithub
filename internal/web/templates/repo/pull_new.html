@@ -40,7 +40,7 @@
     {{ end }}
 
     <div class="shithub-pull-new-layout">
-      <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-pull-new-form">
+      <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-pull-new-form" data-comment-editor data-preview-url="/{{ .Owner }}/{{ .Repo.Name }}/markdown-preview" data-preview-ref="{{ .Base }}">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
         <input type="hidden" name="base" value="{{ .Base }}">
         <input type="hidden" name="head" value="{{ .Head }}">
@@ -55,7 +55,7 @@
           </label>
         </div>
 
-        <div class="shithub-pull-new-description" data-comment-editor data-preview-url="/{{ .Owner }}/{{ .Repo.Name }}/markdown-preview" data-preview-ref="{{ .Base }}">
+        <div class="shithub-pull-new-description">
           <script type="application/json" data-comment-editor-config>{{ jsField . "CommentEditorConfig" }}</script>
           <label class="shithub-pull-new-description-label" for="pull-new-body">Add a description</label>
           <div class="shithub-comment-editor-box">
@@ -197,8 +197,16 @@
     {{ end }}
 
     {{ if .DiffHTML }}
-    <section class="shithub-diff-body" aria-label="Diff">
-      {{ safeHTML .DiffHTML }}
+    <section class="shithub-pull-new-diff-section" aria-label="Files changed">
+      <header class="shithub-pull-new-diff-head">
+        <div>
+          <h2>Files changed</h2>
+          <p>Showing {{ .Stats.FileCount }} changed {{ pluralize .Stats.FileCount "file" "files" }} with {{ .Stats.CommitCount }} {{ pluralize .Stats.CommitCount "commit" "commits" }}.</p>
+        </div>
+      </header>
+      <div class="shithub-diff-body shithub-pull-new-diff-body">
+        {{ safeHTML .DiffHTML }}
+      </div>
     </section>
     {{ end }}
     {{ end }}

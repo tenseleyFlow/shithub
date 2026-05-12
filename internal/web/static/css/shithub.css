@@ -7809,7 +7809,9 @@ button.shithub-repo-action {
   margin-top: 1rem;
   border: 1px solid var(--border-default);
   border-radius: 6px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--canvas-default);
 }
 .shithub-diff-file-head {
   display: flex;
@@ -7830,22 +7832,24 @@ button.shithub-repo-action {
 .shithub-diff-file-toolarge { padding: 0.5rem 0.75rem; }
 .shithub-diff-file-toolarge > summary { cursor: pointer; color: var(--fg-muted); }
 .shithub-diff-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-family: monospace;
   font-size: 0.85rem;
-  table-layout: fixed;
+  table-layout: auto;
 }
 .shithub-diff-table td { padding: 0 0.5rem; vertical-align: top; }
 .shithub-diff-table pre { margin: 0; white-space: pre; }
 .shithub-diff-lineno {
   width: 50px;
+  min-width: 50px;
   text-align: right;
   color: var(--fg-muted);
   user-select: none;
   background: var(--canvas-subtle);
 }
-.shithub-diff-content { width: auto; }
+.shithub-diff-content { min-width: 18rem; width: auto; }
 .shithub-diff-add { background: rgba(46, 160, 67, 0.10); }
 .shithub-diff-del { background: rgba(248, 81, 73, 0.10); }
 .shithub-diff-add .shithub-diff-content { background: rgba(46, 160, 67, 0.05); }
@@ -8317,6 +8321,32 @@ button.shithub-repo-action {
 }
 .shithub-pull-new-sidebar p {
   margin: 0;
+}
+.shithub-pull-new-diff-section {
+  margin-top: 1.5rem;
+}
+.shithub-pull-new-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-pull-new-diff-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.shithub-pull-new-diff-head p {
+  margin: 0.2rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+.shithub-pull-new-diff-body {
+  margin-top: 0;
+}
+.shithub-pull-new-diff-body .shithub-diff-file:first-child {
+  margin-top: 0.75rem;
 }
 @media (max-width: 760px) {
   .shithub-range-create {

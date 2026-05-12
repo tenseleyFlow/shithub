@@ -180,3 +180,54 @@ func (h *Handlers) pullCommentEditorConfig(
 
 	return config
 }
+
+func (h *Handlers) pullNewCommentEditorConfig(ctx context.Context, row reposdb.Repo, viewer middleware.CurrentUser) commentEditorConfig {
+	config := commentEditorConfig{}
+	if !viewer.IsAnonymous() && !strings.EqualFold(viewer.Username, "copilot") {
+		config.Mentions = append(config.Mentions, commentEditorMention{
+			Username:  viewer.Username,
+			AvatarURL: commentEditorAvatarURL(viewer.Username),
+		})
+	}
+
+	seenRefs := map[int64]struct{}{}
+	addRef := func(number int64, title, kind, state string) {
+		if number == 0 {
+			return
+		}
+		if _, ok := seenRefs[number]; ok {
+			return
+		}
+		seenRefs[number] = struct{}{}
+		config.References = append(config.References, commentEditorReference{
+			Number: number,
+			Title:  title,
+			Kind:   kind,
+			State:  state,
+		})
+	}
+	if prs, err := h.pq.ListPullRequestsByRepo(ctx, h.d.Pool, pullsdb.ListPullRequestsByRepoParams{
+		RepoID:      row.ID,
+		Limit:       8,
+		StateFilter: pgtype.Text{},
+		Draft:       pgtype.Bool{},
+	}); err == nil {
+		for _, item := range prs {
+			addRef(item.Number, item.Title, "pull request", string(item.State))
+		}
+	}
+	if issues, err := h.iq.ListIssues(ctx, h.d.Pool, issuesdb.ListIssuesParams{
+		RepoID:      row.ID,
+		Limit:       8,
+		StateFilter: pgtype.Text{},
+		Kind:        issuesdb.NullIssueKind{IssueKind: issuesdb.IssueKindIssue, Valid: true},
+	}); err == nil {
+		for _, item := range issues {
+			addRef(item.Number, item.Title, "issue", string(item.State))
+		}
+	}
+	if len(config.References) > 10 {
+		config.References = config.References[:10]
+	}
+	return config
+}
