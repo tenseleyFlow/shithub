@@ -16,6 +16,7 @@ type settingsOrganization struct {
 	RoleLabel   string
 	AvatarURL   string
 	CanManage   bool
+	CompareHref string
 }
 
 // settingsOrganizations renders GET /settings/organizations.
@@ -34,12 +35,18 @@ func (h *Handlers) settingsOrganizations(w http.ResponseWriter, r *http.Request)
 		if displayName == "" {
 			displayName = row.Slug
 		}
+		canManage := row.Role == orgsdb.OrgRoleOwner
+		compareHref := ""
+		if canManage && h.d.OrgBillingEnabled {
+			compareHref = "/organizations/" + row.Slug + "/settings/billing#compare-plans"
+		}
 		organizations = append(organizations, settingsOrganization{
 			Slug:        row.Slug,
 			DisplayName: displayName,
 			RoleLabel:   settingsOrgRoleLabel(row.Role),
 			AvatarURL:   "/avatars/" + url.PathEscape(row.Slug),
-			CanManage:   row.Role == orgsdb.OrgRoleOwner,
+			CanManage:   canManage,
+			CompareHref: compareHref,
 		})
 	}
 

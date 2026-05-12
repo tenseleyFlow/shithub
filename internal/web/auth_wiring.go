@@ -164,6 +164,7 @@ func buildAuthHandlers(
 		SecretBox:                box,
 		Audit:                    audit.NewRecorder(),
 		ObjectStore:              objectStore,
+		OrgBillingEnabled:        cfg.Billing.Enabled,
 	})
 }
 

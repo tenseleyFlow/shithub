@@ -1069,6 +1069,9 @@ code {
   margin-top: 1.5rem;
   overflow-x: auto;
 }
+.shithub-org-billing-compare {
+  margin-top: 0;
+}
 @media (max-width: 900px) {
   .shithub-billing-plan-grid {
     grid-template-columns: 1fr;

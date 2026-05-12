@@ -82,6 +82,10 @@ type Deps struct {
 	// nil the avatar upload endpoint is not registered (the user keeps
 	// their identicon and never sees the upload form).
 	ObjectStore storage.ObjectStore
+	// OrgBillingEnabled mirrors whether the org handler registered the
+	// owner-only billing/settings routes. The auth settings page uses it
+	// only to decide whether existing orgs can link to plan comparison.
+	OrgBillingEnabled bool
 }
 
 // Handlers is the registered handler set. Construct with New.

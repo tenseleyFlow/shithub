@@ -1,8 +1,8 @@
 # Billing and paid organizations
 
-shithub's first paid surface is organization billing. The code does not
-ship billing yet; this document records the product and engineering
-contract that the PAYMENTS sprint series implements.
+shithub's first paid surface is organization billing. This document
+records the product and engineering contract that the PAYMENTS sprint
+series implements.
 
 The current implementation already has the important shape for paid
 organizations: `orgs.plan` is an enum with `free`, `team`, and
@@ -161,6 +161,10 @@ PAYMENTS SP03 adds the first Stripe operator contract:
   organization URLs from `auth.base_url`.
 - `billing.grace_period` controls how long failed-payment states may
   remain unlocked before paid entitlements are cut off.
+- When billing routes are mounted, `/settings/organizations` links
+  owner-managed organizations to their billing page's plan comparison.
+  When billing is disabled, that action stays visibly unavailable
+  instead of linking to an unmounted route.
 
 ## Entitlement architecture
 
