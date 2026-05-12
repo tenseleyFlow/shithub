@@ -34,6 +34,31 @@ The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,
 advanced organization controls, and support expectations.
 
+## Pricing copy rules
+
+Pricing and onboarding pages must describe only features shithub can
+actually deliver on the hosted service. Before changing pricing copy,
+refresh the official GitHub pricing source and the Stripe Billing docs
+because both are time-sensitive inputs.
+
+Rules for paid-org copy:
+
+- Do not mention Copilot, AI agents, AI code review, or AI quotas.
+- Do not promise SAML, SCIM, LDAP, managed users, audit exports, data
+  residency, compliance attestations, contracts, or custom support
+  until the matching implementation sprint ships.
+- Do not advertise Packages, Pages, Wikis, Projects, Actions minutes,
+  or storage quotas until those surfaces have enforcement and usage
+  accounting.
+- Use upgrade language for unavailable Team features instead of hiding
+  existing data. Downgrades preserve configuration and make gated
+  settings read-only where possible.
+- Keep public/open-source collaboration generous in both copy and
+  enforcement. Avoid copy that makes public repositories feel like a
+  second-class Free tier.
+- Enterprise is a contact-sales stub in v1. It should collect interest
+  without promising contractual features.
+
 ## Entitlement matrix
 
 | Capability | Free | Team | Enterprise stub |
