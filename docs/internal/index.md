@@ -71,6 +71,8 @@ site.
 - [deploy.md](./deploy.md) — Ansible playbook + topology.
 - [runbooks/runner-deploy.md](./runbooks/runner-deploy.md) —
   Actions runner host deployment.
+- [runbooks/stripe-billing.md](./runbooks/stripe-billing.md) —
+  Stripe Billing setup, smoke test, go-live, and rollback.
 - [runbooks/](./runbooks/) — incident, backup, restore, upgrade,
   rollback, plus rotation procedures.
 

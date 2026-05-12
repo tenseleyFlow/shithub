@@ -166,6 +166,9 @@ PAYMENTS SP03 adds the first Stripe operator contract:
   When billing is disabled, that action stays visibly unavailable
   instead of linking to an unmounted route.
 
+The operator enablement flow is documented in
+[`runbooks/stripe-billing.md`](./runbooks/stripe-billing.md).
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
