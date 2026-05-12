@@ -89,6 +89,46 @@ ORDER BY updated_at DESC;
 SELECT count(*) FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL;
 
+-- name: ListReposForOwnerUserPaged :many
+-- Paginated mirror of ListReposForOwnerUser. Used by the REST surface
+-- where the caller is the owner (or a site admin) and is allowed to see
+-- private repos. Order matches the un-paginated form so callers can
+-- swap between them without observing a reshuffle.
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: ListPublicReposForOwnerUser :many
+-- Public-only view of a user's repos for the "list another user's repos"
+-- REST endpoint. Hidden behind the same updated_at ordering.
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountPublicReposForOwnerUser :one
+SELECT count(*) FROM repos
+WHERE owner_user_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL;
+
 -- name: GetRepoByOwnerOrgAndName :one
 -- S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
 -- name) partial unique index from 0017 backs this lookup with the same
@@ -133,6 +173,48 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
+
+-- name: ListReposForOwnerOrgPaged :many
+-- Paginated mirror of ListReposForOwnerOrg for the REST list endpoint
+-- when the viewer is an org member and may see private repos.
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountReposForOwnerOrg :one
+SELECT count(*) FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL;
+
+-- name: ListPublicReposForOwnerOrg :many
+-- Public-only org repo listing for non-member callers (and the no-auth
+-- public-discovery REST view).
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountPublicReposForOwnerOrg :one
+SELECT count(*) FROM repos
+WHERE owner_org_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL;
 
 -- name: ListProfilePinCandidateReposForUser :many
 SELECT sqlc.embed(r), COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug

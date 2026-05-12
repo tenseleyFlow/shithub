@@ -60,16 +60,25 @@ func buildAPIHandlers(
 	if err != nil {
 		return nil, fmt.Errorf("api: NewRepoFS: %w", err)
 	}
+	shithubdPath := "shithubd"
+	if exe, err := os.Executable(); err == nil {
+		if abs, absErr := filepath.Abs(exe); absErr == nil {
+			shithubdPath = abs
+		}
+	}
 	return apih.New(apih.Deps{
-		Pool:        pool,
-		Debouncer:   sharedPATDebouncer,
-		Logger:      logger,
-		ObjectStore: objectStore,
-		RepoFS:      rfs,
-		RunnerJWT:   runnerJWT,
-		SecretBox:   secretBox,
-		RateLimiter: rateLimiter,
-		BaseURL:     cfg.Auth.BaseURL,
+		Pool:         pool,
+		Debouncer:    sharedPATDebouncer,
+		Logger:       logger,
+		ObjectStore:  objectStore,
+		RepoFS:       rfs,
+		RunnerJWT:    runnerJWT,
+		SecretBox:    secretBox,
+		RateLimiter:  rateLimiter,
+		Audit:        audit.NewRecorder(),
+		Throttle:     throttle.NewLimiter(),
+		ShithubdPath: shithubdPath,
+		BaseURL:      cfg.Auth.BaseURL,
 		APILimit: apilimit.Config{
 			AuthedPerHour: cfg.RateLimit.API.AuthedPerHour,
 			AnonPerHour:   cfg.RateLimit.API.AnonPerHour,

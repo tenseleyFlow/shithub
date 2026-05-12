@@ -49,7 +49,9 @@ authenticating PAT.
 
 ## List the authenticated user's repos
 
-> **Planned.** `GET /api/v1/user/repos` is not shipped yet.
+`GET /api/v1/user/repos` ships in S50 §2 — see the
+[Repositories](repos.md) page for the full shape and a list of
+related endpoints.
 
 ## Email addresses
 
