@@ -111,6 +111,20 @@ between minor releases.
   `GET /api/v1/orgs/{org}` (single fetch; 404 for soft-deleted),
   `GET /api/v1/orgs/{org}/members`. Scope: `user:read`.
 - **Capability:** `orgs` added to `/api/v1/meta`.
+- **REST: repo webhooks (S50 §8).** Full CRUD over a repo's
+  webhook subscriptions: `GET/POST /api/v1/repos/{o}/{r}/hooks`,
+  `GET/PATCH/DELETE /api/v1/repos/{o}/{r}/hooks/{id}`. Deliveries
+  read-side: `GET /api/v1/repos/{o}/{r}/hooks/{id}/deliveries`
+  (paginated; `Link:` headers) and
+  `GET /api/v1/repos/{o}/{r}/hooks/{id}/deliveries/{did}` (full
+  transcript). `POST .../deliveries/{did}/redeliver` re-enqueues.
+  Scope: `repo:write`; role floor: settings:general. Webhook
+  secrets are write-only — set on create, rotated via PATCH's
+  `secret` field, never echoed back. Create-time SSRF gate
+  rejects loopback / private / disallowed-port targets so
+  misconfigurations surface synchronously instead of as silent
+  delivery failures.
+- **Capability:** `webhooks` added to `/api/v1/meta`.
 
 ### Added (internal)
 

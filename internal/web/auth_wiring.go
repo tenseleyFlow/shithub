@@ -32,6 +32,7 @@ import (
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 // sharedPATDebouncer is used by both the PATAuth middleware (in the API
@@ -84,6 +85,7 @@ func buildAPIHandlers(
 			AnonPerHour:   cfg.RateLimit.API.AnonPerHour,
 			Logger:        logger,
 		},
+		WebhookSSRF: webhook.DefaultSSRFConfig(),
 	})
 }
 

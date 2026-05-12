@@ -63,6 +63,17 @@ func (q *Queries) ClaimDueDeliveries(ctx context.Context, db DBTX, limit int32) 
 	return items, nil
 }
 
+const countDeliveriesForWebhook = `-- name: CountDeliveriesForWebhook :one
+SELECT count(*)::bigint FROM webhook_deliveries WHERE webhook_id = $1
+`
+
+func (q *Queries) CountDeliveriesForWebhook(ctx context.Context, db DBTX, webhookID int64) (int64, error) {
+	row := db.QueryRow(ctx, countDeliveriesForWebhook, webhookID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createDelivery = `-- name: CreateDelivery :one
 INSERT INTO webhook_deliveries (
     webhook_id, event_kind, event_id, payload, request_headers,
@@ -376,6 +387,78 @@ func (q *Queries) ListDeliveriesForWebhook(ctx context.Context, db DBTX, arg Lis
 	items := []ListDeliveriesForWebhookRow{}
 	for rows.Next() {
 		var i ListDeliveriesForWebhookRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WebhookID,
+			&i.EventKind,
+			&i.EventID,
+			&i.DeliveryUuid,
+			&i.ResponseStatus,
+			&i.ResponseTruncated,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.NextRetryAt,
+			&i.Status,
+			&i.ErrorSummary,
+			&i.RedeliverOf,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeliveriesForWebhookPaged = `-- name: ListDeliveriesForWebhookPaged :many
+SELECT id, webhook_id, event_kind, event_id, delivery_uuid, response_status,
+       response_truncated, started_at, completed_at, attempt, max_attempts,
+       next_retry_at, status, error_summary, redeliver_of
+FROM webhook_deliveries
+WHERE webhook_id = $1
+ORDER BY started_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListDeliveriesForWebhookPagedParams struct {
+	WebhookID int64
+	Limit     int32
+	Offset    int32
+}
+
+type ListDeliveriesForWebhookPagedRow struct {
+	ID                int64
+	WebhookID         int64
+	EventKind         string
+	EventID           pgtype.Int8
+	DeliveryUuid      pgtype.UUID
+	ResponseStatus    pgtype.Int4
+	ResponseTruncated bool
+	StartedAt         pgtype.Timestamptz
+	CompletedAt       pgtype.Timestamptz
+	Attempt           int32
+	MaxAttempts       int32
+	NextRetryAt       pgtype.Timestamptz
+	Status            WebhookDeliveryStatus
+	ErrorSummary      pgtype.Text
+	RedeliverOf       pgtype.Int8
+}
+
+// Paginated mirror of ListDeliveriesForWebhook for the REST surface.
+// Order matches the unpaginated form so callers can swap freely.
+func (q *Queries) ListDeliveriesForWebhookPaged(ctx context.Context, db DBTX, arg ListDeliveriesForWebhookPagedParams) ([]ListDeliveriesForWebhookPagedRow, error) {
+	rows, err := db.Query(ctx, listDeliveriesForWebhookPaged, arg.WebhookID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeliveriesForWebhookPagedRow{}
+	for rows.Next() {
+		var i ListDeliveriesForWebhookPagedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WebhookID,

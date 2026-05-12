@@ -1,8 +1,11 @@
 # Webhooks
 
-The webhook **delivery format** (payloads, signing) is shipped
-and stable. The webhook **management API** (CRUD over webhooks
-on a repo) is planned.
+The webhook **delivery format** (payloads, signing) and the
+webhook **management API** (CRUD over webhooks on a repo) are
+both shipped. The management endpoints are PAT-authenticated and
+share the canonical [API conventions](overview.md) (JSON error
+envelopes, `X-RateLimit-*`, `X-OAuth-Scopes`, `Link`
+pagination).
 
 ## Delivery format
 
@@ -13,21 +16,82 @@ retries, idempotency.
 The user-docs page is intentionally the canonical place; an API
 consumer building a subscriber endpoint reads the same material.
 
-## Management API (planned)
+## Management API
 
-| Method | Path                                                      | Scope        |
-|--------|-----------------------------------------------------------|--------------|
-| GET    | `/api/v1/repos/{owner}/{repo}/hooks`                      | `webhooks`   |
-| POST   | `/api/v1/repos/{owner}/{repo}/hooks`                      | `webhooks`   |
-| GET    | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                 | `webhooks`   |
-| PATCH  | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                 | `webhooks`   |
-| DELETE | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                 | `webhooks`   |
-| POST   | `/api/v1/repos/{owner}/{repo}/hooks/{id}/pings`           | `webhooks`   |
-| GET    | `/api/v1/repos/{owner}/{repo}/hooks/{id}/deliveries`      | `webhooks`   |
-| POST   | `/api/v1/repos/{owner}/{repo}/hooks/{id}/deliveries/{delivery}/redeliver` | `webhooks` |
+All endpoints require an `Authorization: Bearer <pat>` header
+whose token carries the `repo:write` scope and the caller's role
+on the repo must reach **settings:general** (owner / write
+collaborator). Webhook secrets are write-only: they're set on
+create and rotated by passing a new `secret` on PATCH, but
+**never** returned in any response.
 
-Until these land, manage webhooks via the web UI under
-Repository → Settings → Webhooks.
+| Method | Path                                                                       |
+|--------|----------------------------------------------------------------------------|
+| GET    | `/api/v1/repos/{owner}/{repo}/hooks`                                       |
+| POST   | `/api/v1/repos/{owner}/{repo}/hooks`                                       |
+| GET    | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                                  |
+| PATCH  | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                                  |
+| DELETE | `/api/v1/repos/{owner}/{repo}/hooks/{id}`                                  |
+| GET    | `/api/v1/repos/{owner}/{repo}/hooks/{id}/deliveries`                       |
+| GET    | `/api/v1/repos/{owner}/{repo}/hooks/{id}/deliveries/{did}`                 |
+| POST   | `/api/v1/repos/{owner}/{repo}/hooks/{id}/deliveries/{did}/redeliver`       |
+
+### Create
+
+```http
+POST /api/v1/repos/alice/demo/hooks
+Authorization: Bearer <pat>
+Content-Type: application/json
+
+{
+  "url":             "https://hooks.example.com/sink",
+  "content_type":    "json",
+  "events":          ["push", "pull_request"],
+  "active":          true,
+  "ssl_verification": true,
+  "secret":          "shared-secret-or-omit-to-mint"
+}
+```
+
+`content_type` is `json` (default) or `form`. Omitting `secret`
+mints a fresh one server-side. The server validates the URL
+against the SSRF allow-list (scheme + port + non-private
+resolution) so a 422 here means the target was rejected at
+create time — no silent delivery failures later.
+
+A successful create returns the hook row at `201 Created` and
+enqueues a synthetic `ping` delivery so the operator sees an
+immediate round-trip.
+
+### Patch
+
+```http
+PATCH /api/v1/repos/alice/demo/hooks/42
+Content-Type: application/json
+
+{
+  "url":    "https://hooks.example.com/v2",
+  "events": ["push", "pull_request", "issues"],
+  "active": false,
+  "secret": "rotated-secret"
+}
+```
+
+Fields are merged onto the current row: omit a field to keep its
+existing value. Passing `secret` rotates the HMAC key used for
+subsequent deliveries.
+
+### Deliveries
+
+The deliveries list is paginated (default 30, max 100 per page)
+and emits standard `Link: <...>; rel="next" …` headers. The
+single-delivery shape includes the captured request headers,
+request body, and response body so operators can replay a
+failed delivery from the recorded transcript.
+
+`POST .../deliveries/{did}/redeliver` enqueues a fresh delivery
+copying the same payload + headers under a new id; the response
+body is `{"id": <new_delivery_id>}`.
 
 ## Event types (canonical list)
 

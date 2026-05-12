@@ -18,6 +18,7 @@ type Querier interface {
 	// with a far-future next_retry_at while it works on it (defense
 	// against re-claim during a long HTTP timeout).
 	ClaimDueDeliveries(ctx context.Context, db DBTX, limit int32) ([]int64, error)
+	CountDeliveriesForWebhook(ctx context.Context, db DBTX, webhookID int64) (int64, error)
 	CreateDelivery(ctx context.Context, db DBTX, arg CreateDeliveryParams) (WebhookDelivery, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
@@ -43,6 +44,9 @@ type Querier interface {
 	// Used by fanout to find subscribers for an event.
 	ListActiveWebhooksForOwner(ctx context.Context, db DBTX, arg ListActiveWebhooksForOwnerParams) ([]Webhook, error)
 	ListDeliveriesForWebhook(ctx context.Context, db DBTX, arg ListDeliveriesForWebhookParams) ([]ListDeliveriesForWebhookRow, error)
+	// Paginated mirror of ListDeliveriesForWebhook for the REST surface.
+	// Order matches the unpaginated form so callers can swap freely.
+	ListDeliveriesForWebhookPaged(ctx context.Context, db DBTX, arg ListDeliveriesForWebhookPagedParams) ([]ListDeliveriesForWebhookPagedRow, error)
 	ListUnprocessedDomainEvents(ctx context.Context, db DBTX, arg ListUnprocessedDomainEventsParams) ([]DomainEvent, error)
 	ListWebhooksForOwner(ctx context.Context, db DBTX, arg ListWebhooksForOwnerParams) ([]Webhook, error)
 	MarkDeliveryPermanentFailure(ctx context.Context, db DBTX, arg MarkDeliveryPermanentFailureParams) error
