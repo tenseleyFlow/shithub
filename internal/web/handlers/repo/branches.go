@@ -22,6 +22,7 @@ import (
 func (h *Handlers) MountRefs(r chi.Router) {
 	r.Get("/{owner}/{repo}/branches", h.branchesList)
 	r.Get("/{owner}/{repo}/tags", h.tagsList)
+	r.Get("/{owner}/{repo}/compare", h.compareView)
 	// Compare uses `...` as the base/head separator (matches GitHub).
 	// chi can't represent the literal `...` in a route param so we use
 	// a wildcard and parse server-side.
@@ -209,21 +210,26 @@ func (h *Handlers) compareView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rest := strings.Trim(chi.URLParam(r, "*"), "/")
-	if rest == "" {
-		http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/compare/"+row.DefaultBranch+"..."+row.DefaultBranch, http.StatusSeeOther)
-		return
-	}
-	base, head, ok := strings.Cut(rest, "...")
-	if !ok {
-		// Two-dot shape — accept but treat as three-dot for the diff.
-		base, head, ok = strings.Cut(rest, "..")
-		if !ok {
-			head = rest
+	hasSelection := rest != ""
+	base := row.DefaultBranch
+	head := row.DefaultBranch
+	if hasSelection {
+		var found bool
+		base, head, found = strings.Cut(rest, "...")
+		if !found {
+			// Two-dot shape — accept but treat as three-dot for the diff.
+			base, head, found = strings.Cut(rest, "..")
+			if !found {
+				head = rest
+				base = row.DefaultBranch
+			}
+		}
+		if base == "" {
 			base = row.DefaultBranch
 		}
-	}
-	if base == "" {
-		base = row.DefaultBranch
+		if head == "" {
+			head = row.DefaultBranch
+		}
 	}
 
 	// Strip cross-repo "fork:branch" prefix for the local path; full
@@ -231,37 +237,33 @@ func (h *Handlers) compareView(w http.ResponseWriter, r *http.Request) {
 	base = stripCrossRepoPrefix(base)
 	head = stripCrossRepoPrefix(head)
 
-	commits, cerr := repogit.CommitsBetween(r.Context(), gitDir, base, head, 250)
-	ahead, behind, abErr := repogit.AheadBehind(r.Context(), gitDir, base, head)
-
-	notFound := abErr != nil
-
-	// Build an inline diff (three-dot via FromMergeBase).
-	var diffHTML string
-	if !notFound {
-		patch, perr := compareSourceMergeBase(r, gitDir, base, head)
-		if perr == nil {
-			diffHTML = renderCompareDiff(patch)
-		}
-	}
-
-	refs, _ := repogit.ListRefs(r.Context(), gitDir)
-	h.d.Render.RenderPage(w, r, "repo/compare", map[string]any{
-		"Title":      "Compare · " + row.Name,
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
-		"Owner":      owner.Username,
-		"Repo":       row,
-		"Base":       base,
-		"Head":       head,
-		"Ahead":      ahead,
-		"Behind":     behind,
-		"Commits":    commits,
-		"DiffHTML":   diffHTML,
-		"NotFound":   notFound,
-		"CommitsErr": cerr != nil,
-		"Branches":   refs.Branches,
-		"Tags":       refs.Tags,
-	})
+	state := h.buildCompareState(r, owner.Username, row, gitDir, base, head, hasSelection, compareMenuTargetCompare)
+	h.d.Render.RenderPage(w, r, "repo/compare", mergePageData(
+		h.repoPageChrome(r, owner.Username, row, "code"),
+		map[string]any{
+			"Title":        "Compare · " + row.Name,
+			"UseCompareJS": true,
+			"Compare":      state,
+			"Base":         state.Base,
+			"Head":         state.Head,
+			"HasSelection": state.HasSelection,
+			"SameRef":      state.SameRef,
+			"NotFound":     state.NotFound,
+			"CommitsErr":   state.CommitsErr,
+			"NoCommits":    state.NoCommits,
+			"Ahead":        state.Ahead,
+			"Behind":       state.Behind,
+			"Commits":      state.Commits,
+			"DiffHTML":     state.DiffHTML,
+			"Stats":        state.Stats,
+			"MergeState":   state.MergeState,
+			"CanOpenPull":  state.CanOpenPull,
+			"PullNewHref":  state.PullNewHref,
+			"BaseMenu":     state.BaseMenu,
+			"HeadMenu":     state.HeadMenu,
+			"Examples":     state.Examples,
+		},
+	))
 }
 
 // stripCrossRepoPrefix turns "fork:branch" into "branch". Local-only

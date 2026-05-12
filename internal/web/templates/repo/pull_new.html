@@ -1,46 +1,207 @@
 {{ define "page" -}}
-<section class="shithub-issue-new">
-  <header class="shithub-issues-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls">Pull requests</a>
-      <span class="shithub-code-sep">/</span>
-      New
-    </h1>
-  </header>
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
 
-  {{ if .Error }}<div class="shithub-error" role="alert">{{ .Error }}</div>{{ end }}
+  <div class="shithub-compare-flow shithub-pull-open-flow">
+    <header class="shithub-compare-subhead">
+      <h1>Open a pull request</h1>
+      <p>Create a new pull request by comparing changes across two branches.</p>
+    </header>
 
-  <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-issue-form">
-    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-    <div class="shithub-form-row shithub-pull-refs">
-      <label>
-        <span>Base</span>
-        <input type="text" name="base" value="{{ .Base }}" required>
-      </label>
-      <span class="shithub-pull-arrow">←</span>
-      <label>
-        <span>Head</span>
-        <input type="text" name="head" value="{{ .Head }}" required>
-      </label>
+    <div class="shithub-range-editor" aria-label="Choose pull request branches">
+      {{ template "compare-ref-menu" (dict "Menu" .BaseMenu) }}
+      <span class="shithub-range-separator" aria-hidden="true">...</span>
+      {{ template "compare-ref-menu" (dict "Menu" .HeadMenu) }}
+      {{ if .MergeState.Label }}
+      <span class="shithub-range-merge-state shithub-range-merge-{{ .MergeState.State }}">
+        {{ if eq .MergeState.State "clean" }}{{ octicon "check" }}{{ else if eq .MergeState.State "conflict" }}{{ octicon "x-circle" }}{{ else }}{{ octicon "git-pull-request" }}{{ end }}
+        {{ .MergeState.Label }}
+      </span>
+      {{ end }}
     </div>
-    <label class="shithub-form-row">
-      <span>Title</span>
-      <input type="text" name="title" maxlength="256" required value="{{ .FormTitle }}" autofocus>
-    </label>
-    <label class="shithub-form-row">
-      <span>Body (Markdown)</span>
-      <textarea name="body" rows="14" maxlength="65535">{{ .FormBody }}</textarea>
-    </label>
-    <label class="shithub-form-row">
-      <input type="checkbox" name="draft" value="on">
-      Open as draft
-    </label>
-    <div class="shithub-form-actions">
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-button">Cancel</a>
-      <button type="submit" class="shithub-button shithub-button-primary">Create pull request</button>
+
+    {{ if .Error }}<div class="shithub-error" role="alert">{{ .Error }}</div>{{ end }}
+    {{ if .NotFound }}
+    <div class="shithub-compare-flash shithub-compare-flash-danger" role="alert">
+      {{ octicon "x-circle" }}
+      <div>
+        <strong>There was a problem comparing these refs.</strong>
+        <p>One or both refs were not found in this repository.</p>
+      </div>
     </div>
-  </form>
+    {{ else if or .SameRef .NoCommits }}
+    <div class="shithub-compare-flash shithub-compare-flash-warning">
+      {{ octicon "git-pull-request" }}
+      <div>
+        <strong>Choose different branches to open a pull request.</strong>
+        <p><code>{{ .Head }}</code> has no commits ahead of <code>{{ .Base }}</code>.</p>
+      </div>
+    </div>
+    {{ end }}
+
+    <div class="shithub-pull-new-layout">
+      <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-pull-new-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <input type="hidden" name="base" value="{{ .Base }}">
+        <input type="hidden" name="head" value="{{ .Head }}">
+
+        <div class="shithub-pull-new-title-row">
+          <a class="shithub-comment-composer-avatar" href="/{{ .Viewer.Username }}" aria-label="@{{ .Viewer.Username }}">
+            <img src="{{ .ViewerAvatarURL }}" alt="" width="40" height="40">
+          </a>
+          <label class="shithub-pull-new-title">
+            <span>Add a title <strong>*</strong></span>
+            <input type="text" name="title" maxlength="256" required value="{{ .FormTitle }}" autofocus>
+          </label>
+        </div>
+
+        <div class="shithub-pull-new-description" data-comment-editor data-preview-url="/{{ .Owner }}/{{ .Repo.Name }}/markdown-preview" data-preview-ref="{{ .Base }}">
+          <script type="application/json" data-comment-editor-config>{{ jsField . "CommentEditorConfig" }}</script>
+          <label class="shithub-pull-new-description-label" for="pull-new-body">Add a description</label>
+          <div class="shithub-comment-editor-box">
+            <div class="shithub-comment-editor-head">
+              <div class="shithub-comment-editor-tabs" role="tablist" aria-label="Pull request description tabs">
+                <button type="button" class="is-active" role="tab" aria-selected="true" data-comment-tab="write">Write</button>
+                <button type="button" role="tab" aria-selected="false" data-comment-tab="preview">Preview</button>
+              </div>
+              <div class="shithub-comment-toolbar" aria-label="Formatting tools">
+                <button type="button" class="shithub-comment-tool" data-comment-action="mention" title="Mention a user">{{ octicon "people" }}</button>
+                <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="heading" title="Add heading">H</button>
+                <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="bold" title="Add bold text">B</button>
+                <button type="button" class="shithub-comment-tool shithub-comment-tool-text is-italic" data-comment-action="italic" title="Add italic text">I</button>
+                <button type="button" class="shithub-comment-tool" data-comment-action="quote" title="Quote text">{{ octicon "comment" }}</button>
+                <button type="button" class="shithub-comment-tool" data-comment-action="code" title="Add code">{{ octicon "code" }}</button>
+                <button type="button" class="shithub-comment-tool" data-comment-action="link" title="Add link">{{ octicon "link" }}</button>
+                <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                <button type="button" class="shithub-comment-tool" data-comment-action="list" title="Add unordered list">{{ octicon "list-unordered" }}</button>
+                <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="ordered-list" title="Add ordered list">1.</button>
+                <button type="button" class="shithub-comment-tool" data-comment-action="task-list" title="Add task list">{{ octicon "checklist" }}</button>
+                <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                <label class="shithub-comment-tool" title="Attach files">
+                  {{ octicon "upload" }}
+                  <input type="file" multiple data-comment-file-input>
+                </label>
+                <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="reference" title="Reference an issue or pull request">#</button>
+                <button type="button" class="shithub-comment-tool" data-comment-saved-replies-open title="Saved replies">{{ octicon "comment-discussion" }}</button>
+                <button type="button" class="shithub-comment-tool" data-comment-action="fullscreen" title="Fullscreen editor">{{ octicon "screen-full" }}</button>
+              </div>
+            </div>
+            <div class="shithub-comment-editor-write" data-comment-write-pane>
+              <textarea id="pull-new-body" name="body" rows="10" maxlength="65535" placeholder="Add your description here..." data-comment-textarea>{{ .FormBody }}</textarea>
+              <div class="shithub-comment-suggestions" data-comment-suggestions hidden></div>
+            </div>
+            <div class="shithub-comment-editor-preview markdown-body" data-comment-preview-pane hidden>
+              <p class="shithub-editor-preview-empty">Nothing to preview.</p>
+            </div>
+            <div class="shithub-comment-editor-footer">
+              <span>{{ octicon "code-square" }} Markdown is supported</span>
+              <span data-comment-attachment-copy>{{ octicon "file" }} Paste, drop, or click to add files</span>
+              <span class="shithub-comment-file-list" data-comment-file-list hidden></span>
+            </div>
+          </div>
+          <dialog class="shithub-comment-saved-dialog" data-comment-saved-dialog>
+            <div class="shithub-comment-saved-head">
+              <strong>Select a reply</strong>
+              <button type="button" class="shithub-icon-button" aria-label="Close" data-comment-saved-close>{{ octicon "x" }}</button>
+            </div>
+            <input type="search" placeholder="Search saved replies" data-comment-saved-filter>
+            <button type="button" class="shithub-comment-saved-item" data-comment-saved-insert="Duplicate of #">
+              <strong>Duplicate pull request</strong>
+              <span>Duplicate of #</span>
+              <kbd>ctrl 1</kbd>
+            </button>
+            <button type="button" class="shithub-comment-saved-create">{{ octicon "plus" }} Create a new saved reply</button>
+          </dialog>
+        </div>
+
+        <p class="shithub-comment-policy-note">
+          {{ octicon "alert" }} Remember, contributions to this repository should follow its
+          <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/CONTRIBUTING.md">contributing guidelines</a>,
+          <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/SECURITY.md">security policy</a>, and
+          <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/CODE_OF_CONDUCT.md">code of conduct</a>.
+        </p>
+
+        <div class="shithub-pull-new-actions">
+          {{ if .CanCreatePull }}
+          <button type="submit" class="shithub-button shithub-button-primary">Create pull request</button>
+          <details class="shithub-pr-submit-menu">
+            <summary class="shithub-button shithub-button-primary shithub-button-icon" aria-label="Create options">{{ octicon "triangle-down" }}</summary>
+            <div class="shithub-pr-submit-menu-popover">
+              <button type="submit" class="is-active">
+                <strong>{{ octicon "check" }} Create pull request</strong>
+                <span>Open a pull request that is ready for review</span>
+              </button>
+              <button type="submit" name="draft" value="on">
+                <strong>Create draft pull request</strong>
+                <span>Cannot be merged until marked ready for review</span>
+              </button>
+            </div>
+          </details>
+          {{ else }}
+          <button type="submit" class="shithub-button shithub-button-primary" disabled>Create pull request</button>
+          {{ end }}
+        </div>
+      </form>
+
+      <aside class="shithub-pull-new-sidebar" aria-label="Pull request metadata">
+        <section>
+          <h2>Reviewers <button type="button" class="shithub-icon-button" aria-label="Edit reviewers">{{ octicon "gear" }}</button></h2>
+          <p>No reviewers</p>
+        </section>
+        <section>
+          <h2>Assignees <button type="button" class="shithub-icon-button" aria-label="Edit assignees">{{ octicon "gear" }}</button></h2>
+          <p>No one - <a href="/{{ .Viewer.Username }}">assign yourself</a></p>
+        </section>
+        <section>
+          <h2>Labels <button type="button" class="shithub-icon-button" aria-label="Edit labels">{{ octicon "gear" }}</button></h2>
+          <p>None yet</p>
+        </section>
+        <section>
+          <h2>Projects <button type="button" class="shithub-icon-button" aria-label="Edit projects">{{ octicon "gear" }}</button></h2>
+          <p>None yet</p>
+        </section>
+        <section>
+          <h2>Milestone <button type="button" class="shithub-icon-button" aria-label="Edit milestone">{{ octicon "gear" }}</button></h2>
+          <p>No milestone</p>
+        </section>
+        <section>
+          <h2>Development</h2>
+          <p>Use closing keywords in the description to automatically close issues</p>
+        </section>
+      </aside>
+    </div>
+
+    {{ if and (not .NotFound) (not .SameRef) }}
+    <div class="shithub-compare-stats" aria-label="Comparison summary">
+      <span>{{ octicon "git-commit" }} {{ .Stats.CommitCount }} {{ pluralize .Stats.CommitCount "commit" "commits" }}</span>
+      <span>{{ octicon "diff" }} {{ .Stats.FileCount }} {{ pluralize .Stats.FileCount "file changed" "files changed" }}</span>
+      <span>{{ octicon "person" }} {{ .Stats.ContributorCount }} {{ pluralize .Stats.ContributorCount "contributor" "contributors" }}</span>
+    </div>
+
+    {{ if .Commits }}
+    <section class="shithub-compare-commits">
+      <h2>Commits on {{ .Head }}</h2>
+      <ul class="shithub-commits-list">
+        {{ range .Commits }}
+        <li class="shithub-commits-row">
+          <div class="shithub-commits-meta">
+            <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}">{{ .Subject }}</a>
+            <code class="shithub-commits-sha">{{ .ShortOID }}</code>
+            <small>{{ .AuthorName }} committed <time datetime="{{ .AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .AuthorWhen }}</time></small>
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+    </section>
+    {{ end }}
+
+    {{ if .DiffHTML }}
+    <section class="shithub-diff-body" aria-label="Diff">
+      {{ safeHTML .DiffHTML }}
+    </section>
+    {{ end }}
+    {{ end }}
+  </div>
 </section>
 {{- end }}

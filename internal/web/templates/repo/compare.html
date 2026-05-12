@@ -1,49 +1,115 @@
 {{ define "page" -}}
-<section class="shithub-compare">
-  <header class="shithub-code-head">
-    <h1>
-      <a href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Repo.DefaultBranch }}">{{ .Owner }}/{{ .Repo.Name }}</a>
-      <span class="shithub-code-sep">/</span>
-      Compare <code>{{ .Base }}</code> ... <code>{{ .Head }}</code>
-    </h1>
-  </header>
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
 
-  {{ if .NotFound }}
-  <div class="shithub-compare-empty">One or both refs were not found in this repository.</div>
-  {{ else }}
-  <p class="shithub-compare-summary">
-    {{ if eq .Base .Head }}
-    Base and head are the same — nothing to compare.
-    {{ else if le .Ahead 0 }}
-    There isn't anything to compare. <code>{{ .Head }}</code> is up to date with <code>{{ .Base }}</code>.
-    {{ else }}
-    <strong>{{ .Ahead }}</strong> commit{{ if ne .Ahead 1 }}s{{ end }} ahead, <strong>{{ .Behind }}</strong> behind <code>{{ .Base }}</code>.
-    <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/new?base={{ .Base }}&amp;head={{ .Head }}" class="shithub-button shithub-button-primary">Create pull request</a>
-    {{ end }}
-  </p>
+  <div class="shithub-compare-flow">
+    <header class="shithub-compare-subhead">
+      <h1>{{ if .HasSelection }}Comparing changes{{ else }}Compare changes{{ end }}</h1>
+      <p>
+        {{ if .HasSelection }}
+        Choose two branches to see what's changed or to start a new pull request.
+        {{ else }}
+        Compare changes across branches, commits, tags, and more below.
+        {{ end }}
+      </p>
+    </header>
 
-  {{ if .Commits }}
-  <section class="shithub-compare-commits">
-    <h2>Commits in <code>{{ .Head }}</code></h2>
-    <ul class="shithub-commits-list">
-      {{ range .Commits }}
-      <li class="shithub-commits-row">
-        <div class="shithub-commits-meta">
-          <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}">{{ .Subject }}</a>
-          <code class="shithub-commits-sha">{{ .ShortOID }}</code>
-          <small>{{ .AuthorName }} · <time datetime="{{ .AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .AuthorWhen }}</time></small>
-        </div>
-      </li>
+    <div class="shithub-range-editor" aria-label="Compare branches">
+      {{ template "compare-ref-menu" (dict "Menu" .BaseMenu) }}
+      <span class="shithub-range-separator" aria-hidden="true">...</span>
+      {{ template "compare-ref-menu" (dict "Menu" .HeadMenu) }}
+      {{ if .CanOpenPull }}
+      <a href="{{ .PullNewHref }}" class="shithub-button shithub-button-primary shithub-range-create">Create pull request</a>
+      {{ else }}
+      <button type="button" class="shithub-button shithub-button-primary shithub-range-create" disabled>Create pull request</button>
       {{ end }}
-    </ul>
-  </section>
-  {{ end }}
+    </div>
 
-  {{ if .DiffHTML }}
-  <section class="shithub-diff-body" aria-label="Diff">
-    {{ safeHTML .DiffHTML }}
-  </section>
-  {{ end }}
-  {{ end }}
+    {{ if .NotFound }}
+    <div class="shithub-compare-flash shithub-compare-flash-danger" role="alert">
+      {{ octicon "x-circle" }}
+      <div>
+        <strong>There was a problem comparing these refs.</strong>
+        <p>One or both refs were not found in this repository.</p>
+      </div>
+    </div>
+    {{ else if not .HasSelection }}
+    <div class="shithub-compare-flash shithub-compare-flash-warning">
+      {{ octicon "git-pull-request" }}
+      <div>Choose different branches or tags above to discuss and review changes.</div>
+    </div>
+    <section class="shithub-compare-blankslate">
+      {{ octicon "git-pull-request" }}
+      <h2>Compare and review just about anything</h2>
+      <p>Branches, tags, commits, and time ranges in the same repository can be compared from here.</p>
+      {{ if .Examples }}
+      <div class="shithub-compare-examples">
+        <div class="shithub-compare-examples-head">Example comparisons</div>
+        {{ range .Examples }}
+        <a href="{{ .Href }}">
+          <span>{{ octicon "git-branch" }} {{ .Name }}</span>
+          <span>compare</span>
+        </a>
+        {{ end }}
+      </div>
+      {{ end }}
+    </section>
+    {{ else if .SameRef }}
+    <div class="shithub-compare-flash shithub-compare-flash-warning">
+      {{ octicon "git-pull-request" }}
+      <div>Choose different branches or tags above to discuss and review changes.</div>
+    </div>
+    <section class="shithub-compare-blankslate">
+      {{ octicon "git-pull-request" }}
+      <h2>Compare and review just about anything</h2>
+      <p><code>{{ .Base }}</code> and <code>{{ .Head }}</code> are the same ref.</p>
+    </section>
+    {{ else if .NoCommits }}
+    <div class="shithub-compare-flash shithub-compare-flash-warning">
+      {{ octicon "check-circle" }}
+      <div>
+        <strong>There isn't anything to compare.</strong>
+        <p><code>{{ .Head }}</code> is up to date with <code>{{ .Base }}</code>.</p>
+      </div>
+    </div>
+    {{ else }}
+    <div class="shithub-compare-flash shithub-compare-flash-{{ .MergeState.State }}">
+      {{ if eq .MergeState.State "clean" }}{{ octicon "check" }}{{ else if eq .MergeState.State "conflict" }}{{ octicon "x-circle" }}{{ else }}{{ octicon "git-pull-request" }}{{ end }}
+      <div>
+        <strong>{{ .MergeState.Label }}</strong>
+        <span>{{ .MergeState.Description }}</span>
+      </div>
+    </div>
+
+    <div class="shithub-compare-stats" aria-label="Comparison summary">
+      <span>{{ octicon "git-commit" }} {{ .Stats.CommitCount }} {{ pluralize .Stats.CommitCount "commit" "commits" }}</span>
+      <span>{{ octicon "diff" }} {{ .Stats.FileCount }} {{ pluralize .Stats.FileCount "file changed" "files changed" }}</span>
+      <span>{{ octicon "person" }} {{ .Stats.ContributorCount }} {{ pluralize .Stats.ContributorCount "contributor" "contributors" }}</span>
+    </div>
+
+    {{ if .Commits }}
+    <section class="shithub-compare-commits">
+      <h2>Commits on {{ .Head }}</h2>
+      <ul class="shithub-commits-list">
+        {{ range .Commits }}
+        <li class="shithub-commits-row">
+          <div class="shithub-commits-meta">
+            <a class="shithub-commits-subject" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}">{{ .Subject }}</a>
+            <code class="shithub-commits-sha">{{ .ShortOID }}</code>
+            <small>{{ .AuthorName }} committed <time datetime="{{ .AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .AuthorWhen }}</time></small>
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+    </section>
+    {{ end }}
+
+    {{ if .DiffHTML }}
+    <section class="shithub-diff-body" aria-label="Diff">
+      {{ safeHTML .DiffHTML }}
+    </section>
+    {{ end }}
+    {{ end }}
+  </div>
 </section>
 {{- end }}

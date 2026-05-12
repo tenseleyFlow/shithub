@@ -36,6 +36,7 @@
   <link rel="stylesheet" href="/static/css/shithub.css">
   <link rel="stylesheet" href="/static/css/chroma.css">
   {{ if flag . "UseHTMX" }}<script src="/static/vendor/htmx/htmx.min.js" defer></script>{{ end }}
+  {{ if flag . "UseCompareJS" }}<script src="/static/js/compare.js" defer></script>{{ end }}
   {{ if flag . "UseCommentEditor" }}<script src="/static/js/comment-editor.js" defer></script>{{ end }}
 </head>
 <body class="shithub-body">
