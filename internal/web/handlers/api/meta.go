@@ -25,6 +25,7 @@ var APICapabilities = []string{
 	"actions-lifecycle",
 	"user-emails",
 	"ssh-keys",
+	"repos",
 }
 
 type metaResponse struct {

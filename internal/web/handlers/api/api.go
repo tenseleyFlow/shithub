@@ -18,9 +18,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -39,6 +41,20 @@ type Deps struct {
 	RunnerJWT   *runnerjwt.Signer
 	SecretBox   *secretbox.Box
 	RateLimiter *ratelimit.Limiter
+	// Audit records security-sensitive mutations (repo create/delete,
+	// settings changes). Required for any handler that mutates server
+	// state; nil disables the audit emission for that handler.
+	Audit *audit.Recorder
+	// Throttle is the per-actor anti-abuse limiter consulted by
+	// repos.Create. Independent from RateLimiter (which is the
+	// shared-counter rate-limit subsystem) — Throttle uses the older
+	// per-action counter that the HTML create flow shares with us so
+	// budgets are observed consistently across both surfaces.
+	Throttle *throttle.Limiter
+	// ShithubdPath is the absolute path of the running shithubd
+	// binary, forwarded to repos.Create so its hook shims resolve
+	// correctly. Empty disables hook installation (test fixtures).
+	ShithubdPath string
 	// BaseURL is the public scheme://host prefix used for absolute
 	// pagination Link headers. Empty falls back to path-relative URLs.
 	BaseURL string
@@ -125,6 +141,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountUserEmails(r)
 		// S50 §1 — user SSH keys CRUD.
 		h.mountUserKeys(r)
+		// S50 §2 — repos REST core (list/single/create/patch/delete).
+		h.mountRepos(r)
 	})
 }
 
