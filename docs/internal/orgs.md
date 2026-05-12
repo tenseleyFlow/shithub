@@ -202,7 +202,10 @@ Billing is not fully configured, Team remains visible but disabled;
 site admins see operator setup copy. Choosing Team creates the
 organization first and then redirects the owner to hosted Stripe
 Checkout; webhook processing, not checkout creation, activates paid
-entitlements.
+entitlements. Stripe success and cancel returns render explicit
+post-checkout pages: success explains that Team activation waits for
+webhook processing, and cancel leaves the organization on Free with a
+path to retry checkout.
 Existing owner-managed orgs also link to that billing page from
 `/settings/organizations` for plan comparison.
 

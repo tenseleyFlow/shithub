@@ -169,6 +169,17 @@ PAYMENTS SP03 adds the first Stripe operator contract:
 The operator enablement flow is documented in
 [`runbooks/stripe-billing.md`](./runbooks/stripe-billing.md).
 
+PAYMENTS SP04 adds the self-serve onboarding flow:
+
+- `/organizations/plan` is the canonical plan picker.
+- Free setup creates the organization locally without Stripe.
+- Team setup creates the organization, creates or reuses the Stripe
+  customer, counts billable seats, and redirects directly to hosted
+  Stripe Checkout.
+- Checkout success and cancel returns render shithub pages. Success
+  tells the owner that activation waits for webhook processing; cancel
+  keeps the organization on Free and offers a retry path.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not

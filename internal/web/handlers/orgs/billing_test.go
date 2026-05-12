@@ -111,6 +111,32 @@ func TestOrgBillingPortalRedirectsToStripe(t *testing.T) {
 	}
 }
 
+func TestOrgBillingResultPagesRenderPostCheckoutState(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{path: "/organizations/acme/billing/success", want: "RESULT=success;HEADING=Checkout complete"},
+		{path: "/organizations/acme/billing/cancel", want: "RESULT=canceled;HEADING=Checkout canceled"},
+	} {
+		resp := httptest.NewRecorder()
+		req := newOrgFormRequest(http.MethodGet, tc.path, nil)
+		mux.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", tc.path, resp.Code, resp.Body.String())
+		}
+		if !strings.Contains(resp.Body.String(), tc.want) {
+			t.Fatalf("%s missing %q in body %s", tc.path, tc.want, resp.Body.String())
+		}
+	}
+}
+
 func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -437,6 +463,7 @@ func newOrgBillingMux(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote st
 	t.Helper()
 	tmplFS := fstest.MapFS{
 		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
+		"orgs/billing_result.html":   {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
 		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
 		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},

@@ -1192,6 +1192,36 @@ code {
   color: var(--fg-muted);
   font-size: 0.9rem;
 }
+.shithub-billing-result {
+  display: flex;
+  justify-content: center;
+  padding: 4rem 1rem;
+}
+.shithub-billing-result-card {
+  width: min(100%, 34rem);
+  padding: 2rem;
+  text-align: center;
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-billing-result-card img {
+  border-radius: 50%;
+}
+.shithub-billing-result-card h1 {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 1.6rem;
+}
+.shithub-billing-result-card p {
+  color: var(--fg-muted);
+}
+.shithub-billing-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
 .shithub-org-billing-compare {
   margin-top: 0;
 }

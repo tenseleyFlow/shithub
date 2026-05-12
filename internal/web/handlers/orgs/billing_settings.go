@@ -122,7 +122,7 @@ func (h *Handlers) billingSuccess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=checkout-success", http.StatusSeeOther)
+	h.renderBillingResult(w, r, org, billingResultSuccess)
 }
 
 func (h *Handlers) billingCancel(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +130,31 @@ func (h *Handlers) billingCancel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=checkout-canceled", http.StatusSeeOther)
+	h.renderBillingResult(w, r, org, billingResultCanceled)
+}
+
+const (
+	billingResultSuccess  = "success"
+	billingResultCanceled = "canceled"
+)
+
+func (h *Handlers) renderBillingResult(w http.ResponseWriter, r *http.Request, org orgsdb.Org, result string) {
+	heading := "Checkout complete"
+	message := "Stripe accepted the checkout session. Team activation finishes after shithub receives and processes the signed Stripe webhook."
+	if result == billingResultCanceled {
+		heading = "Checkout canceled"
+		message = "No Team subscription was activated. The organization stays on Free until checkout is completed."
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/billing_result", map[string]any{
+		"Title":       heading,
+		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Org":         org,
+		"AvatarURL":   "/avatars/" + url.PathEscape(org.Slug),
+		"Result":      result,
+		"Heading":     heading,
+		"Message":     message,
+		"BillingPath": orgBillingSettingsPath(org.Slug),
+	})
 }
 
 func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
