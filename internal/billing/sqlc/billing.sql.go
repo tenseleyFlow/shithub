@@ -736,6 +736,97 @@ func (q *Queries) MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParam
 	return i, err
 }
 
+const markPaymentSucceeded = `-- name: MarkPaymentSucceeded :one
+WITH state AS (
+    UPDATE org_billing_states
+       SET plan = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'team'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'active'
+               ELSE subscription_status
+           END,
+           past_due_at = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE past_due_at
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           last_webhook_event_id = $1::text,
+           updated_at = now()
+     WHERE org_id = $2::bigint
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), org_update AS (
+    UPDATE orgs
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE orgs.id = state.org_id
+    RETURNING orgs.id
+)
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type MarkPaymentSucceededParams struct {
+	LastWebhookEventID string
+	OrgID              int64
+}
+
+type MarkPaymentSucceededRow struct {
+	OrgID                    int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     OrgPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	BillableSeats            int32
+	SeatSnapshotAt           pgtype.Timestamptz
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error) {
+	row := db.QueryRow(ctx, markPaymentSucceeded, arg.LastWebhookEventID, arg.OrgID)
+	var i MarkPaymentSucceededRow
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const markWebhookEventFailed = `-- name: MarkWebhookEventFailed :one
 UPDATE billing_webhook_events
    SET process_error = $2,

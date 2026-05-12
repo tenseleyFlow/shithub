@@ -377,6 +377,23 @@ func MarkPastDue(ctx context.Context, deps Deps, orgID int64, graceUntil time.Ti
 	})
 }
 
+func MarkPaymentSucceeded(ctx context.Context, deps Deps, orgID int64, lastWebhookEventID string) (State, error) {
+	if err := validateDeps(deps); err != nil {
+		return State{}, err
+	}
+	if orgID == 0 {
+		return State{}, ErrOrgIDRequired
+	}
+	row, err := billingdb.New().MarkPaymentSucceeded(ctx, deps.Pool, billingdb.MarkPaymentSucceededParams{
+		OrgID:              orgID,
+		LastWebhookEventID: strings.TrimSpace(lastWebhookEventID),
+	})
+	if err != nil {
+		return State{}, err
+	}
+	return stateFromPaymentSucceeded(row), nil
+}
+
 func MarkCanceled(ctx context.Context, deps Deps, orgID int64, lastWebhookEventID string) (State, error) {
 	if err := validateDeps(deps); err != nil {
 		return State{}, err
@@ -472,6 +489,10 @@ func stateFromApply(row billingdb.ApplySubscriptionSnapshotRow) State {
 }
 
 func stateFromCanceled(row billingdb.MarkCanceledRow) State {
+	return State(row)
+}
+
+func stateFromPaymentSucceeded(row billingdb.MarkPaymentSucceededRow) State {
 	return State(row)
 }
 

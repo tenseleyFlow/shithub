@@ -99,6 +99,22 @@ func TestBillingStateTransitions(t *testing.T) {
 		t.Fatalf("past_due should set grace_until")
 	}
 
+	state, err = billing.MarkPaymentSucceeded(ctx, deps, org.ID, "evt_paid")
+	if err != nil {
+		t.Fatalf("MarkPaymentSucceeded: %v", err)
+	}
+	assertState(t, state, billing.PlanTeam, billing.SubscriptionStatusActive)
+	if state.LockedAt.Valid || state.LockReason.Valid || state.GraceUntil.Valid || state.PastDueAt.Valid {
+		t.Fatalf("payment recovery should clear lock/grace/past_due: %+v", state)
+	}
+	assertOrgPlan(t, pool, org.ID, orgsdb.OrgPlanTeam)
+
+	state, err = billing.MarkPastDue(ctx, deps, org.ID, grace, "evt_past_due_again")
+	if err != nil {
+		t.Fatalf("MarkPastDue again: %v", err)
+	}
+	assertState(t, state, billing.PlanTeam, billing.SubscriptionStatusPastDue)
+
 	state, err = billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
 		OrgID:                    org.ID,
 		Plan:                     billing.PlanTeam,

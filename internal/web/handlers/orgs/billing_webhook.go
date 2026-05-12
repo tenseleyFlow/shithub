@@ -188,7 +188,7 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 		return err
 	case "invoice.payment_succeeded":
 		if state.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
-			_, err := orgbilling.ClearBillingLock(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID)
+			_, err := orgbilling.MarkPaymentSucceeded(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, event.ID)
 			return err
 		}
 	}

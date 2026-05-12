@@ -106,6 +106,38 @@ UPDATE org_billing_states
  WHERE org_id = sqlc.arg(org_id)::bigint
 RETURNING *;
 
+-- name: MarkPaymentSucceeded :one
+WITH state AS (
+    UPDATE org_billing_states
+       SET plan = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'team'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'active'
+               ELSE subscription_status
+           END,
+           past_due_at = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE past_due_at
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           last_webhook_event_id = sqlc.arg(last_webhook_event_id)::text,
+           updated_at = now()
+     WHERE org_id = sqlc.arg(org_id)::bigint
+    RETURNING *
+), org_update AS (
+    UPDATE orgs
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE orgs.id = state.org_id
+    RETURNING orgs.id
+)
+SELECT * FROM state;
+
 -- name: MarkCanceled :one
 WITH state AS (
     UPDATE org_billing_states

@@ -28,6 +28,7 @@ type Querier interface {
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
 	MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParams) (OrgBillingState, error)
+	MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error)
 	MarkWebhookEventFailed(ctx context.Context, db DBTX, arg MarkWebhookEventFailedParams) (BillingWebhookEvent, error)
 	MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
 	SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeCustomerParams) (OrgBillingState, error)

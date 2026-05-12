@@ -321,8 +321,14 @@ func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testin
 	if err != nil {
 		t.Fatalf("GetOrgBillingState after paid invoice: %v", err)
 	}
+	if state.Plan != orgbilling.PlanTeam || state.SubscriptionStatus != orgbilling.SubscriptionStatusActive {
+		t.Fatalf("payment_succeeded should recover active Team state: %+v", state)
+	}
 	if state.LockedAt.Valid || state.LockReason.Valid || state.GraceUntil.Valid {
 		t.Fatalf("payment_succeeded should clear billing action lock: %+v", state)
+	}
+	if state.PastDueAt.Valid {
+		t.Fatalf("payment_succeeded should clear past_due_at: %+v", state)
 	}
 
 	current = stripeTestEvent(t, "evt_subscription_deleted", "customer.subscription.deleted", map[string]any{
