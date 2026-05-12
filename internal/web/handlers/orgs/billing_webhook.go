@@ -261,13 +261,6 @@ func stripeCustomerID(customer *stripeapi.Customer) string {
 	return strings.TrimSpace(customer.ID)
 }
 
-func stripeSubscriptionID(sub *stripeapi.Subscription) string {
-	if sub == nil {
-		return ""
-	}
-	return strings.TrimSpace(sub.ID)
-}
-
 func stripeSubscriptionItemID(items *stripeapi.SubscriptionItemList) string {
 	if items == nil || len(items.Data) == 0 || items.Data[0] == nil {
 		return ""

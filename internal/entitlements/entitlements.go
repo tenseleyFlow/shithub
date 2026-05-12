@@ -18,7 +18,7 @@ const (
 	FeatureOrgSecretTeams              Feature = "org.secret_teams"
 	FeatureOrgAdvancedBranchProtection Feature = "org.advanced_branch_protection"
 	FeatureOrgRequiredReviewers        Feature = "org.required_reviewers"
-	FeatureOrgActionsSecrets           Feature = "org.actions_org_secrets"
+	FeatureOrgActionsSecrets           Feature = "org.actions_org_secrets" // #nosec G101 -- entitlement feature key, not a credential.
 	FeatureOrgActionsVariables         Feature = "org.actions_org_variables"
 	FeatureOrgPrivateCollaboration     Feature = "org.private_collaboration_limit"
 	FeatureOrgStorageQuota             Feature = "org.storage_quota"
