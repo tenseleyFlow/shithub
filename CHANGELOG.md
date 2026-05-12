@@ -256,6 +256,17 @@ between minor releases.
   remain on the actions-lifecycle routes; this surface is
   read-only.
 - **Capability:** `actions-runs` added to `/api/v1/meta`.
+- **REST: stargazers + starred lists (S50 §19).**
+  `GET /api/v1/repos/{owner}/{repo}/stargazers` paginates the users
+  who starred a repo (scope: `repo:read`); private-repo lists are
+  gated by `ActionRepoRead`. `GET /api/v1/users/{username}/starred`
+  paginates the repos a user has starred (scope: `user:read`);
+  cross-user views post-filter private repos the caller can't see.
+  Both endpoints emit standard `Link:` pagination headers and
+  recency-sort by `starred_at DESC`. The S26 caller-self star
+  routes (`/api/v1/user/starred` and `/api/v1/user/starred/{o}/{r}`)
+  are unchanged.
+- **Capability:** `stargazers` added to `/api/v1/meta`.
 
 ### Added (internal)
 
