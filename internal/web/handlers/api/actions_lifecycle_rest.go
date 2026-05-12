@@ -177,7 +177,7 @@ func (h *Handlers) actionsRunArtifactsList(w http.ResponseWriter, r *http.Reques
 			ID:         a.ID,
 			Name:       a.Name,
 			SizeBytes:  a.ByteCount,
-			ArchiveURL: artifactArchiveURL(r, chi.URLParam(r, "owner"), repo.Name,a.ID),
+			ArchiveURL: artifactArchiveURL(r, chi.URLParam(r, "owner"), repo.Name, a.ID),
 			ExpiresAt:  pgTimestampString(a.ExpiresAt),
 			CreatedAt:  a.CreatedAt.Time.UTC().Format(time.RFC3339),
 		})
@@ -198,7 +198,7 @@ func (h *Handlers) actionsArtifactGet(w http.ResponseWriter, r *http.Request) {
 		ID:         artifact.ID,
 		Name:       artifact.Name,
 		SizeBytes:  artifact.ByteCount,
-		ArchiveURL: artifactArchiveURL(r, chi.URLParam(r, "owner"), repo.Name,artifact.ID),
+		ArchiveURL: artifactArchiveURL(r, chi.URLParam(r, "owner"), repo.Name, artifact.ID),
 		ExpiresAt:  pgTimestampString(artifact.ExpiresAt),
 		CreatedAt:  artifact.CreatedAt.Time.UTC().Format(time.RFC3339),
 	})
