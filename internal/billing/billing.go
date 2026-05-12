@@ -2,7 +2,7 @@
 
 // Package billing owns local paid-organization state. It stores Stripe
 // identifiers and derived subscription state, but it does not call
-// Stripe directly; webhook/API integration lands in SP03.
+// Stripe directly; Stripe API details stay in the SP03 adapter layer.
 package billing
 
 import (
@@ -27,6 +27,7 @@ type Deps struct {
 type (
 	Plan               = billingdb.OrgPlan
 	SubscriptionStatus = billingdb.BillingSubscriptionStatus
+	InvoiceStatus      = billingdb.BillingInvoiceStatus
 	State              = billingdb.OrgBillingState
 )
 
@@ -43,18 +44,27 @@ const (
 	SubscriptionStatusCanceled   = billingdb.BillingSubscriptionStatusCanceled
 	SubscriptionStatusUnpaid     = billingdb.BillingSubscriptionStatusUnpaid
 	SubscriptionStatusPaused     = billingdb.BillingSubscriptionStatusPaused
+
+	InvoiceStatusDraft         = billingdb.BillingInvoiceStatusDraft
+	InvoiceStatusOpen          = billingdb.BillingInvoiceStatusOpen
+	InvoiceStatusPaid          = billingdb.BillingInvoiceStatusPaid
+	InvoiceStatusVoid          = billingdb.BillingInvoiceStatusVoid
+	InvoiceStatusUncollectible = billingdb.BillingInvoiceStatusUncollectible
 )
 
 var (
-	ErrPoolRequired     = errors.New("billing: pool is required")
-	ErrOrgIDRequired    = errors.New("billing: org id is required")
-	ErrStripeCustomerID = errors.New("billing: stripe customer id is required")
-	ErrInvalidPlan      = errors.New("billing: invalid plan")
-	ErrInvalidStatus    = errors.New("billing: invalid subscription status")
-	ErrInvalidSeatCount = errors.New("billing: seat counts cannot be negative")
-	ErrWebhookEventID   = errors.New("billing: webhook event id is required")
-	ErrWebhookEventType = errors.New("billing: webhook event type is required")
-	ErrWebhookPayload   = errors.New("billing: webhook payload must be a JSON object")
+	ErrPoolRequired         = errors.New("billing: pool is required")
+	ErrOrgIDRequired        = errors.New("billing: org id is required")
+	ErrStripeCustomerID     = errors.New("billing: stripe customer id is required")
+	ErrStripeSubscriptionID = errors.New("billing: stripe subscription id is required")
+	ErrStripeInvoiceID      = errors.New("billing: stripe invoice id is required")
+	ErrInvalidPlan          = errors.New("billing: invalid plan")
+	ErrInvalidStatus        = errors.New("billing: invalid subscription status")
+	ErrInvalidInvoiceStatus = errors.New("billing: invalid invoice status")
+	ErrInvalidSeatCount     = errors.New("billing: seat counts cannot be negative")
+	ErrWebhookEventID       = errors.New("billing: webhook event id is required")
+	ErrWebhookEventType     = errors.New("billing: webhook event type is required")
+	ErrWebhookPayload       = errors.New("billing: webhook payload must be a JSON object")
 )
 
 // SubscriptionSnapshot is the local projection of a provider
@@ -88,6 +98,26 @@ type WebhookEvent struct {
 	Payload         []byte
 }
 
+type InvoiceSnapshot struct {
+	OrgID                int64
+	StripeInvoiceID      string
+	StripeCustomerID     string
+	StripeSubscriptionID string
+	Status               InvoiceStatus
+	Number               string
+	Currency             string
+	AmountDueCents       int64
+	AmountPaidCents      int64
+	AmountRemainingCents int64
+	HostedInvoiceURL     string
+	InvoicePDFURL        string
+	PeriodStart          time.Time
+	PeriodEnd            time.Time
+	DueAt                time.Time
+	PaidAt               time.Time
+	VoidedAt             time.Time
+}
+
 func GetOrgBillingState(ctx context.Context, deps Deps, orgID int64) (State, error) {
 	if err := validateDeps(deps); err != nil {
 		return State{}, err
@@ -96,6 +126,28 @@ func GetOrgBillingState(ctx context.Context, deps Deps, orgID int64) (State, err
 		return State{}, ErrOrgIDRequired
 	}
 	return billingdb.New().GetOrgBillingState(ctx, deps.Pool, orgID)
+}
+
+func GetOrgBillingStateByStripeCustomer(ctx context.Context, deps Deps, customerID string) (State, error) {
+	if err := validateDeps(deps); err != nil {
+		return State{}, err
+	}
+	customerID = strings.TrimSpace(customerID)
+	if customerID == "" {
+		return State{}, ErrStripeCustomerID
+	}
+	return billingdb.New().GetOrgBillingStateByStripeCustomer(ctx, deps.Pool, pgText(customerID))
+}
+
+func GetOrgBillingStateByStripeSubscription(ctx context.Context, deps Deps, subscriptionID string) (State, error) {
+	if err := validateDeps(deps); err != nil {
+		return State{}, err
+	}
+	subscriptionID = strings.TrimSpace(subscriptionID)
+	if subscriptionID == "" {
+		return State{}, ErrStripeSubscriptionID
+	}
+	return billingdb.New().GetOrgBillingStateByStripeSubscription(ctx, deps.Pool, pgText(subscriptionID))
 }
 
 func SetStripeCustomer(ctx context.Context, deps Deps, orgID int64, customerID string) (State, error) {
@@ -178,6 +230,78 @@ func RecordWebhookEvent(ctx context.Context, deps Deps, event WebhookEvent) (bil
 	return row, true, nil
 }
 
+func MarkWebhookEventProcessed(ctx context.Context, deps Deps, providerEventID string) (billingdb.BillingWebhookEvent, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingWebhookEvent{}, err
+	}
+	providerEventID = strings.TrimSpace(providerEventID)
+	if providerEventID == "" {
+		return billingdb.BillingWebhookEvent{}, ErrWebhookEventID
+	}
+	return billingdb.New().MarkWebhookEventProcessed(ctx, deps.Pool, providerEventID)
+}
+
+func MarkWebhookEventFailed(ctx context.Context, deps Deps, providerEventID, processError string) (billingdb.BillingWebhookEvent, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingWebhookEvent{}, err
+	}
+	providerEventID = strings.TrimSpace(providerEventID)
+	if providerEventID == "" {
+		return billingdb.BillingWebhookEvent{}, ErrWebhookEventID
+	}
+	processError = strings.TrimSpace(processError)
+	if len(processError) > 2000 {
+		processError = processError[:2000]
+	}
+	return billingdb.New().MarkWebhookEventFailed(ctx, deps.Pool, billingdb.MarkWebhookEventFailedParams{
+		ProviderEventID: providerEventID,
+		ProcessError:    processError,
+	})
+}
+
+func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billingdb.BillingInvoice, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingInvoice{}, err
+	}
+	if snap.OrgID == 0 {
+		return billingdb.BillingInvoice{}, ErrOrgIDRequired
+	}
+	snap.StripeInvoiceID = strings.TrimSpace(snap.StripeInvoiceID)
+	if snap.StripeInvoiceID == "" {
+		return billingdb.BillingInvoice{}, ErrStripeInvoiceID
+	}
+	snap.StripeCustomerID = strings.TrimSpace(snap.StripeCustomerID)
+	if snap.StripeCustomerID == "" {
+		return billingdb.BillingInvoice{}, ErrStripeCustomerID
+	}
+	if !validInvoiceStatus(snap.Status) {
+		return billingdb.BillingInvoice{}, fmt.Errorf("%w: %q", ErrInvalidInvoiceStatus, snap.Status)
+	}
+	row, err := billingdb.New().UpsertInvoice(ctx, deps.Pool, billingdb.UpsertInvoiceParams{
+		OrgID:                snap.OrgID,
+		StripeInvoiceID:      snap.StripeInvoiceID,
+		StripeCustomerID:     snap.StripeCustomerID,
+		StripeSubscriptionID: pgText(snap.StripeSubscriptionID),
+		Status:               snap.Status,
+		Number:               strings.TrimSpace(snap.Number),
+		Currency:             strings.ToLower(strings.TrimSpace(snap.Currency)),
+		AmountDueCents:       snap.AmountDueCents,
+		AmountPaidCents:      snap.AmountPaidCents,
+		AmountRemainingCents: snap.AmountRemainingCents,
+		HostedInvoiceUrl:     strings.TrimSpace(snap.HostedInvoiceURL),
+		InvoicePdfUrl:        strings.TrimSpace(snap.InvoicePDFURL),
+		PeriodStart:          pgTime(snap.PeriodStart),
+		PeriodEnd:            pgTime(snap.PeriodEnd),
+		DueAt:                pgTime(snap.DueAt),
+		PaidAt:               pgTime(snap.PaidAt),
+		VoidedAt:             pgTime(snap.VoidedAt),
+	})
+	if err != nil {
+		return billingdb.BillingInvoice{}, err
+	}
+	return row, nil
+}
+
 func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billingdb.BillingSeatSnapshot, error) {
 	if err := validateDeps(deps); err != nil {
 		return billingdb.BillingSeatSnapshot{}, err
@@ -203,6 +327,20 @@ func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billin
 		return billingdb.BillingSeatSnapshot{}, err
 	}
 	return billingdb.BillingSeatSnapshot(row), nil
+}
+
+func CountBillableOrgMembers(ctx context.Context, deps Deps, orgID int64) (int, error) {
+	if err := validateDeps(deps); err != nil {
+		return 0, err
+	}
+	if orgID == 0 {
+		return 0, ErrOrgIDRequired
+	}
+	n, err := billingdb.New().CountBillableOrgMembers(ctx, deps.Pool, orgID)
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func MarkPastDue(ctx context.Context, deps Deps, orgID int64, graceUntil time.Time, lastWebhookEventID string) (State, error) {
@@ -276,6 +414,19 @@ func validStatus(status SubscriptionStatus) bool {
 		SubscriptionStatusCanceled,
 		SubscriptionStatusUnpaid,
 		SubscriptionStatusPaused:
+		return true
+	default:
+		return false
+	}
+}
+
+func validInvoiceStatus(status InvoiceStatus) bool {
+	switch status {
+	case InvoiceStatusDraft,
+		InvoiceStatusOpen,
+		InvoiceStatusPaid,
+		InvoiceStatusVoid,
+		InvoiceStatusUncollectible:
 		return true
 	default:
 		return false

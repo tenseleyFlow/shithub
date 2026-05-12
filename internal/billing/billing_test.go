@@ -162,6 +162,13 @@ func TestRecordWebhookEventIsIdempotent(t *testing.T) {
 	if created {
 		t.Fatalf("duplicate receipt should not be created")
 	}
+
+	if _, err := billing.MarkWebhookEventProcessed(ctx, deps, event.ProviderEventID); err != nil {
+		t.Fatalf("MarkWebhookEventProcessed: %v", err)
+	}
+	if _, err := billing.MarkWebhookEventFailed(ctx, deps, event.ProviderEventID, "late duplicate"); err != nil {
+		t.Fatalf("MarkWebhookEventFailed: %v", err)
+	}
 }
 
 func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
@@ -186,6 +193,75 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	}
 	if state.BillableSeats != 2 || !state.SeatSnapshotAt.Valid {
 		t.Fatalf("state did not record seat snapshot: %+v", state)
+	}
+
+	count, err := billing.CountBillableOrgMembers(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("CountBillableOrgMembers: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("billable members: got %d, want 1", count)
+	}
+}
+
+func TestStripeLookupsAndInvoiceSnapshot(t *testing.T) {
+	_, deps, org := setup(t)
+	ctx := context.Background()
+
+	start := time.Now().UTC().Truncate(time.Second)
+	if _, err := billing.SetStripeCustomer(ctx, deps, org.ID, "cus_lookup"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	if _, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
+		OrgID:                    org.ID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_lookup",
+		StripeSubscriptionItemID: "si_lookup",
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_lookup",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+
+	byCustomer, err := billing.GetOrgBillingStateByStripeCustomer(ctx, deps, "cus_lookup")
+	if err != nil {
+		t.Fatalf("GetOrgBillingStateByStripeCustomer: %v", err)
+	}
+	if byCustomer.OrgID != org.ID {
+		t.Fatalf("customer lookup org_id: got %d, want %d", byCustomer.OrgID, org.ID)
+	}
+	bySubscription, err := billing.GetOrgBillingStateByStripeSubscription(ctx, deps, "sub_lookup")
+	if err != nil {
+		t.Fatalf("GetOrgBillingStateByStripeSubscription: %v", err)
+	}
+	if bySubscription.OrgID != org.ID {
+		t.Fatalf("subscription lookup org_id: got %d, want %d", bySubscription.OrgID, org.ID)
+	}
+
+	invoice, err := billing.UpsertInvoice(ctx, deps, billing.InvoiceSnapshot{
+		OrgID:                org.ID,
+		StripeInvoiceID:      "in_lookup",
+		StripeCustomerID:     "cus_lookup",
+		StripeSubscriptionID: "sub_lookup",
+		Status:               billing.InvoiceStatusPaid,
+		Number:               "SHI-0001",
+		Currency:             "USD",
+		AmountDueCents:       1200,
+		AmountPaidCents:      1200,
+		AmountRemainingCents: 0,
+		HostedInvoiceURL:     "https://invoice.stripe.test/i",
+		InvoicePDFURL:        "https://invoice.stripe.test/i.pdf",
+		PeriodStart:          start,
+		PeriodEnd:            start.Add(30 * 24 * time.Hour),
+		PaidAt:               start.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("UpsertInvoice: %v", err)
+	}
+	if invoice.StripeInvoiceID != "in_lookup" || invoice.Status != billing.InvoiceStatusPaid || invoice.Currency != "usd" {
+		t.Fatalf("unexpected invoice: %+v", invoice)
 	}
 }
 

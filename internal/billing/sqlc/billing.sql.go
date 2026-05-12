@@ -242,6 +242,19 @@ func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (C
 	return i, err
 }
 
+const countBillableOrgMembers = `-- name: CountBillableOrgMembers :one
+SELECT count(*)::integer
+FROM org_members
+WHERE org_id = $1
+`
+
+func (q *Queries) CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error) {
+	row := db.QueryRow(ctx, countBillableOrgMembers, orgID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSeatSnapshot = `-- name: CreateSeatSnapshot :one
 
 WITH snapshot AS (
@@ -377,6 +390,76 @@ SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subs
 // ─── org_billing_states ────────────────────────────────────────────
 func (q *Queries) GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) (OrgBillingState, error) {
 	row := db.QueryRow(ctx, getOrgBillingState, orgID)
+	var i OrgBillingState
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrgBillingStateByStripeCustomer = `-- name: GetOrgBillingStateByStripeCustomer :one
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_customer_id = $1
+`
+
+func (q *Queries) GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error) {
+	row := db.QueryRow(ctx, getOrgBillingStateByStripeCustomer, stripeCustomerID)
+	var i OrgBillingState
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrgBillingStateByStripeSubscription = `-- name: GetOrgBillingStateByStripeSubscription :one
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_subscription_id = $1
+`
+
+func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error) {
+	row := db.QueryRow(ctx, getOrgBillingStateByStripeSubscription, stripeSubscriptionID)
 	var i OrgBillingState
 	err := row.Scan(
 		&i.OrgID,

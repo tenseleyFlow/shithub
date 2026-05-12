@@ -6,11 +6,14 @@ package billingdb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error)
 	ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (ClearBillingLockRow, error)
+	CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error)
 	// ─── billing_seat_snapshots ────────────────────────────────────────
 	CreateSeatSnapshot(ctx context.Context, db DBTX, arg CreateSeatSnapshotParams) (CreateSeatSnapshotRow, error)
 	// ─── billing_webhook_events ────────────────────────────────────────
@@ -18,6 +21,8 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── org_billing_states ────────────────────────────────────────────
 	GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) (OrgBillingState, error)
+	GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error)
+	GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error)
 	ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoicesForOrgParams) ([]BillingInvoice, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)

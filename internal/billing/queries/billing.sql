@@ -5,6 +5,16 @@
 -- name: GetOrgBillingState :one
 SELECT * FROM org_billing_states WHERE org_id = $1;
 
+-- name: GetOrgBillingStateByStripeCustomer :one
+SELECT * FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_customer_id = $1;
+
+-- name: GetOrgBillingStateByStripeSubscription :one
+SELECT * FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_subscription_id = $1;
+
 -- name: SetStripeCustomer :one
 INSERT INTO org_billing_states (org_id, provider, stripe_customer_id)
 VALUES ($1, 'stripe', $2)
@@ -183,6 +193,11 @@ SELECT * FROM billing_seat_snapshots
 WHERE org_id = $1
 ORDER BY captured_at DESC, id DESC
 LIMIT $2;
+
+-- name: CountBillableOrgMembers :one
+SELECT count(*)::integer
+FROM org_members
+WHERE org_id = $1;
 
 -- ─── billing_invoices ──────────────────────────────────────────────
 
