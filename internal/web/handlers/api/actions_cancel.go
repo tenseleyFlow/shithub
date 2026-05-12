@@ -39,7 +39,7 @@ func (h *Handlers) workflowJobCancel(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "job not found")
 		return
 	}
-	job, run, repo, ok := h.resolveCancellableJob(w, r, auth.UserID, jobID)
+	job, run, repo, ok := h.resolveCancellableJob(w, r, auth.PolicyActor(), jobID)
 	if !ok {
 		return
 	}
@@ -65,7 +65,7 @@ func (h *Handlers) workflowJobCancel(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) resolveCancellableJob(
 	w http.ResponseWriter,
 	r *http.Request,
-	userID int64,
+	actor policy.Actor,
 	jobID int64,
 ) (actionsdb.WorkflowJob, actionsdb.WorkflowRun, reposdb.Repo, bool) {
 	q := actionsdb.New()
@@ -92,7 +92,6 @@ func (h *Handlers) resolveCancellableJob(
 		}
 		return actionsdb.WorkflowJob{}, actionsdb.WorkflowRun{}, reposdb.Repo{}, false
 	}
-	actor := policy.UserActor(userID, "", false, false)
 	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow {
 		writeAPIError(w, http.StatusNotFound, "job not found")
 		return actionsdb.WorkflowJob{}, actionsdb.WorkflowRun{}, reposdb.Repo{}, false

@@ -28,7 +28,7 @@ func (h *Handlers) workflowRunRerun(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "run not found")
 		return
 	}
-	run, repo, ok := h.resolveLifecycleRun(w, r, auth.UserID, runID)
+	run, repo, ok := h.resolveLifecycleRun(w, r, auth.PolicyActor(), runID)
 	if !ok {
 		return
 	}
@@ -54,7 +54,7 @@ func (h *Handlers) workflowRunRerun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) resolveLifecycleRun(
 	w http.ResponseWriter,
 	r *http.Request,
-	userID int64,
+	actor policy.Actor,
 	runID int64,
 ) (actionsdb.WorkflowRun, reposdb.Repo, bool) {
 	q := actionsdb.New()
@@ -72,7 +72,6 @@ func (h *Handlers) resolveLifecycleRun(
 		}
 		return actionsdb.WorkflowRun{}, reposdb.Repo{}, false
 	}
-	actor := policy.UserActor(userID, "", false, false)
 	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow {
 		writeAPIError(w, http.StatusNotFound, "run not found")
 		return actionsdb.WorkflowRun{}, reposdb.Repo{}, false

@@ -60,8 +60,7 @@ func (h *Handlers) resolveAPIRepo(w http.ResponseWriter, r *http.Request, action
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return nil, false
 	}
-	actor := policy.UserActor(auth.UserID, "", false, false)
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, action, policy.NewRepoRefFromRepo(repo)).Allow {
+	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo)).Allow {
 		// Existence-leak: 404 instead of 403 when the actor can't see
 		// the repo. The PAT-scope check above is the public 403; this
 		// is the visibility gate.

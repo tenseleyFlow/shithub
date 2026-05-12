@@ -122,11 +122,7 @@ func (h *Handlers) resolveStarTargetRepo(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return reposdb.Repo{}, false
 	}
-	// PAT-auth path: the middleware already rejected suspended
-	// accounts; passing IsSuspended=false here is correct by
-	// construction (documented in docs/internal/permissions.md).
-	actor := policy.UserActor(auth.UserID, "", false, false)
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionStarCreate, policy.NewRepoRefFromRepo(repo)).Allow {
+	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionStarCreate, policy.NewRepoRefFromRepo(repo)).Allow {
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return reposdb.Repo{}, false
 	}

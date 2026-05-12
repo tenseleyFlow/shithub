@@ -61,6 +61,23 @@ func TestOptionalUser_PopulatesIsSuspended(t *testing.T) {
 	}
 }
 
+func TestPATAuthPolicyActorPropagatesResolvedUserFlags(t *testing.T) {
+	t.Parallel()
+
+	actor := PATAuth{
+		UserID:      42,
+		Username:    "alice",
+		IsSuspended: true,
+		IsSiteAdmin: true,
+	}.PolicyActor()
+	if actor.UserID != 42 || actor.Username != "alice" || !actor.IsSuspended || !actor.IsSiteAdmin {
+		t.Fatalf("PolicyActor did not propagate PAT user flags: %+v", actor)
+	}
+	if anon := (PATAuth{}).PolicyActor(); !anon.IsAnonymous {
+		t.Fatalf("zero PATAuth should produce anonymous actor: %+v", anon)
+	}
+}
+
 // TestOptionalUser_StaleEpochSkipsBind is the corollary: when the
 // recorded session epoch doesn't match the current users.session_epoch
 // (because the user logged out everywhere), the binding is skipped so
