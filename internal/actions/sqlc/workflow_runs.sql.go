@@ -698,3 +698,48 @@ func (q *Queries) NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64
 	err := row.Scan(&next_index)
 	return next_index, err
 }
+
+const startWorkflowRun = `-- name: StartWorkflowRun :one
+UPDATE workflow_runs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND status = 'queued'
+RETURNING id, repo_id, run_index, workflow_file, workflow_name,
+          head_sha, head_ref, event, event_payload,
+          actor_user_id, parent_run_id, concurrency_group,
+          status, conclusion, pinned, need_approval, approved_by_user_id,
+          started_at, completed_at, version, created_at, updated_at, trigger_event_id
+`
+
+func (q *Queries) StartWorkflowRun(ctx context.Context, db DBTX, id int64) (WorkflowRun, error) {
+	row := db.QueryRow(ctx, startWorkflowRun, id)
+	var i WorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.RunIndex,
+		&i.WorkflowFile,
+		&i.WorkflowName,
+		&i.HeadSha,
+		&i.HeadRef,
+		&i.Event,
+		&i.EventPayload,
+		&i.ActorUserID,
+		&i.ParentRunID,
+		&i.ConcurrencyGroup,
+		&i.Status,
+		&i.Conclusion,
+		&i.Pinned,
+		&i.NeedApproval,
+		&i.ApprovedByUserID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TriggerEventID,
+	)
+	return i, err
+}

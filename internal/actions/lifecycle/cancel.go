@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/checksync"
+	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	"github.com/tenseleyFlow/shithub/internal/actions/runstate"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
@@ -50,7 +51,8 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 		}
 	}()
 
-	if _, err := q.GetWorkflowRunByID(ctx, tx, runID); err != nil {
+	run, err := q.GetWorkflowRunByID(ctx, tx, runID)
+	if err != nil {
 		return CancelResult{}, err
 	}
 	changed, err := q.RequestWorkflowRunCancel(ctx, tx, runID)
@@ -71,6 +73,13 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 	if len(changed) > 0 {
 		runCompleted, runConclusion, err = runstate.RollupAfterCancel(ctx, q, tx, runID)
 		if err != nil {
+			return CancelResult{}, err
+		}
+		run, err = q.GetWorkflowRunByID(ctx, tx, runID)
+		if err != nil {
+			return CancelResult{}, err
+		}
+		if err := emitCancelEvents(ctx, tx, run, changed, runCompleted); err != nil {
 			return CancelResult{}, err
 		}
 	}
@@ -138,6 +147,13 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 		if err != nil {
 			return CancelResult{}, err
 		}
+		run, err := q.GetWorkflowRunByID(ctx, tx, runID)
+		if err != nil {
+			return CancelResult{}, err
+		}
+		if err := emitCancelEvents(ctx, tx, run, changed, runCompleted); err != nil {
+			return CancelResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return CancelResult{}, err
@@ -159,6 +175,27 @@ func recordCancelledJobs(jobs []actionsdb.WorkflowJob, reason string) {
 		return
 	}
 	metrics.ActionsJobsCancelledTotal.WithLabelValues(cancelReason(reason)).Add(float64(len(jobs)))
+}
+
+func emitCancelEvents(ctx context.Context, tx pgx.Tx, run actionsdb.WorkflowRun, jobs []actionsdb.WorkflowJob, runCompleted bool) error {
+	for _, job := range jobs {
+		if job.Status != actionsdb.WorkflowJobStatusCancelled {
+			continue
+		}
+		if err := actionsevents.EmitJobTx(ctx, tx, run, job, actionsevents.ActionCancelled); err != nil {
+			return err
+		}
+	}
+	if runCompleted {
+		action := actionsevents.ActionCompleted
+		if run.Status == actionsdb.WorkflowRunStatusCancelled {
+			action = actionsevents.ActionCancelled
+		}
+		if err := actionsevents.EmitRunTx(ctx, tx, run, action); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cancelReason(reason string) string {

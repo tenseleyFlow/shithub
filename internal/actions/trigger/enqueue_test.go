@@ -143,6 +143,10 @@ func TestEnqueue_HappyPath(t *testing.T) {
 	if run.Status != actionsdb.WorkflowRunStatusQueued {
 		t.Errorf("status: got %s want queued", run.Status)
 	}
+	assertDomainEventCounts(t, f.pool, f.repoID, map[string]int64{
+		"workflow_run": 1,
+		"workflow_job": 1,
+	})
 }
 
 func TestEnqueue_ResolvesConcurrencyGroupExpression(t *testing.T) {
@@ -234,6 +238,26 @@ func TestEnqueue_CancelInProgressCancelsOlderQueuedRun(t *testing.T) {
 	}
 	if newRun.Status != actionsdb.WorkflowRunStatusQueued {
 		t.Fatalf("new run status: got %s want queued", newRun.Status)
+	}
+	assertDomainEventCounts(t, f.pool, f.repoID, map[string]int64{
+		"workflow_run": 3,
+		"workflow_job": 3,
+	})
+}
+
+func assertDomainEventCounts(t *testing.T, db actionsdb.DBTX, repoID int64, want map[string]int64) {
+	t.Helper()
+	for kind, n := range want {
+		var got int64
+		if err := db.QueryRow(context.Background(),
+			`SELECT count(*) FROM domain_events WHERE repo_id = $1 AND kind = $2`,
+			repoID, kind,
+		).Scan(&got); err != nil {
+			t.Fatalf("count domain events %s: %v", kind, err)
+		}
+		if got != n {
+			t.Fatalf("domain_events[%s] = %d, want %d", kind, got, n)
+		}
 	}
 }
 

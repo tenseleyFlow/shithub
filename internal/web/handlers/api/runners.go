@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	actionslifecycle "github.com/tenseleyFlow/shithub/internal/actions/lifecycle"
 	"github.com/tenseleyFlow/shithub/internal/actions/logstream"
@@ -220,7 +221,20 @@ func (h *Handlers) claimRunnerJob(
 		committed = true
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
 	}
-	if err := q.MarkWorkflowRunRunning(ctx, tx, job.RunID); err != nil {
+	run, err := q.StartWorkflowRun(ctx, tx, job.RunID)
+	if err == nil {
+		if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionRunning); err != nil {
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		}
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		run, err = q.GetWorkflowRunByID(ctx, tx, job.RunID)
+		if err != nil {
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		}
+	} else {
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+	}
+	if err := actionsevents.EmitJobTx(ctx, tx, run, claimRowWorkflowJob(job), actionsevents.ActionRunning); err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	steps, err := q.ListRunnerStepsForJob(ctx, tx, job.ID)
@@ -733,15 +747,45 @@ func (h *Handlers) applyJobStatus(
 		return actionsdb.WorkflowJob{}, false, "", err
 	}
 	runConclusion, complete := deriveWorkflowRunConclusion(jobs)
+	runAfter, err := q.GetWorkflowRunByID(ctx, tx, updated.RunID)
+	if err != nil {
+		return actionsdb.WorkflowJob{}, false, "", err
+	}
+	runBefore := runAfter
+	runStarted := false
+	runTerminalChanged := false
 	if complete {
-		if _, err := q.CompleteWorkflowRun(ctx, tx, actionsdb.CompleteWorkflowRunParams{
+		runAfter, err = q.CompleteWorkflowRun(ctx, tx, actionsdb.CompleteWorkflowRunParams{
 			ID:         updated.RunID,
 			Conclusion: runConclusion,
-		}); err != nil {
+		})
+		if err != nil {
 			return actionsdb.WorkflowJob{}, false, "", err
 		}
-	} else if err := q.MarkWorkflowRunRunning(ctx, tx, updated.RunID); err != nil {
-		return actionsdb.WorkflowJob{}, false, "", err
+		runTerminalChanged = workflowRunLifecycleChanged(runBefore, runAfter)
+	} else {
+		startedRun, err := q.StartWorkflowRun(ctx, tx, updated.RunID)
+		if err == nil {
+			runAfter = startedRun
+			runStarted = true
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return actionsdb.WorkflowJob{}, false, "", err
+		}
+	}
+	if jobLifecycleChanged(job, updated) {
+		if err := actionsevents.EmitJobTx(ctx, tx, runAfter, updated, workflowJobEventAction(updated.Status)); err != nil {
+			return actionsdb.WorkflowJob{}, false, "", err
+		}
+	}
+	if runStarted {
+		if err := actionsevents.EmitRunTx(ctx, tx, runAfter, actionsevents.ActionRunning); err != nil {
+			return actionsdb.WorkflowJob{}, false, "", err
+		}
+	}
+	if complete && runTerminalChanged {
+		if err := actionsevents.EmitRunTx(ctx, tx, runAfter, workflowRunEventAction(runAfter.Status)); err != nil {
+			return actionsdb.WorkflowJob{}, false, "", err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return actionsdb.WorkflowJob{}, false, "", err
@@ -753,6 +797,71 @@ func (h *Handlers) applyJobStatus(
 		}
 	}
 	return updated, complete, runConclusion, nil
+}
+
+func claimRowWorkflowJob(row actionsdb.ClaimQueuedWorkflowJobRow) actionsdb.WorkflowJob {
+	return actionsdb.WorkflowJob{
+		ID:              row.ID,
+		RunID:           row.RunID,
+		JobIndex:        row.JobIndex,
+		JobKey:          row.JobKey,
+		JobName:         row.JobName,
+		RunsOn:          row.RunsOn,
+		RunnerID:        row.RunnerID,
+		NeedsJobs:       row.NeedsJobs,
+		IfExpr:          row.IfExpr,
+		TimeoutMinutes:  row.TimeoutMinutes,
+		Permissions:     row.Permissions,
+		JobEnv:          row.JobEnv,
+		Status:          row.Status,
+		Conclusion:      row.Conclusion,
+		CancelRequested: row.CancelRequested,
+		StartedAt:       row.StartedAt,
+		CompletedAt:     row.CompletedAt,
+		Version:         row.Version,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+	}
+}
+
+func jobLifecycleChanged(before, after actionsdb.WorkflowJob) bool {
+	if before.Status != after.Status {
+		return true
+	}
+	if before.Conclusion.Valid != after.Conclusion.Valid {
+		return true
+	}
+	return before.Conclusion.Valid && before.Conclusion.CheckConclusion != after.Conclusion.CheckConclusion
+}
+
+func workflowRunLifecycleChanged(before, after actionsdb.WorkflowRun) bool {
+	if before.Status != after.Status {
+		return true
+	}
+	if before.Conclusion.Valid != after.Conclusion.Valid {
+		return true
+	}
+	return before.Conclusion.Valid && before.Conclusion.CheckConclusion != after.Conclusion.CheckConclusion
+}
+
+func workflowJobEventAction(status actionsdb.WorkflowJobStatus) string {
+	switch status {
+	case actionsdb.WorkflowJobStatusCancelled:
+		return actionsevents.ActionCancelled
+	case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusSkipped:
+		return actionsevents.ActionCompleted
+	case actionsdb.WorkflowJobStatusRunning:
+		return actionsevents.ActionRunning
+	default:
+		return actionsevents.ActionQueued
+	}
+}
+
+func workflowRunEventAction(status actionsdb.WorkflowRunStatus) string {
+	if status == actionsdb.WorkflowRunStatusCancelled {
+		return actionsevents.ActionCancelled
+	}
+	return actionsevents.ActionCompleted
 }
 
 func deriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.CheckConclusion, bool) {

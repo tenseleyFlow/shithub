@@ -92,6 +92,17 @@ const (
 	ActionActionsVariableSet     Action = "actions_variable_set"
 	ActionActionsVariableDeleted Action = "actions_variable_deleted"
 
+	// S41h — Actions run/job lifecycle. Metadata must stay structural:
+	// run/job ids, status, conclusion, workflow path/name. Never include
+	// event payloads, env, logs, permissions, tokens, or secret values.
+	ActionWorkflowRunCreated   Action = "workflow_run_created"
+	ActionWorkflowRunStarted   Action = "workflow_run_started"
+	ActionWorkflowRunCompleted Action = "workflow_run_completed"
+	ActionWorkflowJobCreated   Action = "workflow_job_created"
+	ActionWorkflowJobStarted   Action = "workflow_job_started"
+	ActionWorkflowJobCompleted Action = "workflow_job_completed"
+	ActionWorkflowJobCancelled Action = "workflow_job_cancelled"
+
 	// S34 — site admin actions. Always recorded with the real admin's
 	// id in actor_id; impersonation flows additionally carry the
 	// impersonated user's id in meta.impersonated_user_id.

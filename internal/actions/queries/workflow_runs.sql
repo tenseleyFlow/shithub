@@ -109,6 +109,19 @@ SET status = 'running',
     updated_at = now()
 WHERE id = $1 AND status = 'queued';
 
+-- name: StartWorkflowRun :one
+UPDATE workflow_runs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND status = 'queued'
+RETURNING id, repo_id, run_index, workflow_file, workflow_name,
+          head_sha, head_ref, event, event_payload,
+          actor_user_id, parent_run_id, concurrency_group,
+          status, conclusion, pinned, need_approval, approved_by_user_id,
+          started_at, completed_at, version, created_at, updated_at, trigger_event_id;
+
 -- name: CompleteWorkflowRun :one
 UPDATE workflow_runs
 SET status = 'completed',
