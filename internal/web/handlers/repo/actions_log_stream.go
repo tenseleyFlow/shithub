@@ -117,6 +117,13 @@ func (h *Handlers) repoActionStepLogStream(w http.ResponseWriter, r *http.Reques
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), actionsLogStreamReleaseTimeout)
+		defer cancel()
+		if _, err := conn.Exec(ctx, logstream.UnlistenSQL(step.ID)); err != nil && h.d.Logger != nil {
+			h.d.Logger.WarnContext(ctx, "repo actions: unlisten log stream", "step_id", step.ID, "error", err)
+		}
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")

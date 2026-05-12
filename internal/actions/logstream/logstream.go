@@ -33,6 +33,11 @@ func ListenSQL(stepID int64) string {
 	return "LISTEN " + pgx.Identifier{Channel(stepID)}.Sanitize()
 }
 
+// UnlistenSQL returns a quoted UNLISTEN statement for the per-step channel.
+func UnlistenSQL(stepID int64) string {
+	return "UNLISTEN " + pgx.Identifier{Channel(stepID)}.Sanitize()
+}
+
 // NotifyChunk wakes log tailers for a newly-persisted chunk.
 func NotifyChunk(ctx context.Context, db DBTX, stepID int64, seq int32) error {
 	return notify(ctx, db, stepID, strconv.FormatInt(int64(seq), 10))

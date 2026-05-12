@@ -13,6 +13,11 @@ The stream sends `event: chunk` records with the chunk sequence as the SSE
 `?after=<seq>` for the first connection from a rendered log page. A terminal
 step sends `event: done` and closes the stream.
 
+In `shithubd`, this route is mounted outside the normal app compression and
+30-second timeout middleware. If a future route move puts live logs back under
+either middleware, EventSource clients will churn and logs can buffer despite
+the Caddy flush setting.
+
 Log chunks are never sent through Postgres `NOTIFY`. Runner log writes append
 to `workflow_step_log_chunks`, then `NOTIFY step_log_<step_id>` with only the
 sequence number. Step completion notifies `done`.

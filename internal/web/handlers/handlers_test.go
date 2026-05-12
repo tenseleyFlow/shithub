@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func TestHandlers(t *testing.T) {
@@ -133,5 +135,45 @@ func TestHealthzHEAD(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HEAD /healthz: status %d, want 200", rec.Code)
+	}
+}
+
+func TestActionsLogStreamRouteBypassesCompressAndTimeout(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := Register(mux, Deps{
+		Logger:      logger,
+		TemplatesFS: testTemplatesFS(t),
+		StaticFS:    testStaticFS(t),
+		LogoSVG:     `<svg xmlns="http://www.w3.org/2000/svg"><title>shithub</title></svg>`,
+		RepoActionsStreamMounter: func(r chi.Router) {
+			r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+				if _, ok := r.Context().Deadline(); ok {
+					_, _ = io.WriteString(w, "deadline")
+					return
+				}
+				_, _ = io.WriteString(w, "no-deadline")
+			})
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/octo/demo/actions/runs/1/jobs/0/steps/0/log/stream", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d body=%q", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding: got %q, want empty", got)
+	}
+	if got := rec.Body.String(); got != "no-deadline" {
+		t.Fatalf("body: got %q, want no-deadline", got)
 	}
 }
