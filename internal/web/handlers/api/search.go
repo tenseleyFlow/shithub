@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -86,6 +87,7 @@ func (h *Handlers) searchRepositories(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]searchRepoItem, 0, len(rows))
 	for _, row := range rows {
+		repoRef := policy.RepoRef{Visibility: row.Visibility}
 		items = append(items, searchRepoItem{
 			ID:          row.ID,
 			Name:        row.Name,
@@ -93,7 +95,7 @@ func (h *Handlers) searchRepositories(w http.ResponseWriter, r *http.Request) {
 			OwnerLogin:  row.OwnerUsername,
 			Description: row.Description,
 			Visibility:  row.Visibility,
-			Private:     row.Visibility == "private",
+			Private:     repoRef.IsPrivate(),
 			StarCount:   row.StarCount,
 			UpdatedAt:   row.UpdatedAt.UTC().Format(time.RFC3339),
 			Score:       row.Rank,

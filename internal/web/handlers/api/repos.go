@@ -84,6 +84,7 @@ func presentRepo(r reposdb.Repo, ownerLogin string) repoResponse {
 	if r.OwnerOrgID.Valid {
 		ownerType = "org"
 	}
+	repoRef := policy.NewRepoRefFromRepo(r)
 	return repoResponse{
 		ID:            r.ID,
 		Name:          r.Name,
@@ -92,7 +93,7 @@ func presentRepo(r reposdb.Repo, ownerLogin string) repoResponse {
 		OwnerType:     ownerType,
 		Description:   r.Description,
 		Visibility:    string(r.Visibility),
-		Private:       string(r.Visibility) == "private",
+		Private:       repoRef.IsPrivate(),
 		DefaultBranch: r.DefaultBranch,
 		Fork:          r.ForkOfRepoID.Valid,
 		Archived:      r.IsArchived,
