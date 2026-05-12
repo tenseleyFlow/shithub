@@ -13,10 +13,17 @@
         {{ if .Run.ActorUsername }}by <a href="/{{ .Run.ActorUsername }}">{{ .Run.ActorUsername }}</a>{{ end }}
         for <a href="/{{ .Owner }}/{{ .Repo.Name }}/commit/{{ .Run.HeadSha }}"><code>{{ .Run.HeadShaShort }}</code></a>
         {{ if .Run.HeadRef }}on <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .Run.HeadRef }}">{{ .Run.HeadRef }}</a>{{ end }}
+        {{ if .Run.ParentRunHref }} · re-run of <a href="{{ .Run.ParentRunHref }}">#{{ .Run.ParentRunIndex }}</a>{{ end }}
       </p>
     </div>
     <div class="shithub-actions-run-head-actions">
       {{ template "action-run-status" . }}
+      {{ if .Run.CanRerun }}
+        <form method="POST" action="{{ .Run.RerunHref }}" class="shithub-actions-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button">{{ octicon "history" }} Re-run jobs</button>
+        </form>
+      {{ end }}
       {{ if .Run.CanCancel }}
         <form method="POST" action="{{ .Run.CancelHref }}" class="shithub-actions-inline-form">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">

@@ -109,6 +109,10 @@ type actionsRunDetailView struct {
 	StatusHref     string
 	CancelHref     string
 	CanCancel      bool
+	RerunHref      string
+	CanRerun       bool
+	ParentRunIndex int64
+	ParentRunHref  string
 	ActionsHref    string
 	CodeHref       string
 	ArtifactCount  int
@@ -617,7 +621,7 @@ func (h *Handlers) repoActionRun(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.applyActionsCancelControls(r, row, &view)
+	h.applyActionsLifecycleControls(r, row, &view)
 
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = view.Title + " #" + strconv.FormatInt(view.RunIndex, 10) + " · " + row.Name
@@ -765,6 +769,7 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 		IsTerminal:     workflowRunTerminal(run.Status),
 		StatusHref:     runPath + "/status",
 		CancelHref:     runPath + "/cancel",
+		RerunHref:      runPath + "/rerun",
 		ActionsHref:    basePath,
 		CodeHref:       "/" + owner + "/" + repoName + "/tree/" + codeTarget(run.HeadRef, run.HeadSha),
 		ArtifactCount:  len(artifacts),
@@ -772,6 +777,13 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 		CompletedCount: 0,
 		FailureCount:   0,
 		Jobs:           make([]actionsJobDetailView, 0, len(jobs)),
+	}
+	if run.ParentRunID.Valid {
+		parent, err := q.GetWorkflowRunByID(ctx, h.d.Pool, run.ParentRunID.Int64)
+		if err == nil && parent.RepoID == repoID {
+			view.ParentRunIndex = parent.RunIndex
+			view.ParentRunHref = basePath + "/runs/" + strconv.FormatInt(parent.RunIndex, 10)
+		}
 	}
 	for _, job := range jobs {
 		steps, err := q.ListStepsForJob(ctx, h.d.Pool, job.ID)

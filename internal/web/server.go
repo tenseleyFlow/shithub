@@ -184,7 +184,7 @@ func Run(ctx context.Context, opts Options) error {
 			logger.Warn("actions runner API disabled: auth.totp_key_b64 is not configured",
 				"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable runner job JWTs")
 		}
-		api, err := buildAPIHandlers(pool, objectStore, runnerJWT, actionsBox, ratelimit.New(pool), logger)
+		api, err := buildAPIHandlers(cfg, pool, objectStore, runnerJWT, actionsBox, ratelimit.New(pool), logger)
 		if err != nil {
 			return fmt.Errorf("api handlers: %w", err)
 		}

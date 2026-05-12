@@ -107,13 +107,17 @@ func (h *Handlers) repoActionJobCancel(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, repoActionRunHref(owner.Username, row.Name, runIndex)+"#job-"+strconv.FormatInt(int64(jobIndex), 10), http.StatusSeeOther)
 }
 
-func (h *Handlers) applyActionsCancelControls(r *http.Request, row reposdb.Repo, view *actionsRunDetailView) {
-	if view == nil || view.IsTerminal {
+func (h *Handlers) applyActionsLifecycleControls(r *http.Request, row reposdb.Repo, view *actionsRunDetailView) {
+	if view == nil {
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row))
 	if !dec.Allow {
+		return
+	}
+	if view.IsTerminal {
+		view.CanRerun = true
 		return
 	}
 	for i := range view.Jobs {

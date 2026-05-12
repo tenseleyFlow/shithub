@@ -30,6 +30,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -498,6 +499,82 @@ func TestWorkflowJobCancelAPIRequestsCancellation(t *testing.T) {
 	}
 }
 
+func TestWorkflowRunRerunAPIQueuesOriginalCommitWorkflow(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	rfs, err := storage.NewRepoFS(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewRepoFS: %v", err)
+	}
+	gitDir, err := rfs.RepoPath("alice", "demo")
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := rfs.InitBare(ctx, gitDir); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+	oldSHA := commitRunnerAPIWorkflow(t, gitDir, runnerAPIOldWorkflow, time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC))
+	wf := parseRunnerAPIWorkflow(t, runnerAPIOldWorkflow)
+	original, err := trigger.Enqueue(ctx, trigger.Deps{Pool: pool, Logger: logger}, trigger.EnqueueParams{
+		RepoID:         repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        oldSHA,
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    userID,
+		TriggerEventID: "push:api-rerun",
+		Workflow:       wf,
+	})
+	if err != nil {
+		t.Fatalf("trigger.Enqueue original: %v", err)
+	}
+	if _, err := actionsdb.New().CompleteWorkflowRun(ctx, pool, actionsdb.CompleteWorkflowRunParams{
+		ID:         original.RunID,
+		Conclusion: actionsdb.CheckConclusionFailure,
+	}); err != nil {
+		t.Fatalf("CompleteWorkflowRun: %v", err)
+	}
+	_ = commitRunnerAPIWorkflow(t, gitDir, runnerAPINewWorkflow, time.Date(2026, 5, 11, 12, 5, 0, 0, time.UTC))
+
+	rawPAT := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+	router := newRunnerAPIRouterWithRepoFS(t, pool, logger, runnerAPISigner(t, time.Now()), rfs)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%d/rerun", original.RunID), nil)
+	req.Header.Set("Authorization", "Bearer "+rawPAT)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("rerun status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		RunID       int64 `json:"run_id"`
+		RunIndex    int64 `json:"run_index"`
+		ParentRunID int64 `json:"parent_run_id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.RunID == 0 || body.RunID == original.RunID || body.ParentRunID != original.RunID {
+		t.Fatalf("response: %+v original=%+v", body, original)
+	}
+	rerun, err := actionsdb.New().GetWorkflowRunByID(ctx, pool, body.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID rerun: %v", err)
+	}
+	if rerun.HeadSha != oldSHA || !rerun.ParentRunID.Valid || rerun.ParentRunID.Int64 != original.RunID {
+		t.Fatalf("rerun row: %+v oldSHA=%s", rerun, oldSHA)
+	}
+	jobs, err := actionsdb.New().ListJobsForRun(ctx, pool, body.RunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].JobKey != "old_job" {
+		t.Fatalf("rerun jobs came from wrong workflow: %+v", jobs)
+	}
+}
+
 func postRunnerLogChunk(t *testing.T, router http.Handler, jobID int64, token string, seq int32, chunk []byte) string {
 	t.Helper()
 	body := fmt.Sprintf(`{"seq":%d,"chunk":%q}`, seq, base64.StdEncoding.EncodeToString(chunk))
@@ -546,6 +623,28 @@ func newRunnerAPIRouter(
 	return r
 }
 
+func newRunnerAPIRouterWithRepoFS(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	signer *runnerjwt.Signer,
+	rfs *storage.RepoFS,
+) http.Handler {
+	t.Helper()
+	h, err := apih.New(apih.Deps{
+		Pool:      pool,
+		Logger:    logger,
+		RunnerJWT: signer,
+		RepoFS:    rfs,
+	})
+	if err != nil {
+		t.Fatalf("api.New: %v", err)
+	}
+	r := chi.NewRouter()
+	h.Mount(r)
+	return r
+}
+
 func newRunnerAPIRouterWithSecretBox(
 	t *testing.T,
 	pool *pgxpool.Pool,
@@ -566,6 +665,59 @@ func newRunnerAPIRouterWithSecretBox(
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r
+}
+
+const runnerAPIOldWorkflow = `name: CI
+on: push
+jobs:
+  old_job:
+    name: Old job
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo old
+`
+
+const runnerAPINewWorkflow = `name: CI
+on: push
+jobs:
+  new_job:
+    name: New job
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo new
+`
+
+func commitRunnerAPIWorkflow(t *testing.T, gitDir, body string, when time.Time) string {
+	t.Helper()
+	commit, err := (repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Branch:      "trunk",
+		Message:     "Update workflow",
+		When:        when,
+		Files: []repogit.FileEntry{
+			{Path: ".shithub/workflows/ci.yml", Body: []byte(body)},
+		},
+	}).Build(context.Background())
+	if err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+	return commit
+}
+
+func parseRunnerAPIWorkflow(t *testing.T, body string) *workflow.Workflow {
+	t.Helper()
+	wf, diags, err := workflow.Parse([]byte(body))
+	if err != nil {
+		t.Fatalf("workflow.Parse: %v", err)
+	}
+	for _, d := range diags {
+		if d.Severity == workflow.Error {
+			t.Fatalf("workflow diagnostic: %v", d)
+		}
+	}
+	return wf
 }
 
 func testRunnerAPISecretBox(t *testing.T) *secretbox.Box {

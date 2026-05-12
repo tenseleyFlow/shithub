@@ -128,6 +128,7 @@ func (h *Handlers) MountNew(r chi.Router) {
 // /{owner}/{repo}/actions/. Caller wraps with RequireUser.
 func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", h.repoActionRunCancel)
+	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", h.repoActionRunRerun)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/cancel", h.repoActionJobCancel)
 	r.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", h.repoActionsDispatch)
 }

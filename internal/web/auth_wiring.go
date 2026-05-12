@@ -5,10 +5,12 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +40,7 @@ var sharedPATDebouncer = pat.NewDebouncer(0)
 
 // buildAPIHandlers wires the PAT-authenticated API surface.
 func buildAPIHandlers(
+	cfg config.Config,
 	pool *pgxpool.Pool,
 	objectStore storage.ObjectStore,
 	runnerJWT *runnerjwt.Signer,
@@ -45,11 +48,23 @@ func buildAPIHandlers(
 	rateLimiter *ratelimit.Limiter,
 	logger *slog.Logger,
 ) (*apih.Handlers, error) {
+	if cfg.Storage.ReposRoot == "" {
+		return nil, errors.New("api: cfg.Storage.ReposRoot is empty")
+	}
+	root, err := filepath.Abs(cfg.Storage.ReposRoot)
+	if err != nil {
+		return nil, fmt.Errorf("api: resolve repos_root: %w", err)
+	}
+	rfs, err := storage.NewRepoFS(root)
+	if err != nil {
+		return nil, fmt.Errorf("api: NewRepoFS: %w", err)
+	}
 	return apih.New(apih.Deps{
 		Pool:        pool,
 		Debouncer:   sharedPATDebouncer,
 		Logger:      logger,
 		ObjectStore: objectStore,
+		RepoFS:      rfs,
 		RunnerJWT:   runnerJWT,
 		SecretBox:   secretBox,
 		RateLimiter: rateLimiter,
