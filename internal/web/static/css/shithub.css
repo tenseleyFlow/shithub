@@ -8371,6 +8371,346 @@ button.shithub-repo-action {
   padding: 0.4rem; border: 1px solid var(--border-default); border-radius: 6px; font: inherit;
 }
 .shithub-pull-comment-form { margin-top: 1.25rem; }
+.shithub-comment-composer-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.shithub-comment-composer-avatar,
+.shithub-comment-composer-avatar img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+.shithub-comment-composer-avatar img {
+  border: 1px solid var(--border-muted);
+  background: var(--canvas-subtle);
+}
+.shithub-comment-composer-form {
+  min-width: 0;
+  margin-top: 0;
+}
+.shithub-comment-composer-title {
+  display: block;
+  margin: 0 0 0.5rem;
+  color: var(--fg-default);
+  font-weight: 600;
+}
+.shithub-comment-editor-box {
+  position: relative;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-comment-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+}
+.shithub-comment-editor-tabs {
+  display: flex;
+  align-self: stretch;
+}
+.shithub-comment-editor-tabs button {
+  min-width: 68px;
+  padding: 0 1rem;
+  border: 0;
+  border-right: 1px solid var(--border-default);
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+}
+.shithub-comment-editor-tabs button.is-active {
+  margin-bottom: -1px;
+  color: var(--fg-default);
+  background: var(--canvas-default);
+}
+.shithub-comment-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  color: var(--fg-muted);
+  flex-wrap: wrap;
+}
+.shithub-comment-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.shithub-comment-tool:hover,
+.shithub-comment-tool:focus-visible,
+.shithub-comment-tool.is-active {
+  color: var(--fg-default);
+  background: var(--button-default-hover-bg);
+  outline: none;
+}
+.shithub-comment-tool input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.shithub-comment-tool-text {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.shithub-comment-tool-text.is-italic {
+  font-style: italic;
+}
+.shithub-comment-toolbar-separator {
+  width: 1px;
+  height: 20px;
+  margin: 0 0.25rem;
+  background: var(--border-default);
+}
+.shithub-comment-editor-write {
+  position: relative;
+}
+.shithub-comment-editor-write textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  padding: 0.8rem;
+  border: 0;
+  border-radius: 0;
+  resize: vertical;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font: inherit;
+  line-height: 1.5;
+}
+.shithub-comment-editor-write textarea:focus {
+  box-shadow: inset 0 0 0 2px var(--accent-emphasis);
+  outline: none;
+}
+.shithub-comment-editor-preview {
+  min-height: 120px;
+  padding: 0.8rem;
+}
+.shithub-comment-editor-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-height: 36px;
+  padding: 0.45rem 0.75rem;
+  border-top: 1px solid var(--border-default);
+  border-radius: 0 0 6px 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.shithub-comment-editor-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.shithub-comment-file-list {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-comment-policy-note,
+.shithub-comment-protip {
+  margin: 0.75rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.shithub-comment-policy-note svg,
+.shithub-comment-protip svg {
+  vertical-align: text-bottom;
+}
+.shithub-comment-suggestions {
+  position: absolute;
+  z-index: 60;
+  left: 0.75rem;
+  top: 2.8rem;
+  width: min(22rem, calc(100% - 1.5rem));
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-overlay, var(--canvas-default));
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.35);
+}
+.shithub-comment-suggestions.is-slash {
+  width: min(20rem, calc(100% - 1.5rem));
+}
+.shithub-comment-suggestion-section {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.shithub-comment-suggestion-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--fg-default);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.shithub-comment-suggestion-item:last-child {
+  border-bottom: 0;
+}
+.shithub-comment-suggestion-item:hover,
+.shithub-comment-suggestion-item.is-active {
+  color: #fff;
+  background: var(--accent-emphasis, #0969da);
+}
+.shithub-comment-suggestion-item img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+.shithub-comment-suggestion-item strong,
+.shithub-comment-suggestion-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-comment-suggestion-item small {
+  color: inherit;
+  opacity: 0.8;
+}
+.shithub-comment-suggestion-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.shithub-comment-saved-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  color: var(--fg-default);
+  background: var(--canvas-overlay, var(--canvas-default));
+  box-shadow: 0 16px 48px rgba(1, 4, 9, 0.45);
+}
+.shithub-comment-saved-dialog::backdrop {
+  background: rgba(1, 4, 9, 0.45);
+}
+.shithub-comment-saved-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.9rem;
+}
+.shithub-comment-saved-dialog input[type="search"] {
+  width: calc(100% - 1.5rem);
+  margin: 0 0.75rem 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+}
+.shithub-comment-saved-item,
+.shithub-comment-saved-create {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border-default);
+  color: var(--fg-default);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.shithub-comment-saved-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 4rem 0.75rem 0.9rem;
+}
+.shithub-comment-saved-item:hover,
+.shithub-comment-saved-create:hover {
+  background: var(--button-default-hover-bg);
+}
+.shithub-comment-saved-item span {
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+.shithub-comment-saved-item kbd {
+  position: absolute;
+  right: 0.9rem;
+  top: 0.75rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  font: 0.72rem ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.shithub-comment-saved-create {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem;
+  width: calc(100% - 1.2rem);
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  font-weight: 600;
+}
+.shithub-comment-editor-fullscreen {
+  position: fixed;
+  inset: 5vh 5vw;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-default);
+  box-shadow: 0 16px 48px rgba(1, 4, 9, 0.45);
+}
+.shithub-comment-editor-fullscreen .shithub-comment-editor-write,
+.shithub-comment-editor-fullscreen .shithub-comment-editor-preview {
+  flex: 1 1 auto;
+}
+.shithub-comment-editor-fullscreen textarea {
+  min-height: 55vh;
+  resize: none;
+}
+.shithub-comment-composer-row:has(.shithub-comment-editor-fullscreen)::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(1, 4, 9, 0.48);
+}
 .shithub-button-compact { min-height: 32px; padding: 0.25rem 0.7rem; }
 .shithub-pull-files { margin-top: 0.25rem; }
 .shithub-pull-files-toolbar {

@@ -250,16 +250,81 @@
           </section>
 
           {{ if .CanComment }}
-          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .PR.INumber }}/comments" class="shithub-comment-form shithub-pull-comment-form">
-            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-            <label>
-              <span>Add a comment</span>
-              <textarea name="body" rows="6" maxlength="65535" placeholder="Add your comment here..."></textarea>
-            </label>
-            <div class="shithub-form-actions">
-              <button type="submit" class="shithub-button shithub-button-primary">Comment</button>
-            </div>
-          </form>
+          <div class="shithub-comment-composer-row" data-comment-editor data-preview-url="/{{ .Owner }}/{{ .Repo.Name }}/markdown-preview" data-preview-ref="{{ .Repo.DefaultBranch }}">
+            <a class="shithub-comment-composer-avatar" href="/{{ .Viewer.Username }}" aria-label="@{{ .Viewer.Username }}">
+              <img src="{{ .ViewerAvatarURL }}" alt="" width="40" height="40">
+            </a>
+            <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .PR.INumber }}/comments" class="shithub-comment-form shithub-pull-comment-form shithub-comment-composer-form">
+              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+              <script type="application/json" data-comment-editor-config>{{ jsField . "CommentEditorConfig" }}</script>
+              <label class="shithub-comment-composer-title" for="pull-comment-body">Add a comment</label>
+              <div class="shithub-comment-editor-box">
+                <div class="shithub-comment-editor-head">
+                  <div class="shithub-comment-editor-tabs" role="tablist" aria-label="Comment editor tabs">
+                    <button type="button" class="is-active" role="tab" aria-selected="true" data-comment-tab="write">Write</button>
+                    <button type="button" role="tab" aria-selected="false" data-comment-tab="preview">Preview</button>
+                  </div>
+                  <div class="shithub-comment-toolbar" aria-label="Formatting tools">
+                    <button type="button" class="shithub-comment-tool" data-comment-action="mention" title="Mention a user">{{ octicon "people" }}</button>
+                    <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                    <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="heading" title="Add heading">H</button>
+                    <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="bold" title="Add bold text">B</button>
+                    <button type="button" class="shithub-comment-tool shithub-comment-tool-text is-italic" data-comment-action="italic" title="Add italic text">I</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="quote" title="Quote text">{{ octicon "comment" }}</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="code" title="Add code">{{ octicon "code" }}</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="link" title="Add link">{{ octicon "link" }}</button>
+                    <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="list" title="Add unordered list">{{ octicon "list-unordered" }}</button>
+                    <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="ordered-list" title="Add ordered list">1.</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="task-list" title="Add task list">{{ octicon "checklist" }}</button>
+                    <span class="shithub-comment-toolbar-separator" aria-hidden="true"></span>
+                    <label class="shithub-comment-tool" title="Attach files">
+                      {{ octicon "upload" }}
+                      <input type="file" multiple data-comment-file-input>
+                    </label>
+                    <button type="button" class="shithub-comment-tool shithub-comment-tool-text" data-comment-action="reference" title="Reference an issue or pull request">#</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-saved-replies-open title="Saved replies">{{ octicon "comment-discussion" }}</button>
+                    <button type="button" class="shithub-comment-tool" data-comment-action="fullscreen" title="Fullscreen editor">{{ octicon "screen-full" }}</button>
+                  </div>
+                </div>
+                <div class="shithub-comment-editor-write" data-comment-write-pane>
+                  <textarea id="pull-comment-body" name="body" rows="6" maxlength="65535" placeholder="Add your comment here..." data-comment-textarea></textarea>
+                  <div class="shithub-comment-suggestions" data-comment-suggestions hidden></div>
+                </div>
+                <div class="shithub-comment-editor-preview markdown-body" data-comment-preview-pane hidden>
+                  <p class="shithub-editor-preview-empty">Nothing to preview.</p>
+                </div>
+                <div class="shithub-comment-editor-footer">
+                  <span>{{ octicon "code-square" }} Markdown is supported</span>
+                  <span data-comment-attachment-copy>{{ octicon "file" }} Paste, drop, or click to add files</span>
+                  <span class="shithub-comment-file-list" data-comment-file-list hidden></span>
+                </div>
+              </div>
+              <p class="shithub-comment-policy-note">
+                {{ octicon "alert" }} Remember, contributions to this repository should follow its
+                <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/CONTRIBUTING.md">contributing guidelines</a>,
+                <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/SECURITY.md">security policy</a>, and
+                <a href="/{{ .Owner }}/{{ .Repo.Name }}/blob/{{ .Repo.DefaultBranch }}/CODE_OF_CONDUCT.md">code of conduct</a>.
+              </p>
+              <p class="shithub-comment-protip">{{ octicon "light-bulb" }} <strong>ProTip!</strong> Add <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}.patch">.patch</a> or <a href="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}.diff">.diff</a> to the end of URLs for Git's plaintext views.</p>
+              <div class="shithub-form-actions">
+                <button type="submit" class="shithub-button shithub-button-primary" data-comment-submit>Comment</button>
+              </div>
+            </form>
+            <dialog class="shithub-comment-saved-dialog" data-comment-saved-dialog>
+              <div class="shithub-comment-saved-head">
+                <strong>Select a reply</strong>
+                <button type="button" class="shithub-icon-button" aria-label="Close" data-comment-saved-close>{{ octicon "x" }}</button>
+              </div>
+              <input type="search" placeholder="Search saved replies" data-comment-saved-filter>
+              <button type="button" class="shithub-comment-saved-item" data-comment-saved-insert="Duplicate of #">
+                <strong>Duplicate pull request</strong>
+                <span>Duplicate of #</span>
+                <kbd>ctrl 1</kbd>
+              </button>
+              <button type="button" class="shithub-comment-saved-create">{{ octicon "plus" }} Create a new saved reply</button>
+            </dialog>
+          </div>
           {{ else if .Viewer.ID }}
             {{ if .PR.ILocked }}<p class="shithub-issue-signedout">This conversation is locked.</p>{{ end }}
           {{ else }}

@@ -81,6 +81,8 @@ without starting a review" path) is `pending=false` from the start,
 | `POST /{owner}/{repo}/pulls/{n}/reviews`                          | RequireUser  |
 | `POST /{owner}/{repo}/pulls/{n}/reviews/{rid}/dismiss`            | RequireUser  |
 | `POST /{owner}/{repo}/pulls/{n}/reviewers`                        | RequireUser  |
+| `GET /{owner}/{repo}/pulls/{n}.diff`                              | Public read  |
+| `GET /{owner}/{repo}/pulls/{n}.patch`                             | Public read  |
 
 The settings/branches handler now also accepts
 `required_review_count` and `dismiss_stale_reviews_on_push`.
@@ -90,6 +92,12 @@ and thread-resolve controls unless `policy.Can(pull:review)` allows
 the viewer. Merge and close controls are similarly driven by
 `pull:merge` and `pull:close` decisions. Public viewers who can read a
 PR should not see forms that only lead to 403s.
+
+The Conversation tab uses the same markdown renderer as repo web-edit
+previews for comment preview. The composer suggestion payload is
+server-rendered from known PR participants, assignees, reviewers, and
+recent same-repo issues/PRs. Copilot users or actions are intentionally
+not included.
 
 ## Required-review gate
 
