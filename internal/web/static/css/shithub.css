@@ -6015,6 +6015,21 @@ button.shithub-repo-action {
 .shithub-tree-commit-meta a {
   color: var(--fg-muted);
 }
+.shithub-tree-commit-meta .shithub-tree-check-status {
+  color: currentColor;
+}
+.shithub-tree-check-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  text-decoration: none;
+}
+.shithub-tree-check-status:hover {
+  background: var(--button-default-hover-bg);
+}
 .shithub-tree-commit-count {
   display: inline-flex;
   align-items: center;
