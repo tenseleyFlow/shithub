@@ -153,6 +153,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountPullReviews(r)
 		// S50 §5 — search (repositories, issues, code).
 		h.mountSearch(r)
+		// S50 §7 — orgs.
+		h.mountOrgs(r)
 	})
 }
 
