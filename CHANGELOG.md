@@ -94,6 +94,17 @@ between minor releases.
   `GET / POST / DELETE /api/v1/repos/{o}/{r}/pulls/{number}/requested_reviewers`
   (by `user_id` or `username`).
 - **Capability:** `pr-reviews` added to `/api/v1/meta`.
+- **REST: search (S50 §5).** `GET /api/v1/search/repositories`,
+  `GET /api/v1/search/issues?type=issue|pr`, and
+  `GET /api/v1/search/code` over the existing FTS corpus.
+  Canonical gh-shaped envelope `{ total_count,
+  incomplete_results, items }` with `Link:` pagination.
+  Anonymous callers allowed (visibility filter inside the search
+  package narrows to public). `?q=` honors the existing operator
+  vocabulary (`repo:`, `is:`, `state:`, `author:`, phrase). The
+  `search/commits` and `search/users` endpoints, plus the
+  `sort=`/`order=` knobs, are deferred to follow-ups.
+- **Capability:** `search` added to `/api/v1/meta`.
 
 ### Added (internal)
 
