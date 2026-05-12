@@ -2682,6 +2682,18 @@ type WorkflowArtifact struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type WorkflowCach struct {
+	ID             int64
+	RepoID         int64
+	CacheKey       string
+	CacheVersion   string
+	GitRef         string
+	ObjectKey      string
+	SizeBytes      int64
+	LastAccessedAt pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
 type WorkflowDisabled struct {
 	RepoID           int64
 	WorkflowFile     string

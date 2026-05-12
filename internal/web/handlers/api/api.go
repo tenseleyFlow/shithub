@@ -205,6 +205,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsSecrets(r)
 		// S50 §13 — actions variables CRUD (repo + org).
 		h.mountActionsVariables(r)
+		// S50 §13 — actions caches list + delete.
+		h.mountActionsCaches(r)
 	})
 }
 
