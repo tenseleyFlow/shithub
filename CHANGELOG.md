@@ -163,6 +163,17 @@ between minor releases.
   layer `ActionRepoAdmin` on top. Refuses (422) to enrol the
   repo owner.
 - **Capability:** `collaborators` added to `/api/v1/meta`.
+- **REST: commits (S50 §11).** Read-only git history surface:
+  `GET /api/v1/repos/{o}/{r}/commits` (paginated; honours
+  `?sha=`, `?path=`, `?author=`, `?since=`, `?until=`) and
+  `GET /api/v1/repos/{o}/{r}/commits/{sha}` (full commit detail
+  with committer/parents/tree + per-file `status` and
+  `additions`/`deletions`, plus a rollup `stats` object). Backed
+  by `internal/repos/git.Log` / `git.GetCommit` — the response
+  stays in lock-step with the bare repository. Scope:
+  `repo:read`. Empty repos return `[]`; the single-commit GET
+  accepts any unambiguous SHA prefix.
+- **Capability:** `commits` added to `/api/v1/meta`.
 
 ### Added (internal)
 
