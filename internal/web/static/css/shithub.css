@@ -1358,17 +1358,25 @@ button.shithub-contrib-setting-item:hover {
   align-items: start;
 }
 .shithub-profile-calendar {
+  --shithub-contrib-cell: 10px;
+  --shithub-contrib-gap: 3px;
+  --shithub-contrib-weekday-width: 24px;
+  --shithub-contrib-weekday-gap: 0.5rem;
   border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 1rem;
   min-width: 0;
+  overflow: hidden;
+}
+.shithub-profile-calendar-scroll {
   overflow-x: auto;
+  padding-bottom: 0.25rem;
 }
 .shithub-contrib-months {
   display: grid;
-  grid-template-columns: repeat(53, 13px);
-  gap: 3px;
-  margin-left: 32px;
+  grid-template-columns: repeat(var(--shithub-contrib-weeks), var(--shithub-contrib-cell));
+  column-gap: var(--shithub-contrib-gap);
+  margin-left: calc(var(--shithub-contrib-weekday-width) + var(--shithub-contrib-weekday-gap));
   margin-bottom: 0.25rem;
   color: var(--fg-default);
   font-size: 0.75rem;
@@ -1377,38 +1385,41 @@ button.shithub-contrib-setting-item:hover {
 }
 .shithub-contrib-months span {
   min-height: 1rem;
+  min-width: var(--shithub-contrib-cell);
   white-space: nowrap;
 }
 .shithub-contrib-grid-wrap {
-  display: flex;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: var(--shithub-contrib-weekday-width) max-content;
+  column-gap: var(--shithub-contrib-weekday-gap);
   min-width: 0;
   width: max-content;
 }
 .shithub-contrib-weekdays {
   display: grid;
-  grid-template-rows: repeat(7, 10px);
-  gap: 3px;
-  width: 24px;
+  grid-template-rows: repeat(7, var(--shithub-contrib-cell));
+  row-gap: var(--shithub-contrib-gap);
+  width: var(--shithub-contrib-weekday-width);
   color: var(--fg-default);
   font-size: 0.75rem;
-  line-height: 10px;
+  line-height: var(--shithub-contrib-cell);
 }
 .shithub-contrib-weeks {
-  display: flex;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: repeat(var(--shithub-contrib-weeks), var(--shithub-contrib-cell));
+  column-gap: var(--shithub-contrib-gap);
   overflow: visible;
   padding-bottom: 0.25rem;
 }
 .shithub-contrib-week {
   display: grid;
-  grid-template-rows: repeat(7, 10px);
-  gap: 3px;
+  grid-template-rows: repeat(7, var(--shithub-contrib-cell));
+  row-gap: var(--shithub-contrib-gap);
 }
 .shithub-contrib-day,
 .shithub-contrib-legend i {
-  width: 10px;
-  height: 10px;
+  width: var(--shithub-contrib-cell);
+  height: var(--shithub-contrib-cell);
   display: block;
   border-radius: 2px;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);

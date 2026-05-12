@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	profileContribWeeks      = 53
 	profileContribRepoLimit  = 500
 	profileContribMaxPerRepo = 5000
 	profileReadmeMaxBytes    = 1 * 1024 * 1024
@@ -211,7 +210,7 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 		windowEndDay = time.Date(selectedYear, time.December, 31, 0, 0, 0, 0, time.UTC)
 		period = "in " + strconv.Itoa(selectedYear)
 	}
-	gridStart := windowStart.AddDate(0, 0, -int(windowStart.Weekday()))
+	gridStart, weekCount := contributionGrid(windowStart, windowEndDay)
 	windowEnd := windowEndDay.Add(24 * time.Hour)
 	activityMonth := time.Date(windowEndDay.Year(), windowEndDay.Month(), 1, 0, 0, 0, 0, time.UTC)
 	repos := h.profileContributionRepos(ctx, user, viewer, user.IncludePrivateContributions)
@@ -254,13 +253,17 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 		}
 	}
 
-	weeks := make([]contributionWeek, 0, profileContribWeeks)
+	weeks := make([]contributionWeek, 0, weekCount)
 	total := 0
 	monthCommitCount := 0
-	for w := 0; w < profileContribWeeks; w++ {
-		week := contributionWeek{Days: make([]contributionDay, 0, 7)}
+	for w := 0; w < weekCount; w++ {
+		weekStart := gridStart.AddDate(0, 0, w*7)
+		week := contributionWeek{
+			MonthLabel: contributionWeekMonthLabel(weekStart, w == 0),
+			Days:       make([]contributionDay, 0, 7),
+		}
 		for d := 0; d < 7; d++ {
-			day := gridStart.AddDate(0, 0, w*7+d)
+			day := weekStart.AddDate(0, 0, d)
 			key := day.Format("2006-01-02")
 			count := counts[key]
 			inWindow := !day.Before(windowStart) && !day.After(windowEndDay)
@@ -269,9 +272,6 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 				if day.Year() == activityMonth.Year() && day.Month() == activityMonth.Month() {
 					monthCommitCount += count
 				}
-			}
-			if d == 0 && (day.Day() <= 7 || w == 0) {
-				week.MonthLabel = day.Format("Jan")
 			}
 			week.Days = append(week.Days, contributionDay{
 				Date:       key,
@@ -381,6 +381,29 @@ func selectedContributionYear(query url.Values, currentYear int) int {
 		}
 	}
 	return currentYear
+}
+
+func contributionGrid(windowStart, windowEndDay time.Time) (time.Time, int) {
+	gridStart := windowStart.AddDate(0, 0, -int(windowStart.Weekday()))
+	gridEnd := windowEndDay.AddDate(0, 0, 6-int(windowEndDay.Weekday()))
+	days := int(gridEnd.Sub(gridStart).Hours()/24) + 1
+	if days <= 0 {
+		return gridStart, 0
+	}
+	return gridStart, days / 7
+}
+
+func contributionWeekMonthLabel(weekStart time.Time, firstWeek bool) string {
+	for offset := 0; offset < 7; offset++ {
+		day := weekStart.AddDate(0, 0, offset)
+		if day.Day() == 1 {
+			return day.Format("Jan")
+		}
+	}
+	if firstWeek {
+		return weekStart.Format("Jan")
+	}
+	return ""
 }
 
 func contributionYears(username string, currentYear, selectedYear int) []contributionYear {
