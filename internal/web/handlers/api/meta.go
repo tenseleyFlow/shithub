@@ -46,6 +46,7 @@ var APICapabilities = []string{
 	"events",
 	"followers",
 	"actions-runs",
+	"stargazers",
 }
 
 type metaResponse struct {
