@@ -200,8 +200,9 @@ the human-facing summary, but product behavior goes through
 picker. Existing "New organization" links route there. When Stripe
 Billing is not fully configured, Team remains visible but disabled;
 site admins see operator setup copy. Choosing Team creates the
-organization first and then redirects the owner to
-`/organizations/{org}/settings/billing` to begin Stripe Checkout.
+organization first and then redirects the owner to hosted Stripe
+Checkout; webhook processing, not checkout creation, activates paid
+entitlements.
 Existing owner-managed orgs also link to that billing page from
 `/settings/organizations` for plan comparison.
 

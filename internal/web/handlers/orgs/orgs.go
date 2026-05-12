@@ -284,17 +284,27 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
-			http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created-import-started", http.StatusSeeOther)
+			h.redirectToTeamCheckout(w, r, row)
 			return
 		}
 		http.Redirect(w, r, "/organizations/"+row.Slug+"/imports/"+strconv.FormatInt(imp.ID, 10), http.StatusSeeOther)
 		return
 	}
 	if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
-		http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created", http.StatusSeeOther)
+		h.redirectToTeamCheckout(w, r, row)
 		return
 	}
 	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
+}
+
+func (h *Handlers) redirectToTeamCheckout(w http.ResponseWriter, r *http.Request, org orgsdb.Org) {
+	sessionURL, err := h.startBillingCheckout(r, org)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: start team checkout after create", "org_id", org.ID, "error", err)
+		http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=team-checkout-failed", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, sessionURL, http.StatusSeeOther)
 }
 
 func (f orgCreateForm) withoutToken() orgCreateForm {

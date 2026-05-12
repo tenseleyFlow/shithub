@@ -139,7 +139,7 @@ func TestOrgCreateRequiresTermsAcceptance(t *testing.T) {
 	}
 }
 
-func TestOrgCreateTeamPlanRedirectsToBillingSettings(t *testing.T) {
+func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 	t.Parallel()
 	srv, pool := newOrgCreateServer(t, true)
 	t.Cleanup(srv.Close)
@@ -161,7 +161,7 @@ func TestOrgCreateTeamPlanRedirectsToBillingSettings(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Location"); got != "/organizations/acme/settings/billing?notice=team-created" {
+	if got := resp.Header.Get("Location"); got != "https://checkout.stripe.test/org-create" {
 		t.Fatalf("redirect location=%q", got)
 	}
 
@@ -222,11 +222,11 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 type noOpStripeRemote struct{}
 
 func (noOpStripeRemote) CreateCustomer(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error) {
-	return stripebilling.Customer{}, nil
+	return stripebilling.Customer{ID: "cus_test_org_create"}, nil
 }
 
 func (noOpStripeRemote) CreateCheckoutSession(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error) {
-	return stripebilling.CheckoutSession{}, nil
+	return stripebilling.CheckoutSession{ID: "cs_test_org_create", URL: "https://checkout.stripe.test/org-create"}, nil
 }
 
 func (noOpStripeRemote) CreatePortalSession(context.Context, stripebilling.PortalInput) (stripebilling.PortalSession, error) {

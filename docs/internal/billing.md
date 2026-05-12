@@ -31,7 +31,7 @@ Initial decisions:
   hierarchy, and contracts are deferred.
 - Self-serve organization creation presents `/organizations/plan` as
   the canonical plan selector. Choosing Team creates the organization
-  and then hands the owner into billing to finish checkout.
+  and immediately redirects the owner to hosted Stripe Checkout.
 
 The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,

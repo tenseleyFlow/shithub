@@ -80,16 +80,15 @@ worker uses the same Stripe credentials for seat quantity sync.
 2. Visit `/organizations/plan`.
 3. Confirm the plan picker appears.
 4. Choose Team, create a test organization, and confirm redirect to
-   `/organizations/<org>/settings/billing?notice=team-created`.
-5. Click `Upgrade to Team`.
-6. Complete Stripe Checkout with a test card.
-7. Confirm Stripe redirects back to shithub.
-8. Confirm `/organizations/<org>/settings/billing` eventually shows:
+   hosted Stripe Checkout.
+5. Complete Stripe Checkout with a test card.
+6. Confirm Stripe redirects back to shithub.
+7. Confirm `/organizations/<org>/settings/billing` eventually shows:
    - current plan: Team,
    - subscription: Active,
    - payment source: Stripe customer configured,
    - a billable member count matching the org membership.
-9. Invite or remove a member and verify the worker updates the Stripe
+8. Invite or remove a member and verify the worker updates the Stripe
    subscription item quantity.
 
 If the UI remains Free after checkout, inspect webhook receipts and the
