@@ -220,6 +220,16 @@ between minor releases.
   `socialdb.ListWatchersForRepo`. Scope: `repo:read` on GETs,
   `user:write` on mutations.
 - **Capability:** `watching` added to `/api/v1/meta`.
+- **REST: events / activity (S50 §16).** Read-only activity feed
+  over `domain_events`: `GET /api/v1/repos/{o}/{r}/events`
+  (paginated; returns every event for the repo, gated by
+  `ActionRepoRead`) and `GET /api/v1/users/{username}/events`
+  (paginated; only `public=true` rows — matches gh, which never
+  surfaces private-repo activity on a user feed). Scope:
+  `repo:read` / `user:read`. Reuses the existing
+  `socialdb.ListEventsForRepo` and
+  `socialdb.ListPublicEventsForActor` queries.
+- **Capability:** `events` added to `/api/v1/meta`.
 
 ### Added (internal)
 

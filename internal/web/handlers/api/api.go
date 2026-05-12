@@ -180,6 +180,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountNotifications(r)
 		// S50 §15 — watching / subscriptions.
 		h.mountWatching(r)
+		// S50 §16 — events / activity feed.
+		h.mountEvents(r)
 	})
 }
 
