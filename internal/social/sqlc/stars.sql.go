@@ -146,9 +146,12 @@ const listStarsForUser = `-- name: ListStarsForUser :many
 SELECT s.repo_id, s.starred_at,
        r.name AS repo_name, r.description, r.visibility,
        r.star_count, r.primary_language, r.updated_at,
-       r.owner_user_id, r.owner_org_id
+       r.owner_user_id, r.owner_org_id,
+       COALESCE(u.username, o.slug)::text AS owner_slug
 FROM stars s
 JOIN repos r ON r.id = s.repo_id
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
 WHERE s.user_id = $1
   AND r.deleted_at IS NULL
 ORDER BY s.starred_at DESC
@@ -172,6 +175,7 @@ type ListStarsForUserRow struct {
 	UpdatedAt       pgtype.Timestamptz
 	OwnerUserID     pgtype.Int8
 	OwnerOrgID      pgtype.Int8
+	OwnerSlug       string
 }
 
 // The "Stars" profile tab. The handler layer post-filters for repo
@@ -198,6 +202,7 @@ func (q *Queries) ListStarsForUser(ctx context.Context, db DBTX, arg ListStarsFo
 			&i.UpdatedAt,
 			&i.OwnerUserID,
 			&i.OwnerOrgID,
+			&i.OwnerSlug,
 		); err != nil {
 			return nil, err
 		}

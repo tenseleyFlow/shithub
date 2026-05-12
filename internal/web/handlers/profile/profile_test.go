@@ -61,8 +61,9 @@ func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repo
 	tmplFS := fstest.MapFS{
 		"_layout.html":             {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":               {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} CANDIDATENAMES={{range .PinCandidates}}{{.OwnerSlug}}/{{.Name}};{{end}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
+		"profile/view.html":        {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} ACTIVITY={{len .Contributions.Activity}} HASMORE={{.Contributions.HasMoreActivity}} ACTIVITYITEMS={{range .Contributions.Activity}}{{.Label}}:{{range .Items}}{{.Kind}}={{.Total}}/{{len .Repos}};{{end}}{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} CANDIDATENAMES={{range .PinCandidates}}{{.OwnerSlug}}/{{.Name}};{{end}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
 		"profile/follows_tab.html": {Data: []byte(`{{ define "page" }}FOLLOWTAB={{.ActiveTab}} USER={{.User.Username}} TOTAL={{len .Items}} ITEMS={{range .Items}}{{.Kind}}:{{.Username}};{{end}}{{ end }}`)},
+		"profile/stars_tab.html":   {Data: []byte(`{{ define "page" }}STARSTAB={{.ActiveTab}} USER={{.User.Username}} DISPLAY={{.DisplayName}} TOTAL={{.StarTotal}} FILTERED={{.FilteredCount}} PAGE={{.Page}} HASNEXT={{.HasNext}} HASPREV={{.HasPrev}} STARS={{len .Stars}} ITEMS={{range .Stars}}{{.OwnerName}}/{{.RepoName}}:{{.PrimaryLanguage}}:{{.StarCount}};{{end}} LANGS={{range .LanguageOptions}}{{.}};{{end}} FILTERS={{.StarFilters.Query}}/{{.StarFilters.Type}}/{{.StarFilters.Language}}/{{.StarFilters.Sort}}{{ end }}`)},
 		"profile/suspended.html":   {Data: []byte(`{{ define "page" }}SUSPENDED={{.Username}}{{ end }}`)},
 		"orgs/profile.html":        {Data: []byte(`{{ define "page" }}ORG={{.Org.Slug}}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowerCount}} REPOS={{len .Repos}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}} MEMBERS={{.MemberCount}} PEOPLE={{len .People}} NAMES={{range .Repos}}{{.Name}};{{end}} LANGS={{range .TopLanguages}}{{.Name}}={{.Count}};{{end}} TOPICS={{range .TopTopics}}{{.Name}}={{.Count}};{{end}} VIEWAS={{.ViewAs}}{{ if .CanCustomizePins }} CUSTOMIZE=1{{ end }}{{ end }}`)},
 		"orgs/repositories.html":   {Data: []byte(`{{ define "page" }}ORGREPOS={{.Org.Slug}} ACTIVE={{.ActiveOrgNav}} TOTAL={{.RepoCount}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} PREV={{.PrevHref}} NEXT={{.NextHref}} NAMES={{range .Repos}}{{.Name}};{{end}}{{range .PaginationPages}} P{{.Number}}={{.Current}}{{end}}{{ end }}`)},
@@ -216,6 +217,42 @@ func (e *profileEnv) insertRepoCollaborator(t *testing.T, repoID, userID int64, 
 		`INSERT INTO repo_collaborators (repo_id, user_id, role) VALUES ($1, $2, $3)`,
 		repoID, userID, role); err != nil {
 		t.Fatalf("insert repo collaborator: %v", err)
+	}
+}
+
+func (e *profileEnv) insertStar(t *testing.T, userID, repoID int64, when time.Time) {
+	t.Helper()
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO stars (user_id, repo_id, starred_at) VALUES ($1, $2, $3)`,
+		userID, repoID, when); err != nil {
+		t.Fatalf("insert star: %v", err)
+	}
+}
+
+func (e *profileEnv) insertIssue(t *testing.T, repoID, authorID, number int64, kind, state, title string, when time.Time) int64 {
+	t.Helper()
+	var issueID int64
+	if err := e.pool.QueryRow(context.Background(),
+		`INSERT INTO issues (repo_id, number, kind, title, author_user_id, state, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+		 RETURNING id`,
+		repoID, number, kind, title, authorID, state, when).Scan(&issueID); err != nil {
+		t.Fatalf("insert issue: %v", err)
+	}
+	return issueID
+}
+
+func (e *profileEnv) insertPullRequest(t *testing.T, issueID, repoID int64, mergedAt *time.Time) {
+	t.Helper()
+	var merged any
+	if mergedAt != nil {
+		merged = *mergedAt
+	}
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO pull_requests (issue_id, base_ref, head_ref, head_repo_id, base_oid, head_oid, merged_at)
+		 VALUES ($1, 'trunk', 'feature/profile-activity', $2, 'base', 'head', $3)`,
+		issueID, repoID, merged); err != nil {
+		t.Fatalf("insert pull request: %v", err)
 	}
 }
 
@@ -574,6 +611,40 @@ func TestProfile_ContributionsSelectedYearHasStableLinks(t *testing.T) {
 	}
 }
 
+func TestProfile_ContributionActivityIncludesCommitsReposIssuesAndPulls(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnvWithRepoFS(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "")
+	env.insertVerifiedEmail(t, alice.ID, "alice@example.com")
+	currentRepoID := env.insertUserRepo(t, alice.ID, "current", "current work", "public", "Go", 0, 0)
+	oldRepoID := env.insertUserRepo(t, alice.ID, "archive", "older work", "public", "Rust", 0, 0)
+
+	now := time.Now().UTC()
+	env.writeInitialCommit(t, "alice", "current", "Alice Anderson", "alice@example.com", now.AddDate(0, 0, -1))
+	env.writeInitialCommit(t, "alice", "archive", "Alice Anderson", "alice@example.com", now.AddDate(0, -2, 0))
+	env.insertIssue(t, currentRepoID, alice.ID, 1, "issue", "open", "Track profile activity", now.AddDate(0, 0, -3))
+	prID := env.insertIssue(t, currentRepoID, alice.ID, 2, "pr", "closed", "Ship profile activity", now.AddDate(0, 0, -2))
+	mergedAt := now.AddDate(0, 0, -1)
+	env.insertPullRequest(t, prID, currentRepoID, &mergedAt)
+
+	body := env.getAs(t, "/alice", alice)
+	for _, want := range []string{
+		"CONTRIB=2",
+		"HASMORE=true",
+		"commits=",
+		"repos=",
+		"issues=1/1",
+		"pulls=1/1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body: %s", want, body)
+		}
+	}
+	if strings.Contains(body, strconv.FormatInt(oldRepoID, 10)) {
+		t.Fatalf("test template leaked implementation ids unexpectedly: %s", body)
+	}
+}
+
 func TestProfile_PrivateContributionsRequireOwnerOptIn(t *testing.T) {
 	t.Parallel()
 	env := setupProfileEnvWithRepoFS(t)
@@ -868,6 +939,42 @@ func TestProfile_UserPinsIncludeAffiliatedOrgAndCollaboratorRepos(t *testing.T) 
 	resp = env.postPins(t, "/alice/pins", alice, strangerRepoID)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unaffiliated repo status %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestProfile_StarsTabUsesProfileLayoutFiltersAndOrgOwners(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice Anderson", "")
+	orgID := env.insertOrg(t, "acme", "Acme", "", alice)
+	orgRepoID := env.insertOrgRepo(t, orgID, "org-tool", "org owned work", "public", "Go", 7, 0)
+	userRepoID := env.insertUserRepo(t, alice.ID, "personal", "personal library", "public", "Rust", 2, 0)
+	privateRepoID := env.insertUserRepo(t, alice.ID, "secret", "private work", "private", "Go", 10, 0)
+
+	now := time.Now().UTC()
+	env.insertStar(t, alice.ID, userRepoID, now.AddDate(0, 0, -3))
+	env.insertStar(t, alice.ID, orgRepoID, now.AddDate(0, 0, -2))
+	env.insertStar(t, alice.ID, privateRepoID, now.AddDate(0, 0, -1))
+
+	body := env.getAs(t, "/alice?tab=stars&q=org&language=Go&sort=stars", usersdb.User{})
+	for _, want := range []string{
+		"STARSTAB=stars",
+		"DISPLAY=Alice Anderson",
+		"TOTAL=2",
+		"FILTERED=1",
+		"STARS=1",
+		"ITEMS=acme/org-tool:Go:8;",
+		"LANGS=Go;Rust;",
+		"FILTERS=org/all/Go/stars",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in body: %s", want, body)
+		}
+	}
+	for _, notWant := range []string{"personal", "secret"} {
+		if strings.Contains(body, notWant) {
+			t.Fatalf("stars filter included %q unexpectedly: %s", notWant, body)
+		}
 	}
 }
 

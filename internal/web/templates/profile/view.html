@@ -175,20 +175,51 @@
         </div>
       </section>
 
-      <section class="shithub-profile-activity" aria-labelledby="activity-h">
+      <section class="shithub-profile-activity" aria-labelledby="activity-h" data-profile-activity>
         <h2 id="activity-h">Contribution activity</h2>
+        {{ if .Contributions.Activity }}
+        <div class="shithub-profile-activity-timeline">
+          {{ range .Contributions.Activity }}
+          <div class="shithub-profile-activity-row"{{ if .InitiallyHidden }} hidden data-profile-activity-more{{ end }}>
+            <div class="shithub-profile-activity-month">{{ .Label }}</div>
+            <div class="shithub-profile-activity-list">
+              {{ range .Items }}
+              <article class="shithub-profile-activity-item shithub-profile-activity-item-{{ .Kind }}">
+                <span class="shithub-profile-activity-icon">{{ octicon .Icon }}</span>
+                <div class="shithub-profile-activity-body">
+                  <strong>{{ .Summary }}</strong>
+                  {{ if .Repos }}
+                  <ol class="shithub-profile-activity-repos">
+                    {{ range .Repos }}
+                    <li>
+                      {{ if .URL }}<a href="{{ .URL }}">{{ .FullName }}</a>{{ else }}<span>{{ .FullName }}</span>{{ end }}
+                      {{ if .Language }}<span class="shithub-profile-activity-lang"><span class="shithub-language-dot" style="background-color: {{ .LanguageColor }};"></span>{{ .Language }}</span>{{ end }}
+                      {{ if .CountLabel }}<span>{{ .CountLabel }}</span>{{ end }}
+                      {{ range .StateCounts }}<span class="shithub-profile-activity-state is-{{ .Class }}"><b>{{ .Count }}</b> {{ .Label }}</span>{{ end }}
+                      {{ if .DateLabel }}<time>{{ .DateLabel }}</time>{{ end }}
+                    </li>
+                    {{ end }}
+                  </ol>
+                  {{ end }}
+                </div>
+              </article>
+              {{ end }}
+            </div>
+          </div>
+          {{ end }}
+        </div>
+        {{ if .Contributions.HasMoreActivity }}<button type="button" class="shithub-button shithub-button-block" data-profile-activity-show-more>Show more activity</button>{{ end }}
+        {{ else }}
         <div class="shithub-profile-activity-row">
           <div class="shithub-profile-activity-month">{{ .Contributions.MonthLabel }}</div>
-          <div class="shithub-profile-activity-item">
-            <span class="shithub-profile-activity-icon">{{ octicon "repo" }}</span>
-            {{ if .Contributions.MonthCommitCount }}
-            <strong>Created {{ .Contributions.MonthCommitCount }} commit{{ pluralize .Contributions.MonthCommitCount "" "s" }} in {{ .Contributions.MonthRepoCount }} repositor{{ pluralize .Contributions.MonthRepoCount "y" "ies" }}</strong>
-            {{ else }}
-            <strong>No activity in {{ .Contributions.MonthLabel }}</strong>
-            {{ end }}
+          <div class="shithub-profile-activity-list">
+            <article class="shithub-profile-activity-item">
+              <span class="shithub-profile-activity-icon">{{ octicon "repo" }}</span>
+              <div class="shithub-profile-activity-body"><strong>No activity in {{ .Contributions.MonthLabel }}</strong></div>
+            </article>
           </div>
         </div>
-        <button type="button" class="shithub-button shithub-button-block" disabled>Show more activity</button>
+        {{ end }}
       </section>
     </main>
   </div>
