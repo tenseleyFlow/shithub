@@ -2682,6 +2682,13 @@ type WorkflowArtifact struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type WorkflowDisabled struct {
+	RepoID           int64
+	WorkflowFile     string
+	DisabledByUserID pgtype.Int8
+	DisabledAt       pgtype.Timestamptz
+}
+
 type WorkflowJob struct {
 	ID              int64
 	RunID           int64
