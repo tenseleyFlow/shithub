@@ -170,6 +170,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountBranches(r)
 		// S50 §10 — repo collaborators CRUD.
 		h.mountCollaborators(r)
+		// S50 §11 — commits (read-only).
+		h.mountCommits(r)
 	})
 }
 
