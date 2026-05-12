@@ -39,6 +39,7 @@ import (
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/devicecode"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
@@ -86,6 +87,12 @@ type Deps struct {
 	// owner-only billing/settings routes. The auth settings page uses it
 	// only to decide whether existing orgs can link to plan comparison.
 	OrgBillingEnabled bool
+	// DeviceCode configures the RFC 8628 device-code grant exposed at
+	// /login/device, /login/device/code, and /login/oauth/access_token.
+	// Zero value uses devicecode.Defaults() so a deployment that never
+	// wires this still gets a working grant for the canonical
+	// shithub-cli client_id.
+	DeviceCode devicecode.Config
 }
 
 // Handlers is the registered handler set. Construct with New.
@@ -111,6 +118,9 @@ func New(d Deps) (*Handlers, error) {
 	if d.Audit == nil {
 		d.Audit = audit.NewRecorder()
 	}
+	if len(d.DeviceCode.ClientIDs) == 0 {
+		d.DeviceCode = devicecode.Defaults()
+	}
 	password.MustGenerateDummy(d.Argon2)
 	return &Handlers{d: d, q: usersdb.New()}, nil
 }
@@ -126,6 +136,12 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Post("/login", h.loginSubmit)
 		r.Get("/login/2fa", h.twoFactorChallengeForm)
 		r.Post("/login/2fa", h.twoFactorChallengeSubmit)
+		// S50 §1 — device-code (RFC 8628) user verification page.
+		// The matching CSRF-exempt JSON endpoints land under
+		// /login/device/code and /login/oauth/access_token via
+		// MountDeviceCodeAPI, wired separately by handlers.go.
+		r.Get("/login/device", h.deviceCodeForm)
+		r.Post("/login/device", h.deviceCodeSubmit)
 		r.Post("/logout", h.logoutSubmit)
 		r.Get("/password/reset", h.resetRequestForm)
 		r.Post("/password/reset", h.resetRequestSubmit)
