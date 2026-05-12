@@ -50,23 +50,27 @@ func (h *Handlers) billingCheckout(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	sessionURL, err := h.startBillingCheckout(r, org)
 	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "org billing: load state for checkout", "org_id", org.ID, "error", err)
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
-	}
-	state, err = h.ensureStripeCustomer(r, org, state)
-	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "org billing: ensure stripe customer", "org_id", org.ID, "error", err)
+		h.d.Logger.ErrorContext(r.Context(), "org billing: create checkout", "org_id", org.ID, "error", err)
 		h.renderSettingsBilling(w, r, org, "Could not start checkout right now.", "")
 		return
 	}
+	http.Redirect(w, r, sessionURL, http.StatusSeeOther)
+}
+
+func (h *Handlers) startBillingCheckout(r *http.Request, org orgsdb.Org) (string, error) {
+	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		return "", fmt.Errorf("load billing state: %w", err)
+	}
+	state, err = h.ensureStripeCustomer(r, org, state)
+	if err != nil {
+		return "", fmt.Errorf("ensure stripe customer: %w", err)
+	}
 	seats, err := orgbilling.CountBillableOrgMembers(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "org billing: count seats", "org_id", org.ID, "error", err)
-		h.renderSettingsBilling(w, r, org, "Could not calculate billable seats right now.", "")
-		return
+		return "", fmt.Errorf("count billable seats: %w", err)
 	}
 	session, err := h.d.Stripe.CreateCheckoutSession(r.Context(), stripebilling.CheckoutInput{
 		OrgID:      org.ID,
@@ -77,11 +81,9 @@ func (h *Handlers) billingCheckout(w http.ResponseWriter, r *http.Request) {
 		CancelURL:  h.billingReturnURL(org.Slug, h.d.StripeCancelURL, "/organizations/"+org.Slug+"/billing/cancel"),
 	})
 	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "org billing: create checkout session", "org_id", org.ID, "error", err)
-		h.renderSettingsBilling(w, r, org, "Could not create the Stripe checkout session.", "")
-		return
+		return "", fmt.Errorf("create stripe checkout session: %w", err)
 	}
-	http.Redirect(w, r, session.URL, http.StatusSeeOther)
+	return session.URL, nil
 }
 
 func (h *Handlers) billingPortal(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +122,7 @@ func (h *Handlers) billingSuccess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=checkout-success", http.StatusSeeOther)
+	h.renderBillingResult(w, r, org, billingResultSuccess)
 }
 
 func (h *Handlers) billingCancel(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +130,31 @@ func (h *Handlers) billingCancel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=checkout-canceled", http.StatusSeeOther)
+	h.renderBillingResult(w, r, org, billingResultCanceled)
+}
+
+const (
+	billingResultSuccess  = "success"
+	billingResultCanceled = "canceled"
+)
+
+func (h *Handlers) renderBillingResult(w http.ResponseWriter, r *http.Request, org orgsdb.Org, result string) {
+	heading := "Checkout complete"
+	message := "Stripe accepted the checkout session. Team activation finishes after shithub receives and processes the signed Stripe webhook."
+	if result == billingResultCanceled {
+		heading = "Checkout canceled"
+		message = "No Team subscription was activated. The organization stays on Free until checkout is completed."
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/billing_result", map[string]any{
+		"Title":       heading,
+		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Org":         org,
+		"AvatarURL":   "/avatars/" + url.PathEscape(org.Slug),
+		"Result":      result,
+		"Heading":     heading,
+		"Message":     message,
+		"BillingPath": orgBillingSettingsPath(org.Slug),
+	})
 }
 
 func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
@@ -212,6 +238,8 @@ func billingNotice(code string) string {
 		return "Organization created. Continue with Team checkout to unlock paid features."
 	case "team-created-import-started":
 		return "Organization created and GitHub import started. Continue with Team checkout to unlock paid features."
+	case "team-checkout-failed":
+		return "Organization created, but checkout could not be started. Try Continue with Team again."
 	default:
 		return ""
 	}

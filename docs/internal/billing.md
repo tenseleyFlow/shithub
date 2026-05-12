@@ -29,9 +29,9 @@ Initial decisions:
 - Stripe Billing is the first payment processor.
 - PayPal, manual invoices, SAML, SCIM, LDAP, enterprise account
   hierarchy, and contracts are deferred.
-- Self-serve organization creation should present plan selection first
-  when billing is enabled; choosing Team creates the organization and
-  then hands the owner into billing to finish checkout.
+- Self-serve organization creation presents `/organizations/plan` as
+  the canonical plan selector. Choosing Team creates the organization
+  and immediately redirects the owner to hosted Stripe Checkout.
 
 The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,
@@ -168,6 +168,17 @@ PAYMENTS SP03 adds the first Stripe operator contract:
 
 The operator enablement flow is documented in
 [`runbooks/stripe-billing.md`](./runbooks/stripe-billing.md).
+
+PAYMENTS SP04 adds the self-serve onboarding flow:
+
+- `/organizations/plan` is the canonical plan picker.
+- Free setup creates the organization locally without Stripe.
+- Team setup creates the organization, creates or reuses the Stripe
+  customer, counts billable seats, and redirects directly to hosted
+  Stripe Checkout.
+- Checkout success and cancel returns render shithub pages. Success
+  tells the owner that activation waits for webhook processing; cancel
+  keeps the organization on Free and offers a retry path.
 
 ## Entitlement architecture
 

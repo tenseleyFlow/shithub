@@ -52,6 +52,32 @@ func TestOrgNewFormShowsPlanSelectionWhenBillingEnabled(t *testing.T) {
 	}
 }
 
+func TestOrgPlanSelectionRendersWhenBillingDisabled(t *testing.T) {
+	t.Parallel()
+	srv, _ := newOrgCreateServer(t, false)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/organizations/plan")
+	if err != nil {
+		t.Fatalf("GET organizations/plan: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	for _, want := range []string{
+		"PLAN_PAGE",
+		"CONFIGURED=false",
+		"/organizations/new?plan=free",
+		"/organizations/new?plan=team",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("missing %q in body: %s", want, body)
+		}
+	}
+}
+
 func TestOrgNewFormRendersSetupForSelectedTeamPlan(t *testing.T) {
 	t.Parallel()
 	srv, _ := newOrgCreateServer(t, true)
@@ -90,7 +116,30 @@ func TestOrgNewFormSkipsPlanSelectionWhenBillingDisabled(t *testing.T) {
 	}
 }
 
-func TestOrgCreateTeamPlanRedirectsToBillingSettings(t *testing.T) {
+func TestOrgCreateRequiresTermsAcceptance(t *testing.T) {
+	t.Parallel()
+	srv, _ := newOrgCreateServer(t, false)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().PostForm(srv.URL+"/organizations", url.Values{
+		"plan":         {"free"},
+		"slug":         {"acme"},
+		"display_name": {"Acme"},
+	})
+	if err != nil {
+		t.Fatalf("POST organizations: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "ERROR=You must accept the terms") {
+		t.Fatalf("expected terms error, got: %s", body)
+	}
+}
+
+func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 	t.Parallel()
 	srv, pool := newOrgCreateServer(t, true)
 	t.Cleanup(srv.Close)
@@ -103,6 +152,7 @@ func TestOrgCreateTeamPlanRedirectsToBillingSettings(t *testing.T) {
 		"slug":          {"acme"},
 		"display_name":  {"Acme"},
 		"billing_email": {"billing@example.com"},
+		"accept_terms":  {"1"},
 	})
 	if err != nil {
 		t.Fatalf("POST organizations: %v", err)
@@ -111,7 +161,7 @@ func TestOrgCreateTeamPlanRedirectsToBillingSettings(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Location"); got != "/organizations/acme/settings/billing?notice=team-created" {
+	if got := resp.Header.Get("Location"); got != "https://checkout.stripe.test/org-create" {
 		t.Fatalf("redirect location=%q", got)
 	}
 
@@ -131,7 +181,7 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 
 	tmplFS := fstest.MapFS{
 		"_layout.html":       {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
-		"orgs/new_plan.html": {Data: []byte(`{{ define "page" }}PLAN_PAGE{{ with .Error }};ERROR={{ . }}{{ end }};FREE=/organizations/new?plan=free;TEAM=/organizations/new?plan=team;ENTERPRISE=/organizations/new?plan=enterprise{{ end }}`)},
+		"orgs/new_plan.html": {Data: []byte(`{{ define "page" }}PLAN_PAGE;CONFIGURED={{ .BillingConfigured }}{{ with .Error }};ERROR={{ . }}{{ end }};FREE=/organizations/new?plan=free;TEAM=/organizations/new?plan=team;ENTERPRISE=/organizations/new?plan=enterprise{{ end }}`)},
 		"orgs/new.html":      {Data: []byte(`{{ define "page" }}FORM_PLAN={{ .Form.SelectedTier }};ACTION=/organizations{{ with .Error }};ERROR={{ . }}{{ end }}{{ end }}`)},
 		"errors/403.html":    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
@@ -172,11 +222,11 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 type noOpStripeRemote struct{}
 
 func (noOpStripeRemote) CreateCustomer(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error) {
-	return stripebilling.Customer{}, nil
+	return stripebilling.Customer{ID: "cus_test_org_create"}, nil
 }
 
 func (noOpStripeRemote) CreateCheckoutSession(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error) {
-	return stripebilling.CheckoutSession{}, nil
+	return stripebilling.CheckoutSession{ID: "cs_test_org_create", URL: "https://checkout.stripe.test/org-create"}, nil
 }
 
 func (noOpStripeRemote) CreatePortalSession(context.Context, stripebilling.PortalInput) (stripebilling.PortalSession, error) {

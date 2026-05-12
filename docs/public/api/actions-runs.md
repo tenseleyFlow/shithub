@@ -13,9 +13,9 @@ separate Actions lifecycle routes — this surface is **read-only**.
 ## Endpoints
 
 ```
-GET /api/v1/repos/{o}/{r}/actions/runs[?…]
-GET /api/v1/repos/{o}/{r}/actions/runs/{run_id}
-GET /api/v1/repos/{o}/{r}/actions/runs/{run_id}/jobs
+GET /api/v1/repos/{owner}/{repo}/actions/runs[?…]
+GET /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}
+GET /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs
 ```
 
 ## List runs
