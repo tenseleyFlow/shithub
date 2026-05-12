@@ -63,6 +63,22 @@ between minor releases.
   `GET / POST /api/v1/repos/{o}/{r}/labels` and
   `GET / PATCH / DELETE /api/v1/repos/{o}/{r}/labels/{name}`.
 - **Capabilities:** `issues`, `labels` added to `/api/v1/meta`.
+- **REST: milestones + assignees (S50 §3 follow-up).** Full CRUD
+  for `/api/v1/repos/{o}/{r}/milestones` (with `?state=` filter
+  on list and live `open_issues`/`closed_issues` counters on
+  every response), plus `GET /api/v1/repos/{o}/{r}/assignees`
+  (repo owner + collaborators eligible for issue assignment).
+  Scope: `repo:read` on GETs, `repo:write` on mutations.
+  Mutations gate on `ActionIssueLabel`.
+- **Issue PATCH extensions.** `PATCH /api/v1/repos/{o}/{r}/issues/{n}`
+  now accepts `labels`, `assignees`, and `milestone` fields with
+  GitHub-style full-replace semantics. Each gates on its own
+  policy action (`ActionIssueLabel` / `ActionIssueAssign`) so a
+  caller missing one capability gets a clean 403 rather than a
+  partial update. Unknown label names or assignee usernames →
+  422; cross-repo milestone ids → 422.
+- **Capabilities:** `milestones`, `assignees` added to
+  `/api/v1/meta`.
 - **Reach:** `internal/web/handlers/api.resolveAPIRepo` now
   resolves both user-owner and org-owner repos — check-runs and
   every later batch implicitly gain org-repo support.
