@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package lifecycle owns user-visible Actions run/job lifecycle mutations:
-// cancellation now, with re-runs and retention following in later S41g slices.
+// cancellation, re-runs, and retention as the S41g slices land.
 package lifecycle
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/checks"
@@ -27,12 +25,6 @@ const (
 	CancelReasonConcurrency = "concurrency"
 	CancelReasonTimeout     = "timeout"
 )
-
-// Deps wires lifecycle operations to postgres and optional warning logs.
-type Deps struct {
-	Pool   *pgxpool.Pool
-	Logger *slog.Logger
-}
 
 // CancelResult summarizes the durable state changes from a cancel request.
 type CancelResult struct {

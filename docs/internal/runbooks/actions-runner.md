@@ -153,6 +153,20 @@ running, the next runner cancel check returns `{"cancelled":true}`, the
 runner kills the active container, and the terminal job status becomes
 `cancelled`.
 
+Re-run smoke: after a completed or cancelled workflow run, a repo-write
+PAT can enqueue a new run from the original workflow file at the
+original commit:
+
+```sh
+curl -fsS "$BASE/api/v1/runs/$RUN_ID/rerun" \
+  -H "Authorization: Bearer $PAT_WITH_REPO_WRITE" \
+  -X POST
+```
+
+Expected response includes a new `run_id`, the new `run_index`, and
+`parent_run_id` equal to the source run. Confirm the new row has the
+same `head_sha` as the source run.
+
 Replay check: reusing the log token after the log call must fail with
 401 because its `jti` is already present in `runner_jwt_used`.
 

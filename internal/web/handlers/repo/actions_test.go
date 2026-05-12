@@ -415,6 +415,127 @@ func TestRepoActionRunCancelCancelsQueuedRun(t *testing.T) {
 	}
 }
 
+func TestRepoActionRunRendersRerunControlsForWritersOnly(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      14,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionFailure,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -20 * time.Minute,
+		StartedOffset: -19 * time.Minute,
+		DoneOffset:    -18 * time.Minute,
+	}, now)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/14", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("owner status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "RERUN=/alice/public-repo/actions/runs/14/rerun;") {
+		t.Fatalf("owner body missing rerun control: %s", body)
+	}
+	if strings.Contains(body, "CANCEL_RUN=") {
+		t.Fatalf("terminal run rendered cancel control: %s", body)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/14", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stranger status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "RERUN=") {
+		t.Fatalf("rerun control leaked to non-writer: %s", resp.Body.String())
+	}
+}
+
+func TestRepoActionRunRerunQueuesOriginalCommitWorkflow(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	oldSHA := f.seedWorkflowFile(t, "ci.yml", rerunOldWorkflow)
+	gitDir, err := f.handlers.d.RepoFS.RepoPath(f.owner.Username, f.publicRepo.Name)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	_, err = (repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Branch:      "trunk",
+		Message:     "Change workflow",
+		When:        now.Add(5 * time.Minute),
+		Files: []repogit.FileEntry{
+			{Path: ".shithub/workflows/ci.yml", Body: []byte(rerunNewWorkflow)},
+		},
+	}).Build(context.Background())
+	if err != nil {
+		t.Fatalf("InitialCommit.Build new workflow: %v", err)
+	}
+	sourceRunID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      15,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadSHA:       oldSHA,
+		HeadRef:       "refs/heads/trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		EventPayload:  `{"ref":"refs/heads/trunk"}`,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionFailure,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -20 * time.Minute,
+		StartedOffset: -19 * time.Minute,
+		DoneOffset:    -18 * time.Minute,
+	}, now)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/runs/15/rerun", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions/runs/16" {
+		t.Fatalf("Location=%q", loc)
+	}
+
+	rerun, err := actionsdb.New().GetWorkflowRunForRepoByIndex(context.Background(), f.pool, actionsdb.GetWorkflowRunForRepoByIndexParams{
+		RepoID:   f.publicRepo.ID,
+		RunIndex: 16,
+	})
+	if err != nil {
+		t.Fatalf("GetWorkflowRunForRepoByIndex rerun: %v", err)
+	}
+	if !rerun.ParentRunID.Valid || rerun.ParentRunID.Int64 != sourceRunID || rerun.HeadSha != oldSHA {
+		t.Fatalf("rerun row: %+v source=%d oldSHA=%s", rerun, sourceRunID, oldSHA)
+	}
+	jobs, err := actionsdb.New().ListJobsForRun(context.Background(), f.pool, rerun.ID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].JobKey != "old_job" {
+		t.Fatalf("rerun jobs came from wrong workflow: %+v", jobs)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/16", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("rerun detail status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "PARENT=15:/alice/public-repo/actions/runs/15;") {
+		t.Fatalf("rerun detail missing parent link: %s", resp.Body.String())
+	}
+}
+
 func TestRepoActionRunStatusRendersPollingFragment(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -641,6 +762,7 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
+	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", f.handlers.repoActionRunRerun)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/cancel", f.handlers.repoActionJobCancel)
 	mux.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", f.handlers.repoActionsDispatch)
 	mux.Get("/{owner}/{repo}/actions", f.handlers.repoTabActions)
@@ -667,6 +789,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo hello
+`
+
+const rerunOldWorkflow = `name: CI
+on: push
+jobs:
+  old_job:
+    name: Old job
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo old
+`
+
+const rerunNewWorkflow = `name: CI
+on: push
+jobs:
+  new_job:
+    name: New job
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo new
 `
 
 func dispatchWorkflowInputSpecs() []workflow.DispatchInput {
@@ -716,8 +858,10 @@ type workflowRunFixture struct {
 	RunIndex      int64
 	WorkflowFile  string
 	WorkflowName  string
+	HeadSHA       string
 	HeadRef       string
 	Event         actionsdb.WorkflowRunEvent
+	EventPayload  string
 	Status        actionsdb.WorkflowRunStatus
 	Conclusion    actionsdb.CheckConclusion
 	ActorUserID   int64
@@ -746,6 +890,14 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 	if fx.Conclusion != "" {
 		conclusion = actionsdb.NullCheckConclusion{CheckConclusion: fx.Conclusion, Valid: true}
 	}
+	headSHA := fx.HeadSHA
+	if headSHA == "" {
+		headSHA = strings.Repeat(strconvDigit(fx.RunIndex), 40)
+	}
+	eventPayload := fx.EventPayload
+	if eventPayload == "" {
+		eventPayload = "{}"
+	}
 	var id int64
 	err := f.pool.QueryRow(
 		context.Background(), `
@@ -755,17 +907,18 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 			status, conclusion, started_at, completed_at, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
-			$5, $6, $7, '{}'::jsonb, $8,
-			$9, $10, $11, $12, $13, $14
+			$5, $6, $7, $8::jsonb, $9,
+			$10, $11, $12, $13, $14, $15
 		)
 		RETURNING id`,
 		repoID,
 		fx.RunIndex,
 		fx.WorkflowFile,
 		fx.WorkflowName,
-		strings.Repeat(strconvDigit(fx.RunIndex), 40),
+		headSHA,
 		fx.HeadRef,
 		fx.Event,
+		eventPayload,
 		fx.ActorUserID,
 		fx.Status,
 		conclusion,

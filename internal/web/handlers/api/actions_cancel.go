@@ -24,6 +24,7 @@ func (h *Handlers) mountActionsLifecycle(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoWrite))
 		r.Post("/api/v1/jobs/{id}/cancel", h.workflowJobCancel)
+		r.Post("/api/v1/runs/{id}/rerun", h.workflowRunRerun)
 	})
 }
 

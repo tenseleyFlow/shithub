@@ -34,6 +34,7 @@ type Deps struct {
 	Debouncer   *pat.Debouncer
 	Logger      *slog.Logger
 	ObjectStore storage.ObjectStore
+	RepoFS      *storage.RepoFS
 	RunnerJWT   *runnerjwt.Signer
 	SecretBox   *secretbox.Box
 	RateLimiter *ratelimit.Limiter

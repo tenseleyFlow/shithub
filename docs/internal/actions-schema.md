@@ -372,6 +372,10 @@ Other admin surfaces are scoped to later sub-sprints:
 - S41g: `POST /api/v1/jobs/{id}/cancel` and the repository run-detail
   UI request cancellation. Running jobs flip `cancel_requested`; queued
   jobs are made terminal immediately.
+- S41g: `POST /api/v1/runs/{id}/rerun` and the repository run-detail
+  UI re-run completed/cancelled runs. Re-runs read the workflow YAML
+  from the original run's `head_sha`, create a fresh queued
+  `workflow_runs` row, and set `parent_run_id` to the source run.
 
 ## Trigger pipeline (S41b)
 
@@ -419,7 +423,7 @@ The trigger handler does `INSERT … ON CONFLICT DO NOTHING` so:
 - Worker retries (the same push_process replay) → no duplicate runs.
 - Admin replays via `shithubd admin run-job workflow:trigger ...`
   → no duplicate runs.
-- Re-runs (the future "Re-run" button) explicitly construct a NEW
+- Re-runs explicitly construct a NEW
   trigger_event_id (`rerun:<original_run_id>:<request_uuid>`) and
   chain back via `parent_run_id`. History is preserved, no
   collision.
