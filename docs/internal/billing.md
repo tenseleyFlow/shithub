@@ -131,6 +131,21 @@ Required local concepts:
 - Seat snapshots for auditability.
 - Billing grace/lock state derived from processed subscription events.
 
+PAYMENTS SP02 adds these as local database tables:
+
+- `org_billing_states` stores the organization billing projection used
+  by entitlement checks.
+- `billing_seat_snapshots` records active and billable seat counts over
+  time.
+- `billing_invoices` stores invoice/payment summaries for billing UI.
+- `billing_webhook_events` stores immutable provider event receipts for
+  idempotent webhook processing.
+
+New organizations receive a Free billing state from a database trigger,
+and the migration backfills existing organizations as Free. Subscription
+snapshot writes also keep `orgs.plan` synchronized as the
+human-facing summary.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
