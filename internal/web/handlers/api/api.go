@@ -162,6 +162,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountOrgs(r)
 		// S50 §8 — webhooks.
 		h.mountHooks(r)
+		// S50 §9 — branches + tags (read-only).
+		h.mountBranches(r)
 	})
 }
 
