@@ -42,6 +42,7 @@
 - [Search](./api/search.md)
 - [Notifications](./api/notifications.md)
 - [Watching / subscriptions](./api/watching.md)
+- [Events / activity](./api/events.md)
 - [Admin (site-admin only)](./api/admin.md)
 
 # Self-hosting
