@@ -603,9 +603,15 @@ func (h *Handlers) resolveAPIRepoWithLogin(w http.ResponseWriter, r *http.Reques
 }
 
 // actionRequiresAuth returns true for actions that always require a
-// logged-in caller (everything except plain read).
+// logged-in caller. Read-shaped actions pass through anonymously so
+// the visibility gate inside policy.Can does the talking.
 func actionRequiresAuth(a policy.Action) bool {
-	return a != policy.ActionRepoRead
+	switch a {
+	case policy.ActionRepoRead, policy.ActionIssueRead, policy.ActionPullRead:
+		return false
+	default:
+		return true
+	}
 }
 
 // lookupRepoByLogin tries the user-owner path first, then the org-owner

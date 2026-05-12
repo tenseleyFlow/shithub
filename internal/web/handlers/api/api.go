@@ -143,6 +143,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountUserKeys(r)
 		// S50 §2 — repos REST core (list/single/create/patch/delete).
 		h.mountRepos(r)
+		// S50 §3 — issues + comments + lock.
+		h.mountIssues(r)
+		// S50 §3 — repo labels CRUD.
+		h.mountLabels(r)
 	})
 }
 
