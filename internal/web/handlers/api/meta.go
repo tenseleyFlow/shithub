@@ -54,6 +54,7 @@ var APICapabilities = []string{
 	"actions-job-logs",
 	"actions-secrets",
 	"actions-variables",
+	"actions-caches",
 }
 
 type metaResponse struct {
