@@ -24,9 +24,11 @@ type Deps struct {
 	Pool *pgxpool.Pool
 }
 
-type Plan = billingdb.OrgPlan
-type SubscriptionStatus = billingdb.BillingSubscriptionStatus
-type State = billingdb.OrgBillingState
+type (
+	Plan               = billingdb.OrgPlan
+	SubscriptionStatus = billingdb.BillingSubscriptionStatus
+	State              = billingdb.OrgBillingState
+)
 
 const (
 	PlanFree       = billingdb.OrgPlanFree
@@ -295,79 +297,13 @@ func jsonObject(payload []byte) bool {
 }
 
 func stateFromApply(row billingdb.ApplySubscriptionSnapshotRow) State {
-	return State{
-		OrgID:                    row.OrgID,
-		Provider:                 row.Provider,
-		StripeCustomerID:         row.StripeCustomerID,
-		StripeSubscriptionID:     row.StripeSubscriptionID,
-		StripeSubscriptionItemID: row.StripeSubscriptionItemID,
-		Plan:                     row.Plan,
-		SubscriptionStatus:       row.SubscriptionStatus,
-		BillableSeats:            row.BillableSeats,
-		SeatSnapshotAt:           row.SeatSnapshotAt,
-		CurrentPeriodStart:       row.CurrentPeriodStart,
-		CurrentPeriodEnd:         row.CurrentPeriodEnd,
-		CancelAtPeriodEnd:        row.CancelAtPeriodEnd,
-		TrialEnd:                 row.TrialEnd,
-		PastDueAt:                row.PastDueAt,
-		CanceledAt:               row.CanceledAt,
-		LockedAt:                 row.LockedAt,
-		LockReason:               row.LockReason,
-		GraceUntil:               row.GraceUntil,
-		LastWebhookEventID:       row.LastWebhookEventID,
-		CreatedAt:                row.CreatedAt,
-		UpdatedAt:                row.UpdatedAt,
-	}
+	return State(row)
 }
 
 func stateFromCanceled(row billingdb.MarkCanceledRow) State {
-	return State{
-		OrgID:                    row.OrgID,
-		Provider:                 row.Provider,
-		StripeCustomerID:         row.StripeCustomerID,
-		StripeSubscriptionID:     row.StripeSubscriptionID,
-		StripeSubscriptionItemID: row.StripeSubscriptionItemID,
-		Plan:                     row.Plan,
-		SubscriptionStatus:       row.SubscriptionStatus,
-		BillableSeats:            row.BillableSeats,
-		SeatSnapshotAt:           row.SeatSnapshotAt,
-		CurrentPeriodStart:       row.CurrentPeriodStart,
-		CurrentPeriodEnd:         row.CurrentPeriodEnd,
-		CancelAtPeriodEnd:        row.CancelAtPeriodEnd,
-		TrialEnd:                 row.TrialEnd,
-		PastDueAt:                row.PastDueAt,
-		CanceledAt:               row.CanceledAt,
-		LockedAt:                 row.LockedAt,
-		LockReason:               row.LockReason,
-		GraceUntil:               row.GraceUntil,
-		LastWebhookEventID:       row.LastWebhookEventID,
-		CreatedAt:                row.CreatedAt,
-		UpdatedAt:                row.UpdatedAt,
-	}
+	return State(row)
 }
 
 func stateFromClear(row billingdb.ClearBillingLockRow) State {
-	return State{
-		OrgID:                    row.OrgID,
-		Provider:                 row.Provider,
-		StripeCustomerID:         row.StripeCustomerID,
-		StripeSubscriptionID:     row.StripeSubscriptionID,
-		StripeSubscriptionItemID: row.StripeSubscriptionItemID,
-		Plan:                     row.Plan,
-		SubscriptionStatus:       row.SubscriptionStatus,
-		BillableSeats:            row.BillableSeats,
-		SeatSnapshotAt:           row.SeatSnapshotAt,
-		CurrentPeriodStart:       row.CurrentPeriodStart,
-		CurrentPeriodEnd:         row.CurrentPeriodEnd,
-		CancelAtPeriodEnd:        row.CancelAtPeriodEnd,
-		TrialEnd:                 row.TrialEnd,
-		PastDueAt:                row.PastDueAt,
-		CanceledAt:               row.CanceledAt,
-		LockedAt:                 row.LockedAt,
-		LockReason:               row.LockReason,
-		GraceUntil:               row.GraceUntil,
-		LastWebhookEventID:       row.LastWebhookEventID,
-		CreatedAt:                row.CreatedAt,
-		UpdatedAt:                row.UpdatedAt,
-	}
+	return State(row)
 }
