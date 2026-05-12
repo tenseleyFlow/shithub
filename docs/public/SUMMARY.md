@@ -13,6 +13,7 @@
 - [Issues](./user/issues.md)
 - [Pull requests](./user/pull-requests.md)
   - [Branch protection & reviews](./user/branch-protection.md)
+- [Actions](./user/actions.md)
 - [Notifications](./user/notifications.md)
 - [Webhooks](./user/webhooks.md)
 - [Search](./user/search.md)

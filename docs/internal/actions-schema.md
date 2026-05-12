@@ -130,18 +130,24 @@ v1 supports four triggers — anything else is a parse error.
 
 ### `uses:` allowlist
 
-Exactly three aliases, no exceptions:
+Exactly three aliases are reserved at parse time, no exceptions:
 
-| Alias                            | What it does                              |
-| -------------------------------- | ----------------------------------------- |
-| `actions/checkout@v4`            | Clones the repo into the workspace        |
-| `shithub/upload-artifact@v1`     | Uploads files to `workflow_artifacts`     |
-| `shithub/download-artifact@v1`   | Pulls artifacts back in a downstream job  |
+| Alias                            | Parser status | Runner status                              |
+| -------------------------------- | ------------- | ------------------------------------------ |
+| `actions/checkout@v4`            | accepted      | rejected until checkout support lands      |
+| `shithub/upload-artifact@v1`     | accepted      | rejected until artifact upload lands       |
+| `shithub/download-artifact@v1`   | accepted      | rejected until artifact download lands     |
 
 Any other `uses:` value (community actions, Docker images, composite
 actions) is an Error-severity diagnostic. The marketplace problem is
 explicitly out of scope for v1; revisit only if a real demand exists
 and we have an answer for supply-chain trust.
+
+The current Docker executor runs `run:` steps only. It fails a reserved
+`uses:` alias deliberately instead of pretending checkout/artifact
+semantics exist. This keeps the first end-to-end smoke path honest:
+`run:`-only workflows are executable now, while repository checkout and
+artifact transfer remain explicit follow-up work.
 
 ### File-size + parser caps
 

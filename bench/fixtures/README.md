@@ -38,3 +38,11 @@ fixtures used by `make bench-small`. That's enough to catch
 regressions in the harness itself plus the small-scale handler
 latency floor; the big-fixture targets in S36's "Definition of
 done" land with the generators above.
+
+## Actions smoke fixture
+
+`actions/smoke-run-only.yml` is the canonical first end-to-end Actions
+workflow fixture. Copy it into `.shithub/workflows/smoke.yml` in a
+repository with a registered `ubuntu-latest` runner. It intentionally uses only
+`run:` steps because the current executor rejects reserved `uses:` aliases
+until checkout and artifact execution are implemented.

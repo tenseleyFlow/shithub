@@ -1,0 +1,10 @@
+name: smoke
+on: [push, workflow_dispatch]
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ shithub.run_id }}
+    steps:
+      - run: echo "hello from shithub actions"
+      - run: test -n "$RUN_ID"
