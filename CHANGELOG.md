@@ -69,6 +69,24 @@ between minor releases.
 
 ### Added (internal)
 
+- **REST: pull requests core (S50 §4).**
+  `GET /api/v1/repos/{o}/{r}/pulls` with `?state=` and `?draft=`
+  filters,
+  `GET /api/v1/repos/{o}/{r}/pulls/{number}`,
+  `POST /api/v1/repos/{o}/{r}/pulls`,
+  `PATCH /api/v1/repos/{o}/{r}/pulls/{number}` (title/body
+  author-gated, state via `ActionPullClose`, draft→ready
+  author-only),
+  `GET /api/v1/repos/{o}/{r}/pulls/{number}/commits`,
+  `GET /api/v1/repos/{o}/{r}/pulls/{number}/files`,
+  `PUT /api/v1/repos/{o}/{r}/pulls/{number}/merge` (honoring
+  the repo's default merge method and the optional `sha`
+  head guard). Reviews + comments + reviewers + update-branch +
+  auto-merge land in a follow-up.
+- **Capability:** `pulls` added to `/api/v1/meta`.
+
+### Added (internal)
+
 - `issues.Edit` orchestrator wraps `UpdateIssueTitleBody` with
   markdown re-render + cross-reference re-indexing. Used by the
   new PATCH-issue endpoint; available for the HTML edit flow when
