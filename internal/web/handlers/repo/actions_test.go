@@ -303,6 +303,41 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 	}
 }
 
+func TestRepoActionRunShowsQueuedRunnerLabelWaitReason(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      8,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -2 * time.Minute,
+	}, now)
+	f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:    runID,
+		JobIndex: 0,
+		JobKey:   "windows",
+		JobName:  "Windows",
+		RunsOn:   "windows-latest",
+		Status:   actionsdb.WorkflowJobStatusQueued,
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/8", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "WAIT=Waiting for runner with labels: windows-latest;") {
+		t.Fatalf("wait reason missing: %s", body)
+	}
+}
+
 func TestRepoActionRunRendersCancelControlsForWritersOnly(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)

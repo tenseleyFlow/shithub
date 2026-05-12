@@ -128,6 +128,9 @@
                 {{ end }}
               </div>
             {{ end }}
+            {{ if .WaitReason }}
+              <div class="shithub-actions-wait-reason">{{ octicon "clock" }} {{ .WaitReason }}</div>
+            {{ end }}
             <ol class="shithub-actions-step-list">
               {{ range .Steps }}
                 <li>
