@@ -188,6 +188,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsRuns(r)
 		// S50 §19 — stargazers + per-user starred lists.
 		h.mountStargazers(r)
+		// S50 §20 — issue events / timeline (read-only).
+		h.mountIssueEvents(r)
 	})
 }
 
