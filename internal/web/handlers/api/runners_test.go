@@ -32,11 +32,13 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
 )
 
@@ -183,6 +185,53 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("second heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRunnerHeartbeatBypassesGlobalAnonAPILimit(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	signer := runnerAPISigner(t, time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
+
+	h, err := apih.New(apih.Deps{
+		Pool:        pool,
+		Logger:      logger,
+		BaseURL:     "https://shithub.test",
+		RunnerJWT:   signer,
+		RateLimiter: ratelimit.New(pool),
+		APILimit: apilimit.Config{
+			AuthedPerHour: 1,
+			AnonPerHour:   1,
+			Logger:        logger,
+		},
+	})
+	if err != nil {
+		t.Fatalf("api.New: %v", err)
+	}
+	router := chi.NewRouter()
+	h.Mount(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
+	req.RemoteAddr = "10.0.0.77:12345"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("meta status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "10.0.0.77:12346"
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-RateLimit-Limit"); got != "60" {
+		t.Errorf("runner heartbeat limit header: got %q, want 60", got)
 	}
 }
 

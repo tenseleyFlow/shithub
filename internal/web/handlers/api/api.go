@@ -113,7 +113,6 @@ func (h *Handlers) Mount(r chi.Router) {
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.MaxBodySize(runnerAPIMaxBodyBytes))
-		r.Use(apiLimitMW)
 		h.mountRunners(r)
 	})
 	r.Group(func(r chi.Router) {
