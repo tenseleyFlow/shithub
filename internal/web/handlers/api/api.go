@@ -192,6 +192,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountIssueEvents(r)
 		// S50 §13 — actions workflows list/get + workflow_dispatch.
 		h.mountActionsWorkflows(r)
+		// S50 §13 — workflow enable/disable + run delete + artifacts + job logs.
+		h.mountActionsLifecycleREST(r)
 	})
 }
 

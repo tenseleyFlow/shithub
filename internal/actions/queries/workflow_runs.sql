@@ -53,6 +53,14 @@ SELECT id, repo_id, run_index, workflow_file, workflow_name,
 FROM workflow_runs
 WHERE repo_id = $1 AND workflow_file = $2 AND trigger_event_id = $3;
 
+-- name: DeleteWorkflowRunByID :execrows
+-- Cascades to workflow_jobs → workflow_steps → workflow_step_log_chunks
+-- and workflow_artifacts via the on-delete-cascade FK chain. The
+-- S3-side artifact blobs are NOT removed here; the handler queries
+-- the artifact object_keys first and deletes them best-effort after
+-- the row is gone.
+DELETE FROM workflow_runs WHERE id = $1;
+
 -- name: GetWorkflowRunByID :one
 SELECT id, repo_id, run_index, workflow_file, workflow_name,
        head_sha, head_ref, event, event_payload,

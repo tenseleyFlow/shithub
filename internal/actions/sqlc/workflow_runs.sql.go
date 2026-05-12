@@ -117,6 +117,23 @@ func (q *Queries) DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, 
 	return result.RowsAffected(), nil
 }
 
+const deleteWorkflowRunByID = `-- name: DeleteWorkflowRunByID :execrows
+DELETE FROM workflow_runs WHERE id = $1
+`
+
+// Cascades to workflow_jobs → workflow_steps → workflow_step_log_chunks
+// and workflow_artifacts via the on-delete-cascade FK chain. The
+// S3-side artifact blobs are NOT removed here; the handler queries
+// the artifact object_keys first and deletes them best-effort after
+// the row is gone.
+func (q *Queries) DeleteWorkflowRunByID(ctx context.Context, db DBTX, id int64) (int64, error) {
+	result, err := db.Exec(ctx, deleteWorkflowRunByID, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const enqueueWorkflowRun = `-- name: EnqueueWorkflowRun :one
 INSERT INTO workflow_runs (
     repo_id, run_index, workflow_file, workflow_name,

@@ -26,7 +26,20 @@ type Querier interface {
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
+	// Cascades to workflow_jobs → workflow_steps → workflow_step_log_chunks
+	// and workflow_artifacts via the on-delete-cascade FK chain. The
+	// S3-side artifact blobs are NOT removed here; the handler queries
+	// the artifact object_keys first and deletes them best-effort after
+	// the row is gone.
+	DeleteWorkflowRunByID(ctx context.Context, db DBTX, id int64) (int64, error)
+	// Idempotent: re-disabling an already-disabled workflow is a no-op
+	// and does not bump disabled_at.
+	DisableWorkflow(ctx context.Context, db DBTX, arg DisableWorkflowParams) error
+	// Returns affected-rows so the handler can distinguish 200 (re-enabled)
+	// from 404-ish no-op.
+	EnableWorkflow(ctx context.Context, db DBTX, arg EnableWorkflowParams) (int64, error)
 	// Idempotent insert: if a row with the same (repo_id, workflow_file,
 	// trigger_event_id) already exists, returns no rows (pgx.ErrNoRows in
 	// Go). The handler treats that as a successful no-op so worker
@@ -65,14 +78,24 @@ type Querier interface {
 	InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWorkflowRunParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Hot path for trigger.Enqueue: skip enqueueing when the row exists.
+	IsWorkflowDisabled(ctx context.Context, db DBTX, arg IsWorkflowDisabledParams) (bool, error)
 	ListActiveWorkflowRunsForAdmin(ctx context.Context, db DBTX, arg ListActiveWorkflowRunsForAdminParams) ([]WorkflowRun, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
+	// Used by the run-delete REST handler to drive a best-effort S3
+	// cleanup after the workflow_runs row (and its cascaded
+	// workflow_artifacts rows) have been removed.
+	ListArtifactObjectKeysForRun(ctx context.Context, db DBTX, runID int64) ([]string, error)
 	ListArtifactsForRun(ctx context.Context, db DBTX, runID int64) ([]ListArtifactsForRunRow, error)
 	// Older queued/running runs with the same group block the new run while they
 	// still have at least one queued/running job that has not already received a
 	// cancel request. cancel-in-progress releases the slot by flipping that job
 	// flag even if the runner is still draining the old container.
 	ListBlockingConcurrencyRunsForUpdate(ctx context.Context, db DBTX, arg ListBlockingConcurrencyRunsForUpdateParams) ([]WorkflowRun, error)
+	// Used by the workflows-list endpoint to mark `state: "disabled"`
+	// entries without round-tripping through Is for every file.
+	ListDisabledWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]string, error)
 	ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)

@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteWorkflowArtifactByID = `-- name: DeleteWorkflowArtifactByID :execrows
+DELETE FROM workflow_artifacts WHERE id = $1
+`
+
+func (q *Queries) DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error) {
+	result, err := db.Exec(ctx, deleteWorkflowArtifactByID, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteWorkflowArtifactsByIDs = `-- name: DeleteWorkflowArtifactsByIDs :execrows
 DELETE FROM workflow_artifacts
 WHERE id = ANY($1::bigint[])
@@ -80,6 +92,35 @@ func (q *Queries) InsertArtifact(ctx context.Context, db DBTX, arg InsertArtifac
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listArtifactObjectKeysForRun = `-- name: ListArtifactObjectKeysForRun :many
+SELECT object_key
+FROM workflow_artifacts
+WHERE run_id = $1
+`
+
+// Used by the run-delete REST handler to drive a best-effort S3
+// cleanup after the workflow_runs row (and its cascaded
+// workflow_artifacts rows) have been removed.
+func (q *Queries) ListArtifactObjectKeysForRun(ctx context.Context, db DBTX, runID int64) ([]string, error) {
+	rows, err := db.Query(ctx, listArtifactObjectKeysForRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var object_key string
+		if err := rows.Scan(&object_key); err != nil {
+			return nil, err
+		}
+		items = append(items, object_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listArtifactsForRun = `-- name: ListArtifactsForRun :many

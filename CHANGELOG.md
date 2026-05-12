@@ -306,6 +306,24 @@ between minor releases.
   follow-up (needs a new `workflow_disabled` table); every listed
   workflow is reported as `state: "active"` for now.
 - **Capability:** `actions-workflows` added to `/api/v1/meta`.
+- **REST: actions lifecycle + artifacts + job logs (S50 §13 part 2).**
+  New migration `0064_workflow_disabled` adds a per-workflow
+  disable knob; `trigger.Enqueue` now consults it and short-circuits
+  matching events for disabled workflows. The list endpoint surfaces
+  this as `"state": "disabled"`. REST additions:
+  `PUT /api/v1/repos/{o}/{r}/actions/workflows/{file}/enable` and
+  `.../disable`,
+  `DELETE /api/v1/repos/{o}/{r}/actions/runs/{run_id}` (cascades
+  through jobs/steps/log-chunks/artifacts; object-store cleanup is
+  async best-effort),
+  `GET /api/v1/repos/{o}/{r}/actions/runs/{run_id}/artifacts` +
+  `GET .../actions/artifacts/{aid}` +
+  `GET .../actions/artifacts/{aid}/zip` (streams from object store) +
+  `DELETE .../actions/artifacts/{aid}`,
+  `GET /api/v1/repos/{o}/{r}/actions/jobs/{job_id}/logs` (assembled
+  transcript with `##[group]`/`##[endgroup]` step markers).
+- **Capabilities:** `actions-artifacts`, `actions-job-logs` added to
+  `/api/v1/meta`.
 
 ### Added (internal)
 

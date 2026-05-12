@@ -16,6 +16,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
 	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
+	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
@@ -105,9 +106,23 @@ func (h *Handlers) actionsWorkflowsList(w http.ResponseWriter, r *http.Request) 
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	disabled, err := actionsdb.New().ListDisabledWorkflowsForRepo(r.Context(), h.d.Pool, repo.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list disabled workflows", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	disabledSet := make(map[string]struct{}, len(disabled))
+	for _, f := range disabled {
+		disabledSet[f] = struct{}{}
+	}
 	out := make([]workflowResponse, 0, len(files))
 	for _, f := range files {
-		out = append(out, presentWorkflow(f))
+		wr := presentWorkflow(f)
+		if _, off := disabledSet[f.Path]; off {
+			wr.State = "disabled"
+		}
+		out = append(out, wr)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	writeJSON(w, http.StatusOK, out)
