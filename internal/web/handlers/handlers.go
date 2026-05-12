@@ -56,6 +56,12 @@ type Deps struct {
 	// group so the API surface (PAT-authenticated, no browser-form
 	// posts) can register its routes.
 	APIMounter func(chi.Router)
+	// DeviceCodeAPIMounter, when non-nil, registers the RFC 8628
+	// device-code JSON endpoints (/login/device/code +
+	// /login/oauth/access_token) on the CSRF-exempt group. The
+	// matching browser-facing /login/device verification page is
+	// mounted by AuthMounter (CSRF-protected).
+	DeviceCodeAPIMounter func(chi.Router)
 	// AvatarMounter, when non-nil, registers /avatars/{username} on the
 	// CSRF-exempt group (avatar GETs are safe and benefit from caching).
 	AvatarMounter func(chi.Router)
@@ -240,6 +246,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		r.Handle("/readyz", readinessHandler(deps.ReadyCheck, deps.Logger))
 		if deps.APIMounter != nil {
 			deps.APIMounter(r)
+		}
+		if deps.DeviceCodeAPIMounter != nil {
+			deps.DeviceCodeAPIMounter(r)
 		}
 		if deps.AvatarMounter != nil {
 			deps.AvatarMounter(r)
