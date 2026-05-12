@@ -184,6 +184,18 @@ between minor releases.
   to the raw download path. Scope: `repo:read`. Empty `/contents`
   path returns the repo root.
 - **Capability:** `contents` added to `/api/v1/meta`.
+- **REST: forks (S50 §13).**
+  `GET /api/v1/repos/{o}/{r}/forks` (paginated; per-row
+  visibility filter so private forks of public repos only
+  surface to authorized viewers) and
+  `POST /api/v1/repos/{o}/{r}/forks` (fork into the
+  authenticated user's namespace; optional `name`/`visibility`
+  body). Reuses the existing `internal/repos/fork` orchestrator
+  and enqueues the on-disk clone via the
+  `repo:fork_clone` worker, so the response returns
+  immediately with `init_status: "init_pending"`. Org-target
+  forks land in a follow-up.
+- **Capability:** `forks` added to `/api/v1/meta`.
 
 ### Added (internal)
 
