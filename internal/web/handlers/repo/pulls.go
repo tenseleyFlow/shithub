@@ -391,6 +391,11 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 			mergedByName = u.Username
 		}
 	}
+	if pr.IState == pullsdb.IssueStateOpen &&
+		pr.MergeableState == pullsdb.PrMergeableStateUnknown &&
+		pr.BaseOid != "" && pr.HeadOid != "" {
+		h.kickMergeability(r, pr.IID)
+	}
 	checkGroups := h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid)
 	stats := h.pullStats(r.Context(), pr, checkGroups)
 	data := map[string]any{
