@@ -7895,6 +7895,65 @@ button.shithub-repo-action {
   margin: 0;
   color: var(--fg-muted);
 }
+.shithub-branch-push-banner,
+.shithub-branch-compare-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-branch-push-banner {
+  border-color: rgba(187, 128, 9, 0.45);
+  background: rgba(187, 128, 9, 0.12);
+}
+.shithub-branch-push-banner > div,
+.shithub-branch-compare-bar > div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.shithub-branch-compare-bar {
+  background: var(--canvas-subtle);
+}
+.shithub-contribute-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.shithub-contribute-menu > summary {
+  list-style: none;
+}
+.shithub-contribute-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-contribute-menu-panel {
+  position: absolute;
+  z-index: 60;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1rem;
+  color: var(--fg-default);
+  background: var(--canvas-overlay, var(--canvas-default));
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: var(--shadow-large, 0 16px 32px rgba(1, 4, 9, 0.35));
+}
+.shithub-contribute-menu-panel p {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted);
+}
+.shithub-contribute-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
 .shithub-range-editor {
   display: flex;
   align-items: center;
@@ -8283,6 +8342,17 @@ button.shithub-repo-action {
   }
   .shithub-pull-new-sidebar {
     order: 2;
+  }
+  .shithub-branch-push-banner,
+  .shithub-branch-compare-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shithub-contribute-menu,
+  .shithub-contribute-menu > summary,
+  .shithub-branch-push-banner .shithub-button {
+    width: 100%;
+    justify-content: center;
   }
 }
 .shithub-settings-branches form label { display: block; margin: 0.5rem 0; }

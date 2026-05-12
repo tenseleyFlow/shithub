@@ -67,6 +67,44 @@
           </div>
         </header>
 
+        {{ if .BranchCompare.Show }}
+        {{ if and .BranchCompare.HasRecentPush .HeadFound }}
+        <div class="shithub-branch-push-banner">
+          <div>
+            {{ octicon "git-pull-request" }}
+            <strong>{{ .BranchCompare.Head }}</strong> had recent pushes <time datetime="{{ .Head.AuthorWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Head.AuthorWhen }}</time>
+          </div>
+          <a href="{{ .BranchCompare.PullNewHref }}" class="shithub-button shithub-button-primary">Compare &amp; pull request</a>
+        </div>
+        {{ end }}
+        <div class="shithub-branch-compare-bar">
+          <div>
+            This branch is
+            <a href="{{ .BranchCompare.CompareHref }}">{{ .BranchCompare.Ahead }} {{ pluralize .BranchCompare.Ahead "commit" "commits" }} ahead</a>
+            of and
+            <a href="{{ .BranchCompare.CompareHref }}">{{ .BranchCompare.Behind }} {{ pluralize .BranchCompare.Behind "commit" "commits" }} behind</a>
+            <code>{{ .BranchCompare.Base }}</code>.
+          </div>
+          <details class="shithub-contribute-menu">
+            <summary class="shithub-button">{{ octicon "git-pull-request" }} Contribute {{ octicon "triangle-down" }}</summary>
+            <div class="shithub-contribute-menu-panel">
+              <div>
+                <strong>This branch is {{ .BranchCompare.Ahead }} {{ pluralize .BranchCompare.Ahead "commit" "commits" }} ahead of <code>{{ .BranchCompare.Base }}</code>.</strong>
+                <p>Open a pull request to contribute your changes upstream.</p>
+              </div>
+              <div class="shithub-contribute-actions">
+                <a href="{{ .BranchCompare.CompareHref }}" class="shithub-button">Compare</a>
+                {{ if gt .BranchCompare.Ahead 0 }}
+                <a href="{{ .BranchCompare.PullNewHref }}" class="shithub-button shithub-button-primary">Open pull request</a>
+                {{ else }}
+                <button type="button" class="shithub-button shithub-button-primary" disabled>Open pull request</button>
+                {{ end }}
+              </div>
+            </div>
+          </details>
+        </div>
+        {{ end }}
+
         {{ if .Path }}
         <nav class="shithub-code-crumbs" aria-label="Breadcrumb">
           {{ range $i, $c := .Crumbs }}
