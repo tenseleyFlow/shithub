@@ -114,6 +114,20 @@ WHERE webhook_id = $1
 ORDER BY started_at DESC
 LIMIT $2;
 
+-- name: ListDeliveriesForWebhookPaged :many
+-- Paginated mirror of ListDeliveriesForWebhook for the REST surface.
+-- Order matches the unpaginated form so callers can swap freely.
+SELECT id, webhook_id, event_kind, event_id, delivery_uuid, response_status,
+       response_truncated, started_at, completed_at, attempt, max_attempts,
+       next_retry_at, status, error_summary, redeliver_of
+FROM webhook_deliveries
+WHERE webhook_id = $1
+ORDER BY started_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountDeliveriesForWebhook :one
+SELECT count(*)::bigint FROM webhook_deliveries WHERE webhook_id = $1;
+
 -- name: ClaimDueDeliveries :many
 -- Hot-path for the deliver worker: picks up to $1 rows that are
 -- pending or in retry-ready state, FOR UPDATE SKIP LOCKED so concurrent
