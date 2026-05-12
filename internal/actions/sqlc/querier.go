@@ -102,6 +102,7 @@ type Querier interface {
 	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
+	StartWorkflowRun(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/checksync"
 	"github.com/tenseleyFlow/shithub/internal/actions/concurrency"
+	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/checks"
@@ -184,6 +185,9 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		}
 		return Result{}, fmt.Errorf("trigger: insert run: %w", err)
 	}
+	if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionQueued); err != nil {
+		return Result{}, fmt.Errorf("trigger: emit run queued event: %w", err)
+	}
 
 	// Persist child jobs + their steps. Order in Workflow.Jobs is YAML
 	// document order, which we preserve via job_index.
@@ -218,6 +222,9 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 			return Result{}, fmt.Errorf("trigger: insert job %s: %w", j.Key, err)
 		}
 		jobIDs[i] = job.ID
+		if err := actionsevents.EmitJobTx(ctx, tx, run, job, actionsevents.ActionQueued); err != nil {
+			return Result{}, fmt.Errorf("trigger: emit job queued event for %s: %w", j.Key, err)
+		}
 
 		for si, s := range j.Steps {
 			stepEnvJSON, err := marshalEnv(s.Env)
@@ -252,6 +259,9 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("trigger: enforce concurrency: %w", err)
+	}
+	if err := emitConcurrencyCancelEvents(ctx, tx, q, concurrencyResult.CancelledJobs); err != nil {
+		return Result{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -346,6 +356,50 @@ func lookupExistingRun(ctx context.Context, pool *pgxpool.Pool, p EnqueueParams)
 		return actionsdb.WorkflowRun{}, err
 	}
 	return rows, nil
+}
+
+func emitConcurrencyCancelEvents(
+	ctx context.Context,
+	tx pgx.Tx,
+	q *actionsdb.Queries,
+	jobs []actionsdb.WorkflowJob,
+) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	emittedRun := map[int64]struct{}{}
+	for _, job := range jobs {
+		run, err := q.GetWorkflowRunByID(ctx, tx, job.RunID)
+		if err != nil {
+			return fmt.Errorf("trigger: load concurrency-cancelled run: %w", err)
+		}
+		if job.Status == actionsdb.WorkflowJobStatusCancelled {
+			if err := actionsevents.EmitJobTx(ctx, tx, run, job, actionsevents.ActionCancelled); err != nil {
+				return fmt.Errorf("trigger: emit concurrency job cancelled event: %w", err)
+			}
+		}
+		if _, ok := emittedRun[run.ID]; ok {
+			continue
+		}
+		if workflowRunTerminal(run.Status) {
+			if err := actionsevents.EmitRunTx(ctx, tx, run, runTerminalAction(run)); err != nil {
+				return fmt.Errorf("trigger: emit concurrency run terminal event: %w", err)
+			}
+			emittedRun[run.ID] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func workflowRunTerminal(status actionsdb.WorkflowRunStatus) bool {
+	return status == actionsdb.WorkflowRunStatusCompleted || status == actionsdb.WorkflowRunStatusCancelled
+}
+
+func runTerminalAction(run actionsdb.WorkflowRun) string {
+	if run.Status == actionsdb.WorkflowRunStatusCancelled {
+		return actionsevents.ActionCancelled
+	}
+	return actionsevents.ActionCompleted
 }
 
 func pgInt8(v int64) pgtype.Int8 {

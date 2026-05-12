@@ -45,6 +45,9 @@ The events shippable today, by `X-Shithub-Event` header:
 - `check_run` (actions: `created`, `completed`, `rerequested`)
 - `check_suite` (actions: `requested`, `completed`,
   `rerequested`)
+- `workflow_run` (actions: `queued`, `running`, `completed`)
+- `workflow_job` (actions: `queued`, `running`, `completed`,
+  `cancelled`)
 - `star`
 - `fork`
 - `repository` (actions: `created`, `deleted`, `archived`,
@@ -55,3 +58,11 @@ The events shippable today, by `X-Shithub-Event` header:
 Each event's payload is documented per-type in the webhook detail
 page's "Recent deliveries" inspector — that's currently the
 authoritative reference until per-event documentation lands here.
+
+### Actions payload safety
+
+`workflow_run` and `workflow_job` payloads are structural snapshots:
+ids, run index, workflow path/name, head SHA/ref, event kind, status,
+conclusion, timestamps, job key/name, runner id, needs, timeout, and
+cancellation state. They intentionally do **not** include workflow
+event payloads, env, permissions, logs, runner JWTs, or secret values.

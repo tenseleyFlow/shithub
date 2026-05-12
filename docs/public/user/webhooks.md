@@ -21,7 +21,8 @@ Repository → Settings → Webhooks → "Add webhook".
 
 Each delivery includes:
 
-- `X-Shithub-Event: <event-name>` — e.g., `push`, `pull_request`.
+- `X-Shithub-Event: <event-name>` — e.g., `push`, `pull_request`,
+  `workflow_run`.
 - `X-Shithub-Delivery: <uuid>` — unique per delivery (idempotent).
 - `X-Shithub-Signature-256: sha256=<hex>` — HMAC-SHA256 of the
   raw body using your configured secret.
@@ -104,6 +105,18 @@ Webhook detail page → "Recent deliveries". Each row shows:
 
 Stored bodies are capped at 32 KiB (your endpoint can accept
 bigger; we just don't keep more for the inspector).
+
+## Actions events
+
+Repository webhooks can subscribe to Actions lifecycle events:
+
+- `workflow_run` actions: `queued`, `running`, `completed`.
+- `workflow_job` actions: `queued`, `running`, `completed`,
+  `cancelled`.
+
+Actions payloads only carry structural run/job metadata. shithub does
+not include workflow event payloads, env, permissions, logs, runner
+tokens, or secrets in webhook bodies.
 
 ## SSRF defense
 

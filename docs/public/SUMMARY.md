@@ -28,6 +28,8 @@
 - [Issues](./api/issues.md)
 - [Pull requests](./api/pulls.md)
 - [Status checks](./api/checks.md)
+- [Actions workflow API](./api/actions.md)
+- [Actions runner API](./api/actions-runner.md)
 - [Webhooks](./api/webhooks.md)
 - [Search](./api/search.md)
 - [Admin (site-admin only)](./api/admin.md)

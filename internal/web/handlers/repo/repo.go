@@ -144,6 +144,7 @@ func (h *Handlers) MountRepoActionsStreams(r chi.Router) {
 // two-segment route doesn't collide with the /{username} catch-all from S09;
 // caller is responsible for ordering this BEFORE /{username}.
 func (h *Handlers) MountRepoHome(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions.atom", h.repoActionsAtom)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)

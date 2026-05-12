@@ -562,6 +562,29 @@ defer to S41g where the lifecycle work touches that surface anyway.
   ref defaults to the repo's default branch). Returns 204 No Content
   on success. Synchronous trigger.Enqueue (no discovery — file is
   named in the URL). Auth: requires repo write.
+- `GET /{owner}/{repo}/actions.atom`
+  Returns the last 50 workflow runs as an Atom feed. Auth and visibility
+  match the Actions tab (`repo:read`). Entries link to
+  `/{owner}/{repo}/actions/runs/{run_index}` and include the workflow
+  name/path, event, branch, short SHA, status, and conclusion.
+
+### Webhook events (S41h)
+
+Actions emits webhook-facing domain events through `notif.EmitTx` on
+state transitions:
+
+- `workflow_run`, with `payload.action` set to `queued`, `running`, or
+  `completed` (`completed` may carry `conclusion:"cancelled"`).
+- `workflow_job`, with `payload.action` set to `queued`, `running`,
+  `completed`, or `cancelled`.
+
+Payloads are structural snapshots only. They include ids, run index,
+workflow path/name, head SHA/ref, event kind, status, conclusion,
+timestamps, job key/name/runner id, needs, timeout, and cancellation
+state. They deliberately exclude `workflow_runs.event_payload`, env,
+permissions, logs, runner JWTs, and secret values. This keeps the
+webhook surface stable without turning arbitrary workflow input into
+subscriber-facing data.
 
 ### What S41b deliberately doesn't do
 
@@ -572,8 +595,6 @@ defer to S41g where the lifecycle work touches that surface anyway.
   but no caller produces them yet. S41b-2 adds the sweep + the
   `robfig/cron/v3` dep + `shithubd-cron.service` wiring.
 - External-PR triggers. Conservative collaborator gate above.
-- `workflow_run` webhook events. S41h adds the webhook event family
-  + atom feed.
 
 ## Secrets + variables settings surface (S41c)
 

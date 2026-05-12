@@ -4,6 +4,19 @@ Actions workflow lifecycle endpoints are PAT-authenticated and require
 `repo:write`. The token's user must also have write permission on the
 repository that owns the target run or job.
 
+## Runs Atom feed
+
+```text
+GET /{owner}/{repo}/actions.atom
+```
+
+Returns the last 50 workflow runs as `application/atom+xml`. Visibility
+matches the Actions tab: public repositories are public; private
+repositories require repository read access.
+
+Each entry links to the run page and summarizes workflow name, event,
+branch, commit, status, and conclusion.
+
 ## Cancel job
 
 ```text
