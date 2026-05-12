@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
 	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
@@ -70,10 +71,8 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 	// Workflows live under .shithub/workflows/. Authors can pass
 	// either "ci.yml" (basename) or ".shithub/workflows/ci.yml" (full
 	// path). Normalize so the trigger pipeline always sees the full path.
-	if !strings.HasPrefix(file, ".shithub/workflows/") {
-		file = ".shithub/workflows/" + file
-	}
-	if strings.Contains(file, "..") || !validWorkflowName(file) {
+	file, err := dispatch.NormalizeFilePath(file)
+	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "invalid workflow file path")
 		return
 	}
@@ -132,7 +131,7 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 			"workflow does not declare on.workflow_dispatch")
 		return
 	}
-	inputs, err := normalizeDispatchInputs(req.Inputs, wf.On.WorkflowDispatch.Inputs)
+	inputs, err := dispatch.NormalizeInputs(req.Inputs, wf.On.WorkflowDispatch.Inputs)
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -186,7 +185,7 @@ func (h *Handlers) parseDispatchRequest(w http.ResponseWriter, r *http.Request) 
 		}
 		return dispatchRequest{
 			Ref:    strings.TrimSpace(r.PostFormValue("ref")),
-			Inputs: dispatchInputsFromForm(r.PostForm),
+			Inputs: dispatch.InputsFromForm(r.PostForm),
 		}, true, true
 	}
 
@@ -220,90 +219,6 @@ func dispatchFormMediaType(r *http.Request) string {
 	default:
 		return ""
 	}
-}
-
-func dispatchInputsFromForm(values url.Values) map[string]string {
-	inputs := make(map[string]string)
-	for key, vals := range values {
-		name, ok := strings.CutPrefix(key, "inputs.")
-		if !ok || name == "" || len(vals) == 0 {
-			continue
-		}
-		inputs[name] = vals[len(vals)-1]
-	}
-	if len(inputs) == 0 {
-		return nil
-	}
-	return inputs
-}
-
-func normalizeDispatchInputs(raw map[string]string, specs []workflow.DispatchInput) (map[string]string, error) {
-	if raw == nil {
-		raw = map[string]string{}
-	}
-	known := make(map[string]workflow.DispatchInput, len(specs))
-	for _, spec := range specs {
-		known[spec.Name] = spec
-	}
-	for name := range raw {
-		if _, ok := known[name]; !ok {
-			return nil, fmt.Errorf("unknown workflow_dispatch input %q", name)
-		}
-	}
-
-	out := make(map[string]string, len(specs))
-	for _, spec := range specs {
-		value, provided := raw[spec.Name]
-		if !provided || value == "" {
-			value = spec.Default
-		}
-		if spec.Type == "boolean" && !provided && value == "" {
-			value = "false"
-		}
-		if spec.Required && spec.Type != "boolean" && strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("workflow_dispatch input %q is required", spec.Name)
-		}
-		switch spec.Type {
-		case "boolean":
-			if value != "true" && value != "false" {
-				return nil, fmt.Errorf("workflow_dispatch input %q must be true or false", spec.Name)
-			}
-		case "choice":
-			if value != "" && !dispatchChoiceAllowed(value, spec.Options) {
-				return nil, fmt.Errorf("workflow_dispatch input %q must be one of the declared options", spec.Name)
-			}
-		}
-		if value != "" || spec.Type == "boolean" {
-			out[spec.Name] = value
-		}
-	}
-	if len(out) == 0 {
-		return nil, nil
-	}
-	return out, nil
-}
-
-func dispatchChoiceAllowed(value string, options []string) bool {
-	for _, option := range options {
-		if value == option {
-			return true
-		}
-	}
-	return false
-}
-
-// validWorkflowName guards against URL parameter shenanigans by
-// requiring the resolved file path to look like
-// `.shithub/workflows/<basename>.{yml,yaml}` with no path traversal.
-func validWorkflowName(file string) bool {
-	if !strings.HasPrefix(file, ".shithub/workflows/") {
-		return false
-	}
-	rest := strings.TrimPrefix(file, ".shithub/workflows/")
-	if rest == "" || strings.ContainsAny(rest, "/\x00") {
-		return false
-	}
-	return strings.HasSuffix(rest, ".yml") || strings.HasSuffix(rest, ".yaml")
 }
 
 // randHex returns 2*n hex chars from crypto/rand. 8 bytes (16 hex

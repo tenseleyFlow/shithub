@@ -291,6 +291,21 @@ between minor releases.
   error semantics (`authorization_pending`, `slow_down`,
   `access_denied`, `expired_token`) are honored.
 - **Capability:** `device-code` added to `/api/v1/meta`.
+- **REST: actions workflows + workflow_dispatch (S50 §13 part 1).**
+  `GET /api/v1/repos/{o}/{r}/actions/workflows` lists the workflows
+  discovered in `.shithub/workflows/` at the repo's default-branch
+  HEAD (or `?ref=`); `GET .../workflows/{id_or_file}` fetches a
+  single workflow by basename, full path, or a deterministic
+  64-bit hash of the path. `POST .../workflows/{file}/dispatches`
+  triggers `workflow_dispatch` with optional `ref` and a typed
+  `inputs` map (choice / boolean / string with required/default
+  enforcement, same semantics as the HTML "Run workflow" button).
+  Workflow_dispatch input validation now lives in a shared
+  `internal/actions/dispatch` package consumed by both the REST
+  and HTML surfaces. Enable/disable knobs are deferred to a
+  follow-up (needs a new `workflow_disabled` table); every listed
+  workflow is reported as `state: "active"` for now.
+- **Capability:** `actions-workflows` added to `/api/v1/meta`.
 
 ### Added (internal)
 

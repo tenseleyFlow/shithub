@@ -190,6 +190,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountStargazers(r)
 		// S50 §20 — issue events / timeline (read-only).
 		h.mountIssueEvents(r)
+		// S50 §13 — actions workflows list/get + workflow_dispatch.
+		h.mountActionsWorkflows(r)
 	})
 }
 

@@ -38,6 +38,7 @@
 - [Pull requests](./api/pulls.md)
 - [Status checks](./api/checks.md)
 - [Actions workflow API](./api/actions.md)
+- [Actions workflows (list/dispatch)](./api/actions-workflows.md)
 - [Actions workflow runs](./api/actions-runs.md)
 - [Actions runner API](./api/actions-runner.md)
 - [Webhooks](./api/webhooks.md)

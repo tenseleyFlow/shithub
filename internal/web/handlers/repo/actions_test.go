@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -213,13 +214,13 @@ func TestRepoActionsDispatchAcceptsFormInputs(t *testing.T) {
 func TestNormalizeDispatchInputsRejectsUnknownAndInvalidChoice(t *testing.T) {
 	t.Parallel()
 	specs := dispatchWorkflowInputSpecs()
-	if _, err := normalizeDispatchInputs(map[string]string{"bogus": "x"}, specs); err == nil {
+	if _, err := dispatch.NormalizeInputs(map[string]string{"bogus": "x"}, specs); err == nil {
 		t.Fatal("unknown input accepted")
 	}
-	if _, err := normalizeDispatchInputs(map[string]string{"env": "qa"}, specs); err == nil {
+	if _, err := dispatch.NormalizeInputs(map[string]string{"env": "qa"}, specs); err == nil {
 		t.Fatal("invalid choice accepted")
 	}
-	if _, err := normalizeDispatchInputs(nil, specs); err == nil {
+	if _, err := dispatch.NormalizeInputs(nil, specs); err == nil {
 		t.Fatal("missing required input accepted")
 	}
 }
