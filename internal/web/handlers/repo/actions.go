@@ -131,6 +131,7 @@ type actionsJobDetailView struct {
 	RunsOn     string
 	Needs      []string
 	NeedsText  string
+	WaitReason string
 	StateText  string
 	StateClass string
 	StateIcon  string
@@ -821,6 +822,7 @@ func actionsJobDetailViewFromRow(row actionsdb.ListJobsForRunRow, owner, repoNam
 		RunsOn:     row.RunsOn,
 		Needs:      append([]string(nil), row.NeedsJobs...),
 		NeedsText:  strings.Join(row.NeedsJobs, ", "),
+		WaitReason: queuedJobWaitReason(row),
 		StateText:  stateText,
 		StateClass: stateClass,
 		StateIcon:  stateIcon,
@@ -831,6 +833,24 @@ func actionsJobDetailViewFromRow(row actionsdb.ListJobsForRunRow, owner, repoNam
 		CancelRequested: row.CancelRequested,
 		IsCancellable: row.Status == actionsdb.WorkflowJobStatusQueued ||
 			row.Status == actionsdb.WorkflowJobStatusRunning,
+	}
+}
+
+func queuedJobWaitReason(row actionsdb.ListJobsForRunRow) string {
+	if row.Status != actionsdb.WorkflowJobStatusQueued {
+		return ""
+	}
+	runsOn := strings.TrimSpace(row.RunsOn)
+	hasNeeds := len(row.NeedsJobs) > 0
+	switch {
+	case runsOn != "" && hasNeeds:
+		return "Waiting for dependencies or runner with labels: " + runsOn
+	case runsOn != "":
+		return "Waiting for runner with labels: " + runsOn
+	case hasNeeds:
+		return "Waiting for dependencies: " + strings.Join(row.NeedsJobs, ", ")
+	default:
+		return "Waiting for runner"
 	}
 }
 

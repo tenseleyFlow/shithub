@@ -40,6 +40,9 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if cfg.Engine.PidsLimit != 512 {
 		t.Fatalf("Engine.PidsLimit: %d", cfg.Engine.PidsLimit)
 	}
+	if want := []string{"self-hosted", "linux", "ubuntu-latest", "x64"}; !reflect.DeepEqual(cfg.Runner.Labels, want) {
+		t.Fatalf("Labels: got %#v want %#v", cfg.Runner.Labels, want)
+	}
 	if want := []string{"api.github.com", "auth.docker.io", "codeload.github.com", "github.com", "objects.githubusercontent.com", "production.cloudflare.docker.com", "registry-1.docker.io", "*.githubusercontent.com"}; !reflect.DeepEqual(cfg.Runner.NetworkAllowlist, want) {
 		t.Fatalf("NetworkAllowlist: got %#v want %#v", cfg.Runner.NetworkAllowlist, want)
 	}

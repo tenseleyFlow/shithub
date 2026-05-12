@@ -8,6 +8,7 @@ shithub_runner_labels:
   - self-hosted
   - linux
   - ubuntu-latest
+  - x64
 shithub_runner_capacity: 1
 shithub_runner_poll_interval: 5s
 shithub_runner_workspace_root: /var/lib/shithubd-runner/workspaces

@@ -149,6 +149,69 @@ func TestEnqueue_HappyPath(t *testing.T) {
 	})
 }
 
+func TestListQueuedWorkflowJobRunsOnGroupsByRequestedLabel(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	q := actionsdb.New()
+	runner, err := q.InsertRunner(ctx, f.pool, actionsdb.InsertRunnerParams{
+		Name:     "runner-linux",
+		Labels:   []string{"self-hosted", "linux", "ubuntu-latest", "x64"},
+		Capacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner: %v", err)
+	}
+	if _, err := q.HeartbeatRunner(ctx, f.pool, actionsdb.HeartbeatRunnerParams{
+		ID:       runner.ID,
+		Labels:   runner.Labels,
+		Capacity: runner.Capacity,
+		Status:   actionsdb.WorkflowRunnerStatusIdle,
+	}); err != nil {
+		t.Fatalf("HeartbeatRunner: %v", err)
+	}
+
+	for name, runsOn := range map[string]string{
+		"linux":   "ubuntu-latest",
+		"windows": "windows-latest",
+	} {
+		if _, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+			RepoID:         f.repoID,
+			WorkflowFile:   ".shithub/workflows/" + name + ".yml",
+			HeadSHA:        strings.Repeat(name[:1], 40),
+			HeadRef:        "refs/heads/trunk",
+			EventKind:      trigger.EventPush,
+			EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+			ActorUserID:    f.userID,
+			TriggerEventID: "push:queue-label-" + name,
+			Workflow: workflowFromYAML(t, fmt.Sprintf(`name: %s
+on: push
+jobs:
+  build:
+    runs-on: %s
+    steps:
+      - run: echo hello
+`, name, runsOn)),
+		}); err != nil {
+			t.Fatalf("Enqueue %s: %v", name, err)
+		}
+	}
+
+	rows, err := q.ListQueuedWorkflowJobRunsOn(ctx, f.pool)
+	if err != nil {
+		t.Fatalf("ListQueuedWorkflowJobRunsOn: %v", err)
+	}
+	got := map[string]actionsdb.ListQueuedWorkflowJobRunsOnRow{}
+	for _, row := range rows {
+		got[row.RunsOn] = row
+	}
+	if got["ubuntu-latest"].QueuedJobs != 1 || got["ubuntu-latest"].MatchingRunnerCount != 1 {
+		t.Fatalf("ubuntu-latest row: %+v", got["ubuntu-latest"])
+	}
+	if got["windows-latest"].QueuedJobs != 1 || got["windows-latest"].MatchingRunnerCount != 0 {
+		t.Fatalf("windows-latest row: %+v", got["windows-latest"])
+	}
+}
+
 func TestEnqueue_ResolvesConcurrencyGroupExpression(t *testing.T) {
 	f := setupEnq(t)
 	ctx := context.Background()

@@ -38,7 +38,12 @@ a check run on matching pull requests.
 
 `runs-on: ubuntu-latest` is a runner label, not a promise that shithub downloads
 a hosted Ubuntu image for you. The site operator decides which image a matching
-runner uses. On shithub.sh, use the labels published by the instance operator.
+runner uses. On shithub.sh, the shared Linux pool advertises
+`self-hosted`, `linux`, `ubuntu-latest`, and `x64`.
+
+If a run stays queued, the run page shows the requested label set, for example
+`Waiting for runner with labels: windows-latest`. That means no currently
+registered runner can claim the job.
 
 ## Current limit
 
@@ -99,6 +104,8 @@ Most simple CI files need three edits:
 2. Keep `actions/checkout@v4`, but replace marketplace and artifact `uses:`
    actions with equivalent `run:` commands for now.
 3. Confirm `runs-on:` matches a label registered by your shithub operator.
+   The default shithub.sh shared label for ordinary Linux CI is
+   `ubuntu-latest`.
 
 Marketplace actions, Docker actions, composite actions, hosted runner images,
 matrix expansion, service containers, submodules, LFS, and artifact transfer

@@ -79,7 +79,7 @@ go test -trimpath ./internal/actions/... ./internal/auth/runnerjwt ./internal/ru
 
 For a production-like runner host, manually verify:
 
-1. Register a new runner with `self-hosted,linux,ubuntu-latest`.
+1. Register a new runner with `self-hosted,linux,ubuntu-latest,x64`.
 2. Trigger `.shithub/workflows/checkout-canary.yml` on trunk.
 3. Confirm the run appears in the Actions tab and the check run completes.
 4. Confirm step logs stream while the job is running and finalize to object

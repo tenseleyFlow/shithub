@@ -97,12 +97,15 @@ Run this once from a host that can reach the production database config:
 shithubd admin runner register \
   --name prod-runner-1 \
   --labels self-hosted,linux,ubuntu-latest,x64 \
-  --capacity 1
+  --capacity 1 \
+  --output json
 ```
 
-Store the printed token in ansible-vault or the deployment secret store.
+Store the returned `token` in ansible-vault or the deployment secret store.
 Only the token hash is stored in Postgres; the raw token cannot be
 recovered later.
+Use `--expires-in` only when the deployment rotates the token before expiry,
+because the runner presents the registration token on every heartbeat.
 
 For a generated DigitalOcean inventory, register one token per runner host and
 use the host name as the runner name:
@@ -111,7 +114,8 @@ use the host name as the runner name:
 shithubd admin runner register \
   --name shithub-runner-shared-linux-1 \
   --labels self-hosted,linux,ubuntu-latest,x64 \
-  --capacity 1
+  --capacity 1 \
+  --output json
 ```
 
 ## Inventory

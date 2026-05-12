@@ -100,7 +100,7 @@ func Defaults() Config {
 			BaseURL: "http://127.0.0.1:8080",
 		},
 		Runner: RunnerConfig{
-			Labels:           []string{"self-hosted", "linux", "ubuntu-latest"},
+			Labels:           runnerlabels.DefaultShared(),
 			Capacity:         1,
 			PollInterval:     5 * time.Second,
 			WorkspaceRoot:    "/var/lib/shithubd-runner/workspaces",
