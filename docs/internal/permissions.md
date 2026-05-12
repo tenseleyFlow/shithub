@@ -107,6 +107,30 @@ the verdict. Ordered from most-decisive to least:
 10. **Login-required actions** (star/fork) on anonymous → deny
    (`DenyAnonymous`).
 
+## Authorization versus entitlements
+
+`policy.Can` answers only one question: is this actor allowed to
+perform this action on this resource under shithub's permission model?
+It must not decide whether an organization has paid for a feature.
+
+Paid organization checks are a second gate after authorization. The
+expected flow for gated writes is:
+
+1. Load the resource and run the normal policy check.
+2. Preserve `policy.Maybe404` behavior for private-resource denials.
+3. Ask the entitlement layer whether the organization has the specific
+   feature key.
+4. If the feature is unavailable, return a billing/upgrade response
+   without re-deriving ownership, visibility, role, or plan state in
+   the handler.
+
+The entitlement layer may inspect billing state and plan-derived
+features. Policy code, handlers, git transports, and domain packages
+must not branch directly on `orgs.plan` or sqlc `OrgPlan*` constants.
+That keeps security authorization independent from commercial product
+packaging, and makes downgrades/grace periods possible without
+rewriting role checks.
+
 ## Existence-leak guard
 
 `policy.Maybe404(decision, repo, actor)` maps a denial to a status
@@ -212,3 +236,9 @@ the policy actor at the lookup wrapper):
 Test files everywhere are exempt — they legitimately seed state. If a
 new pattern surfaces (e.g. an issue handler reads `issue.author_id`),
 extend the script accordingly.
+
+`scripts/lint-org-plan-boundary.sh` also runs in `make ci`. It fails on
+direct plan feature gates outside `internal/billing/`,
+`internal/entitlements/`, generated sqlc models, migrations, and tests.
+When adding a paid feature, add or use an entitlement feature key rather
+than comparing `OrgPlanTeam` or `OrgPlanEnterprise` at the call site.

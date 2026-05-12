@@ -12,6 +12,184 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BillingInvoiceStatus string
+
+const (
+	BillingInvoiceStatusDraft         BillingInvoiceStatus = "draft"
+	BillingInvoiceStatusOpen          BillingInvoiceStatus = "open"
+	BillingInvoiceStatusPaid          BillingInvoiceStatus = "paid"
+	BillingInvoiceStatusVoid          BillingInvoiceStatus = "void"
+	BillingInvoiceStatusUncollectible BillingInvoiceStatus = "uncollectible"
+)
+
+func (e *BillingInvoiceStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BillingInvoiceStatus(s)
+	case string:
+		*e = BillingInvoiceStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BillingInvoiceStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBillingInvoiceStatus struct {
+	BillingInvoiceStatus BillingInvoiceStatus
+	Valid                bool // Valid is true if BillingInvoiceStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBillingInvoiceStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BillingInvoiceStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BillingInvoiceStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBillingInvoiceStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BillingInvoiceStatus), nil
+}
+
+type BillingLockReason string
+
+const (
+	BillingLockReasonPastDue  BillingLockReason = "past_due"
+	BillingLockReasonCanceled BillingLockReason = "canceled"
+	BillingLockReasonUnpaid   BillingLockReason = "unpaid"
+	BillingLockReasonManual   BillingLockReason = "manual"
+)
+
+func (e *BillingLockReason) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BillingLockReason(s)
+	case string:
+		*e = BillingLockReason(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BillingLockReason: %T", src)
+	}
+	return nil
+}
+
+type NullBillingLockReason struct {
+	BillingLockReason BillingLockReason
+	Valid             bool // Valid is true if BillingLockReason is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBillingLockReason) Scan(value interface{}) error {
+	if value == nil {
+		ns.BillingLockReason, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BillingLockReason.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBillingLockReason) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BillingLockReason), nil
+}
+
+type BillingProvider string
+
+const (
+	BillingProviderStripe BillingProvider = "stripe"
+)
+
+func (e *BillingProvider) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BillingProvider(s)
+	case string:
+		*e = BillingProvider(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BillingProvider: %T", src)
+	}
+	return nil
+}
+
+type NullBillingProvider struct {
+	BillingProvider BillingProvider
+	Valid           bool // Valid is true if BillingProvider is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBillingProvider) Scan(value interface{}) error {
+	if value == nil {
+		ns.BillingProvider, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BillingProvider.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBillingProvider) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BillingProvider), nil
+}
+
+type BillingSubscriptionStatus string
+
+const (
+	BillingSubscriptionStatusNone       BillingSubscriptionStatus = "none"
+	BillingSubscriptionStatusIncomplete BillingSubscriptionStatus = "incomplete"
+	BillingSubscriptionStatusTrialing   BillingSubscriptionStatus = "trialing"
+	BillingSubscriptionStatusActive     BillingSubscriptionStatus = "active"
+	BillingSubscriptionStatusPastDue    BillingSubscriptionStatus = "past_due"
+	BillingSubscriptionStatusCanceled   BillingSubscriptionStatus = "canceled"
+	BillingSubscriptionStatusUnpaid     BillingSubscriptionStatus = "unpaid"
+	BillingSubscriptionStatusPaused     BillingSubscriptionStatus = "paused"
+)
+
+func (e *BillingSubscriptionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BillingSubscriptionStatus(s)
+	case string:
+		*e = BillingSubscriptionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BillingSubscriptionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBillingSubscriptionStatus struct {
+	BillingSubscriptionStatus BillingSubscriptionStatus
+	Valid                     bool // Valid is true if BillingSubscriptionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBillingSubscriptionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BillingSubscriptionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BillingSubscriptionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBillingSubscriptionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BillingSubscriptionStatus), nil
+}
+
 type CheckConclusion string
 
 const (
@@ -1601,6 +1779,54 @@ type AuthThrottle struct {
 	WindowStartedAt pgtype.Timestamptz
 }
 
+type BillingInvoice struct {
+	ID                   int64
+	OrgID                int64
+	Provider             BillingProvider
+	StripeInvoiceID      string
+	StripeCustomerID     string
+	StripeSubscriptionID pgtype.Text
+	Status               BillingInvoiceStatus
+	Number               string
+	Currency             string
+	AmountDueCents       int64
+	AmountPaidCents      int64
+	AmountRemainingCents int64
+	HostedInvoiceUrl     string
+	InvoicePdfUrl        string
+	PeriodStart          pgtype.Timestamptz
+	PeriodEnd            pgtype.Timestamptz
+	DueAt                pgtype.Timestamptz
+	PaidAt               pgtype.Timestamptz
+	VoidedAt             pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type BillingSeatSnapshot struct {
+	ID                   int64
+	OrgID                int64
+	Provider             BillingProvider
+	StripeSubscriptionID pgtype.Text
+	ActiveMembers        int32
+	BillableSeats        int32
+	Source               string
+	CapturedAt           pgtype.Timestamptz
+}
+
+type BillingWebhookEvent struct {
+	ID                 int64
+	Provider           BillingProvider
+	ProviderEventID    string
+	EventType          string
+	ApiVersion         string
+	Payload            []byte
+	ReceivedAt         pgtype.Timestamptz
+	ProcessedAt        pgtype.Timestamptz
+	ProcessError       string
+	ProcessingAttempts int32
+}
+
 type BranchProtectionRule struct {
 	ID                             int64
 	RepoID                         int64
@@ -1868,6 +2094,30 @@ type Org struct {
 	DeletedAt             pgtype.Timestamptz
 	CreatedAt             pgtype.Timestamptz
 	UpdatedAt             pgtype.Timestamptz
+}
+
+type OrgBillingState struct {
+	OrgID                    int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     OrgPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	BillableSeats            int32
+	SeatSnapshotAt           pgtype.Timestamptz
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
 }
 
 type OrgGithubImport struct {

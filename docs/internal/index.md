@@ -58,6 +58,8 @@ site.
 - [actions-schema.md](./actions-schema.md),
   [actions-runner-api.md](./actions-runner-api.md)
 - [orgs.md](./orgs.md), [teams.md](./teams.md)
+- [billing.md](./billing.md) — paid org product contract,
+  entitlements, and Stripe integration guardrails.
 - [notifications.md](./notifications.md)
 - [search.md](./search.md), [markdown.md](./markdown.md)
 - [seo.md](./seo.md) — crawler endpoints, metadata, sitemap, and

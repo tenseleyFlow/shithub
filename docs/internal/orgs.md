@@ -182,6 +182,18 @@ Soft-deleted users/orgs are dropped from `principals` so their slug
 becomes available — the username_redirects table still preserves the
 old slug for 301s during the rename cooldown.
 
+## Billing posture
+
+Organizations are the first planned paid shithub surface. The
+`orgs.plan` and `billing_email` fields are present today, but payment
+processing and entitlement enforcement live in the PAYMENTS sprint
+series. The durable product and implementation contract is tracked in
+[`billing.md`](./billing.md).
+
+Until that series lands, production code must not branch on
+`orgs.plan` for feature access. Paid feature checks should go through
+the future entitlement package described in the billing doc.
+
 ## What we deferred from the spec
 
 * **`username_redirects` rename to `principal_redirects`**. The
