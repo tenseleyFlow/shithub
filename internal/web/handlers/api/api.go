@@ -176,6 +176,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountContents(r)
 		// S50 §13 — repo forks (list + create).
 		h.mountForks(r)
+		// S50 §14 — notifications inbox.
+		h.mountNotifications(r)
 	})
 }
 
