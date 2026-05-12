@@ -51,8 +51,7 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 		}
 	}()
 
-	run, err := q.GetWorkflowRunByID(ctx, tx, runID)
-	if err != nil {
+	if _, err := q.GetWorkflowRunByID(ctx, tx, runID); err != nil {
 		return CancelResult{}, err
 	}
 	changed, err := q.RequestWorkflowRunCancel(ctx, tx, runID)
@@ -75,7 +74,7 @@ func CancelRun(ctx context.Context, deps Deps, runID int64, reason string) (Canc
 		if err != nil {
 			return CancelResult{}, err
 		}
-		run, err = q.GetWorkflowRunByID(ctx, tx, runID)
+		run, err := q.GetWorkflowRunByID(ctx, tx, runID)
 		if err != nil {
 			return CancelResult{}, err
 		}

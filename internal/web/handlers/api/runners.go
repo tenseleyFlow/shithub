@@ -222,16 +222,17 @@ func (h *Handlers) claimRunnerJob(
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
 	}
 	run, err := q.StartWorkflowRun(ctx, tx, job.RunID)
-	if err == nil {
+	switch {
+	case err == nil:
 		if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionRunning); err != nil {
 			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
-	} else if errors.Is(err, pgx.ErrNoRows) {
+	case errors.Is(err, pgx.ErrNoRows):
 		run, err = q.GetWorkflowRunByID(ctx, tx, job.RunID)
 		if err != nil {
 			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
-	} else {
+	default:
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	if err := actionsevents.EmitJobTx(ctx, tx, run, claimRowWorkflowJob(job), actionsevents.ActionRunning); err != nil {
