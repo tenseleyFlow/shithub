@@ -181,7 +181,11 @@ func (h *Handlers) actionsWorkflowsDispatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	bytes, err := repogit.ReadBlobBytes(r.Context(), gitDir, headSHA, file, int64(workflow.MaxWorkflowFileBytes))
-	if err != nil {
+	if err != nil || len(bytes) == 0 {
+		// ReadBlobBytes silently returns (nil, nil) when the path is
+		// absent at the ref (git cat-file's stderr is discarded). An
+		// empty body is therefore indistinguishable from a missing
+		// file, which is the correct caller-facing answer either way.
 		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("workflow file %q not found at ref %s", file, branch))
 		return
 	}
