@@ -4,6 +4,7 @@ package repo
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -64,6 +65,17 @@ type codeContext struct {
 	allRefs []string
 	ref     string // matched ref name (or 40-hex sha)
 	subpath string // path inside the ref, no leading slash
+}
+
+type codeBranchCompare struct {
+	Show          bool
+	HasRecentPush bool
+	Base          string
+	Head          string
+	Ahead         int
+	Behind        int
+	CompareHref   string
+	PullNewHref   string
 }
 
 // loadCodeContext does the resolve dance for tree/blob/raw/find. On
@@ -130,6 +142,26 @@ func (cc *codeContext) isBranchRef() bool {
 		}
 	}
 	return false
+}
+
+func codeBranchCompareData(ctx context.Context, cc *codeContext) codeBranchCompare {
+	if !cc.isBranchRef() || cc.ref == cc.row.DefaultBranch {
+		return codeBranchCompare{}
+	}
+	ahead, behind, err := repogit.AheadBehind(ctx, cc.gitDir, cc.row.DefaultBranch, cc.ref)
+	if err != nil {
+		return codeBranchCompare{}
+	}
+	return codeBranchCompare{
+		Show:          true,
+		HasRecentPush: ahead > 0,
+		Base:          cc.row.DefaultBranch,
+		Head:          cc.ref,
+		Ahead:         ahead,
+		Behind:        behind,
+		CompareHref:   compareURL(cc.owner, cc.row.Name, cc.row.DefaultBranch, cc.ref),
+		PullNewHref:   pullNewURL(cc.owner, cc.row.Name, cc.row.DefaultBranch, cc.ref),
+	}
 }
 
 func (h *Handlers) canWriteRepo(r *http.Request, row reposdb.Repo) bool {
@@ -219,6 +251,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"Head":          head,
 		"HeadFound":     headFound,
 		"HeadAuthor":    headAuthor,
+		"BranchCompare": codeBranchCompareData(r.Context(), cc),
 		"CommitCount":   commitCount,
 		"README":        template.HTML(readme.HTML), //nolint:gosec // sanitized by mdrender
 		"READMEPath":    readme.Path,

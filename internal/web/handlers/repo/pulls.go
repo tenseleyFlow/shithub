@@ -190,15 +190,85 @@ func (h *Handlers) pullNewForm(w http.ResponseWriter, r *http.Request) {
 		base = row.DefaultBranch
 	}
 	head := r.URL.Query().Get("head")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = h.d.Render.RenderPage(w, r, "repo/pull_new", map[string]any{
-		"Title":     "New pull request · " + row.Name,
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Base":      base,
-		"Head":      head,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+	if strings.TrimSpace(head) == "" {
+		http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/compare", http.StatusSeeOther)
+		return
+	}
+	h.renderPullNewForm(w, r, owner.Username, row, pullNewFormOptions{
+		Base: base,
+		Head: head,
 	})
+}
+
+type pullNewFormOptions struct {
+	Base      string
+	Head      string
+	FormTitle string
+	FormBody  string
+	Error     string
+	Status    int
+}
+
+func (h *Handlers) renderPullNewForm(w http.ResponseWriter, r *http.Request, owner string, row reposdb.Repo, opts pullNewFormOptions) {
+	gitDir, err := h.d.RepoFS.RepoPath(owner, row.Name)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	base := strings.TrimSpace(opts.Base)
+	if base == "" {
+		base = row.DefaultBranch
+	}
+	head := strings.TrimSpace(opts.Head)
+	if head == "" {
+		head = row.DefaultBranch
+	}
+	state := h.buildCompareState(r, owner, row, gitDir, base, head, true, compareMenuTargetPullNew)
+	formTitle := opts.FormTitle
+	if strings.TrimSpace(formTitle) == "" && opts.Error == "" {
+		formTitle = defaultPullTitle(state.Head, state.Commits)
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	status := opts.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	_ = h.d.Render.RenderPage(w, r, "repo/pull_new", mergePageData(
+		h.repoPageChrome(r, owner, row, "pulls"),
+		map[string]any{
+			"Title":               "Open a pull request · " + row.Name,
+			"UseCompareJS":        true,
+			"UseCommentEditor":    true,
+			"CommentEditorConfig": commentEditorConfigJSON(pullNewCommentEditorConfig(viewer)),
+			"Viewer":              viewer,
+			"ViewerAvatarURL":     commentEditorAvatarURL(viewer.Username),
+			"Error":               opts.Error,
+			"FormTitle":           formTitle,
+			"FormBody":            opts.FormBody,
+			"Base":                state.Base,
+			"Head":                state.Head,
+			"HasSelection":        state.HasSelection,
+			"SameRef":             state.SameRef,
+			"NotFound":            state.NotFound,
+			"CommitsErr":          state.CommitsErr,
+			"NoCommits":           state.NoCommits,
+			"Ahead":               state.Ahead,
+			"Behind":              state.Behind,
+			"Commits":             state.Commits,
+			"DiffHTML":            state.DiffHTML,
+			"Stats":               state.Stats,
+			"MergeState":          state.MergeState,
+			"CanOpenPull":         state.CanOpenPull,
+			"CanCreatePull":       state.CanOpenPull && !state.NotFound && !state.CommitsErr,
+			"PullNewHref":         state.PullNewHref,
+			"BaseMenu":            state.BaseMenu,
+			"HeadMenu":            state.HeadMenu,
+		},
+	))
 }
 
 // pullCreate handles POST /{owner}/{repo}/pulls.
@@ -266,18 +336,13 @@ func (h *Handlers) handlePullCreateError(w http.ResponseWriter, r *http.Request,
 	case errors.Is(err, issues.ErrBodyTooLong):
 		msg = "Body is too long."
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusBadRequest)
-	_ = h.d.Render.RenderPage(w, r, "repo/pull_new", map[string]any{
-		"Title":     "New pull request · " + row.Name,
-		"Owner":     owner,
-		"Repo":      row,
-		"Base":      r.PostFormValue("base"),
-		"Head":      r.PostFormValue("head"),
-		"FormTitle": r.PostFormValue("title"),
-		"FormBody":  r.PostFormValue("body"),
-		"Error":     msg,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
+	h.renderPullNewForm(w, r, owner, row, pullNewFormOptions{
+		Base:      r.PostFormValue("base"),
+		Head:      r.PostFormValue("head"),
+		FormTitle: r.PostFormValue("title"),
+		FormBody:  r.PostFormValue("body"),
+		Error:     msg,
+		Status:    http.StatusBadRequest,
 	})
 }
 

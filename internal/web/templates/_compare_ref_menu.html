@@ -1,0 +1,44 @@
+{{ define "compare-ref-menu" -}}
+{{ $menu := .Menu -}}
+<details class="shithub-compare-ref-menu" data-ref-menu>
+  <summary class="shithub-button shithub-button-small shithub-compare-ref-summary">
+    <span class="shithub-compare-ref-label">{{ $menu.Label }}</span>
+    <span class="shithub-compare-ref-current">{{ $menu.Current }}</span>
+    {{ octicon "triangle-down" }}
+  </summary>
+  <div class="shithub-compare-ref-panel">
+    <div class="shithub-compare-ref-panel-head">
+      <strong>{{ $menu.Title }}</strong>
+      <button type="button" class="shithub-icon-button shithub-compare-ref-close" aria-label="Close" data-ref-close>{{ octicon "x" }}</button>
+    </div>
+    <div class="shithub-compare-ref-filter">
+      {{ octicon "search" }}
+      <input type="search" placeholder="Find a branch" aria-label="Find a branch" data-ref-filter>
+    </div>
+    <div class="shithub-compare-ref-tabs" role="tablist" aria-label="{{ $menu.Title }}">
+      <button type="button" class="is-active" role="tab" aria-selected="true" data-ref-tab="branches">Branches</button>
+      <button type="button" role="tab" aria-selected="false" data-ref-tab="tags">Tags</button>
+    </div>
+    <div class="shithub-compare-ref-list" data-ref-panel="branches">
+      {{ range $menu.Branches }}
+      <a href="{{ .Href }}" class="shithub-compare-ref-option{{ if .Current }} is-current{{ end }}" data-ref-option data-ref-name="{{ .Name }}">
+        <span class="shithub-compare-ref-check">{{ if .Current }}{{ octicon "check" }}{{ end }}</span>
+        <span class="shithub-compare-ref-option-name">{{ .Name }}</span>
+        {{ if .IsDefault }}<span class="shithub-compare-ref-default">default</span>{{ end }}
+      </a>
+      {{ end }}
+      <div class="shithub-compare-ref-empty" data-ref-empty hidden>No matching branches.</div>
+    </div>
+    <div class="shithub-compare-ref-list" data-ref-panel="tags" hidden>
+      {{ range $menu.Tags }}
+      <a href="{{ .Href }}" class="shithub-compare-ref-option{{ if .Current }} is-current{{ end }}" data-ref-option data-ref-name="{{ .Name }}">
+        <span class="shithub-compare-ref-check">{{ if .Current }}{{ octicon "check" }}{{ end }}</span>
+        <span class="shithub-compare-ref-option-name">{{ .Name }}</span>
+        {{ if .IsDefault }}<span class="shithub-compare-ref-default">default</span>{{ end }}
+      </a>
+      {{ end }}
+      <div class="shithub-compare-ref-empty" data-ref-empty hidden>No matching tags.</div>
+    </div>
+  </div>
+</details>
+{{- end }}

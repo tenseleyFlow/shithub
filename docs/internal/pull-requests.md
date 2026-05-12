@@ -52,8 +52,12 @@ so a self-merge can't be opened. Cross-fork PRs land in S27.
 | `POST /{owner}/{repo}/pulls/{number}/ready`           | RequireUser   |
 | `POST /{owner}/{repo}/pulls/{number}/merge`           | RequireUser   |
 
-The compare view (S20) links into `/pulls/new?base=...&head=...` so
-the entry point matches GitHub's flow.
+The pull-request list's "New pull request" button starts at
+`/{owner}/{repo}/compare`, where the user picks base/head refs. Once
+the head is ahead of base, compare links into
+`/pulls/new?base=...&head=...`. `/pulls/new` redirects back to
+compare when no head ref is supplied so the GitHub-style branch picker
+remains the canonical entry point.
 
 ## Auto-synchronize on head push
 
@@ -148,6 +152,16 @@ noreply emails are post-MVP.
 
 ## Web UI
 
+- Compare/new-PR entry follows GitHub's range editor: base and head
+  dropdowns list branches and tags with live filtering, preserve the
+  opposite side of the comparison, and render compare URLs with the
+  `base...head` shape.
+- The open-PR page reuses the compare state: ahead/behind counts,
+  mergeability probe, commits, and three-dot diff all render before
+  submission. The form posts the selected refs as hidden fields.
+- The new PR description uses the shared GitHub-like Markdown editor
+  (write/preview, toolbar, mentions/references/saved replies shell).
+  Copilot suggestions are intentionally omitted.
 - Tabbed view at `/pulls/{number}` switches between Conversation,
   Commits, Files, Checks via the `Tab` field on the template data.
 - Conversation follows GitHub's PageHeader + tab strip shape: state

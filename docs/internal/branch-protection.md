@@ -10,6 +10,7 @@ hook.
 | ------------------------------------------------------- | ----------------------------- |
 | `GET /{owner}/{repo}/branches?filter=active|stale|`       | `branchesList`                |
 | `GET /{owner}/{repo}/tags`                              | `tagsList`                    |
+| `GET /{owner}/{repo}/compare`                           | `compareView`                 |
 | `GET /{owner}/{repo}/compare/{base}...{head}`           | `compareView`                 |
 | `GET /{owner}/{repo}/settings/branches`                 | `settingsBranches` (auth-gated) |
 | `POST /{owner}/{repo}/settings/branches`                | upsert rule                   |
@@ -50,10 +51,14 @@ first-class releases ship post-MVP.
 ## Compare view
 
 Inputs: `base` and `head` (defaults to `repo.default_branch` when
-empty). Renders:
+empty). The bare `/compare` route renders GitHub's branch/tag picker
+blank slate instead of redirecting to `default...default`. Renders:
 
-- A summary line: ahead/behind counts plus a "Create pull request"
-  button when `head` has commits not on `base`.
+- Base/head dropdowns listing local branches and tags with live
+  filtering. Cross-repo `fork:branch` input is still normalized to a
+  local ref until fork PRs ship.
+- A mergeability/status line plus a "Create pull request" button when
+  `head` has commits not on `base`.
 - The commits-list (head-side only) via
   `repogit.CommitsBetween(base, head, 250)`.
 - The three-dot diff via S19's renderer fed from
