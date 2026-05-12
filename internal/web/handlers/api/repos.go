@@ -92,7 +92,7 @@ func presentRepo(r reposdb.Repo, ownerLogin string) repoResponse {
 		OwnerType:     ownerType,
 		Description:   r.Description,
 		Visibility:    string(r.Visibility),
-		Private:       r.Visibility != reposdb.RepoVisibilityPublic,
+		Private:       string(r.Visibility) == "private",
 		DefaultBranch: r.DefaultBranch,
 		Fork:          r.ForkOfRepoID.Valid,
 		Archived:      r.IsArchived,
@@ -481,13 +481,16 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Archived != nil {
 		ldeps := lifecycle.Deps{Pool: h.d.Pool, RepoFS: h.d.RepoFS, Audit: h.d.Audit, Logger: h.d.Logger}
-		if *body.Archived && !repo.IsArchived {
+		wantArchived := *body.Archived
+		currentlyArchived := repo.IsArchived
+		switch {
+		case wantArchived && !currentlyArchived:
 			if err := lifecycle.Archive(r.Context(), ldeps, auth.UserID, repo.ID); err != nil {
 				h.d.Logger.ErrorContext(r.Context(), "api: archive", "error", err)
 				writeAPIError(w, http.StatusInternalServerError, "archive failed")
 				return
 			}
-		} else if !*body.Archived && repo.IsArchived {
+		case !wantArchived && currentlyArchived:
 			if err := lifecycle.Unarchive(r.Context(), ldeps, auth.UserID, repo.ID); err != nil {
 				h.d.Logger.ErrorContext(r.Context(), "api: unarchive", "error", err)
 				writeAPIError(w, http.StatusInternalServerError, "unarchive failed")
