@@ -28,6 +28,7 @@
 - [Organizations](./api/orgs.md)
 - [Repositories](./api/repos.md)
 - [Branches and tags](./api/branches.md)
+- [Repo collaborators](./api/collaborators.md)
 - [Issues](./api/issues.md)
 - [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)
