@@ -167,6 +167,27 @@ Expected response includes a new `run_id`, the new `run_index`, and
 `parent_run_id` equal to the source run. Confirm the new row has the
 same `head_sha` as the source run.
 
+Timeout smoke: create a workflow with a short deadline and a long-running
+step:
+
+```yaml
+jobs:
+  timeout_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: sleep 600
+```
+
+Expected results:
+
+- The runner kills the active container shortly after the one-minute
+  deadline.
+- The step row becomes `status=completed`,
+  `conclusion=timed_out`.
+- The job row becomes `status=completed`, `conclusion=timed_out`.
+- `/metrics` increments `shithub_actions_step_timeouts_total`.
+
 Replay check: reusing the log token after the log call must fail with
 401 because its `jti` is already present in `runner_jwt_used`.
 
@@ -184,7 +205,7 @@ Expected results:
   jobs are terminal.
 - The PR Checks tab shows the matching check run as success.
 - `/metrics` includes runner registration, heartbeat, JWT, job
-  cancellation, log-scrub, and retention counters.
+  cancellation, log-scrub, step-timeout, and retention counters.
 
 ## Retention Sweep
 
