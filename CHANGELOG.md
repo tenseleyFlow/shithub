@@ -105,6 +105,12 @@ between minor releases.
   `search/commits` and `search/users` endpoints, plus the
   `sort=`/`order=` knobs, are deferred to follow-ups.
 - **Capability:** `search` added to `/api/v1/meta`.
+- **REST: orgs (S50 §7).** `GET /api/v1/user/orgs` (self),
+  `GET /api/v1/users/{username}/orgs` (public; shithub has no
+  hidden membership distinction in v1),
+  `GET /api/v1/orgs/{org}` (single fetch; 404 for soft-deleted),
+  `GET /api/v1/orgs/{org}/members`. Scope: `user:read`.
+- **Capability:** `orgs` added to `/api/v1/meta`.
 
 ### Added (internal)
 
