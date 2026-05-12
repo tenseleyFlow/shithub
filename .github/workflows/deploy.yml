@@ -87,7 +87,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash /root/src/shithub/deploy/redeploy.sh'
+            'cd /root/src/shithub && git fetch --quiet origin trunk && git reset --hard origin/trunk && bash deploy/redeploy.sh'
 
       # Mirror the just-deployed SHA to the self-hosted shithub.sh
       # instance so anyone reading the source on shithub.sh sees the

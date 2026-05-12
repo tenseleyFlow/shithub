@@ -14,8 +14,9 @@
 #   1. fast-forward the source tree so deploy/ artifacts (this script,
 #      systemd units, env templates) match the binary that just landed
 #   2. atomically swap /usr/local/bin/shithubd
-#   3. apply pending migrations BEFORE restart (forward-compat only)
-#   4. restart web + worker, assert is-active
+#   3. install app systemd unit templates and daemon-reload
+#   4. apply pending migrations BEFORE restart (forward-compat only)
+#   5. restart web + worker, assert is-active
 
 set -euo pipefail
 
@@ -36,6 +37,12 @@ git reset --hard origin/trunk
 # scp'd file might land 0644.
 chmod 0755 "$NEW"
 mv -f "$NEW" "$BIN"
+
+install -m 0644 deploy/systemd/shithubd-web.service /etc/systemd/system/shithubd-web.service
+install -m 0644 deploy/systemd/shithubd-worker.service /etc/systemd/system/shithubd-worker.service
+install -m 0644 deploy/systemd/shithubd-cron.service /etc/systemd/system/shithubd-cron.service
+install -m 0644 deploy/systemd/shithubd-cron.timer /etc/systemd/system/shithubd-cron.timer
+systemctl daemon-reload
 
 # Migrations are usually invoked by the web unit's ExecStartPre, which
 # pulls env from /etc/shithub/web.env. Replicate that here so we apply
