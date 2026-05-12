@@ -20,11 +20,14 @@ type Querier interface {
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
+	CountPublicReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
+	CountPublicReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	// ─── rename rate limit support ─────────────────────────────────────────
 	// Used to enforce the 5-per-30-days rename rate limit. The redirect
 	// row is the audit trail for renames; counting them per repo gives a
 	// reliable cap.
 	CountRecentRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
+	CountReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	// ─── S27 forks ─────────────────────────────────────────────────────
 	// Insert a fork shell. Distinct from CreateRepo because forks set
@@ -97,6 +100,12 @@ type Querier interface {
 	ListProfilePinCandidateReposForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListProfilePinCandidateReposForUserRow, error)
 	ListProfilePinsForSet(ctx context.Context, db DBTX, setID int64) ([]ListProfilePinsForSetRow, error)
 	ListPublicContributionRepos(ctx context.Context, db DBTX, limit int32) ([]ListPublicContributionReposRow, error)
+	// Public-only org repo listing for non-member callers (and the no-auth
+	// public-discovery REST view).
+	ListPublicReposForOwnerOrg(ctx context.Context, db DBTX, arg ListPublicReposForOwnerOrgParams) ([]Repo, error)
+	// Public-only view of a user's repos for the "list another user's repos"
+	// REST endpoint. Hidden behind the same updated_at ordering.
+	ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg ListPublicReposForOwnerUserParams) ([]Repo, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
 	// The repo:hard_delete enqueuer queries this to find rows ready for
 	// destruction. The 7-day grace is hard-coded here; if we add a config
@@ -105,7 +114,15 @@ type Querier interface {
 	// ─── repo_topics (S32) ─────────────────────────────────────────────
 	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
 	ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error)
+	// Paginated mirror of ListReposForOwnerOrg for the REST list endpoint
+	// when the viewer is an org member and may see private repos.
+	ListReposForOwnerOrgPaged(ctx context.Context, db DBTX, arg ListReposForOwnerOrgPagedParams) ([]Repo, error)
 	ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
+	// Paginated mirror of ListReposForOwnerUser. Used by the REST surface
+	// where the caller is the owner (or a site admin) and is allowed to see
+	// private repos. Order matches the un-paginated form so callers can
+	// swap between them without observing a reshuffle.
+	ListReposForOwnerUserPaged(ctx context.Context, db DBTX, arg ListReposForOwnerUserPagedParams) ([]Repo, error)
 	// S28 code-search reconciler: returns repos whose default_branch_oid
 	// has advanced past last_indexed_oid (or last_indexed_oid is NULL
 	// and a default exists). Limited so a single tick of the cron

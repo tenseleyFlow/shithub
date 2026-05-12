@@ -36,6 +36,46 @@ func (q *Queries) CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pg
 	return count, err
 }
 
+const countPublicReposForOwnerOrg = `-- name: CountPublicReposForOwnerOrg :one
+SELECT count(*) FROM repos
+WHERE owner_org_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) CountPublicReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, countPublicReposForOwnerOrg, ownerOrgID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPublicReposForOwnerUser = `-- name: CountPublicReposForOwnerUser :one
+SELECT count(*) FROM repos
+WHERE owner_user_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) CountPublicReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, countPublicReposForOwnerUser, ownerUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countReposForOwnerOrg = `-- name: CountReposForOwnerOrg :one
+SELECT count(*) FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) CountReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error) {
+	row := db.QueryRow(ctx, countReposForOwnerOrg, ownerOrgID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countReposForOwnerUser = `-- name: CountReposForOwnerUser :one
 SELECT count(*) FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
@@ -918,6 +958,152 @@ func (q *Queries) ListPublicContributionRepos(ctx context.Context, db DBTX, limi
 	return items, nil
 }
 
+const listPublicReposForOwnerOrg = `-- name: ListPublicReposForOwnerOrg :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListPublicReposForOwnerOrgParams struct {
+	OwnerOrgID pgtype.Int8
+	Limit      int32
+	Offset     int32
+}
+
+// Public-only org repo listing for non-member callers (and the no-auth
+// public-discovery REST view).
+func (q *Queries) ListPublicReposForOwnerOrg(ctx context.Context, db DBTX, arg ListPublicReposForOwnerOrgParams) ([]Repo, error) {
+	rows, err := db.Query(ctx, listPublicReposForOwnerOrg, arg.OwnerOrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicReposForOwnerUser = `-- name: ListPublicReposForOwnerUser :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1
+  AND visibility = 'public'
+  AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListPublicReposForOwnerUserParams struct {
+	OwnerUserID pgtype.Int8
+	Limit       int32
+	Offset      int32
+}
+
+// Public-only view of a user's repos for the "list another user's repos"
+// REST endpoint. Hidden behind the same updated_at ordering.
+func (q *Queries) ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg ListPublicReposForOwnerUserParams) ([]Repo, error) {
+	rows, err := db.Query(ctx, listPublicReposForOwnerUser, arg.OwnerUserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRepoTopics = `-- name: ListRepoTopics :many
 
 SELECT topic FROM repo_topics WHERE repo_id = $1 ORDER BY topic ASC
@@ -1006,6 +1192,77 @@ func (q *Queries) ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID 
 	return items, nil
 }
 
+const listReposForOwnerOrgPaged = `-- name: ListReposForOwnerOrgPaged :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_org_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListReposForOwnerOrgPagedParams struct {
+	OwnerOrgID pgtype.Int8
+	Limit      int32
+	Offset     int32
+}
+
+// Paginated mirror of ListReposForOwnerOrg for the REST list endpoint
+// when the viewer is an org member and may see private repos.
+func (q *Queries) ListReposForOwnerOrgPaged(ctx context.Context, db DBTX, arg ListReposForOwnerOrgPagedParams) ([]Repo, error) {
+	rows, err := db.Query(ctx, listReposForOwnerOrgPaged, arg.OwnerOrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReposForOwnerUser = `-- name: ListReposForOwnerUser :many
 SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        default_branch, is_archived, archived_at, deleted_at,
@@ -1021,6 +1278,79 @@ ORDER BY updated_at DESC
 
 func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error) {
 	rows, err := db.Query(ctx, listReposForOwnerUser, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReposForOwnerUserPaged = `-- name: ListReposForOwnerUserPaged :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid
+FROM repos
+WHERE owner_user_id = $1 AND deleted_at IS NULL
+ORDER BY updated_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListReposForOwnerUserPagedParams struct {
+	OwnerUserID pgtype.Int8
+	Limit       int32
+	Offset      int32
+}
+
+// Paginated mirror of ListReposForOwnerUser. Used by the REST surface
+// where the caller is the owner (or a site admin) and is allowed to see
+// private repos. Order matches the un-paginated form so callers can
+// swap between them without observing a reshuffle.
+func (q *Queries) ListReposForOwnerUserPaged(ctx context.Context, db DBTX, arg ListReposForOwnerUserPagedParams) ([]Repo, error) {
+	rows, err := db.Query(ctx, listReposForOwnerUserPaged, arg.OwnerUserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
