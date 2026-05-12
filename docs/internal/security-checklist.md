@@ -93,6 +93,22 @@ document.
 | AEAD key rotation procedure documented | `docs/internal/2fa.md` | S06 |
 | Webhook secret-decryption failure auto-disables hook | `webhook.Deliver` + `AutoDisableWebhook` | S33 |
 
+## Actions / CI runner
+
+| Control | Enforced by | Sprint |
+|---|---|---|
+| Workflow parser rejects unsupported `uses:` aliases and unknown keys | `internal/actions/workflow` + parser tests | S41a |
+| Event-derived expressions are tainted and never spliced directly into shell text | `internal/actions/expr` + runner env-binding tests | S41a/S41d |
+| Actions secrets encrypted at rest | `internal/actions/secrets` + secretbox round-trip tests | S41c |
+| Claim-time secret mask snapshots survive later secret rotation/deletion | `workflow_job_secret_masks` + runner API log tests | S41e |
+| Runner job API JWTs are short-lived and single-use | `runner_jwt_used`, `runnerjwt`, runner API replay tests | S41c |
+| Checkout JWTs are separate, repo-scoped, and read-only | git HTTP checkout-token tests | S41h |
+| Runner step containers drop privileges and capabilities | Docker engine argv tests + runner deploy runbook | S41d/S41e |
+| Runner bridge blocks direct-IP egress and workflow-supplied DNS bypasses | `deploy/runner-config/{dnsmasq,firewall}.j2` + deploy runbook smoke | S41e |
+| Logs are scrubbed runner-side and server-side | `internal/runner/scrub`, server log path tests, scrub metrics | S41e |
+| Actions observability alerts cover stale runners, queue depth, p99 regression, and scrubber health | Prometheus rules + `make audit-actions-ga` | S41h |
+| Full project CI dogfood remains canary-only until marketplace/toolchain gaps close | `docs/internal/actions-ga-readiness.md` + `make audit-actions-ga` | S41h |
+
 ## Operator controls
 
 | Control | Enforced by | Sprint |
