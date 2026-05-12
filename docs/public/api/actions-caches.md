@@ -16,10 +16,13 @@ Scopes:
 ## Endpoints
 
 ```
-GET    /api/v1/repos/{o}/{r}/actions/caches[?key=&ref=&page=&per_page=]
-DELETE /api/v1/repos/{o}/{r}/actions/caches?key=...[&ref=...]
-DELETE /api/v1/repos/{o}/{r}/actions/caches/{cache_id}
+GET    /api/v1/repos/{owner}/{repo}/actions/caches
+DELETE /api/v1/repos/{owner}/{repo}/actions/caches
+DELETE /api/v1/repos/{owner}/{repo}/actions/caches/{cache_id}
 ```
+
+`GET` accepts `?key=&ref=&page=&per_page=`. `DELETE` without a
+`{cache_id}` deletes by `?key=...` and optional `&ref=...`.
 
 ## List response
 
