@@ -324,6 +324,26 @@ between minor releases.
   transcript with `##[group]`/`##[endgroup]` step markers).
 - **Capabilities:** `actions-artifacts`, `actions-job-logs` added to
   `/api/v1/meta`.
+- **REST: actions secrets + variables (S50 §13 part 3).**
+  New `internal/auth/sealbox` package owns the server's X25519
+  keypair and exposes NaCl `SealedBox` decode. Clients fetch the
+  public key via
+  `GET /api/v1/repos/{o}/{r}/actions/secrets/public-key` (and the
+  org analog), encrypt the secret value with `crypto_box_seal`, and
+  PUT the base64 ciphertext + key_id. Server validates key_id,
+  decrypts in memory, then re-encrypts with the shared storage
+  AEAD for at-rest persistence — plaintext never reaches postgres.
+  Secrets CRUD: `GET .../secrets`, `GET .../secrets/{name}`,
+  `PUT .../secrets/{name}`, `DELETE .../secrets/{name}`. Variables
+  CRUD (plaintext, `${{ vars.NAME }}` namespace): `GET/POST
+  .../variables`, `GET/PATCH/DELETE .../variables/{name}`. Both
+  surfaces have repo- and org-scoped variants. Operator setup:
+  `SHITHUB_ACTIONS__SECRETS__BOX_PRIVATE_KEY_B64` carries the
+  X25519 private key (32 bytes base64); unset means
+  auto-generated-per-process with a loud warning at startup, which
+  is dev-only behavior.
+- **Capabilities:** `actions-secrets`, `actions-variables` added to
+  `/api/v1/meta`.
 
 ### Added (internal)
 
