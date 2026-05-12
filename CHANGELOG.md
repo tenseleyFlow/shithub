@@ -360,6 +360,21 @@ between minor releases.
   this REST surface lands first so operators have an audit + purge
   seat for when caches arrive.
 - **Capability:** `actions-caches` added to `/api/v1/meta`.
+- **REST: repos follow-ups (S50 §2 closure).**
+  `GET /api/v1/repos/{o}/{r}/readme[?ref=]` returns the repo's
+  README as a base64-encoded blob with `download_url` for the raw
+  bytes (capped at 1 MiB to match the HTML render cap; prefers
+  `.md`/`.markdown` over plain text when multiple READMEs exist).
+  `PUT /api/v1/repos/{o}/{r}/topics` and
+  `DELETE .../topics` replace and clear the topic set atomically
+  (server-side normalization: lowercase, dedup; constraints: max
+  20, 1–50 chars of `[a-z0-9-]`). `POST .../merge-upstream`
+  fast-forwards a fork's default branch to its upstream — refuses
+  non-forks with 422 and divergent forks with 409 (users must
+  reconcile locally). Scopes: `repo:read` on README,
+  `repo:write` on topics and merge-upstream.
+- **Capabilities:** `readme`, `topics`, `merge-upstream` added to
+  `/api/v1/meta`.
 
 ### Added (internal)
 
