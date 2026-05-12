@@ -41,6 +41,7 @@
 - [Actions workflows (list/dispatch)](./api/actions-workflows.md)
 - [Actions lifecycle (enable/disable + run delete + artifacts + job logs)](./api/actions-lifecycle.md)
 - [Actions secrets + variables](./api/actions-secrets.md)
+- [Actions caches](./api/actions-caches.md)
 - [Actions workflow runs](./api/actions-runs.md)
 - [Actions runner API](./api/actions-runner.md)
 - [Webhooks](./api/webhooks.md)

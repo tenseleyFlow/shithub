@@ -344,6 +344,22 @@ between minor releases.
   is dev-only behavior.
 - **Capabilities:** `actions-secrets`, `actions-variables` added to
   `/api/v1/meta`.
+- **REST: actions caches (S50 §13 part 4 — §13 closure).** New
+  migration `0065_workflow_caches` adds the `workflow_caches` table
+  keyed on `(repo_id, cache_key, cache_version, git_ref)` with
+  size + last_accessed_at + object_key columns and a unique
+  constraint. REST surface:
+  `GET /api/v1/repos/{o}/{r}/actions/caches` (paginated; optional
+  `?key=` and `?ref=` filters; standard `Link:` headers; sorted
+  recency-DESC by `last_accessed_at`),
+  `DELETE .../actions/caches/{cache_id}` (single delete with
+  cross-repo 404 guard + best-effort async S3 cleanup),
+  `DELETE .../actions/caches?key=...[&ref=...]` (bulk delete by
+  key; idempotent — 204 even with zero matches). The runner-side
+  upload protocol that POPULATES this table is a future sprint;
+  this REST surface lands first so operators have an audit + purge
+  seat for when caches arrive.
+- **Capability:** `actions-caches` added to `/api/v1/meta`.
 
 ### Added (internal)
 

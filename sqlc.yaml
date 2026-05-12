@@ -241,6 +241,12 @@ sql:
         emit_exact_table_names: false
         emit_empty_slices: true
         emit_methods_with_db_argument: true
+        rename:
+          # sqlc strips "-es" suffixes naively; ours has a CH cluster so
+          # the default singular "WorkflowCach" reads as a typo. The
+          # rename targets the pre-snake-case Go identifier sqlc would
+          # otherwise emit, not the table name.
+          workflow_cach: WorkflowCache
 
   - engine: postgresql
     schema: internal/migrationsfs/migrations
