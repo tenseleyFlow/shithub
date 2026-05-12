@@ -11,14 +11,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
-	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -38,32 +36,27 @@ func (h *Handlers) mountChecks(r chi.Router) {
 	})
 }
 
-// resolveRepo loads the repo for {owner}/{repo} and confirms the
-// PAT-authenticated user has the `action` permission. Returns the
-// resolved repo (or nil, false on failure with response written).
+// resolveAPIRepo loads the repo for {owner}/{repo} (user OR org-owned)
+// and confirms the PAT-authenticated actor satisfies `action`. Returns
+// the resolved repo, or nil + false after writing the response on
+// failure. Visibility misses 404 (existence-leak-safe), matching the
+// rest of the /api/v1 surface.
+//
+// Authentication required for all actions except plain ActionRepoRead /
+// ActionIssueRead / ActionPullRead, where anonymous callers go through
+// the policy gate (which itself denies private repos by visibility).
 func (h *Handlers) resolveAPIRepo(w http.ResponseWriter, r *http.Request, action policy.Action) (*reposdb.Repo, bool) {
 	auth := middleware.PATAuthFromContext(r.Context())
-	if auth.UserID == 0 {
+	if auth.UserID == 0 && actionRequiresAuth(action) {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
 		return nil, false
 	}
-	owner, err := usersdb.New().GetUserByUsername(r.Context(), h.d.Pool, chi.URLParam(r, "owner"))
-	if err != nil {
-		writeAPIError(w, http.StatusNotFound, "repo not found")
-		return nil, false
-	}
-	repo, err := reposdb.New().GetRepoByOwnerUserAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
-		OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
-		Name:        chi.URLParam(r, "repo"),
-	})
+	repo, _, err := lookupRepoByLogin(r, h.d.Pool, chi.URLParam(r, "owner"), chi.URLParam(r, "repo"))
 	if err != nil {
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return nil, false
 	}
 	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo)).Allow {
-		// Existence-leak: 404 instead of 403 when the actor can't see
-		// the repo. The PAT-scope check above is the public 403; this
-		// is the visibility gate.
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return nil, false
 	}
