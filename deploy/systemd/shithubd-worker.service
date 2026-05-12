@@ -25,7 +25,13 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# RestrictSUIDSGID intentionally OFF: org GitHub imports create repos
+# from the worker, and `git init --bare --shared=group` calls chmod g+s
+# on the directories it creates so cross-user writes inherit the shared
+# group. With RestrictSUIDSGID=yes the kernel returns EPERM and git emits
+# "Could not make .../branches/ writable by group", leaving imports
+# failed before any fetch occurs.
+RestrictSUIDSGID=no
 LockPersonality=yes
 
 [Install]
