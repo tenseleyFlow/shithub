@@ -172,6 +172,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountCollaborators(r)
 		// S50 §11 — commits (read-only).
 		h.mountCommits(r)
+		// S50 §12 — repo contents (file/dir at ref).
+		h.mountContents(r)
 	})
 }
 
