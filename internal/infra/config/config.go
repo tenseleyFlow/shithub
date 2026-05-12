@@ -16,6 +16,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -39,6 +40,7 @@ type Config struct {
 	Auth           AuthConfig           `toml:"auth"`
 	Notif          NotifConfig          `toml:"notif"`
 	RateLimit      RateLimitConfig      `toml:"ratelimit"`
+	Billing        BillingConfig        `toml:"billing"`
 }
 
 // RateLimitConfig configures runtime rate-limit budgets for surfaces that
@@ -69,6 +71,27 @@ type APIRateLimitConfig struct {
 // warning when it fires.
 type NotifConfig struct {
 	UnsubscribeKeyB64 string `toml:"unsubscribe_key_b64"`
+}
+
+// BillingConfig controls paid-organization enforcement and the payment
+// processor integration. Stripe is the first supported processor and remains
+// optional until operators provide live or test-mode credentials.
+type BillingConfig struct {
+	Enabled     bool                `toml:"enabled"`
+	GracePeriod time.Duration       `toml:"grace_period"`
+	Stripe      StripeBillingConfig `toml:"stripe"`
+}
+
+// StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
+// URLs are optional; when omitted the web layer derives them from auth.base_url.
+type StripeBillingConfig struct {
+	SecretKey       string `toml:"secret_key"`
+	WebhookSecret   string `toml:"webhook_secret"`
+	TeamPriceID     string `toml:"team_price_id"`
+	SuccessURL      string `toml:"success_url"`
+	CancelURL       string `toml:"cancel_url"`
+	PortalReturnURL string `toml:"portal_return_url"`
+	AutomaticTax    bool   `toml:"automatic_tax"`
 }
 
 // WebConfig holds HTTP server settings.
@@ -214,6 +237,9 @@ func Defaults() Config {
 			SampleRate:  0.05,
 			ServiceName: "shithubd",
 		},
+		Billing: BillingConfig{
+			GracePeriod: 14 * 24 * time.Hour,
+		},
 		Session: SessionConfig{
 			MaxAge: 30 * 24 * time.Hour,
 			Secure: false,
@@ -358,6 +384,54 @@ func Validate(c *Config) error {
 	}
 	if c.RateLimit.API.AnonPerHour == 0 {
 		c.RateLimit.API.AnonPerHour = 60
+	}
+	if err := validateBilling(c); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateBilling(c *Config) error {
+	if c.Billing.GracePeriod < 0 {
+		return fmt.Errorf("config: billing.grace_period: must be >= 0, got %v", c.Billing.GracePeriod)
+	}
+	for key, raw := range map[string]string{
+		"billing.stripe.success_url":       c.Billing.Stripe.SuccessURL,
+		"billing.stripe.cancel_url":        c.Billing.Stripe.CancelURL,
+		"billing.stripe.portal_return_url": c.Billing.Stripe.PortalReturnURL,
+	} {
+		if err := validateOptionalHTTPURL(key, raw); err != nil {
+			return err
+		}
+	}
+	if !c.Billing.Enabled {
+		return nil
+	}
+	if c.Billing.Stripe.SecretKey == "" {
+		return errors.New("config: billing.stripe.secret_key is required when billing.enabled=true")
+	}
+	if c.Billing.Stripe.WebhookSecret == "" {
+		return errors.New("config: billing.stripe.webhook_secret is required when billing.enabled=true")
+	}
+	if c.Billing.Stripe.TeamPriceID == "" {
+		return errors.New("config: billing.stripe.team_price_id is required when billing.enabled=true")
+	}
+	if err := validateOptionalHTTPURL("auth.base_url", c.Auth.BaseURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateOptionalHTTPURL(key, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("config: %s: parse: %w", key, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("config: %s: must be an absolute http(s) URL", key)
 	}
 	return nil
 }

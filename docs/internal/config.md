@@ -68,6 +68,15 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
 | `auth.argon2.threads` | uint8 | `2` | argon2id parallelism. |
 | `auth.totp_key_b64` | string | `""` | Base64 32-byte AEAD key for at-rest TOTP secrets. Aliased by `SHITHUB_TOTP_KEY`. Empty disables 2FA enrollment routes. |
+| `billing.enabled` | bool | `false` | Enables paid-organization Stripe Billing flows. When false, org plan state is local-only. |
+| `billing.grace_period` | duration | `336h` | Lock grace window applied after failed subscription payments. |
+| `billing.stripe.secret_key` | string | `""` | Stripe secret API key. Required when `billing.enabled=true`. Redacted. |
+| `billing.stripe.webhook_secret` | string | `""` | Stripe webhook signing secret. Required when `billing.enabled=true`. Redacted. |
+| `billing.stripe.team_price_id` | string | `""` | Stripe recurring Price ID for the Team plan seat. Required when `billing.enabled=true`. |
+| `billing.stripe.success_url` | string | `""` | Optional absolute Checkout success URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
+| `billing.stripe.cancel_url` | string | `""` | Optional absolute Checkout cancel URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
+| `billing.stripe.portal_return_url` | string | `""` | Optional absolute Billing Portal return URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
+| `billing.stripe.automatic_tax` | bool | `false` | Enables Stripe Checkout automatic tax collection when the Stripe account is configured for it. |
 
 ## Env-var examples
 
@@ -97,6 +106,12 @@ export SHITHUB_SESSION_KEY=$(openssl rand -base64 32)
 # Gate /metrics behind Basic auth
 export SHITHUB_METRICS__BASIC_AUTH_USER=prom
 export SHITHUB_METRICS__BASIC_AUTH_PASS=<long-random>
+
+# Enable Stripe Billing in test mode
+export SHITHUB_BILLING__ENABLED=true
+export SHITHUB_BILLING__STRIPE__SECRET_KEY=sk_test_...
+export SHITHUB_BILLING__STRIPE__WEBHOOK_SECRET=whsec_...
+export SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID=price_...
 ```
 
 ## Secrets

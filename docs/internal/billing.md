@@ -146,6 +146,19 @@ and the migration backfills existing organizations as Free. Subscription
 snapshot writes also keep `orgs.plan` synchronized as the
 human-facing summary.
 
+PAYMENTS SP03 adds the first Stripe operator contract:
+
+- `billing.enabled=false` keeps paid-org flows disabled while retaining
+  the local billing tables.
+- `billing.stripe.secret_key`, `billing.stripe.webhook_secret`, and
+  `billing.stripe.team_price_id` are required before Stripe routes are
+  mounted.
+- Checkout success, Checkout cancel, and Billing Portal return URLs may
+  be overridden explicitly; otherwise the web layer derives absolute
+  organization URLs from `auth.base_url`.
+- `billing.grace_period` controls how long failed-payment states may
+  remain unlocked before paid entitlements are cut off.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
