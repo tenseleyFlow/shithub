@@ -31,6 +31,7 @@
 - [Repo collaborators](./api/collaborators.md)
 - [Commits](./api/commits.md)
 - [Contents](./api/contents.md)
+- [Forks](./api/forks.md)
 - [Issues](./api/issues.md)
 - [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)
