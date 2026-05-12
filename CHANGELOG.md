@@ -125,6 +125,15 @@ between minor releases.
   misconfigurations surface synchronously instead of as silent
   delivery failures.
 - **Capability:** `webhooks` added to `/api/v1/meta`.
+- **REST: branches + tags (S50 §9).** Read-only ref enumeration:
+  `GET /api/v1/repos/{o}/{r}/branches` (paginated; each entry
+  carries `protected` reflecting the longest-prefix match against
+  the configured branch-protection rules, plus `is_default`),
+  `GET /api/v1/repos/{o}/{r}/branches/{name}` (slashes in branch
+  names accepted verbatim or URL-encoded), and
+  `GET /api/v1/repos/{o}/{r}/tags` (paginated). Scope: `repo:read`.
+  Empty / uninitialised repos return `[]` rather than `404`.
+- **Capabilities:** `branches`, `tags` added to `/api/v1/meta`.
 
 ### Added (internal)
 
