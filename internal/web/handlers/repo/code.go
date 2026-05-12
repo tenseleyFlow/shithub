@@ -220,6 +220,10 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 	if headFound {
 		headAuthor = identity.New(h.d.Pool).Resolve(r.Context(), head.AuthorEmail)
 	}
+	headCheckSummary := codeCommitCheckSummary{}
+	if headFound {
+		headCheckSummary = h.codeCommitCheckSummary(r.Context(), cc.owner, cc.row.Name, cc.row.ID, head.OID)
+	}
 	commitCount, countErr := repogit.CountCommits(r.Context(), cc.gitDir, cc.ref)
 	if countErr != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: CountCommits", "error", countErr)
@@ -251,6 +255,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"Head":          head,
 		"HeadFound":     headFound,
 		"HeadAuthor":    headAuthor,
+		"HeadChecks":    headCheckSummary,
 		"BranchCompare": codeBranchCompareData(r.Context(), cc),
 		"CommitCount":   commitCount,
 		"README":        template.HTML(readme.HTML), //nolint:gosec // sanitized by mdrender

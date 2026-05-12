@@ -378,7 +378,7 @@ func (d *Docker) dockerInvocation(job Job, step Step) (dockerInvocation, error) 
 		"--ulimit", "nproc=" + defaultNprocLimit,
 		"--user", user,
 		"--workdir=" + workdir,
-		"--mount", "type=bind,src=" + job.WorkspaceDir + ",dst=/workspace,rw",
+		"--mount", "type=bind,src=" + job.WorkspaceDir + ",dst=/workspace",
 	}
 	for _, dns := range d.cfg.DNSServers {
 		dns = strings.TrimSpace(dns)

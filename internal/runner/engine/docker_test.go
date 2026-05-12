@@ -153,7 +153,7 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 	if !reflect.DeepEqual(rec.args, want) {
 		t.Fatalf("args:\ngot  %#v\nwant %#v", rec.args, want)
 	}
-	if !strings.HasPrefix(rec.args[25], "type=bind,src=") || !strings.HasSuffix(rec.args[25], ",dst=/workspace,rw") {
+	if !strings.HasPrefix(rec.args[25], "type=bind,src=") || !strings.HasSuffix(rec.args[25], ",dst=/workspace") || strings.Contains(rec.args[25], ",rw") {
 		t.Fatalf("workspace mount arg: %q", rec.args[25])
 	}
 	if wantEnv := []string{"A=job", "B=step"}; !reflect.DeepEqual(rec.env, wantEnv) {
