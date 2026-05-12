@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/checksync"
+	"github.com/tenseleyFlow/shithub/internal/actions/concurrency"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/checks"
@@ -72,9 +74,8 @@ type EnqueueParams struct {
 	TriggerEventID string
 
 	// Workflow is the parsed workflow. The matching jobs/steps are
-	// persisted; concurrency.group is captured at trigger time as a
-	// string (expression resolution against the event context lands
-	// in S41g when the slot manager actually consumes it).
+	// persisted; concurrency.group is resolved against the trigger
+	// context and enforced before runners can claim younger jobs.
 	Workflow *workflow.Workflow
 }
 
@@ -110,6 +111,15 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	if err := validateParams(&p); err != nil {
 		return Result{}, err
 	}
+	concurrencyResolution, err := concurrency.Resolve(concurrency.ResolveInput{
+		Workflow:     p.Workflow,
+		EventPayload: p.EventPayload,
+		HeadSHA:      p.HeadSHA,
+		HeadRef:      p.HeadRef,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: concurrency: %w", err)
+	}
 
 	q := actionsdb.New()
 
@@ -138,8 +148,6 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		return Result{}, fmt.Errorf("trigger: marshal event payload: %w", err)
 	}
 
-	concurrencyGroup := p.Workflow.Concurrency.Group.Raw
-
 	run, err := q.EnqueueWorkflowRun(ctx, tx, actionsdb.EnqueueWorkflowRunParams{
 		RepoID:           p.RepoID,
 		RunIndex:         runIndex,
@@ -151,7 +159,7 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		EventPayload:     payloadBytes,
 		ActorUserID:      pgInt8(p.ActorUserID),
 		ParentRunID:      pgInt8(p.ParentRunID),
-		ConcurrencyGroup: concurrencyGroup,
+		ConcurrencyGroup: concurrencyResolution.Group,
 		NeedApproval:     false,
 		TriggerEventID:   p.TriggerEventID,
 	})
@@ -238,10 +246,25 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		}
 	}
 
+	concurrencyResult, err := concurrency.Enforce(ctx, q, tx, concurrency.EnforceParams{
+		Run:              run,
+		CancelInProgress: concurrencyResolution.CancelInProgress,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: enforce concurrency: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("trigger: commit run tx: %w", err)
 	}
 	committed = true
+
+	if len(concurrencyResult.CancelledJobs) > 0 {
+		metrics.ActionsJobsCancelledTotal.WithLabelValues(concurrency.CancelReason).Add(float64(len(concurrencyResult.CancelledJobs)))
+		checksync.ChangedJobs(ctx, checksync.Deps{Pool: deps.Pool, Logger: deps.Logger}, concurrencyResult.CancelledJobs)
+	} else if !concurrencyResolution.CancelInProgress && len(concurrencyResult.BlockingRuns) > 0 {
+		metrics.ActionsConcurrencyQueuedTotal.Inc()
+	}
 
 	// check_run rows: separate concern, post-commit so the run+jobs+
 	// steps are durable before we touch a different subsystem. ExternalID

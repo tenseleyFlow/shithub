@@ -102,7 +102,9 @@ WHERE runner_id = sqlc.arg(runner_id)::bigint AND status = 'running';
 WITH candidate AS (
     SELECT j.id
     FROM workflow_jobs j
+    JOIN workflow_runs r ON r.id = j.run_id
     WHERE j.status = 'queued'
+      AND r.status IN ('queued', 'running')
       AND j.cancel_requested = false
       AND j.runner_id IS NULL
       AND (j.runs_on = '' OR j.runs_on = ANY(sqlc.arg(labels)::text[]))
@@ -112,6 +114,23 @@ WITH candidate AS (
           WHERE dep.run_id = j.run_id
             AND dep.job_key = ANY(j.needs_jobs)
             AND (dep.status <> 'completed' OR dep.conclusion <> 'success')
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM workflow_runs blocker
+          WHERE r.concurrency_group <> ''
+            AND blocker.repo_id = r.repo_id
+            AND blocker.concurrency_group = r.concurrency_group
+            AND blocker.id <> r.id
+            AND blocker.status IN ('queued', 'running')
+            AND (blocker.created_at, blocker.id) < (r.created_at, r.id)
+            AND EXISTS (
+                SELECT 1
+                FROM workflow_jobs blocker_job
+                WHERE blocker_job.run_id = blocker.id
+                  AND blocker_job.status IN ('queued', 'running')
+                  AND blocker_job.cancel_requested = false
+            )
       )
     ORDER BY j.created_at ASC, j.id ASC
     FOR UPDATE OF j SKIP LOCKED

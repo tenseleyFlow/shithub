@@ -62,6 +62,34 @@ SELECT id, repo_id, run_index, workflow_file, workflow_name,
 FROM workflow_runs
 WHERE id = $1;
 
+-- name: ListBlockingConcurrencyRunsForUpdate :many
+-- Older queued/running runs with the same group block the new run while they
+-- still have at least one queued/running job that has not already received a
+-- cancel request. cancel-in-progress releases the slot by flipping that job
+-- flag even if the runner is still draining the old container.
+SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
+       r.head_sha, r.head_ref, r.event, r.event_payload,
+       r.actor_user_id, r.parent_run_id, r.concurrency_group,
+       r.status, r.conclusion, r.pinned, r.need_approval, r.approved_by_user_id,
+       r.started_at, r.completed_at, r.version, r.created_at, r.updated_at, r.trigger_event_id
+FROM workflow_runs r
+JOIN workflow_runs current_run ON current_run.id = sqlc.arg(run_id)::bigint
+WHERE r.repo_id = sqlc.arg(repo_id)::bigint
+  AND r.concurrency_group = sqlc.arg(concurrency_group)::text
+  AND r.concurrency_group <> ''
+  AND r.id <> current_run.id
+  AND r.status IN ('queued', 'running')
+  AND (r.created_at, r.id) < (current_run.created_at, current_run.id)
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_jobs j
+      WHERE j.run_id = r.id
+        AND j.status IN ('queued', 'running')
+        AND j.cancel_requested = false
+  )
+ORDER BY r.created_at ASC, r.id ASC
+FOR UPDATE OF r;
+
 -- name: GetWorkflowRunForRepoByIndex :one
 SELECT r.id, r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
        r.head_sha, r.head_ref, r.event, r.event_payload,
