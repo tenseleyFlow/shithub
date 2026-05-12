@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -188,7 +189,7 @@ func normalizeIssueState(s string) pgtype.Text {
 	}
 }
 
-func (h *Handlers) labelNamesFor(ctx httpRequestCtx, issueID int64) []string {
+func (h *Handlers) labelNamesFor(ctx context.Context, issueID int64) []string {
 	rows, err := issuesdb.New().ListLabelsOnIssue(ctx, h.d.Pool, issueID)
 	if err != nil {
 		return nil
@@ -198,19 +199,6 @@ func (h *Handlers) labelNamesFor(ctx httpRequestCtx, issueID int64) []string {
 		out = append(out, r.Name)
 	}
 	return out
-}
-
-// httpRequestCtx is a tiny alias used only as a parameter type so the
-// labelNamesFor signature reads naturally (we don't want to import net.
-// or context in this file just for that). We rely on Go assigning the
-// request context to context.Context via the implicit interface.
-type httpRequestCtx = ctxLike
-
-type ctxLike interface {
-	Deadline() (time.Time, bool)
-	Done() <-chan struct{}
-	Err() error
-	Value(any) any
 }
 
 // ─── single get ─────────────────────────────────────────────────────
