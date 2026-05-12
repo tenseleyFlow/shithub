@@ -57,6 +57,10 @@ type Querier interface {
 	ListLabels(ctx context.Context, db DBTX, repoID int64) ([]Label, error)
 	ListLabelsOnIssue(ctx context.Context, db DBTX, issueID int64) ([]Label, error)
 	ListMilestones(ctx context.Context, db DBTX, repoID int64) ([]Milestone, error)
+	// Cross-repository profile contribution activity. The handler performs the
+	// final repo visibility gate with policy.IsVisibleTo so private issues and
+	// PRs never leak through the public profile timeline.
+	ListProfileAuthoredIssuesForUser(ctx context.Context, db DBTX, arg ListProfileAuthoredIssuesForUserParams) ([]ListProfileAuthoredIssuesForUserRow, error)
 	// Open + closed counts for the milestone progress bar.
 	MilestoneIssueCounts(ctx context.Context, db DBTX, milestoneID pgtype.Int8) (MilestoneIssueCountsRow, error)
 	RemoveIssueLabel(ctx context.Context, db DBTX, arg RemoveIssueLabelParams) error

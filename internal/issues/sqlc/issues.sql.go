@@ -765,6 +765,92 @@ func (q *Queries) ListMilestones(ctx context.Context, db DBTX, repoID int64) ([]
 	return items, nil
 }
 
+const listProfileAuthoredIssuesForUser = `-- name: ListProfileAuthoredIssuesForUser :many
+SELECT
+    i.id, i.repo_id, i.number, i.kind, i.title, i.state, i.created_at, i.closed_at,
+    pr.merged_at,
+    r.name AS repo_name, r.visibility, r.owner_user_id, r.owner_org_id,
+    COALESCE(u.username, o.slug)::text AS owner_slug
+FROM issues i
+JOIN repos r ON r.id = i.repo_id
+LEFT JOIN pull_requests pr ON pr.issue_id = i.id
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
+WHERE i.author_user_id = $1
+  AND i.created_at >= $2
+  AND i.created_at < $3
+  AND r.deleted_at IS NULL
+ORDER BY i.created_at DESC, i.id DESC
+LIMIT $4
+`
+
+type ListProfileAuthoredIssuesForUserParams struct {
+	AuthorUserID pgtype.Int8
+	CreatedAt    pgtype.Timestamptz
+	CreatedAt_2  pgtype.Timestamptz
+	Limit        int32
+}
+
+type ListProfileAuthoredIssuesForUserRow struct {
+	ID          int64
+	RepoID      int64
+	Number      int64
+	Kind        IssueKind
+	Title       string
+	State       IssueState
+	CreatedAt   pgtype.Timestamptz
+	ClosedAt    pgtype.Timestamptz
+	MergedAt    pgtype.Timestamptz
+	RepoName    string
+	Visibility  RepoVisibility
+	OwnerUserID pgtype.Int8
+	OwnerOrgID  pgtype.Int8
+	OwnerSlug   string
+}
+
+// Cross-repository profile contribution activity. The handler performs the
+// final repo visibility gate with policy.IsVisibleTo so private issues and
+// PRs never leak through the public profile timeline.
+func (q *Queries) ListProfileAuthoredIssuesForUser(ctx context.Context, db DBTX, arg ListProfileAuthoredIssuesForUserParams) ([]ListProfileAuthoredIssuesForUserRow, error) {
+	rows, err := db.Query(ctx, listProfileAuthoredIssuesForUser,
+		arg.AuthorUserID,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProfileAuthoredIssuesForUserRow{}
+	for rows.Next() {
+		var i ListProfileAuthoredIssuesForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.Number,
+			&i.Kind,
+			&i.Title,
+			&i.State,
+			&i.CreatedAt,
+			&i.ClosedAt,
+			&i.MergedAt,
+			&i.RepoName,
+			&i.Visibility,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.OwnerSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const milestoneIssueCounts = `-- name: MilestoneIssueCounts :one
 SELECT
     count(*) FILTER (WHERE state = 'open')::int   AS open_count,

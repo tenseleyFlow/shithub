@@ -206,6 +206,27 @@ SELECT * FROM issue_events
 WHERE issue_id = $1
 ORDER BY created_at ASC;
 
+-- name: ListProfileAuthoredIssuesForUser :many
+-- Cross-repository profile contribution activity. The handler performs the
+-- final repo visibility gate with policy.IsVisibleTo so private issues and
+-- PRs never leak through the public profile timeline.
+SELECT
+    i.id, i.repo_id, i.number, i.kind, i.title, i.state, i.created_at, i.closed_at,
+    pr.merged_at,
+    r.name AS repo_name, r.visibility, r.owner_user_id, r.owner_org_id,
+    COALESCE(u.username, o.slug)::text AS owner_slug
+FROM issues i
+JOIN repos r ON r.id = i.repo_id
+LEFT JOIN pull_requests pr ON pr.issue_id = i.id
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs o ON o.id = r.owner_org_id
+WHERE i.author_user_id = $1
+  AND i.created_at >= $2
+  AND i.created_at < $3
+  AND r.deleted_at IS NULL
+ORDER BY i.created_at DESC, i.id DESC
+LIMIT $4;
+
 -- name: InsertIssueReference :exec
 INSERT INTO issue_references (
     source_issue_id, target_issue_id, source_kind, source_object_id
