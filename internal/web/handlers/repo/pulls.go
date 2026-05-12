@@ -84,6 +84,8 @@ type pullCommitGroup struct {
 // KindPRMerge in the audit remediation sprint.)
 func (h *Handlers) MountPulls(r chi.Router) {
 	r.Get("/{owner}/{repo}/pulls", h.pullsList)
+	r.Get("/{owner}/{repo}/pulls/{number}.diff", h.pullRawDiff)
+	r.Get("/{owner}/{repo}/pulls/{number}.patch", h.pullRawDiff)
 	r.Get("/{owner}/{repo}/pulls/{number}", h.pullView)
 	r.Get("/{owner}/{repo}/pulls/{number}/files", h.pullFiles)
 	r.Get("/{owner}/{repo}/pulls/{number}/commits", h.pullCommits)
@@ -537,6 +539,9 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
 		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
+		"UseCommentEditor":      true,
+		"ViewerAvatarURL":       commentEditorAvatarURL(viewer.Username),
+		"CommentEditorConfig":   commentEditorConfigJSON(h.pullCommentEditorConfig(r.Context(), row, pr, viewer, comments, assignees, reviews, requests)),
 	})
 }
 
@@ -699,6 +704,39 @@ func pullFileAnchor(p string) string {
 		}
 	}
 	return b.String()
+}
+
+func (h *Handlers) pullRawDiff(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	pr, ok := h.loadPullByNumber(w, r, row.ID)
+	if !ok {
+		return
+	}
+	if pr.BaseOid == "" || pr.HeadOid == "" {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	gitDir, err := h.d.RepoFS.RepoPath(owner.Username, row.Name)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	patch, err := compareSourceMergeBase(r, gitDir, pr.BaseOid, pr.HeadOid)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "pulls: raw diff", "error", err, "repo_id", row.ID, "pr", pr.INumber)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	ext := ".diff"
+	if strings.HasSuffix(r.URL.Path, ".patch") {
+		ext = ".patch"
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+row.Name+"-"+strconv.FormatInt(pr.INumber, 10)+ext+"\"")
+	_, _ = w.Write(patch)
 }
 
 // pullChecks renders the Checks tab. Loads suites + runs grouped by
