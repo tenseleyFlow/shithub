@@ -44,8 +44,8 @@ func (h *Handlers) reviewDeps() review.Deps {
 	return review.Deps{Pool: h.d.Pool, Logger: h.d.Logger}
 }
 
-// kickMergeability enqueues a pr:mergeability job. Called after every
-// review-side write so the merge gate state reflects truth quickly.
+// kickMergeability enqueues a pr:mergeability job after review-side
+// writes and when an open PR view detects a still-unknown merge state.
 func (h *Handlers) kickMergeability(r *http.Request, prID int64) {
 	if _, err := worker.Enqueue(r.Context(), h.d.Pool, worker.KindPRMergeability,
 		map[string]any{"pr_id": prID}, worker.EnqueueOptions{}); err != nil {

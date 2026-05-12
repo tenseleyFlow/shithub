@@ -111,18 +111,18 @@ func resolveGitDirForPR(ctx context.Context, pool *pgxpool.Pool, rfs *storage.Re
 		}
 		return "", err
 	}
-	repo, err := reposdb.New().GetRepoByID(ctx, pool, pr.HeadRepoID)
+	ownerRow, err := reposdb.New().GetRepoOwnerUsernameByID(ctx, pool, pr.HeadRepoID)
 	if err != nil {
-		return "", err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", worker.PoisonError(fmt.Errorf("pr %d: repo %d not found", prID, pr.HeadRepoID))
+		}
+		return "", fmt.Errorf("load repo owner: %w", err)
 	}
-	if !repo.OwnerUserID.Valid {
-		return "", worker.PoisonError(fmt.Errorf("pr %d: repo has no owner user (org owners not yet supported here)", prID))
-	}
-	owner, err := usersdb.New().GetUserByID(ctx, pool, repo.OwnerUserID.Int64)
+	ownerSlug, err := ownerSlugString(ownerRow.OwnerUsername)
 	if err != nil {
-		return "", err
+		return "", worker.PoisonError(fmt.Errorf("pr %d: repo owner slug: %w", prID, err))
 	}
-	return rfs.RepoPath(owner.Username, repo.Name)
+	return rfs.RepoPath(ownerSlug, ownerRow.RepoName)
 }
 
 // enqueuePRActionsTrigger fans out a workflow:trigger job for a PR
