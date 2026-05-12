@@ -14,14 +14,14 @@ Scopes:
 ## Endpoints
 
 ```
-PUT    /api/v1/repos/{o}/{r}/actions/workflows/{file}/enable
-PUT    /api/v1/repos/{o}/{r}/actions/workflows/{file}/disable
-DELETE /api/v1/repos/{o}/{r}/actions/runs/{run_id}
-GET    /api/v1/repos/{o}/{r}/actions/runs/{run_id}/artifacts
-GET    /api/v1/repos/{o}/{r}/actions/artifacts/{artifact_id}
-GET    /api/v1/repos/{o}/{r}/actions/artifacts/{artifact_id}/zip
-DELETE /api/v1/repos/{o}/{r}/actions/artifacts/{artifact_id}
-GET    /api/v1/repos/{o}/{r}/actions/jobs/{job_id}/logs
+PUT    /api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/enable
+PUT    /api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/disable
+DELETE /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}
+GET    /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/artifacts
+GET    /api/v1/repos/{owner}/{repo}/actions/artifacts/{artifact_id}
+GET    /api/v1/repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip
+DELETE /api/v1/repos/{owner}/{repo}/actions/artifacts/{artifact_id}
+GET    /api/v1/repos/{owner}/{repo}/actions/jobs/{job_id}/logs
 ```
 
 ## Enable / disable a workflow

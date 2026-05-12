@@ -37,7 +37,8 @@ func (h *Handlers) settingsActionsSecretSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !decision.Allowed {
-		h.renderOrgActionsSettings(w, r, org, "secrets", orgActionsWriteDeniedMessage(decision, "Organization Actions secrets"), "")
+		w.WriteHeader(decision.HTTPStatus())
+		h.renderOrgActionsSettings(w, r, org, "secrets", orgActionsWriteDeniedMessage(decision, "Organization Actions secrets", string(org.Slug)), "")
 		return
 	}
 	if h.d.SecretBox == nil {
@@ -100,7 +101,8 @@ func (h *Handlers) settingsActionsVariableSet(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if !decision.Allowed {
-		h.renderOrgActionsSettings(w, r, org, "variables", orgActionsWriteDeniedMessage(decision, "Organization Actions variables"), "")
+		w.WriteHeader(decision.HTTPStatus())
+		h.renderOrgActionsSettings(w, r, org, "variables", orgActionsWriteDeniedMessage(decision, "Organization Actions variables", string(org.Slug)), "")
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -170,7 +172,7 @@ func (h *Handlers) renderOrgActionsSettings(w http.ResponseWriter, r *http.Reque
 		"Notice":                notice,
 		"FormAction":            orgActionsSettingsPath(org.Slug, kind),
 		"WritesDisabled":        !decision.Allowed,
-		"WritesDisabledMessage": orgActionsWriteDeniedMessage(decision, orgActionsFeatureLabel(kind)),
+		"WritesDisabledMessage": orgActionsWriteDeniedMessage(decision, orgActionsFeatureLabel(kind), string(org.Slug)),
 	}
 	switch kind {
 	case "secrets":
@@ -245,13 +247,8 @@ func orgActionsFeatureLabel(kind string) string {
 	return "Organization Actions variables"
 }
 
-func orgActionsWriteDeniedMessage(decision entitlements.Decision, label string) string {
-	switch decision.Reason {
-	case entitlements.ReasonBillingActionNeeded:
-		return label + " are read-only until Team billing is brought back into good standing."
-	default:
-		return label + " require Team billing. Upgrade this organization to continue editing them."
-	}
+func orgActionsWriteDeniedMessage(decision entitlements.Decision, label, orgSlug string) string {
+	return decision.UpgradeBanner(label, orgSlug).Message
 }
 
 func (h *Handlers) recordOrgActionsAudit(r *http.Request, viewer middleware.CurrentUser, action audit.Action, orgID int64, name string) {

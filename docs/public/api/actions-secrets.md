@@ -53,11 +53,11 @@ ct, _ := box.SealAnonymous(nil, []byte("my-secret-value"), &pub, rand.Reader)
 ## Secrets endpoints
 
 ```
-GET    /api/v1/repos/{o}/{r}/actions/secrets/public-key
-GET    /api/v1/repos/{o}/{r}/actions/secrets
-GET    /api/v1/repos/{o}/{r}/actions/secrets/{name}
-PUT    /api/v1/repos/{o}/{r}/actions/secrets/{name}
-DELETE /api/v1/repos/{o}/{r}/actions/secrets/{name}
+GET    /api/v1/repos/{owner}/{repo}/actions/secrets/public-key
+GET    /api/v1/repos/{owner}/{repo}/actions/secrets
+GET    /api/v1/repos/{owner}/{repo}/actions/secrets/{name}
+PUT    /api/v1/repos/{owner}/{repo}/actions/secrets/{name}
+DELETE /api/v1/repos/{owner}/{repo}/actions/secrets/{name}
 
 GET    /api/v1/orgs/{org}/actions/secrets/public-key
 GET    /api/v1/orgs/{org}/actions/secrets
@@ -117,11 +117,11 @@ list/get endpoints return values directly. The runner exposes them
 via `${{ vars.NAME }}`.
 
 ```
-GET    /api/v1/repos/{o}/{r}/actions/variables
-POST   /api/v1/repos/{o}/{r}/actions/variables
-GET    /api/v1/repos/{o}/{r}/actions/variables/{name}
-PATCH  /api/v1/repos/{o}/{r}/actions/variables/{name}
-DELETE /api/v1/repos/{o}/{r}/actions/variables/{name}
+GET    /api/v1/repos/{owner}/{repo}/actions/variables
+POST   /api/v1/repos/{owner}/{repo}/actions/variables
+GET    /api/v1/repos/{owner}/{repo}/actions/variables/{name}
+PATCH  /api/v1/repos/{owner}/{repo}/actions/variables/{name}
+DELETE /api/v1/repos/{owner}/{repo}/actions/variables/{name}
 
 GET    /api/v1/orgs/{org}/actions/variables
 POST   /api/v1/orgs/{org}/actions/variables

@@ -15,8 +15,8 @@ Scopes:
 
 ```
 GET  /api/v1/repos/{owner}/{repo}/actions/workflows                          list discovered workflows
-GET  /api/v1/repos/{owner}/{repo}/actions/workflows/{id_or_file}             single workflow
-POST /api/v1/repos/{owner}/{repo}/actions/workflows/{file}/dispatches        workflow_dispatch
+GET  /api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}               single workflow
+POST /api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches    workflow_dispatch
 ```
 
 ## Discovery model
@@ -29,6 +29,7 @@ in the listing — with their basename as the name — so the listing
 reflects ground truth rather than silently dropping broken
 workflows.
 
+The `{workflow}` path segment is the workflow id or file selector.
 The `id` field on each entry is a deterministic 64-bit hash of the
 file path so gh-shaped clients that pass `workflow_id` still work:
 both `ci.yml` (basename), `.shithub/workflows/ci.yml` (full path),
