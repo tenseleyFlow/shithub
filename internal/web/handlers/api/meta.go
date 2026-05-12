@@ -35,6 +35,8 @@ var APICapabilities = []string{
 	"search",
 	"orgs",
 	"webhooks",
+	"branches",
+	"tags",
 }
 
 type metaResponse struct {
