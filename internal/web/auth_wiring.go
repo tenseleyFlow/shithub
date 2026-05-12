@@ -28,6 +28,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -68,6 +69,12 @@ func buildAPIHandlers(
 		RunnerJWT:   runnerJWT,
 		SecretBox:   secretBox,
 		RateLimiter: rateLimiter,
+		BaseURL:     cfg.Auth.BaseURL,
+		APILimit: apilimit.Config{
+			AuthedPerHour: cfg.RateLimit.API.AuthedPerHour,
+			AnonPerHour:   cfg.RateLimit.API.AnonPerHour,
+			Logger:        logger,
+		},
 	})
 }
 
