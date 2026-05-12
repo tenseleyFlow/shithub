@@ -735,8 +735,9 @@ func (h *Handlers) pullRawDiff(w http.ResponseWriter, r *http.Request) {
 		ext = ".patch"
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", "inline; filename=\""+row.Name+"-"+strconv.FormatInt(pr.INumber, 10)+ext+"\"")
-	_, _ = w.Write(patch)
+	_, _ = w.Write(patch) // #nosec G705 -- git diff bytes are served as text/plain with nosniff, not HTML.
 }
 
 // pullChecks renders the Checks tab. Loads suites + runs grouped by
