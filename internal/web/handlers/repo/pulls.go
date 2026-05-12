@@ -243,7 +243,7 @@ func (h *Handlers) renderPullNewForm(w http.ResponseWriter, r *http.Request, own
 			"Title":               "Open a pull request · " + row.Name,
 			"UseCompareJS":        true,
 			"UseCommentEditor":    true,
-			"CommentEditorConfig": commentEditorConfigJSON(pullNewCommentEditorConfig(viewer)),
+			"CommentEditorConfig": commentEditorConfigJSON(h.pullNewCommentEditorConfig(r.Context(), row, viewer)),
 			"Viewer":              viewer,
 			"ViewerAvatarURL":     commentEditorAvatarURL(viewer.Username),
 			"Error":               opts.Error,

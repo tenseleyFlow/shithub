@@ -32,7 +32,7 @@
   ];
 
   function initEditor(root) {
-    const form = root.querySelector("form");
+    const form = root.querySelector("form") || root.closest("form");
     const box = root.querySelector(".shithub-comment-editor-box");
     const textarea = root.querySelector("[data-comment-textarea]");
     const writePane = root.querySelector("[data-comment-write-pane]");

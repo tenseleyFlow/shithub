@@ -347,15 +347,3 @@ func probeCompareMerge(ctx context.Context, gitDir, base, head string) compareMe
 		Description: "These branches can be automatically merged.",
 	}
 }
-
-func pullNewCommentEditorConfig(viewer middleware.CurrentUser) commentEditorConfig {
-	if viewer.IsAnonymous() || strings.EqualFold(viewer.Username, "copilot") {
-		return commentEditorConfig{}
-	}
-	return commentEditorConfig{
-		Mentions: []commentEditorMention{{
-			Username:  viewer.Username,
-			AvatarURL: commentEditorAvatarURL(viewer.Username),
-		}},
-	}
-}
