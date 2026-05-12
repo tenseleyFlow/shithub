@@ -5723,8 +5723,13 @@ button.shithub-repo-action {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border-default);
   vertical-align: middle;
+  transition: background-color 80ms ease-out;
 }
 .shithub-tree tr:last-child td { border-bottom: 0; }
+.shithub-tree tbody tr:hover td,
+.shithub-tree tbody tr:focus-within td {
+  background-color: var(--canvas-subtle);
+}
 .shithub-tree-icon { width: 36px; color: var(--fg-muted); padding-right: 0; }
 .shithub-tree-icon svg { display: block; }
 .shithub-tree-name {
