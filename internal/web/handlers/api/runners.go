@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -110,15 +111,28 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		JobID:    job.ID,
 		RunID:    job.RunID,
 		RepoID:   job.RepoID,
+		Purpose:  runnerjwt.PurposeAPI,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "runner jwt mint failed", "runner_id", runner.ID, "job_id", job.ID, "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "runner token mint failed")
 		return
 	}
+	checkoutToken, _, err := h.d.RunnerJWT.Mint(runnerjwt.MintParams{
+		RunnerID: runner.ID,
+		JobID:    job.ID,
+		RunID:    job.RunID,
+		RepoID:   job.RepoID,
+		Purpose:  runnerjwt.PurposeCheckout,
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner checkout token mint failed", "runner_id", runner.ID, "job_id", job.ID, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "runner checkout token mint failed")
+		return
+	}
 	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
-	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Inc()
-	writeJSON(w, http.StatusOK, presentRunnerClaim(job, steps, resolvedSecrets, token, time.Unix(claims.Exp, 0)))
+	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Add(2)
+	writeJSON(w, http.StatusOK, h.presentRunnerClaim(job, steps, resolvedSecrets, token, checkoutToken, time.Unix(claims.Exp, 0)))
 }
 
 func (h *Handlers) authenticateRunner(w http.ResponseWriter, r *http.Request) (actionsdb.GetRunnerByTokenHashRow, bool) {
@@ -292,6 +306,11 @@ func (h *Handlers) authenticateRunnerJob(w http.ResponseWriter, r *http.Request)
 	}
 	claims, err := h.d.RunnerJWT.Verify(strings.TrimSpace(strings.TrimPrefix(authz, prefix)))
 	if err != nil {
+		metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
+		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
+		return runnerJobAuth{}, false
+	}
+	if claims.Purpose != "" && claims.Purpose != runnerjwt.PurposeAPI {
 		metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
 		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
 		return runnerJobAuth{}, false
@@ -1264,6 +1283,7 @@ func (h *Handlers) writeNextTokenResponse(
 		JobID:    auth.Claims.JobID,
 		RunID:    auth.Claims.RunID,
 		RepoID:   auth.Claims.RepoID,
+		Purpose:  runnerjwt.PurposeAPI,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "runner next-token mint failed", "job_id", auth.Claims.JobID, "error", err)
@@ -1289,6 +1309,8 @@ type runnerJobPayload struct {
 	RunIndex       int64             `json:"run_index"`
 	WorkflowFile   string            `json:"workflow_file"`
 	WorkflowName   string            `json:"workflow_name"`
+	CheckoutURL    string            `json:"checkout_url"`
+	CheckoutToken  string            `json:"checkout_token"`
 	HeadSHA        string            `json:"head_sha"`
 	HeadRef        string            `json:"head_ref"`
 	Event          string            `json:"event"`
@@ -1320,11 +1342,12 @@ type runnerStep struct {
 	ContinueOnError  bool            `json:"continue_on_error"`
 }
 
-func presentRunnerClaim(
+func (h *Handlers) presentRunnerClaim(
 	job actionsdb.ClaimQueuedWorkflowJobRow,
 	steps []actionsdb.ListRunnerStepsForJobRow,
 	resolvedSecrets map[string]string,
 	token string,
+	checkoutToken string,
 	expiresAt time.Time,
 ) runnerClaimResponse {
 	outSteps := make([]runnerStep, 0, len(steps))
@@ -1353,6 +1376,8 @@ func presentRunnerClaim(
 			RunIndex:       job.RunIndex,
 			WorkflowFile:   job.WorkflowFile,
 			WorkflowName:   job.WorkflowName,
+			CheckoutURL:    h.checkoutURL(job.RepoOwner, job.RepoName),
+			CheckoutToken:  checkoutToken,
 			HeadSHA:        job.HeadSha,
 			HeadRef:        job.HeadRef,
 			Event:          string(job.Event),
@@ -1370,6 +1395,14 @@ func presentRunnerClaim(
 			Steps:          outSteps,
 		},
 	}
+}
+
+func (h *Handlers) checkoutURL(owner, repoName string) string {
+	base := strings.TrimRight(strings.TrimSpace(h.d.BaseURL), "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + ".git"
 }
 
 func rawJSONOrObject(b []byte) json.RawMessage {

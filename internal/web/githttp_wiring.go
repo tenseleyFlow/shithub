@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	githttph "github.com/tenseleyFlow/shithub/internal/web/handlers/githttp"
@@ -21,6 +22,7 @@ import (
 func buildGitHTTPHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
+	runnerJWT *runnerjwt.Signer,
 	logger *slog.Logger,
 ) (*githttph.Handlers, error) {
 	if cfg.Storage.ReposRoot == "" {
@@ -35,8 +37,9 @@ func buildGitHTTPHandlers(
 		return nil, fmt.Errorf("git-http: NewRepoFS: %w", err)
 	}
 	return githttph.New(githttph.Deps{
-		Logger: logger,
-		Pool:   pool,
-		RepoFS: rfs,
+		Logger:    logger,
+		Pool:      pool,
+		RepoFS:    rfs,
+		RunnerJWT: runnerJWT,
 	})
 }

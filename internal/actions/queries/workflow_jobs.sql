@@ -157,9 +157,14 @@ SELECT c.id, c.run_id, c.job_index, c.job_key, c.job_name, c.runs_on,
        c.cancel_requested, c.started_at, c.completed_at, c.version,
        c.created_at, c.updated_at,
        r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
-       r.head_sha, r.head_ref, r.event, r.event_payload
+       r.head_sha, r.head_ref, r.event, r.event_payload,
+       COALESCE(owner_user.username, owner_org.slug)::text AS repo_owner,
+       repo.name AS repo_name
 FROM claimed c
-JOIN workflow_runs r ON r.id = c.run_id;
+JOIN workflow_runs r ON r.id = c.run_id
+JOIN repos repo ON repo.id = r.repo_id
+LEFT JOIN users owner_user ON owner_user.id = repo.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = repo.owner_org_id;
 
 -- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,

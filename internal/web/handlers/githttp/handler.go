@@ -157,6 +157,18 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 		writeChallenge(w)
 		return reposdb.Repo{}, false
 	}
+	if auth.ViaRunnerCheckout {
+		if svc != protocol.UploadPack {
+			writeGitErrorMessage(w, http.StatusForbidden,
+				"shithub Actions checkout credentials are read-only")
+			return reposdb.Repo{}, false
+		}
+		if auth.RunnerCheckoutRepo != row.ID {
+			http.Error(w, "not found", http.StatusNotFound)
+			return reposdb.Repo{}, false
+		}
+		return row, true
+	}
 
 	// Build the policy actor and ask Can(). Owner identity, collab role,
 	// archived/deleted gates all live in the policy package now.

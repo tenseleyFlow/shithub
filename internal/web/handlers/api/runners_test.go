@@ -67,11 +67,13 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	var resp struct {
 		Token string `json:"token"`
 		Job   struct {
-			ID           int64          `json:"id"`
-			RunID        int64          `json:"run_id"`
-			RepoID       int64          `json:"repo_id"`
-			EventPayload map[string]any `json:"event_payload"`
-			Steps        []struct {
+			ID            int64          `json:"id"`
+			RunID         int64          `json:"run_id"`
+			RepoID        int64          `json:"repo_id"`
+			CheckoutURL   string         `json:"checkout_url"`
+			CheckoutToken string         `json:"checkout_token"`
+			EventPayload  map[string]any `json:"event_payload"`
+			Steps         []struct {
 				Run  string `json:"run"`
 				Uses string `json:"uses"`
 			} `json:"steps"`
@@ -85,6 +87,9 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	}
 	if resp.Job.RunID != runID || resp.Job.RepoID != repoID || len(resp.Job.Steps) != 2 {
 		t.Fatalf("unexpected job payload: %+v", resp.Job)
+	}
+	if resp.Job.CheckoutURL != "https://shithub.test/alice/demo.git" || resp.Job.CheckoutToken == "" {
+		t.Fatalf("checkout payload: url=%q token_empty=%t", resp.Job.CheckoutURL, resp.Job.CheckoutToken == "")
 	}
 	if resp.Job.EventPayload["ref"] != "refs/heads/trunk" {
 		t.Fatalf("event payload not returned to runner: %#v", resp.Job.EventPayload)
@@ -102,6 +107,17 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	}
 	if claimRunnerID != runnerID {
 		t.Fatalf("claims runner_id: got %d, want %d", claimRunnerID, runnerID)
+	}
+	if claims.Purpose != runnerjwt.PurposeAPI {
+		t.Fatalf("api token purpose: got %q", claims.Purpose)
+	}
+	checkoutClaims, err := signer.Verify(resp.Job.CheckoutToken)
+	if err != nil {
+		t.Fatalf("verify checkout token: %v", err)
+	}
+	if checkoutClaims.JobID != resp.Job.ID || checkoutClaims.RunID != runID || checkoutClaims.RepoID != repoID ||
+		checkoutClaims.Purpose != runnerjwt.PurposeCheckout {
+		t.Fatalf("checkout claims/job mismatch: claims=%+v job=%+v", checkoutClaims, resp.Job)
 	}
 
 	var logResp struct {
@@ -682,6 +698,7 @@ func newRunnerAPIRouter(
 	h, err := apih.New(apih.Deps{
 		Pool:        pool,
 		Logger:      logger,
+		BaseURL:     "https://shithub.test",
 		RunnerJWT:   signer,
 		ObjectStore: store,
 	})
@@ -704,6 +721,7 @@ func newRunnerAPIRouterWithRepoFS(
 	h, err := apih.New(apih.Deps{
 		Pool:      pool,
 		Logger:    logger,
+		BaseURL:   "https://shithub.test",
 		RunnerJWT: signer,
 		RepoFS:    rfs,
 	})
@@ -726,6 +744,7 @@ func newRunnerAPIRouterWithSecretBox(
 	h, err := apih.New(apih.Deps{
 		Pool:      pool,
 		Logger:    logger,
+		BaseURL:   "https://shithub.test",
 		RunnerJWT: signer,
 		SecretBox: box,
 	})

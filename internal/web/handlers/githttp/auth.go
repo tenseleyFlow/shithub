@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 )
 
 // resolvedAuth carries the resolved identity for a git-over-HTTPS
@@ -18,10 +20,12 @@ import (
 // callers decide whether anonymous is allowed (yes for pulling a public
 // repo, no for everything else).
 type resolvedAuth struct {
-	Anonymous bool
-	UserID    int64
-	Username  string
-	ViaPAT    bool
+	Anonymous          bool
+	UserID             int64
+	Username           string
+	ViaPAT             bool
+	ViaRunnerCheckout  bool
+	RunnerCheckoutRepo int64
 }
 
 // errBadCredentials is the catch-all for "creds were sent but didn't
@@ -59,6 +63,9 @@ func (h *Handlers) resolveBasicAuth(ctx context.Context, header string) (resolve
 		return resolvedAuth{}, errBadCredentials
 	}
 
+	if got, err := h.resolveViaRunnerCheckout(ctx, secret); err == nil {
+		return got, nil
+	}
 	if strings.HasPrefix(secret, pat.Prefix) {
 		if got, err := h.resolveViaPAT(ctx, secret); err == nil {
 			return got, nil
@@ -67,6 +74,40 @@ func (h *Handlers) resolveBasicAuth(ctx context.Context, header string) (resolve
 		// user-chosen password.
 	}
 	return h.resolveViaPassword(ctx, user, secret)
+}
+
+func (h *Handlers) resolveViaRunnerCheckout(ctx context.Context, raw string) (resolvedAuth, error) {
+	if h.d.RunnerJWT == nil || raw == "" {
+		return resolvedAuth{}, errBadCredentials
+	}
+	claims, err := h.d.RunnerJWT.Verify(raw)
+	if err != nil || claims.Purpose != runnerjwt.PurposeCheckout {
+		return resolvedAuth{}, errBadCredentials
+	}
+	runnerID, err := claims.RunnerID()
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	job, err := h.aq.GetWorkflowJobByID(ctx, h.d.Pool, claims.JobID)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	run, err := h.aq.GetWorkflowRunByID(ctx, h.d.Pool, job.RunID)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
+	if job.RunID != claims.RunID ||
+		run.RepoID != claims.RepoID ||
+		job.Status != actionsdb.WorkflowJobStatusRunning ||
+		!job.RunnerID.Valid ||
+		job.RunnerID.Int64 != runnerID {
+		return resolvedAuth{}, errBadCredentials
+	}
+	return resolvedAuth{
+		Username:           "shithub-actions",
+		ViaRunnerCheckout:  true,
+		RunnerCheckoutRepo: claims.RepoID,
+	}, nil
 }
 
 // resolveViaPAT looks up the token by its sha256 hash, checks

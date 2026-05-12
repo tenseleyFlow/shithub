@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -22,9 +24,10 @@ import (
 
 // Deps wires the git-HTTP handler set.
 type Deps struct {
-	Logger *slog.Logger
-	Pool   *pgxpool.Pool
-	RepoFS *storage.RepoFS
+	Logger    *slog.Logger
+	Pool      *pgxpool.Pool
+	RepoFS    *storage.RepoFS
+	RunnerJWT *runnerjwt.Signer
 	// MaxPushBytes is the hard cap on the git-receive-pack request body.
 	// Defaults to 2 GiB when zero.
 	MaxPushBytes int64
@@ -33,6 +36,7 @@ type Deps struct {
 // Handlers is the registered handler set. Construct via New.
 type Handlers struct {
 	d  Deps
+	aq *actionsdb.Queries
 	uq *usersdb.Queries
 	rq *reposdb.Queries
 	oq *orgsdb.Queries
@@ -52,5 +56,5 @@ func New(d Deps) (*Handlers, error) {
 	if d.MaxPushBytes == 0 {
 		d.MaxPushBytes = DefaultMaxPushBytes
 	}
-	return &Handlers{d: d, uq: usersdb.New(), rq: reposdb.New(), oq: orgsdb.New()}, nil
+	return &Handlers{d: d, aq: actionsdb.New(), uq: usersdb.New(), rq: reposdb.New(), oq: orgsdb.New()}, nil
 }

@@ -3,12 +3,14 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -60,6 +62,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args []string, env []str
 
 type DockerConfig struct {
 	Binary           string
+	GitBinary        string
 	DefaultImage     string
 	Network          string
 	Memory           string
@@ -91,6 +94,9 @@ type Docker struct {
 func NewDocker(cfg DockerConfig) *Docker {
 	if cfg.Binary == "" {
 		cfg.Binary = "docker"
+	}
+	if cfg.GitBinary == "" {
+		cfg.GitBinary = "git"
 	}
 	if cfg.LogChunkBytes <= 0 {
 		cfg.LogChunkBytes = 4 * 1024
@@ -191,8 +197,13 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 }
 
 func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
-	if strings.TrimSpace(step.Uses) != "" {
-		return fmt.Errorf("%w: %s is not executable until checkout/artifact support lands", ErrUnsupportedUses, step.Uses)
+	if uses := strings.TrimSpace(step.Uses); uses != "" {
+		switch uses {
+		case "actions/checkout@v4":
+			return d.executeCheckout(ctx, job, step)
+		default:
+			return fmt.Errorf("%w: %s is not executable until that alias lands", ErrUnsupportedUses, uses)
+		}
 	}
 	if strings.TrimSpace(step.Run) == "" {
 		return nil
@@ -228,6 +239,84 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 		return fmt.Errorf("runner engine: flush step %q logs: %w", stepLabel(step), err)
 	}
 	return nil
+}
+
+func (d *Docker) executeCheckout(ctx context.Context, job Job, step Step) error {
+	checkoutURL, err := validateCheckoutURL(job.CheckoutURL)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(job.CheckoutToken) == "" {
+		return errors.New("runner engine: checkout token is required")
+	}
+	headSHA := strings.TrimSpace(job.HeadSHA)
+	if !gitObjectIDRE.MatchString(headSHA) {
+		return fmt.Errorf("runner engine: invalid checkout sha %q", headSHA)
+	}
+	if err := os.MkdirAll(job.WorkspaceDir, 0o700); err != nil {
+		return fmt.Errorf("runner engine: prepare checkout workspace: %w", err)
+	}
+	depthArgs, err := checkoutDepthArgs(step.With)
+	if err != nil {
+		return err
+	}
+	fetchTarget := headSHA
+
+	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
+	out := io.MultiWriter(d.cfg.Stdout, writer)
+	errOut := io.MultiWriter(d.cfg.Stderr, writer)
+	closeWriter := func(runErr error) error {
+		if closeErr := writer.Close(); closeErr != nil {
+			if runErr != nil {
+				return errors.Join(runErr, closeErr)
+			}
+			return closeErr
+		}
+		return runErr
+	}
+
+	fmt.Fprintf(out, "Checking out %s at %s\n", checkoutURL, shortObjectID(headSHA))
+	gitEnv := []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=/bin/false",
+		"SHITHUB_CHECKOUT_TOKEN=" + job.CheckoutToken,
+	}
+	//nolint:gosec // G101: this helper reads the token from env; it does not hard-code or argv-expose a secret.
+	credentialHelper := `credential.helper=!f() { echo username=shithub-actions; echo password=$SHITHUB_CHECKOUT_TOKEN; }; f`
+	runGit := func(args ...string) error {
+		if err := d.cfg.Runner.Run(ctx, d.cfg.GitBinary, args, gitEnv, out, errOut); err != nil {
+			return fmt.Errorf("git %s: %w", strings.Join(redactCheckoutArgs(args), " "), err)
+		}
+		return nil
+	}
+
+	if err := runGit("-C", job.WorkspaceDir, "init"); err != nil {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+	}
+	if err := runGit("-C", job.WorkspaceDir, "remote", "add", "origin", checkoutURL); err != nil {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+	}
+	fetchArgs := []string{"-C", job.WorkspaceDir, "-c", credentialHelper, "fetch", "--no-tags"}
+	fetchArgs = append(fetchArgs, depthArgs...)
+	fetchArgs = append(fetchArgs, "origin", fetchTarget)
+	if err := runGit(fetchArgs...); err != nil {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+	}
+	if err := runGit("-C", job.WorkspaceDir, "checkout", "--force", "--detach", headSHA); err != nil {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+	}
+
+	var rev bytes.Buffer
+	if err := d.cfg.Runner.Run(ctx, d.cfg.GitBinary,
+		[]string{"-C", job.WorkspaceDir, "rev-parse", "HEAD"},
+		gitEnv, io.MultiWriter(out, &rev), errOut); err != nil {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: git rev-parse HEAD: %w", stepLabel(step), err))
+	}
+	if got := strings.TrimSpace(rev.String()); !strings.EqualFold(got, headSHA) {
+		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: HEAD %s != expected %s", stepLabel(step), got, headSHA))
+	}
+	fmt.Fprintf(out, "Checked out %s\n", shortObjectID(headSHA))
+	return closeWriter(nil)
 }
 
 type dockerInvocation struct {
@@ -372,6 +461,65 @@ func permissionsRequestRoot(raw json.RawMessage) bool {
 		return false
 	}
 	return strings.EqualFold(flat[rootPermissionKey], "write")
+}
+
+var gitObjectIDRE = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
+
+func validateCheckoutURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("runner engine: checkout url is required")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("runner engine: invalid checkout url %q", raw)
+	}
+	if u.User != nil {
+		return "", errors.New("runner engine: checkout url must not contain credentials")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("runner engine: checkout url scheme %q is not allowed", u.Scheme)
+	}
+	return u.String(), nil
+}
+
+func checkoutDepthArgs(with map[string]string) ([]string, error) {
+	for key := range with {
+		if key != "fetch-depth" {
+			return nil, fmt.Errorf("runner engine: unsupported checkout input %q", key)
+		}
+	}
+	raw := strings.TrimSpace(with["fetch-depth"])
+	if raw == "" {
+		return []string{"--depth=1"}, nil
+	}
+	depth, err := strconv.Atoi(raw)
+	if err != nil || depth < 0 || depth > 100000 {
+		return nil, fmt.Errorf("runner engine: invalid checkout fetch-depth %q", raw)
+	}
+	if depth == 0 {
+		return nil, nil
+	}
+	return []string{"--depth=" + strconv.Itoa(depth)}, nil
+}
+
+func shortObjectID(oid string) string {
+	if len(oid) <= 12 {
+		return oid
+	}
+	return oid[:12]
+}
+
+func redactCheckoutArgs(args []string) []string {
+	out := append([]string{}, args...)
+	for i, arg := range out {
+		if strings.Contains(arg, "SHITHUB_CHECKOUT_TOKEN") {
+			out[i] = "credential.helper=<redacted>"
+		}
+	}
+	return out
 }
 
 func (d *Docker) StreamLogs(_ context.Context, jobID int64) (<-chan LogChunk, error) {

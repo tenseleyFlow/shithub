@@ -19,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -45,15 +47,18 @@ func gitCmd(args ...string) *exec.Cmd {
 // private repo, mounts the smart-HTTP handlers on a httptest server,
 // and returns everything callers need.
 type env struct {
-	srv      *httptest.Server
-	pool     *pgxpool.Pool
-	userID   int64
-	user     string
-	pwd      string
-	patRaw   string
-	pubRepo  string
-	privRepo string
-	root     string
+	srv        *httptest.Server
+	pool       *pgxpool.Pool
+	userID     int64
+	user       string
+	pwd        string
+	patRaw     string
+	pubRepo    string
+	pubRepoID  int64
+	privRepo   string
+	privRepoID int64
+	root       string
+	runnerJWT  *runnerjwt.Signer
 }
 
 func setupEnv(t *testing.T) *env {
@@ -89,16 +94,18 @@ func setupEnv(t *testing.T) *env {
 		Pool: pool, RepoFS: rfs, Audit: audit.NewRecorder(), Limiter: throttle.NewLimiter(),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	if _, err := repos.Create(context.Background(), rdeps, repos.Params{
+	publicRes, err := repos.Create(context.Background(), rdeps, repos.Params{
 		OwnerUserID: user.ID, OwnerUsername: user.Username,
 		Name: "public-repo", Visibility: "public", InitReadme: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create public: %v", err)
 	}
-	if _, err := repos.Create(context.Background(), rdeps, repos.Params{
+	privateRes, err := repos.Create(context.Background(), rdeps, repos.Params{
 		OwnerUserID: user.ID, OwnerUsername: user.Username,
 		Name: "private-repo", Visibility: "private", InitReadme: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create private: %v", err)
 	}
 
@@ -119,9 +126,10 @@ func setupEnv(t *testing.T) *env {
 		t.Fatalf("create PAT row: %v", err)
 	}
 
+	runnerJWT := runnerHTTPSigner(t)
 	h, err := githttph.New(githttph.Deps{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Pool:   pool, RepoFS: rfs,
+		Pool:   pool, RepoFS: rfs, RunnerJWT: runnerJWT,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -134,7 +142,9 @@ func setupEnv(t *testing.T) *env {
 	return &env{
 		srv: srv, pool: pool, userID: user.ID,
 		user: "alice", pwd: "wrong-not-real-password", patRaw: raw,
-		pubRepo: "public-repo", privRepo: "private-repo", root: root,
+		pubRepo: "public-repo", pubRepoID: publicRes.Repo.ID,
+		privRepo: "private-repo", privRepoID: privateRes.Repo.ID,
+		root: root, runnerJWT: runnerJWT,
 	}
 }
 
@@ -193,6 +203,66 @@ func TestGitHTTP_PATClonePrivate(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(out)); got != "1" {
 		t.Fatalf("rev-list = %q, want 1", got)
+	}
+}
+
+func TestGitHTTP_RunnerCheckoutTokenClonesPrivateRepoReadOnly(t *testing.T) {
+	t.Parallel()
+	env := setupEnv(t)
+	token := env.runnerCheckoutToken(t, env.privRepoID)
+
+	dst := filepath.Join(t.TempDir(), "clone")
+	cloneURL := authedURL(env.srv.URL, "shithub-actions", token, "/alice/private-repo.git")
+	out, err := gitCmd("clone", cloneURL, dst).CombinedOutput()
+	if err != nil {
+		t.Fatalf("clone with checkout token: %v\n%s", err, out)
+	}
+	out, err = gitCmd("-C", dst, "rev-list", "--count", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-list: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "1" {
+		t.Fatalf("rev-list = %q, want 1", got)
+	}
+
+	for _, c := range [][]string{
+		{"-C", dst, "config", "user.name", "Runner"},
+		{"-C", dst, "config", "user.email", "runner@example.test"},
+	} {
+		if out, err := gitCmd(c...).CombinedOutput(); err != nil {
+			t.Fatalf("config: %v\n%s", err, out)
+		}
+	}
+	if err := writeFile(filepath.Join(dst, "blocked.txt"), "x\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	for _, c := range [][]string{
+		{"-C", dst, "add", "blocked.txt"},
+		{"-C", dst, "commit", "-m", "blocked"},
+	} {
+		if out, err := gitCmd(c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", c, err, out)
+		}
+	}
+	out, err = gitCmd("-C", dst, "push", "origin", "trunk").CombinedOutput()
+	if err == nil {
+		t.Fatalf("checkout token push unexpectedly succeeded: %s", out)
+	}
+	if !strings.Contains(string(out), "read-only") {
+		t.Fatalf("expected read-only checkout-token message, got: %s", out)
+	}
+}
+
+func TestGitHTTP_RunnerCheckoutTokenCannotReadOtherRepo(t *testing.T) {
+	t.Parallel()
+	env := setupEnv(t)
+	token := env.runnerCheckoutToken(t, env.pubRepoID)
+	dst := filepath.Join(t.TempDir(), "clone")
+	cmd := gitCmd("clone", authedURL(env.srv.URL, "shithub-actions", token, "/alice/private-repo.git"), dst)
+	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected checkout token for public repo to fail against private repo; output: %s", out)
 	}
 }
 
@@ -289,6 +359,82 @@ func TestGitHTTP_PushToArchivedRejected(t *testing.T) {
 
 func writeFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0o600)
+}
+
+func (e *env) runnerCheckoutToken(t *testing.T, repoID int64) string {
+	t.Helper()
+	ctx := context.Background()
+	q := actionsdb.New()
+	runner, err := q.InsertRunner(ctx, e.pool, actionsdb.InsertRunnerParams{
+		Name:     "runner-" + e.privRepo,
+		Labels:   []string{"ubuntu-latest"},
+		Capacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner: %v", err)
+	}
+	run, err := q.InsertWorkflowRun(ctx, e.pool, actionsdb.InsertWorkflowRunParams{
+		RepoID:       repoID,
+		RunIndex:     1,
+		WorkflowFile: ".shithub/workflows/ci.yml",
+		WorkflowName: "CI",
+		HeadSha:      strings.Repeat("a", 40),
+		HeadRef:      "refs/heads/trunk",
+		Event:        actionsdb.WorkflowRunEventPush,
+		EventPayload: []byte(`{}`),
+		ActorUserID:  pgtype.Int8{Int64: e.userID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("InsertWorkflowRun: %v", err)
+	}
+	job, err := q.InsertWorkflowJob(ctx, e.pool, actionsdb.InsertWorkflowJobParams{
+		RunID:          run.ID,
+		JobIndex:       0,
+		JobKey:         "checkout",
+		JobName:        "checkout",
+		RunsOn:         "ubuntu-latest",
+		NeedsJobs:      []string{},
+		TimeoutMinutes: 30,
+		Permissions:    []byte(`{}`),
+		JobEnv:         []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("InsertWorkflowJob: %v", err)
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE workflow_jobs SET runner_id = $1, status = 'running', started_at = now() WHERE id = $2`, runner.ID, job.ID); err != nil {
+		t.Fatalf("mark job running: %v", err)
+	}
+	token, _, err := e.runnerJWT.Mint(runnerjwt.MintParams{
+		RunnerID: runner.ID,
+		JobID:    job.ID,
+		RunID:    run.ID,
+		RepoID:   repoID,
+		Purpose:  runnerjwt.PurposeCheckout,
+	})
+	if err != nil {
+		t.Fatalf("Mint checkout token: %v", err)
+	}
+	return token
+}
+
+func runnerHTTPSigner(t *testing.T) *runnerjwt.Signer {
+	t.Helper()
+	signer, err := runnerjwt.NewFromKey(
+		bytesOf(0x88, 32),
+		runnerjwt.WithClock(func() time.Time { return time.Now().UTC() }),
+	)
+	if err != nil {
+		t.Fatalf("runnerjwt.NewFromKey: %v", err)
+	}
+	return signer
+}
+
+func bytesOf(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
 }
 
 // TestGitHTTP_AnonCloneOrgOwnedPublic is a regression for an outage

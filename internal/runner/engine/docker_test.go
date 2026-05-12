@@ -570,13 +570,103 @@ func TestDockerExecute_RejectsUnsupportedUses(t *testing.T) {
 	d := NewDocker(DockerConfig{DefaultImage: "runner-image", Network: "bridge", Memory: "2g", CPUs: "2", Runner: &recordingRunner{}})
 	out, err := d.Execute(t.Context(), Job{
 		WorkspaceDir: t.TempDir(),
-		Steps:        []Step{{Uses: "actions/checkout@v4"}},
+		Steps:        []Step{{Uses: "shithub/upload-artifact@v1"}},
 	})
 	if !errors.Is(err, ErrUnsupportedUses) {
 		t.Fatalf("error: %v", err)
 	}
 	if out.Conclusion != ConclusionFailure {
 		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+}
+
+type checkoutRunner struct {
+	calls []checkoutCall
+}
+
+type checkoutCall struct {
+	name string
+	args []string
+	env  []string
+}
+
+func (r *checkoutRunner) Run(_ context.Context, name string, args []string, env []string, stdout, _ io.Writer) error {
+	r.calls = append(r.calls, checkoutCall{
+		name: name,
+		args: append([]string{}, args...),
+		env:  append([]string{}, env...),
+	})
+	if len(args) >= 4 && args[len(args)-2] == "rev-parse" && args[len(args)-1] == "HEAD" {
+		_, _ = stdout.Write([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"))
+	}
+	return nil
+}
+
+func TestDockerExecute_CheckoutUsesScopedCredentialAndVerifiesHead(t *testing.T) {
+	t.Parallel()
+	rec := &checkoutRunner{}
+	d := NewDocker(DockerConfig{
+		GitBinary:     "git-test",
+		DefaultImage:  "runner-image",
+		Network:       "bridge",
+		Memory:        "2g",
+		CPUs:          "2",
+		LogChunkBytes: 1024,
+		Runner:        rec,
+	})
+	out, err := d.Execute(t.Context(), Job{
+		ID:            1,
+		RunID:         2,
+		CheckoutURL:   "https://shithub.test/alice/demo.git",
+		CheckoutToken: "checkout-token",
+		HeadSHA:       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadRef:       "refs/heads/trunk",
+		WorkspaceDir:  t.TempDir(),
+		Steps: []Step{{
+			ID:   10,
+			Uses: "actions/checkout@v4",
+			With: map[string]string{"fetch-depth": "0"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.Conclusion != ConclusionSuccess {
+		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+	if len(rec.calls) != 5 {
+		t.Fatalf("git calls: got %d want 5: %#v", len(rec.calls), rec.calls)
+	}
+	want := [][]string{
+		{"-C", rec.calls[0].args[1], "init"},
+		{"-C", rec.calls[1].args[1], "remote", "add", "origin", "https://shithub.test/alice/demo.git"},
+		{"-C", rec.calls[2].args[1], "-c", rec.calls[2].args[3], "fetch", "--no-tags", "origin", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{"-C", rec.calls[3].args[1], "checkout", "--force", "--detach", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{"-C", rec.calls[4].args[1], "rev-parse", "HEAD"},
+	}
+	for i := range want {
+		if rec.calls[i].name != "git-test" {
+			t.Fatalf("call %d name = %q", i, rec.calls[i].name)
+		}
+		if !reflect.DeepEqual(rec.calls[i].args, want[i]) {
+			t.Fatalf("call %d args:\ngot  %#v\nwant %#v", i, rec.calls[i].args, want[i])
+		}
+	}
+	if strings.Contains(strings.Join(rec.calls[2].args, " "), "checkout-token") {
+		t.Fatalf("checkout token leaked into argv: %#v", rec.calls[2].args)
+	}
+	if !containsEnv(rec.calls[2].env, "SHITHUB_CHECKOUT_TOKEN=checkout-token") {
+		t.Fatalf("checkout token missing from git env: %#v", rec.calls[2].env)
+	}
+	if rec.calls[2].args[3] != `credential.helper=!f() { echo username=shithub-actions; echo password=$SHITHUB_CHECKOUT_TOKEN; }; f` {
+		t.Fatalf("credential helper: %q", rec.calls[2].args[3])
+	}
+}
+
+func TestCheckoutDepthArgsRejectsUnsupportedInputs(t *testing.T) {
+	t.Parallel()
+	if _, err := checkoutDepthArgs(map[string]string{"path": "src"}); err == nil || !strings.Contains(err.Error(), `unsupported checkout input "path"`) {
+		t.Fatalf("checkoutDepthArgs error = %v", err)
 	}
 }
 

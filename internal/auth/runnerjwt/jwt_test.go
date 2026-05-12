@@ -45,6 +45,9 @@ func TestMintVerifyRoundTrip(t *testing.T) {
 	if claims.Exp != now.Add(runnerjwt.DefaultTTL).Unix() {
 		t.Fatalf("exp: got %d, want %d", claims.Exp, now.Add(runnerjwt.DefaultTTL).Unix())
 	}
+	if claims.Purpose != runnerjwt.PurposeAPI {
+		t.Fatalf("purpose: got %q, want %q", claims.Purpose, runnerjwt.PurposeAPI)
+	}
 	runnerID, err := claims.RunnerID()
 	if err != nil {
 		t.Fatalf("RunnerID: %v", err)
@@ -59,6 +62,32 @@ func TestMintVerifyRoundTrip(t *testing.T) {
 	}
 	if got != claims {
 		t.Fatalf("claims mismatch:\n got %#v\nwant %#v", got, claims)
+	}
+}
+
+func TestMintVerifyCheckoutPurpose(t *testing.T) {
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	signer := newTestSigner(t, now, bytesOf(0x66, 32))
+
+	token, claims, err := signer.Mint(runnerjwt.MintParams{
+		RunnerID: 7,
+		JobID:    11,
+		RunID:    13,
+		RepoID:   17,
+		Purpose:  runnerjwt.PurposeCheckout,
+	})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	if claims.Purpose != runnerjwt.PurposeCheckout {
+		t.Fatalf("purpose: got %q, want checkout", claims.Purpose)
+	}
+	got, err := signer.Verify(token)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if got.Purpose != runnerjwt.PurposeCheckout {
+		t.Fatalf("verified purpose: got %q, want checkout", got.Purpose)
 	}
 }
 
