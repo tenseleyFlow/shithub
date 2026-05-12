@@ -15,6 +15,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgshandlers "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
@@ -34,6 +35,19 @@ func buildOrgHandlers(
 	if err != nil {
 		return nil, err
 	}
+	var stripeRemote stripebilling.Remote
+	if cfg.Billing.Enabled {
+		remote, err := stripebilling.New(stripebilling.Config{
+			SecretKey:     cfg.Billing.Stripe.SecretKey,
+			WebhookSecret: cfg.Billing.Stripe.WebhookSecret,
+			TeamPriceID:   cfg.Billing.Stripe.TeamPriceID,
+			AutomaticTax:  cfg.Billing.Stripe.AutomaticTax,
+		})
+		if err != nil {
+			return nil, err
+		}
+		stripeRemote = remote
+	}
 	sender, _ := pickOrgsEmailSender(cfg)
 	var box *secretbox.Box
 	if cfg.Auth.TOTPKeyB64 != "" {
@@ -46,16 +60,22 @@ func buildOrgHandlers(
 		}
 	}
 	return orgshandlers.New(orgshandlers.Deps{
-		Logger:      logger,
-		Render:      rr,
-		Pool:        pool,
-		EmailSender: sender,
-		EmailFrom:   cfg.Auth.EmailFrom,
-		SiteName:    cfg.Auth.SiteName,
-		BaseURL:     cfg.Auth.BaseURL,
-		ObjectStore: objectStore,
-		SecretBox:   box,
-		Audit:       audit.NewRecorder(),
+		Logger:                logger,
+		Render:                rr,
+		Pool:                  pool,
+		EmailSender:           sender,
+		EmailFrom:             cfg.Auth.EmailFrom,
+		SiteName:              cfg.Auth.SiteName,
+		BaseURL:               cfg.Auth.BaseURL,
+		ObjectStore:           objectStore,
+		SecretBox:             box,
+		Audit:                 audit.NewRecorder(),
+		BillingEnabled:        cfg.Billing.Enabled,
+		BillingGracePeriod:    cfg.Billing.GracePeriod,
+		Stripe:                stripeRemote,
+		StripeSuccessURL:      cfg.Billing.Stripe.SuccessURL,
+		StripeCancelURL:       cfg.Billing.Stripe.CancelURL,
+		StripePortalReturnURL: cfg.Billing.Stripe.PortalReturnURL,
 	})
 }
 

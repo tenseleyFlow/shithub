@@ -132,6 +132,10 @@ type Deps struct {
 	// needed, so the route lives in the public group alongside
 	// /healthz / /static.
 	NotifPublicMounter func(chi.Router)
+	// BillingWebhookMounter registers the Stripe webhook receiver at
+	// /stripe/webhook. It lives in the public, CSRF-exempt group and is
+	// mounted only when billing is enabled and fully configured.
+	BillingWebhookMounter func(chi.Router)
 	// OrgCreateMounter registers /organizations/new + POST
 	// /organizations (S30). Wrapped in RequireUser at the wiring
 	// layer.
@@ -245,6 +249,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		// agents.
 		if deps.NotifPublicMounter != nil {
 			deps.NotifPublicMounter(r)
+		}
+		if deps.BillingWebhookMounter != nil {
+			deps.BillingWebhookMounter(r)
 		}
 	})
 

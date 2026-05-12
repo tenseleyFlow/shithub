@@ -158,6 +158,8 @@ func (h *Handlers) renderSettingsProfileWithForm(
 		"Form":                form,
 		"AvatarURL":           "/avatars/" + url.PathEscape(org.Slug),
 		"ActiveOrgNav":        "settings",
+		"OrgSettingsActive":   "profile",
+		"BillingEnabled":      h.d.BillingEnabled,
 		"AvatarUploadEnabled": h.d.ObjectStore != nil,
 		"HasAvatar":           org.AvatarObjectKey.Valid && org.AvatarObjectKey.String != "",
 		"Error":               errMsg,

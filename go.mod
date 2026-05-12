@@ -61,6 +61,7 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/stripe/stripe-go/v85 v85.1.0 // indirect
 	github.com/tinylib/msgp v1.6.1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

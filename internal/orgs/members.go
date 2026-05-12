@@ -26,12 +26,33 @@ func AddMember(ctx context.Context, deps Deps, orgID, userID, invitedByUserID in
 	if err != nil {
 		return err
 	}
-	return orgsdb.New().AddOrgMember(ctx, deps.Pool, orgsdb.AddOrgMemberParams{
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	q := orgsdb.New()
+	if err := q.AddOrgMember(ctx, tx, orgsdb.AddOrgMemberParams{
 		OrgID:           orgID,
 		UserID:          userID,
 		Role:            r,
 		InvitedByUserID: pgtype.Int8{Int64: invitedByUserID, Valid: invitedByUserID != 0},
-	})
+	}); err != nil {
+		return err
+	}
+	if err := enqueueBillingSeatSync(ctx, tx, deps, orgID); err != nil {
+		return fmt.Errorf("enqueue billing seat sync: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // ChangeRole updates a member's role with last-owner protection: the
@@ -71,8 +92,18 @@ func ChangeRole(ctx context.Context, deps Deps, orgID, userID int64, role string
 // applies — we refuse to drop the only owner. Removing oneself is
 // fine when there are ≥2 owners.
 func RemoveMember(ctx context.Context, deps Deps, orgID, userID int64) error {
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
 	q := orgsdb.New()
-	current, err := q.GetOrgMember(ctx, deps.Pool, orgsdb.GetOrgMemberParams{
+	current, err := q.GetOrgMember(ctx, tx, orgsdb.GetOrgMemberParams{
 		OrgID: orgID, UserID: userID,
 	})
 	if err != nil {
@@ -82,7 +113,7 @@ func RemoveMember(ctx context.Context, deps Deps, orgID, userID int64) error {
 		return err
 	}
 	if current.Role == orgsdb.OrgRoleOwner {
-		count, err := q.CountOrgOwners(ctx, deps.Pool, orgID)
+		count, err := q.CountOrgOwners(ctx, tx, orgID)
 		if err != nil {
 			return err
 		}
@@ -90,9 +121,19 @@ func RemoveMember(ctx context.Context, deps Deps, orgID, userID int64) error {
 			return ErrLastOwner
 		}
 	}
-	return q.RemoveOrgMember(ctx, deps.Pool, orgsdb.RemoveOrgMemberParams{
+	if err := q.RemoveOrgMember(ctx, tx, orgsdb.RemoveOrgMemberParams{
 		OrgID: orgID, UserID: userID,
-	})
+	}); err != nil {
+		return err
+	}
+	if err := enqueueBillingSeatSync(ctx, tx, deps, orgID); err != nil {
+		return fmt.Errorf("enqueue billing seat sync: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // IsMember reports whether the user is a member of the org. Used by

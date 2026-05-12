@@ -93,6 +93,9 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (orgsdb.Org, error) 
 	}); err != nil {
 		return orgsdb.Org{}, fmt.Errorf("seed owner: %w", err)
 	}
+	if err := enqueueBillingSeatSync(ctx, tx, deps, row.ID); err != nil {
+		return orgsdb.Org{}, fmt.Errorf("enqueue billing seat sync: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return orgsdb.Org{}, fmt.Errorf("commit: %w", err)

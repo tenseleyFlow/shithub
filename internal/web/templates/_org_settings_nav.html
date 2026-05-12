@@ -1,0 +1,27 @@
+{{ define "org-settings-nav" -}}
+<aside class="shithub-org-settings-sidebar" aria-label="Organization settings">
+  <h1>Settings</h1>
+  <nav class="shithub-org-settings-menu">
+    <a{{ if eq .OrgSettingsActive "profile" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/profile">{{ octicon "organization" }} General</a>
+    <a{{ if eq .OrgSettingsActive "import" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/import">{{ octicon "repo" }} Import repositories</a>
+    <span aria-disabled="true">{{ octicon "people" }} People</span>
+    <span aria-disabled="true">{{ octicon "repo" }} Repository defaults</span>
+    <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>
+    <h2>Code, planning, and automation</h2>
+    <span aria-disabled="true">{{ octicon "play" }} Actions</span>
+    <span aria-disabled="true">{{ octicon "table" }} Projects</span>
+    <span aria-disabled="true">{{ octicon "package" }} Packages</span>
+    <h2>Security</h2>
+    <span aria-disabled="true">{{ octicon "shield-check" }} Code security</span>
+    <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
+    <h2>Access</h2>
+    {{ if .BillingEnabled }}
+    <a{{ if eq .OrgSettingsActive "billing" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/billing">{{ octicon "credit-card" }} Billing and plans</a>
+    {{ else }}
+    <span aria-disabled="true">{{ octicon "credit-card" }} Billing and plans</span>
+    {{ end }}
+    <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
+    <span aria-disabled="true">{{ octicon "history" }} Audit log</span>
+  </nav>
+</aside>
+{{- end }}

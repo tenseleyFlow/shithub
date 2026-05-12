@@ -89,6 +89,34 @@ func TestTeamMemberAddRejectsNonOrgUsers(t *testing.T) {
 	}
 }
 
+func TestTeamCreateBlocksSecretTeamsWithoutEntitlement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+
+	form := url.Values{
+		"display_name": {"Security"},
+		"slug":         {"security"},
+		"privacy":      {"secret"},
+	}
+	body, status, location := performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams", form)
+	if status != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	if location != "/acme/teams?notice=secret-teams-upgrade" {
+		t.Fatalf("redirect=%q", location)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM teams WHERE org_id = $1`, orgID).Scan(&count); err != nil {
+		t.Fatalf("count teams: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no secret team insert, got %d", count)
+	}
+}
+
 func performTeamsListRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, target string) (string, int, string) {
 	return performTeamsRequest(t, pool, viewer, http.MethodGet, target, nil)
 }

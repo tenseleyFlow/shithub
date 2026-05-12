@@ -10,26 +10,7 @@
   </header>
 
   <div class="shithub-org-settings-layout">
-    <aside class="shithub-org-settings-sidebar" aria-label="Organization settings">
-      <h1>Settings</h1>
-      <nav class="shithub-org-settings-menu">
-        <a href="/organizations/{{ .Org.Slug }}/settings/profile">{{ octicon "organization" }} General</a>
-        <a class="is-selected" href="/organizations/{{ .Org.Slug }}/settings/import" aria-current="page">{{ octicon "repo" }} Import repositories</a>
-        <span aria-disabled="true">{{ octicon "people" }} People</span>
-        <span aria-disabled="true">{{ octicon "repo" }} Repository defaults</span>
-        <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>
-        <h2>Code, planning, and automation</h2>
-        <span aria-disabled="true">{{ octicon "play" }} Actions</span>
-        <span aria-disabled="true">{{ octicon "table" }} Projects</span>
-        <span aria-disabled="true">{{ octicon "package" }} Packages</span>
-        <h2>Security</h2>
-        <span aria-disabled="true">{{ octicon "shield-check" }} Code security</span>
-        <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
-        <h2>Access</h2>
-        <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
-        <span aria-disabled="true">{{ octicon "history" }} Audit log</span>
-      </nav>
-    </aside>
+    {{ template "org-settings-nav" . }}
 
     <div class="shithub-org-settings-main">
       {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}

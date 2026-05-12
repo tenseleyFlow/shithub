@@ -73,12 +73,21 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 	return srv, captor
 }
 
+type authTestOptions struct {
+	RequireVerify     bool
+	OrgBillingEnabled bool
+}
+
 // newTestServerWithPool is identical to newTestServer but also exposes
 // the underlying pool so tests that need to manipulate DB state (e.g.
 // backdating timestamps) can do so against the SAME database the server
 // is reading from. Use the simpler newTestServer when no DB poking is
 // needed.
 func newTestServerWithPool(t *testing.T, requireVerify bool) (*httptest.Server, *pgxpool.Pool, *captureSender) {
+	return newTestServerWithPoolOptions(t, authTestOptions{RequireVerify: requireVerify})
+}
+
+func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest.Server, *pgxpool.Pool, *captureSender) {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -123,9 +132,10 @@ func newTestServerWithPool(t *testing.T, requireVerify bool) (*httptest.Server, 
 		},
 		Argon2:                   fastArgon,
 		Limiter:                  throttle.NewLimiter(),
-		RequireEmailVerification: requireVerify,
+		RequireEmailVerification: opts.RequireVerify,
 		SecretBox:                box,
 		ObjectStore:              storage.NewMemoryStore(),
+		OrgBillingEnabled:        opts.OrgBillingEnabled,
 	})
 	if err != nil {
 		t.Fatalf("authh.New: %v", err)
@@ -199,7 +209,7 @@ func authTemplatesFS() fs.FS {
 	apprTpl := `{{ define "page" }}<h1>Appearance</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/appearance" method=POST><input name=csrf_token value="{{.CSRFToken}}">THEME={{.CurrentTheme}};</form>{{ end }}`
 	emailsTpl := `{{ define "page" }}<h1>Emails</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/emails" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>EMAILS={{ range .Emails }}{{.ID}}:{{.Email}}:p={{.IsPrimary}}:v={{.Verified}};{{ end }}{{ end }}`
 	notifTpl := `{{ define "page" }}<h1>Notifications</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/notifications" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHANNELS={{ range .Channels }}{{.Key}}:e={{.Enabled}}:r={{.Required}};{{ end }}</form>{{ end }}`
-	organizationsTpl := `{{ define "page" }}<h1>Organizations</h1>USER={{.Username}};ORGS={{ range .Organizations }}{{.Slug}}:{{.RoleLabel}}:manage={{.CanManage}};{{ end }}{{ end }}`
+	organizationsTpl := `{{ define "page" }}<h1>Organizations</h1>USER={{.Username}};ORGS={{ range .Organizations }}{{.Slug}}:{{.RoleLabel}}:manage={{.CanManage}}:compare={{.CompareHref}};{{ end }}{{ end }}`
 	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
 	dangerTpl := `{{ define "page" }}<h1>Delete</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<form action="/settings/danger" method=POST><input name=csrf_token value="{{.CSRFToken}}">USER={{.Username}};GRACE={{.GraceWindowDays}};</form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`

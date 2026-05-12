@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -95,26 +96,37 @@ func (h *Handlers) teamsList(w http.ResponseWriter, r *http.Request) {
 	privacy := strings.TrimSpace(r.URL.Query().Get("privacy"))
 	items = filterTeamListItems(items, query, privacy)
 	isOwner := false
+	canCreateSecretTeams := false
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+		if isOwner {
+			decision, derr := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureOrgSecretTeams)
+			if derr != nil {
+				h.d.Logger.WarnContext(r.Context(), "teams: secret-team entitlement check", "org_id", org.ID, "error", derr)
+			} else {
+				canCreateSecretTeams = decision.Allowed
+			}
+		}
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, int64(len(visible)))
 	if err := h.d.Render.RenderPage(w, r, "orgs/teams_list", map[string]any{
-		"Title":          org.Slug + " · teams",
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"Org":            org,
-		"AvatarURL":      "/avatars/" + url.PathEscape(string(org.Slug)),
-		"ActiveOrgNav":   "teams",
-		"Teams":          items,
-		"TeamTotalCount": len(visible),
-		"VisibleCount":   visibleCount,
-		"SecretCount":    secretCount,
-		"Query":          query,
-		"PrivacyFilter":  privacy,
-		"RepoCount":      navCounts.RepoCount,
-		"MemberCount":    navCounts.MemberCount,
-		"TeamCount":      navCounts.TeamCount,
-		"IsOwner":        isOwner,
+		"Title":                org.Slug + " · teams",
+		"CSRFToken":            middleware.CSRFTokenForRequest(r),
+		"Org":                  org,
+		"AvatarURL":            "/avatars/" + url.PathEscape(string(org.Slug)),
+		"ActiveOrgNav":         "teams",
+		"Teams":                items,
+		"TeamTotalCount":       len(visible),
+		"VisibleCount":         visibleCount,
+		"SecretCount":          secretCount,
+		"Query":                query,
+		"PrivacyFilter":        privacy,
+		"RepoCount":            navCounts.RepoCount,
+		"MemberCount":          navCounts.MemberCount,
+		"TeamCount":            navCounts.TeamCount,
+		"IsOwner":              isOwner,
+		"Notice":               teamsNoticeMessage(r.URL.Query().Get("notice")),
+		"CanCreateSecretTeams": canCreateSecretTeams,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/teams_list", "error", err)
 	}
@@ -134,6 +146,23 @@ func (h *Handlers) teamCreate(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
+	privacy := strings.TrimSpace(r.PostFormValue("privacy"))
+	if privacy == "secret" {
+		decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureOrgSecretTeams)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "teams: secret-team entitlement check", "org_id", org.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if !decision.Allowed {
+			notice := "secret-teams-upgrade"
+			if decision.Reason == entitlements.ReasonBillingActionNeeded {
+				notice = "secret-teams-billing"
+			}
+			http.Redirect(w, r, "/"+string(org.Slug)+"/teams?notice="+notice, http.StatusSeeOther)
+			return
+		}
+	}
 	parentID, _ := strconv.ParseInt(strings.TrimSpace(r.PostFormValue("parent_team_id")), 10, 64)
 	_, err := orgs.CreateTeam(r.Context(), h.deps(), orgs.CreateTeamParams{
 		OrgID:           org.ID,
@@ -141,7 +170,7 @@ func (h *Handlers) teamCreate(w http.ResponseWriter, r *http.Request) {
 		DisplayName:     strings.TrimSpace(r.PostFormValue("display_name")),
 		Description:     strings.TrimSpace(r.PostFormValue("description")),
 		ParentTeamID:    parentID,
-		Privacy:         strings.TrimSpace(r.PostFormValue("privacy")),
+		Privacy:         privacy,
 		CreatedByUserID: viewer.ID,
 	})
 	if err != nil {
@@ -149,6 +178,17 @@ func (h *Handlers) teamCreate(w http.ResponseWriter, r *http.Request) {
 			"org", org.Slug, "error", err)
 	}
 	http.Redirect(w, r, "/"+string(org.Slug)+"/teams", http.StatusSeeOther)
+}
+
+func teamsNoticeMessage(code string) string {
+	switch code {
+	case "secret-teams-upgrade":
+		return "Secret teams require Team billing. Upgrade this organization to create them."
+	case "secret-teams-billing":
+		return "Secret teams are read-only until Team billing is brought back into good standing."
+	default:
+		return ""
+	}
 }
 
 // teamView renders /{org}/teams/{teamSlug}. Members + repo access.

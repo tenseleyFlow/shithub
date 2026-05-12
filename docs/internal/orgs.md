@@ -20,7 +20,7 @@ already present from 0017 with the XOR CHECK).
 ## Routing
 
 ```
-GET  /organizations/new            create form (auth required)
+GET  /organizations/new            plan picker / create form (auth required)
 POST /organizations                create submit
 GET  /{slug}                       /{user-or-org} — dispatched via principals.Resolve
 POST /{slug}/pins                  owner-only org profile pin customization
@@ -37,6 +37,11 @@ POST /organizations/{org}/settings/delete
 GET  /organizations/{org}/settings/import
 POST /organizations/{org}/settings/import
 GET  /organizations/{org}/imports/{importID}
+GET  /organizations/{org}/settings/billing
+POST /organizations/{org}/billing/checkout
+POST /organizations/{org}/billing/portal
+GET  /organizations/{org}/billing/success
+GET  /organizations/{org}/billing/cancel
 GET  /invitations/{token}          accept/decline view (auth required)
 POST /invitations/{token}/accept
 POST /invitations/{token}/decline
@@ -184,15 +189,23 @@ old slug for 301s during the rename cooldown.
 
 ## Billing posture
 
-Organizations are the first planned paid shithub surface. The
-`orgs.plan` and `billing_email` fields are present today, but payment
-processing and entitlement enforcement live in the PAYMENTS sprint
-series. The durable product and implementation contract is tracked in
-[`billing.md`](./billing.md).
+Organizations are the first paid shithub surface. `orgs.plan` remains
+the human-facing summary, but product behavior goes through
+`internal/entitlements` and the billing projection in
+`org_billing_states`; production handlers must not branch directly on
+`orgs.plan` for paid feature access.
 
-Until that series lands, production code must not branch on
-`orgs.plan` for feature access. Paid feature checks should go through
-the future entitlement package described in the billing doc.
+When billing is fully configured, `/organizations/new` starts with a
+Free / Team / Enterprise plan picker. Choosing Team creates the
+organization first and then redirects the owner to
+`/organizations/{org}/settings/billing` to begin Stripe Checkout.
+Existing owner-managed orgs also link to that billing page from
+`/settings/organizations` for plan comparison.
+
+Billing routes are mounted only when Stripe Billing is configured.
+When billing is disabled, local billing rows remain in the database but
+paid onboarding links stay unavailable. The durable product and
+implementation contract is tracked in [`billing.md`](./billing.md).
 
 ## What we deferred from the spec
 
@@ -207,7 +220,7 @@ the future entitlement package described in the billing doc.
   notification fan-out land in follow-ups.
 * **Org renaming via `principal_redirects`** — depends on the
   rename refactor.
-* **Daily digest / billing / SAML** — post-MVP per spec.
+* **Daily digest / SAML** — post-MVP per spec.
 
 ## Pitfalls noted in code
 

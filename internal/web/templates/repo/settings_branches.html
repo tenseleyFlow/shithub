@@ -3,6 +3,7 @@
   {{ template "repo-settings-nav" . }}
   <div class="shithub-settings-content">
     <h1>Branches</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
 
     <section class="shithub-settings-section">
     <h2>Default branch</h2>

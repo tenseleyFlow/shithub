@@ -285,6 +285,9 @@ func Run(ctx context.Context, opts Options) error {
 		if err != nil {
 			return fmt.Errorf("org handlers: %w", err)
 		}
+		if cfg.Billing.Enabled {
+			deps.BillingWebhookMounter = orgH.MountBillingWebhook
+		}
 		deps.OrgCreateMounter = func(r chi.Router) {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireUser)

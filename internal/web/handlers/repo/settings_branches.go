@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -50,6 +52,7 @@ func (h *Handlers) settingsBranches(w http.ResponseWriter, r *http.Request) {
 		"Repo":           row,
 		"Rules":          rules,
 		"Branches":       refs.Branches,
+		"Notice":         settingsBranchesNoticeMessage(r.URL.Query().Get("notice")),
 		"SettingsActive": "branches",
 	})
 }
@@ -87,6 +90,16 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	// against `check_runs.name` at gate time.
 	requiredChecks := splitCommaList(r.PostFormValue("required_status_check_names"))
 	dismissStaleChecks := r.PostFormValue("dismiss_stale_status_checks_on_push") == "on"
+
+	noticeCode, err := h.branchProtectionEntitlementNotice(r.Context(), row, requiredReviews, dismissStale, requiredChecks, dismissStaleChecks)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if noticeCode != "" {
+		http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice="+noticeCode, http.StatusSeeOther)
+		return
+	}
 
 	allowed, err := resolveUsernameList(r, h, r.PostFormValue("allowed_pushers"))
 	if err != nil {
@@ -179,6 +192,44 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=saved", http.StatusSeeOther)
 }
 
+func (h *Handlers) branchProtectionEntitlementNotice(ctx context.Context, row reposdb.Repo, requiredReviews int, dismissStale bool, requiredChecks []string, dismissStaleChecks bool) (string, error) {
+	if !row.OwnerOrgID.Valid || row.Visibility != reposdb.RepoVisibilityPrivate {
+		return "", nil
+	}
+	if requiredReviews > 0 || dismissStale {
+		decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, row.OwnerOrgID.Int64, entitlements.FeatureOrgRequiredReviewers)
+		if err != nil {
+			return "", err
+		}
+		if !decision.Allowed {
+			return branchProtectionNoticeCode(decision, true), nil
+		}
+	}
+	if len(requiredChecks) > 0 || dismissStaleChecks {
+		decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, row.OwnerOrgID.Int64, entitlements.FeatureOrgAdvancedBranchProtection)
+		if err != nil {
+			return "", err
+		}
+		if !decision.Allowed {
+			return branchProtectionNoticeCode(decision, false), nil
+		}
+	}
+	return "", nil
+}
+
+func branchProtectionNoticeCode(decision entitlements.Decision, requiredReviewers bool) string {
+	if requiredReviewers {
+		if decision.Reason == entitlements.ReasonBillingActionNeeded {
+			return "required-reviewers-billing"
+		}
+		return "required-reviewers-upgrade"
+	}
+	if decision.Reason == entitlements.ReasonBillingActionNeeded {
+		return "branch-protection-billing"
+	}
+	return "branch-protection-upgrade"
+}
+
 // settingsBranchesDelete removes a rule.
 func (h *Handlers) settingsBranchesDelete(w http.ResponseWriter, r *http.Request) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsBranches)
@@ -268,6 +319,26 @@ func (h *Handlers) settingsDefaultBranch(w http.ResponseWriter, r *http.Request)
 		auditMeta)
 
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=default-changed", http.StatusSeeOther)
+}
+
+func settingsBranchesNoticeMessage(code string) string {
+	if msg := settingsNoticeMessage(code); msg != "" {
+		return msg
+	}
+	switch code {
+	case "default-changed":
+		return "Default branch updated."
+	case "branch-protection-upgrade":
+		return "Advanced branch protection on private organization repositories requires Team billing."
+	case "branch-protection-billing":
+		return "Advanced branch protection is read-only until Team billing is brought back into good standing."
+	case "required-reviewers-upgrade":
+		return "Required reviewers on private organization repositories require Team billing."
+	case "required-reviewers-billing":
+		return "Required reviewers are read-only until Team billing is brought back into good standing."
+	default:
+		return ""
+	}
 }
 
 // splitCommaList parses a comma-separated string into a deduplicated,

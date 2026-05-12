@@ -242,6 +242,19 @@ func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (C
 	return i, err
 }
 
+const countBillableOrgMembers = `-- name: CountBillableOrgMembers :one
+SELECT count(*)::integer
+FROM org_members
+WHERE org_id = $1
+`
+
+func (q *Queries) CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error) {
+	row := db.QueryRow(ctx, countBillableOrgMembers, orgID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSeatSnapshot = `-- name: CreateSeatSnapshot :one
 
 WITH snapshot AS (
@@ -400,6 +413,100 @@ func (q *Queries) GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) 
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrgBillingStateByStripeCustomer = `-- name: GetOrgBillingStateByStripeCustomer :one
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_customer_id = $1
+`
+
+func (q *Queries) GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error) {
+	row := db.QueryRow(ctx, getOrgBillingStateByStripeCustomer, stripeCustomerID)
+	var i OrgBillingState
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrgBillingStateByStripeSubscription = `-- name: GetOrgBillingStateByStripeSubscription :one
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+WHERE provider = 'stripe'
+  AND stripe_subscription_id = $1
+`
+
+func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error) {
+	row := db.QueryRow(ctx, getOrgBillingStateByStripeSubscription, stripeSubscriptionID)
+	var i OrgBillingState
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWebhookEventReceipt = `-- name: GetWebhookEventReceipt :one
+SELECT id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts FROM billing_webhook_events
+WHERE provider = 'stripe'
+  AND provider_event_id = $1
+`
+
+func (q *Queries) GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error) {
+	row := db.QueryRow(ctx, getWebhookEventReceipt, providerEventID)
+	var i BillingWebhookEvent
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.ProviderEventID,
+		&i.EventType,
+		&i.ApiVersion,
+		&i.Payload,
+		&i.ReceivedAt,
+		&i.ProcessedAt,
+		&i.ProcessError,
+		&i.ProcessingAttempts,
 	)
 	return i, err
 }
@@ -603,6 +710,97 @@ type MarkPastDueParams struct {
 func (q *Queries) MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParams) (OrgBillingState, error) {
 	row := db.QueryRow(ctx, markPastDue, arg.GraceUntil, arg.LastWebhookEventID, arg.OrgID)
 	var i OrgBillingState
+	err := row.Scan(
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.BillableSeats,
+		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markPaymentSucceeded = `-- name: MarkPaymentSucceeded :one
+WITH state AS (
+    UPDATE org_billing_states
+       SET plan = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'team'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'active'
+               ELSE subscription_status
+           END,
+           past_due_at = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE past_due_at
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           last_webhook_event_id = $1::text,
+           updated_at = now()
+     WHERE org_id = $2::bigint
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), org_update AS (
+    UPDATE orgs
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE orgs.id = state.org_id
+    RETURNING orgs.id
+)
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type MarkPaymentSucceededParams struct {
+	LastWebhookEventID string
+	OrgID              int64
+}
+
+type MarkPaymentSucceededRow struct {
+	OrgID                    int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     OrgPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	BillableSeats            int32
+	SeatSnapshotAt           pgtype.Timestamptz
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error) {
+	row := db.QueryRow(ctx, markPaymentSucceeded, arg.LastWebhookEventID, arg.OrgID)
+	var i MarkPaymentSucceededRow
 	err := row.Scan(
 		&i.OrgID,
 		&i.Provider,

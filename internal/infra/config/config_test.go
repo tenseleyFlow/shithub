@@ -45,6 +45,49 @@ func TestValidate_RejectsBadSampleRate(t *testing.T) {
 	}
 }
 
+func TestValidate_BillingRequiresStripeSettings(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Billing.Enabled = true
+	if err := Validate(&cfg); err == nil || !strings.Contains(err.Error(), "billing.stripe.secret_key") {
+		t.Fatalf("Validate missing secret key: got %v", err)
+	}
+
+	cfg.Billing.Stripe.SecretKey = "sk_test_123"
+	if err := Validate(&cfg); err == nil || !strings.Contains(err.Error(), "billing.stripe.webhook_secret") {
+		t.Fatalf("Validate missing webhook secret: got %v", err)
+	}
+
+	cfg.Billing.Stripe.WebhookSecret = "whsec_123"
+	if err := Validate(&cfg); err == nil || !strings.Contains(err.Error(), "billing.stripe.team_price_id") {
+		t.Fatalf("Validate missing team price: got %v", err)
+	}
+
+	cfg.Billing.Stripe.TeamPriceID = "price_123"
+	if err := Validate(&cfg); err != nil {
+		t.Fatalf("Validate complete billing config: %v", err)
+	}
+}
+
+func TestValidate_BillingRejectsBadURLs(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Billing.Stripe.SuccessURL = "/relative"
+	if err := Validate(&cfg); err == nil || !strings.Contains(err.Error(), "billing.stripe.success_url") {
+		t.Fatalf("Validate bad success URL: got %v", err)
+	}
+
+	cfg = Defaults()
+	cfg.Billing.Enabled = true
+	cfg.Billing.Stripe.SecretKey = "sk_test_123"
+	cfg.Billing.Stripe.WebhookSecret = "whsec_123"
+	cfg.Billing.Stripe.TeamPriceID = "price_123"
+	cfg.Auth.BaseURL = "shithub.local"
+	if err := Validate(&cfg); err == nil || !strings.Contains(err.Error(), "auth.base_url") {
+		t.Fatalf("Validate bad auth base URL with billing enabled: got %v", err)
+	}
+}
+
 func TestMergeEnv_AppliesNestedKeys(t *testing.T) {
 	t.Parallel()
 	cfg := Defaults()
@@ -54,6 +97,12 @@ func TestMergeEnv_AppliesNestedKeys(t *testing.T) {
 		"SHITHUB_TRACING__ENABLED=true",
 		"SHITHUB_TRACING__ENDPOINT=http://otel:4318",
 		"SHITHUB_DB__CONNECT_TIMEOUT=8s",
+		"SHITHUB_BILLING__ENABLED=true",
+		"SHITHUB_BILLING__GRACE_PERIOD=240h",
+		"SHITHUB_BILLING__STRIPE__SECRET_KEY=sk_test_123",
+		"SHITHUB_BILLING__STRIPE__WEBHOOK_SECRET=whsec_123",
+		"SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID=price_123",
+		"SHITHUB_BILLING__STRIPE__AUTOMATIC_TAX=true",
 	}
 	if err := mergeEnv(&cfg, env); err != nil {
 		t.Fatalf("mergeEnv: %v", err)
@@ -70,6 +119,24 @@ func TestMergeEnv_AppliesNestedKeys(t *testing.T) {
 	if cfg.DB.ConnectTimeout != 8*time.Second {
 		t.Errorf("DB.ConnectTimeout: got %v", cfg.DB.ConnectTimeout)
 	}
+	if !cfg.Billing.Enabled {
+		t.Errorf("Billing.Enabled: not set")
+	}
+	if cfg.Billing.GracePeriod != 240*time.Hour {
+		t.Errorf("Billing.GracePeriod: got %v", cfg.Billing.GracePeriod)
+	}
+	if cfg.Billing.Stripe.SecretKey != "sk_test_123" {
+		t.Errorf("Billing.Stripe.SecretKey: got %q", cfg.Billing.Stripe.SecretKey)
+	}
+	if cfg.Billing.Stripe.WebhookSecret != "whsec_123" {
+		t.Errorf("Billing.Stripe.WebhookSecret: got %q", cfg.Billing.Stripe.WebhookSecret)
+	}
+	if cfg.Billing.Stripe.TeamPriceID != "price_123" {
+		t.Errorf("Billing.Stripe.TeamPriceID: got %q", cfg.Billing.Stripe.TeamPriceID)
+	}
+	if !cfg.Billing.Stripe.AutomaticTax {
+		t.Errorf("Billing.Stripe.AutomaticTax: not set")
+	}
 }
 
 func TestPrintRedacted_HidesSecrets(t *testing.T) {
@@ -79,13 +146,15 @@ func TestPrintRedacted_HidesSecrets(t *testing.T) {
 	cfg.Session.KeyB64 = "supersecretkey"
 	cfg.Metrics.BasicAuthPass = "metrics-pass"
 	cfg.ErrorReporting.DSN = "https://abc@sentry.example/1"
+	cfg.Billing.Stripe.SecretKey = "sk_live_secret"
+	cfg.Billing.Stripe.WebhookSecret = "whsec_secret"
 
 	out, err := PrintRedacted(cfg)
 	if err != nil {
 		t.Fatalf("PrintRedacted: %v", err)
 	}
 
-	for _, leak := range []string{"hunter2", "supersecretkey", "metrics-pass", "https://abc@sentry"} {
+	for _, leak := range []string{"hunter2", "supersecretkey", "metrics-pass", "https://abc@sentry", "sk_live_secret", "whsec_secret"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("PrintRedacted leaked %q\noutput: %s", leak, out)
 		}

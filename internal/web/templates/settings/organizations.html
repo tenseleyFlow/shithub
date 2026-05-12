@@ -31,7 +31,11 @@
           <span class="shithub-settings-org-role">{{ .RoleLabel }}</span>
           <div class="shithub-settings-org-actions">
             {{ if .CanManage }}
+            {{ if .CompareHref }}
+            <a href="{{ .CompareHref }}" class="shithub-button shithub-button-small">Compare plans</a>
+            {{ else }}
             <button type="button" class="shithub-button shithub-button-small" disabled>Compare plans</button>
+            {{ end }}
             <a href="/organizations/{{ .Slug }}/settings/profile" class="shithub-button shithub-button-small">Settings</a>
             {{ end }}
             <button type="button" class="shithub-button shithub-button-small shithub-button-danger" disabled>Leave</button>

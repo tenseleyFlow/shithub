@@ -1,9 +1,13 @@
 {{ define "page" -}}
 <section class="shithub-auth">
-  <h1>Create an organization</h1>
+  <h1>{{ if eq .Form.SelectedTier "team" }}Set up your organization{{ else }}Create an organization{{ end }}</h1>
   {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
   <form method="POST" action="/organizations" novalidate>
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <input type="hidden" name="plan" value="{{ .Form.SelectedTier }}">
+    {{ if eq .Form.SelectedTier "team" }}
+    <p class="shithub-auth-aside">This creates the organization first, then hands off to billing so you can start the Team subscription.</p>
+    {{ end }}
     <label>
       <span>Slug</span>
       <input type="text" name="slug" required

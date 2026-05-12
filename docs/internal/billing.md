@@ -1,8 +1,8 @@
 # Billing and paid organizations
 
-shithub's first paid surface is organization billing. The code does not
-ship billing yet; this document records the product and engineering
-contract that the PAYMENTS sprint series implements.
+shithub's first paid surface is organization billing. This document
+records the product and engineering contract that the PAYMENTS sprint
+series implements.
 
 The current implementation already has the important shape for paid
 organizations: `orgs.plan` is an enum with `free`, `team`, and
@@ -29,6 +29,9 @@ Initial decisions:
 - Stripe Billing is the first payment processor.
 - PayPal, manual invoices, SAML, SCIM, LDAP, enterprise account
   hierarchy, and contracts are deferred.
+- Self-serve organization creation should present plan selection first
+  when billing is enabled; choosing Team creates the organization and
+  then hands the owner into billing to finish checkout.
 
 The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,
@@ -145,6 +148,26 @@ New organizations receive a Free billing state from a database trigger,
 and the migration backfills existing organizations as Free. Subscription
 snapshot writes also keep `orgs.plan` synchronized as the
 human-facing summary.
+
+PAYMENTS SP03 adds the first Stripe operator contract:
+
+- `billing.enabled=false` keeps paid-org flows disabled while retaining
+  the local billing tables.
+- `billing.stripe.secret_key`, `billing.stripe.webhook_secret`, and
+  `billing.stripe.team_price_id` are required before Stripe routes are
+  mounted.
+- Checkout success, Checkout cancel, and Billing Portal return URLs may
+  be overridden explicitly; otherwise the web layer derives absolute
+  organization URLs from `auth.base_url`.
+- `billing.grace_period` controls how long failed-payment states may
+  remain unlocked before paid entitlements are cut off.
+- When billing routes are mounted, `/settings/organizations` links
+  owner-managed organizations to their billing page's plan comparison.
+  When billing is disabled, that action stays visibly unavailable
+  instead of linking to an unmounted route.
+
+The operator enablement flow is documented in
+[`runbooks/stripe-billing.md`](./runbooks/stripe-billing.md).
 
 ## Entitlement architecture
 

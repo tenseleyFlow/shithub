@@ -24,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -92,6 +93,19 @@ var workerCmd = &cobra.Command{
 				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
 				"error", boxErr)
 		}
+		var stripeRemote stripebilling.Remote
+		if cfg.Billing.Enabled {
+			remote, err := stripebilling.New(stripebilling.Config{
+				SecretKey:     cfg.Billing.Stripe.SecretKey,
+				WebhookSecret: cfg.Billing.Stripe.WebhookSecret,
+				TeamPriceID:   cfg.Billing.Stripe.TeamPriceID,
+				AutomaticTax:  cfg.Billing.Stripe.AutomaticTax,
+			})
+			if err != nil {
+				return fmt.Errorf("billing: %w", err)
+			}
+			stripeRemote = remote
+		}
 
 		p := worker.NewPool(pool, worker.PoolConfig{
 			Workers:    count,
@@ -132,6 +146,9 @@ var workerCmd = &cobra.Command{
 		}
 		p.Register(worker.KindOrgGitHubImportDiscover, jobs.OrgGitHubImportDiscover(importDeps))
 		p.Register(worker.KindOrgGitHubImportRepo, jobs.OrgGitHubImportRepo(importDeps))
+		p.Register(worker.KindOrgBillingSeatSync, jobs.OrgBillingSeatSync(jobs.OrgBillingSeatSyncDeps{
+			Pool: pool, Logger: logger, Stripe: stripeRemote,
+		}))
 
 		notifSender, _ := pickNotifEmailSender(cfg)
 		p.Register(worker.KindNotifyFanout, jobs.NotifyFanout(jobs.NotifyFanoutDeps{

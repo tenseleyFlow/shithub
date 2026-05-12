@@ -43,3 +43,10 @@ func (r RepoRef) IsPublic() bool { return r.Visibility == "public" }
 // IsPrivate is the inverse. Use whichever phrasing reads better at the
 // call site.
 func (r RepoRef) IsPrivate() bool { return r.Visibility == "private" }
+
+// IsOwnedByUser reports whether userID is the direct user owner. Keep
+// ownership interpretation here so handlers do not grow inline owner
+// checks next to request behavior.
+func (r RepoRef) IsOwnedByUser(userID int64) bool {
+	return userID != 0 && r.OwnerUserID == userID
+}

@@ -152,7 +152,7 @@ func (h *Handlers) collaboratorPut(w http.ResponseWriter, r *http.Request) {
 	// implicitly hold every permission, so a row would be confusing
 	// at best (and could lock the legitimate owner into a downgraded
 	// role at worst).
-	if repo.OwnerUserID.Valid && repo.OwnerUserID.Int64 == user.ID {
+	if policy.NewRepoRefFromRepo(*repo).IsOwnedByUser(user.ID) {
 		writeAPIError(w, http.StatusUnprocessableEntity, "owner already has full access")
 		return
 	}

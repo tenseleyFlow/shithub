@@ -2,7 +2,7 @@
 
 // Package orgs wires the S30 organization web surface:
 //
-//	GET  /organizations/new            create form
+//	GET  /organizations/new            plan selection / create form
 //	POST /organizations                create submit
 //	GET  /orgs/{org}/repositories                          repository list
 //	GET  /{org}/people                                      members + pending invites + invite form
@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +40,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -48,16 +50,22 @@ import (
 
 // Deps wires the handler set.
 type Deps struct {
-	Logger      *slog.Logger
-	Render      *render.Renderer
-	Pool        *pgxpool.Pool
-	EmailSender authemail.Sender
-	EmailFrom   string
-	SiteName    string
-	BaseURL     string
-	ObjectStore storage.ObjectStore
-	SecretBox   *secretbox.Box
-	Audit       *audit.Recorder
+	Logger                *slog.Logger
+	Render                *render.Renderer
+	Pool                  *pgxpool.Pool
+	EmailSender           authemail.Sender
+	EmailFrom             string
+	SiteName              string
+	BaseURL               string
+	ObjectStore           storage.ObjectStore
+	SecretBox             *secretbox.Box
+	Audit                 *audit.Recorder
+	BillingEnabled        bool
+	BillingGracePeriod    time.Duration
+	Stripe                stripebilling.Remote
+	StripeSuccessURL      string
+	StripeCancelURL       string
+	StripePortalReturnURL string
 }
 
 // Handlers groups the org surface handlers.
@@ -101,6 +109,13 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Get("/organizations/{org}/settings/variables/actions", h.settingsActionsVariables)
 	r.Post("/organizations/{org}/settings/variables/actions", h.settingsActionsVariableSet)
 	r.Post("/organizations/{org}/settings/variables/actions/{name}/delete", h.settingsActionsVariableDelete)
+	if h.billingConfigured() {
+		r.Get("/organizations/{org}/settings/billing", h.settingsBilling)
+		r.Post("/organizations/{org}/billing/checkout", h.billingCheckout)
+		r.Post("/organizations/{org}/billing/portal", h.billingPortal)
+		r.Get("/organizations/{org}/billing/success", h.billingSuccess)
+		r.Get("/organizations/{org}/billing/cancel", h.billingCancel)
+	}
 }
 
 // MountOrgRoutes registers the per-org surface under /{org}/people
@@ -126,6 +141,13 @@ func (h *Handlers) MountInvitations(r chi.Router) {
 	r.Post("/invitations/{token}/decline", h.invitationDecline)
 }
 
+func (h *Handlers) MountBillingWebhook(r chi.Router) {
+	if !h.billingConfigured() {
+		return
+	}
+	r.Post("/stripe/webhook", h.billingWebhook)
+}
+
 // ─── helpers ───────────────────────────────────────────────────────
 
 func (h *Handlers) deps() orgs.Deps {
@@ -137,6 +159,10 @@ func (h *Handlers) deps() orgs.Deps {
 		SiteName:    h.d.SiteName,
 		BaseURL:     h.d.BaseURL,
 	}
+}
+
+func (h *Handlers) billingConfigured() bool {
+	return h.d.BillingEnabled && h.d.Stripe != nil
 }
 
 // orgFromSlug resolves the org from a {org} URL param, with an
@@ -163,10 +189,21 @@ func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=/organizations/new", http.StatusSeeOther)
 		return
 	}
-	h.renderNewForm(w, r, orgCreateForm{}, "")
+	requestedPlan := requestedOrgCreatePlan(r.URL.Query().Get("plan"))
+	if h.billingConfigured() && requestedPlan == "" {
+		h.renderPlanSelection(w, r, "")
+		return
+	}
+	plan := normalizeOrgCreatePlan(requestedPlan, h.billingConfigured())
+	if plan == orgCreatePlanEnterprise {
+		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
+		return
+	}
+	h.renderNewForm(w, r, orgCreateForm{SelectedTier: plan}, "")
 }
 
 type orgCreateForm struct {
+	SelectedTier string
 	Slug         string
 	DisplayName  string
 	BillingEmail string
@@ -185,11 +222,16 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	form := orgCreateForm{
+		SelectedTier: normalizeOrgCreatePlan(r.PostFormValue("plan"), h.billingConfigured()),
 		Slug:         strings.TrimSpace(r.PostFormValue("slug")),
 		DisplayName:  strings.TrimSpace(r.PostFormValue("display_name")),
 		BillingEmail: strings.TrimSpace(r.PostFormValue("billing_email")),
 		GitHubOrg:    strings.TrimSpace(r.PostFormValue("github_org")),
 		GitHubToken:  strings.TrimSpace(r.PostFormValue("github_token")),
+	}
+	if form.SelectedTier == orgCreatePlanEnterprise {
+		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
+		return
 	}
 	if form.GitHubOrg != "" {
 		if _, err := orgs.NormalizeGitHubOrg(form.GitHubOrg); err != nil {
@@ -224,7 +266,15 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/organizations/"+row.Slug+"/settings/import?notice=start-failed", http.StatusSeeOther)
 			return
 		}
+		if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
+			http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created-import-started", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/organizations/"+row.Slug+"/imports/"+strconv.FormatInt(imp.ID, 10), http.StatusSeeOther)
+		return
+	}
+	if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
+		http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created", http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
@@ -237,13 +287,58 @@ func (f orgCreateForm) withoutToken() orgCreateForm {
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form orgCreateForm, errMsg string) {
 	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
-		"Title":     "New organization",
+		"Title":     orgCreateTitle(form.SelectedTier),
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Slug":      form.Slug,
 		"Form":      form,
 		"Error":     errMsg,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
+	}
+}
+
+const (
+	orgCreatePlanFree       = "free"
+	orgCreatePlanTeam       = "team"
+	orgCreatePlanEnterprise = "enterprise"
+)
+
+func requestedOrgCreatePlan(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case orgCreatePlanFree, orgCreatePlanTeam, orgCreatePlanEnterprise:
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return ""
+	}
+}
+
+func normalizeOrgCreatePlan(raw string, billingConfigured bool) string {
+	switch requestedOrgCreatePlan(raw) {
+	case orgCreatePlanTeam:
+		if billingConfigured {
+			return orgCreatePlanTeam
+		}
+	case orgCreatePlanEnterprise:
+		if billingConfigured {
+			return orgCreatePlanEnterprise
+		}
+	}
+	return orgCreatePlanFree
+}
+
+func orgCreateTitle(plan string) string {
+	if plan == orgCreatePlanTeam {
+		return "Set up your organization"
+	}
+	return "New organization"
+}
+
+func (h *Handlers) renderPlanSelection(w http.ResponseWriter, r *http.Request, errMsg string) {
+	if err := h.d.Render.RenderPage(w, r, "orgs/new_plan", map[string]any{
+		"Title": "Choose a plan",
+		"Error": errMsg,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new_plan", "error", err)
 	}
 }
 

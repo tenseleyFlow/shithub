@@ -1,0 +1,90 @@
+{{ define "page" -}}
+<section class="shithub-auth shithub-auth-plans">
+  <h1>Pick a plan for your organization</h1>
+  <p class="shithub-auth-aside">Start free, or choose Team if you want paid organization features and hosted billing from the beginning.</p>
+  {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
+
+  <div class="shithub-billing-plan-grid">
+    <section class="Box">
+      <div class="Box-header"><h2 class="Box-title">Free</h2></div>
+      <div class="Box-body">
+        <p><strong>$0</strong> USD per user/month</p>
+        <p>Basic organizations for public work, visible teams, and standard collaboration.</p>
+        <p><a href="/organizations/new?plan=free" class="shithub-button">Create a free organization</a></p>
+      </div>
+    </section>
+
+    <section class="Box">
+      <div class="Box-header"><h2 class="Box-title">Team</h2></div>
+      <div class="Box-body">
+        <p><strong>$4</strong> USD per active member/month</p>
+        <p>Unlock secret teams, advanced private-repo branch protection, required reviewers, and org-level Actions secrets and variables.</p>
+        <p><a href="/organizations/new?plan=team" class="shithub-button shithub-button-primary">Continue with Team</a></p>
+      </div>
+    </section>
+
+    <section class="Box">
+      <div class="Box-header"><h2 class="Box-title">Enterprise</h2></div>
+      <div class="Box-body">
+        <p><strong>Contact sales</strong></p>
+        <p>Enterprise remains a stub until the hosted product grows into those promises.</p>
+        <p><a href="/organizations/new?plan=enterprise" class="shithub-button">Contact sales</a></p>
+      </div>
+    </section>
+  </div>
+
+  <div class="Box shithub-billing-plan-compare">
+    <div class="Box-header"><h2 class="Box-title">Compare features</h2></div>
+    <div class="Box-body">
+      <table class="shithub-org-billing-table">
+        <thead>
+          <tr>
+            <th scope="col">Feature</th>
+            <th scope="col">Free</th>
+            <th scope="col">Team</th>
+            <th scope="col">Enterprise</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Public and private org repositories</td>
+            <td>Included</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+          <tr>
+            <td>Visible teams</td>
+            <td>Included</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+          <tr>
+            <td>Secret teams</td>
+            <td>Upgrade</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+          <tr>
+            <td>Advanced private-repo branch protection</td>
+            <td>Upgrade</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+          <tr>
+            <td>Required reviewers on private org repos</td>
+            <td>Upgrade</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+          <tr>
+            <td>Org-level Actions secrets and variables</td>
+            <td>Upgrade</td>
+            <td>Included</td>
+            <td>Contact sales</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{{- end }}
