@@ -2,7 +2,7 @@
 
 // Package orgs wires the S30 organization web surface:
 //
-//	GET  /organizations/new            create form
+//	GET  /organizations/new            plan selection / create form
 //	POST /organizations                create submit
 //	GET  /orgs/{org}/repositories                          repository list
 //	GET  /{org}/people                                      members + pending invites + invite form
@@ -189,10 +189,21 @@ func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=/organizations/new", http.StatusSeeOther)
 		return
 	}
-	h.renderNewForm(w, r, orgCreateForm{}, "")
+	requestedPlan := requestedOrgCreatePlan(r.URL.Query().Get("plan"))
+	if h.billingConfigured() && requestedPlan == "" {
+		h.renderPlanSelection(w, r, "")
+		return
+	}
+	plan := normalizeOrgCreatePlan(requestedPlan, h.billingConfigured())
+	if plan == orgCreatePlanEnterprise {
+		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
+		return
+	}
+	h.renderNewForm(w, r, orgCreateForm{SelectedTier: plan}, "")
 }
 
 type orgCreateForm struct {
+	SelectedTier string
 	Slug         string
 	DisplayName  string
 	BillingEmail string
@@ -211,11 +222,16 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	form := orgCreateForm{
+		SelectedTier: normalizeOrgCreatePlan(r.PostFormValue("plan"), h.billingConfigured()),
 		Slug:         strings.TrimSpace(r.PostFormValue("slug")),
 		DisplayName:  strings.TrimSpace(r.PostFormValue("display_name")),
 		BillingEmail: strings.TrimSpace(r.PostFormValue("billing_email")),
 		GitHubOrg:    strings.TrimSpace(r.PostFormValue("github_org")),
 		GitHubToken:  strings.TrimSpace(r.PostFormValue("github_token")),
+	}
+	if form.SelectedTier == orgCreatePlanEnterprise {
+		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
+		return
 	}
 	if form.GitHubOrg != "" {
 		if _, err := orgs.NormalizeGitHubOrg(form.GitHubOrg); err != nil {
@@ -250,7 +266,15 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/organizations/"+row.Slug+"/settings/import?notice=start-failed", http.StatusSeeOther)
 			return
 		}
+		if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
+			http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created-import-started", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/organizations/"+row.Slug+"/imports/"+strconv.FormatInt(imp.ID, 10), http.StatusSeeOther)
+		return
+	}
+	if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
+		http.Redirect(w, r, orgBillingSettingsPath(row.Slug)+"?notice=team-created", http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
@@ -263,13 +287,58 @@ func (f orgCreateForm) withoutToken() orgCreateForm {
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form orgCreateForm, errMsg string) {
 	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
-		"Title":     "New organization",
+		"Title":     orgCreateTitle(form.SelectedTier),
 		"CSRFToken": middleware.CSRFTokenForRequest(r),
 		"Slug":      form.Slug,
 		"Form":      form,
 		"Error":     errMsg,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
+	}
+}
+
+const (
+	orgCreatePlanFree       = "free"
+	orgCreatePlanTeam       = "team"
+	orgCreatePlanEnterprise = "enterprise"
+)
+
+func requestedOrgCreatePlan(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case orgCreatePlanFree, orgCreatePlanTeam, orgCreatePlanEnterprise:
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return ""
+	}
+}
+
+func normalizeOrgCreatePlan(raw string, billingConfigured bool) string {
+	switch requestedOrgCreatePlan(raw) {
+	case orgCreatePlanTeam:
+		if billingConfigured {
+			return orgCreatePlanTeam
+		}
+	case orgCreatePlanEnterprise:
+		if billingConfigured {
+			return orgCreatePlanEnterprise
+		}
+	}
+	return orgCreatePlanFree
+}
+
+func orgCreateTitle(plan string) string {
+	if plan == orgCreatePlanTeam {
+		return "Set up your organization"
+	}
+	return "New organization"
+}
+
+func (h *Handlers) renderPlanSelection(w http.ResponseWriter, r *http.Request, errMsg string) {
+	if err := h.d.Render.RenderPage(w, r, "orgs/new_plan", map[string]any{
+		"Title": "Choose a plan",
+		"Error": errMsg,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new_plan", "error", err)
 	}
 }
 

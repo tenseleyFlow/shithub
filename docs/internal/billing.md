@@ -29,6 +29,9 @@ Initial decisions:
 - Stripe Billing is the first payment processor.
 - PayPal, manual invoices, SAML, SCIM, LDAP, enterprise account
   hierarchy, and contracts are deferred.
+- Self-serve organization creation should present plan selection first
+  when billing is enabled; choosing Team creates the organization and
+  then hands the owner into billing to finish checkout.
 
 The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,

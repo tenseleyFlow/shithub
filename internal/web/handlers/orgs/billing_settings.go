@@ -208,6 +208,10 @@ func billingNotice(code string) string {
 		return "Checkout completed. Stripe will finish provisioning as webhook events arrive."
 	case "checkout-canceled":
 		return "Checkout canceled."
+	case "team-created":
+		return "Organization created. Continue with Team checkout to unlock paid features."
+	case "team-created-import-started":
+		return "Organization created and GitHub import started. Continue with Team checkout to unlock paid features."
 	default:
 		return ""
 	}
