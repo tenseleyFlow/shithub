@@ -24,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -38,6 +39,12 @@ type Deps struct {
 	RunnerJWT   *runnerjwt.Signer
 	SecretBox   *secretbox.Box
 	RateLimiter *ratelimit.Limiter
+	// BaseURL is the public scheme://host prefix used for absolute
+	// pagination Link headers. Empty falls back to path-relative URLs.
+	BaseURL string
+	// APILimit configures the /api/v1/* rate-limit middleware. Zero
+	// values inherit apilimit.Middleware's no-op fallback.
+	APILimit apilimit.Config
 }
 
 // Handlers is the registered API handler set. Construct with New.
@@ -77,9 +84,20 @@ const runnerAPIMaxBodyBytes = 768 * 1024
 
 // Mount registers /api/v1/* on r. Caller is responsible for putting r
 // in a CSRF-exempt group.
+//
+// Outer middleware on every /api/v1/* request: apilimit stamps the
+// X-RateLimit-* headers and refuses over-budget callers with a JSON
+// 429. Inner groups attach body caps, PAT auth, and scope decorators
+// according to the surface they expose.
 func (h *Handlers) Mount(r chi.Router) {
+	apiLimitMW := apilimit.Middleware(h.d.RateLimiter, apilimit.Config{
+		AuthedPerHour: h.d.APILimit.AuthedPerHour,
+		AnonPerHour:   h.d.APILimit.AnonPerHour,
+		Logger:        h.d.Logger,
+	})
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.MaxBodySize(runnerAPIMaxBodyBytes))
+		r.Use(apiLimitMW)
 		h.mountRunners(r)
 	})
 	r.Group(func(r chi.Router) {
@@ -88,6 +106,9 @@ func (h *Handlers) Mount(r chi.Router) {
 			Pool:      h.d.Pool,
 			Debouncer: h.d.Debouncer,
 		}))
+		r.Use(apiLimitMW)
+		// /meta is capability discovery — no scope required, anon ok.
+		h.mountMeta(r)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireScope(pat.ScopeUserRead))
 			r.Get("/api/v1/user", h.userMe)

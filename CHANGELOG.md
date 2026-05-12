@@ -10,7 +10,28 @@ between minor releases.
 
 ## [Unreleased]
 
-(Empty — first post-launch entries land here.)
+### Added
+
+- **REST API contract (S50 §0).** `GET /api/v1/meta` returns the
+  server's version stamp and a list of feature capability strings
+  for client-side feature detection. Every `/api/v1/*` response
+  now carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+  `X-RateLimit-Reset`, and (when PAT-authenticated) `X-OAuth-Scopes`.
+  The 403 scope-reject response also carries
+  `X-Accepted-OAuth-Scopes`. Operators tune the API rate-limit
+  budgets via `ratelimit.api.authed_per_hour` /
+  `ratelimit.api.anon_per_hour` (defaults: 5000 / 60).
+- **Pagination helper** `internal/web/handlers/api/apipage` —
+  emits canonical RFC 8288 Link headers (`first`/`prev`/`next`/`last`)
+  with absolute URLs rooted at the configured public base URL.
+
+### Changed
+
+- **JSON error envelope on `/api/v1/*`.** `401` and `403`
+  responses now emit `{"error": "..."}` with
+  `Content-Type: application/json` (previously `text/plain`).
+  Existing `4xx`/`5xx` responses from the handler bodies are
+  unchanged.
 
 ## [0.1.0] — TBD (operator fills in cutover date)
 
