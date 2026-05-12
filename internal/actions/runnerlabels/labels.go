@@ -13,6 +13,13 @@ import (
 
 var labelRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
+var defaultSharedLabels = []string{"self-hosted", "linux", "ubuntu-latest", "x64"}
+
+// DefaultShared returns the labels for the built-in shared Linux runner pool.
+func DefaultShared() []string {
+	return append([]string(nil), defaultSharedLabels...)
+}
+
 // ParseCSV parses a comma-separated label list.
 func ParseCSV(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)

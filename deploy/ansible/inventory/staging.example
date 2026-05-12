@@ -26,5 +26,5 @@ shithub_email_backend=stdout    # no real outbound mail in staging
 # Optional Actions runner on this host.
 # shithub_runner_enabled=true
 # shithub_runner_token=REPLACE_ME
-# shithub_runner_labels=self-hosted,linux,ubuntu-latest
+# shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 # shithub_runner_capacity=1
