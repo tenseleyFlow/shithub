@@ -152,6 +152,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		// S50 §4b — pull-request reviews + inline comments + requested
 		// reviewers.
 		h.mountPullReviews(r)
+		// S50 §5 — search (repositories, issues, code).
+		h.mountSearch(r)
 	})
 }
 
