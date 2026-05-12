@@ -1,8 +1,9 @@
 # Actions runner deploy runbook
 
-This runbook owns the S41d deployment path for `shithubd-runner`: the
-Nix-built default image, systemd unit, and Ansible role. The smoke flow
-for an already-installed runner lives in [actions-runner.md](./actions-runner.md).
+This runbook owns the S41d/S41j deployment path for `shithubd-runner`: the
+Nix-built default image, systemd unit, Ansible role, and DigitalOcean runner
+pool bootstrap. The smoke flow for an already-installed runner lives in
+[actions-runner.md](./actions-runner.md).
 
 ## Prereqs
 
@@ -11,6 +12,11 @@ for an already-installed runner lives in [actions-runner.md](./actions-runner.md
 - Docker is installed on the runner host and the `docker` group exists.
   The runner process needs Docker socket access; treat the host itself
   as trusted even though individual step containers are sandboxed.
+- For DigitalOcean runner pools: `doctl` and `jq` installed locally,
+  authenticated with `doctl auth init`, and a named SSH key uploaded to
+  the DigitalOcean account.
+- Runner host SSH ingress must be restricted to operator or VPN CIDRs.
+  Do not create runner droplets with SSH open to `0.0.0.0/0`.
 - `bin/shithubd-runner` exists locally. `make build` builds both
   `bin/shithubd` and `bin/shithubd-runner` with the same version ldflags.
 - The default image has been loaded or published. Build it with:
@@ -29,6 +35,60 @@ Leave the workflow's `image` input blank to publish under the current
 repository's package namespace, or set it explicitly for upstream
 publishing.
 
+## DigitalOcean pool bootstrap
+
+S41j runner hosts are separate droplets tagged `shithub-actions-runner`.
+The app/database host must not double as the arbitrary-code runner host.
+
+Validate the plan first:
+
+```sh
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+./deploy/doctl/provision-actions-runner-pool.sh --dry-run
+```
+
+Create the first shared Linux runner:
+
+```sh
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+./deploy/doctl/provision-actions-runner-pool.sh
+```
+
+Useful overrides:
+
+```sh
+POOL_NAME=shared-linux
+PROJECT_NAME=shithub-prod
+REGION=sfo3
+SIZE=s-2vcpu-4gb
+IMAGE=ubuntu-24-04-x64
+COUNT=1
+VPC_UUID=REPLACE_ME_OPTIONAL
+```
+
+The provisioner:
+
+- creates or reuses the DigitalOcean project;
+- creates or reuses a tag-targeted cloud firewall;
+- refuses public SSH CIDRs;
+- creates missing droplets named `shithub-runner-<pool>-N`;
+- applies the `shithub-actions-runner` and pool tags;
+- installs a no-secret cloud-init baseline that enables Docker;
+- prints machine-readable JSON for operator records.
+
+Generate an Ansible inventory from the DigitalOcean tag:
+
+```sh
+./deploy/doctl/generate-actions-runner-inventory.sh \
+  --output deploy/ansible/inventory/actions-runners
+```
+
+The generated file contains per-host `shithub_runner_token` placeholders.
+Replace them with values from `shithubd admin runner register`, ideally through
+ansible-vault or host_vars rather than committing plaintext inventory.
+
 ## Register
 
 Run this once from a host that can reach the production database config:
@@ -36,13 +96,23 @@ Run this once from a host that can reach the production database config:
 ```sh
 shithubd admin runner register \
   --name prod-runner-1 \
-  --labels self-hosted,linux,ubuntu-latest \
+  --labels self-hosted,linux,ubuntu-latest,x64 \
   --capacity 1
 ```
 
 Store the printed token in ansible-vault or the deployment secret store.
 Only the token hash is stored in Postgres; the raw token cannot be
 recovered later.
+
+For a generated DigitalOcean inventory, register one token per runner host and
+use the host name as the runner name:
+
+```sh
+shithubd admin runner register \
+  --name shithub-runner-shared-linux-1 \
+  --labels self-hosted,linux,ubuntu-latest,x64 \
+  --capacity 1
+```
 
 ## Inventory
 
@@ -53,7 +123,7 @@ deploys do not start a runner by accident.
 [shithub:vars]
 shithub_runner_enabled=true
 shithub_runner_token=REPLACE_ME
-shithub_runner_labels=self-hosted,linux,ubuntu-latest
+shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 shithub_runner_capacity=1
 shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
@@ -82,6 +152,14 @@ For the runner role only:
 make build
 cd deploy/ansible
 ansible-playbook -i inventory/production site.yml -t shithubd-runner
+```
+
+For the generated DigitalOcean runner inventory:
+
+```sh
+make build
+cd deploy/ansible
+ansible-playbook -i inventory/actions-runners site.yml -t shithubd-runner
 ```
 
 The role:
@@ -195,3 +273,19 @@ If the binary itself is bad, copy a prior archived binary from
 `/usr/local/bin/shithubd-runner` and restart the unit. Jobs already
 claimed by the stopped runner remain visible in the database; S41g adds
 operator cancel/re-run controls.
+
+For a DigitalOcean test runner, drain or revoke the runner in shithub before
+destroying the droplet. Then list and delete the specific test host:
+
+```sh
+doctl compute droplet list --tag-name shithub-actions-runner
+doctl compute droplet delete shithub-runner-shared-linux-1 --force
+```
+
+If the pool firewall was created only for a disposable test and no runner
+droplets still use it:
+
+```sh
+doctl compute firewall list
+doctl compute firewall delete <firewall-id> --force
+```

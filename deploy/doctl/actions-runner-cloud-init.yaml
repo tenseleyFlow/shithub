@@ -1,0 +1,23 @@
+#cloud-config
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# First-boot baseline for DigitalOcean Actions runner droplets.
+# Do not put runner tokens, database URLs, or other secrets here; this file is
+# visible in Droplet metadata. Registration tokens are written later by Ansible.
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - git
+  - ipset
+  - iptables
+  - jq
+  - python3
+  - rsync
+
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [systemctl, status, docker, --no-pager]
