@@ -87,6 +87,13 @@ const (
 	KindOrgGitHubImportRepo     Kind = "org:github_import_repo"
 )
 
+// Organization billing kinds. seat_sync recomputes active org members,
+// records a local billing snapshot, and updates Stripe subscription-item
+// quantity when hosted Team billing is active.
+const (
+	KindOrgBillingSeatSync Kind = "org:billing_seat_sync"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the

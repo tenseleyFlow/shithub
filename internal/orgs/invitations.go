@@ -209,6 +209,9 @@ func AcceptInvitation(ctx context.Context, deps Deps, inv orgsdb.OrgInvitation, 
 	if err := q.AcceptOrgInvitation(ctx, tx, inv.ID); err != nil {
 		return fmt.Errorf("mark accepted: %w", err)
 	}
+	if err := enqueueBillingSeatSync(ctx, tx, deps, inv.OrgID); err != nil {
+		return fmt.Errorf("enqueue billing seat sync: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
