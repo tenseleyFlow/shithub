@@ -254,6 +254,73 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 	return c, nil
 }
 
+// EditParams describes a title/body update applied to an existing
+// issue. Both fields are optional pointers: nil means "leave as-is".
+type EditParams struct {
+	IssueID int64
+	Title   *string
+	Body    *string
+}
+
+// Edit updates an issue's title and/or body, re-rendering the cached
+// markdown body and re-indexing cross-references. Pure plumbing: the
+// caller is responsible for the policy check before invoking.
+func Edit(ctx context.Context, deps Deps, p EditParams) (issuesdb.Issue, error) {
+	q := issuesdb.New()
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	cur, err := q.GetIssueByID(ctx, tx, p.IssueID)
+	if err != nil {
+		return issuesdb.Issue{}, err
+	}
+	title := cur.Title
+	if p.Title != nil {
+		title = strings.TrimSpace(*p.Title)
+		if title == "" {
+			return issuesdb.Issue{}, ErrEmptyTitle
+		}
+		if len(title) > 256 {
+			return issuesdb.Issue{}, ErrTitleTooLong
+		}
+	}
+	body := cur.Body
+	if p.Body != nil {
+		body = *p.Body
+		if len(body) > 65535 {
+			return issuesdb.Issue{}, ErrBodyTooLong
+		}
+	}
+	html, _ := renderBody(ctx, deps, body)
+	if err := q.UpdateIssueTitleBody(ctx, tx, issuesdb.UpdateIssueTitleBodyParams{
+		ID: p.IssueID, Title: title, Body: body,
+		BodyHtmlCached: pgtype.Text{String: html, Valid: html != ""},
+	}); err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("update: %w", err)
+	}
+	// Re-index cross-references when the body changed; new refs land,
+	// stale ones are no longer indexed (existing rows are left alone,
+	// matching how GitHub leaves prior references in place).
+	if p.Body != nil {
+		fresh, _ := q.GetIssueByID(ctx, tx, p.IssueID)
+		if err := insertReferencesFromBody(ctx, tx, deps, fresh, body, "issue_body", fresh.ID); err != nil {
+			return issuesdb.Issue{}, fmt.Errorf("refs: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("commit: %w", err)
+	}
+	committed = true
+	return q.GetIssueByID(ctx, deps.Pool, p.IssueID)
+}
+
 // SetState closes or reopens an issue and emits an `closed` /
 // `reopened` event.
 func SetState(ctx context.Context, deps Deps, actorUserID, issueID int64, newState, reason string) error {
