@@ -45,6 +45,7 @@
 - [Watching / subscriptions](./api/watching.md)
 - [Events / activity](./api/events.md)
 - [Followers / following](./api/followers.md)
+- [Stargazers / starred](./api/stargazers.md)
 - [Admin (site-admin only)](./api/admin.md)
 
 # Self-hosting
