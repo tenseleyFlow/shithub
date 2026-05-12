@@ -28,6 +28,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
+	actionstelemetry "github.com/tenseleyFlow/shithub/internal/actions/telemetry"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
@@ -494,6 +495,9 @@ func (h *Handlers) runnerStepStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recordStepTimeout(step, updated)
+	if terminal && stepLifecycleChanged(step, updated) {
+		actionstelemetry.RecordStepTerminal(updated)
+	}
 	h.writeNextTokenResponse(w, r, http.StatusOK, auth, map[string]any{
 		"status":     string(updated.Status),
 		"conclusion": nullableConclusion(updated.Conclusion),
@@ -816,6 +820,9 @@ func (h *Handlers) applyJobStatus(
 			h.d.Logger.WarnContext(ctx, "runner cancelled-step finalizer notify failed", "job_id", updated.ID, "error", err)
 		}
 	}
+	if runTerminalChanged {
+		actionstelemetry.RecordRunTerminal(runAfter)
+	}
 	return updated, complete, runConclusion, nil
 }
 
@@ -845,6 +852,16 @@ func claimRowWorkflowJob(row actionsdb.ClaimQueuedWorkflowJobRow) actionsdb.Work
 }
 
 func jobLifecycleChanged(before, after actionsdb.WorkflowJob) bool {
+	if before.Status != after.Status {
+		return true
+	}
+	if before.Conclusion.Valid != after.Conclusion.Valid {
+		return true
+	}
+	return before.Conclusion.Valid && before.Conclusion.CheckConclusion != after.Conclusion.CheckConclusion
+}
+
+func stepLifecycleChanged(before, after actionsdb.WorkflowStep) bool {
 	if before.Status != after.Status {
 		return true
 	}
@@ -1149,6 +1166,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 
 func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq int32, chunk []byte, values []string) error {
 	q := actionsdb.New()
+	acceptedChunkBytes := len(chunk)
 	if len(values) == 0 {
 		row, err := q.AppendStepLogChunk(ctx, h.d.Pool, actionsdb.AppendStepLogChunkParams{
 			StepID: stepID,
@@ -1161,6 +1179,8 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		if err != nil {
 			return err
 		}
+		metrics.ActionsLogChunksTotal.WithLabelValues("server").Inc()
+		metrics.ActionsLogChunkBytesTotal.WithLabelValues("server").Add(float64(acceptedChunkBytes))
 		return logstream.NotifyChunk(ctx, h.d.Pool, stepID, row.Seq)
 	}
 
@@ -1214,6 +1234,7 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		return err
 	}
 
+	accepted := false
 	row, err := q.AppendStepLogChunk(ctx, tx, actionsdb.AppendStepLogChunkParams{
 		StepID: stepID,
 		Seq:    seq,
@@ -1221,6 +1242,7 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 	})
 	switch {
 	case err == nil:
+		accepted = true
 		if err := logstream.NotifyChunk(ctx, tx, stepID, row.Seq); err != nil {
 			return err
 		}
@@ -1232,8 +1254,12 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		return err
 	}
 	committed = true
-	if replacements > 0 {
-		metrics.ActionsLogScrubReplacementsTotal.WithLabelValues("server").Add(float64(replacements))
+	if accepted {
+		if replacements > 0 {
+			metrics.ActionsLogScrubReplacementsTotal.WithLabelValues("server").Add(float64(replacements))
+		}
+		metrics.ActionsLogChunksTotal.WithLabelValues("server").Inc()
+		metrics.ActionsLogChunkBytesTotal.WithLabelValues("server").Add(float64(acceptedChunkBytes))
 	}
 	return nil
 }

@@ -115,6 +115,7 @@ func Run(ctx context.Context, opts Options) error {
 			pool = p
 			defer p.Close()
 			metrics.ObserveDBPool(ctx, pool, 10*time.Second)
+			metrics.ObserveActions(ctx, pool, 15*time.Second)
 		}
 	}
 

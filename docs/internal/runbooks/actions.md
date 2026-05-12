@@ -157,11 +157,59 @@ shithubd admin actions runner list
 
 Important metrics:
 
+- `shithub_actions_queue_depth{resource="runs|jobs"}`
+- `shithub_actions_active{resource="runs|jobs"}`
+- `shithub_actions_runner_heartbeat_age_seconds{runner,status}`
+- `shithub_actions_runner_capacity{runner,status}`
 - `shithub_actions_runner_heartbeats_total{result="claimed|no_job"}`
 - `shithub_actions_runner_jwt_total{result="issued|rejected|replay"}`
+- `shithub_actions_runs_completed_total{event,conclusion}`
+- `shithub_actions_run_duration_seconds{event,conclusion}`
+- `shithub_actions_steps_completed_total{step_type,conclusion}`
 - `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
+- `shithub_actions_log_chunks_total{location="server"}`
+- `shithub_actions_log_chunk_bytes_total{location="server"}`
+- `shithub_actions_storage_objects{kind="artifacts|step_logs|hot_log_chunks"}`
+- `shithub_actions_storage_bytes{kind="artifacts|step_logs|hot_log_chunks"}`
 - `shithub_actions_step_timeouts_total`
+
+The committed dashboard JSON lives at:
+
+```text
+deploy/monitoring/grafana/dashboards/actions.json
+```
+
+## Load harness
+
+`bench/k6/actions-load.js` exercises the runner HTTP API under concurrent job
+claims. It does not create workflow runs itself; seed the queue first with
+pushes or workflow dispatches that produce jobs matching the runner labels.
+
+Required environment:
+
+```sh
+SHITHUB_BASE_URL=https://shithub.example.test \
+SHITHUB_RUNNER_TOKENS=token-a,token-b,token-c \
+k6 run bench/k6/actions-load.js
+```
+
+Useful knobs:
+
+- `SHITHUB_ACTIONS_VUS=50` controls concurrent virtual users.
+- `SHITHUB_ACTIONS_DURATION=10m` controls the steady-state window.
+- `SHITHUB_RUNNER_LABELS=self-hosted,linux,ubuntu-latest` sets heartbeat
+  labels.
+- `SHITHUB_RUNNER_CAPACITY=17` keeps three runners near the 50-concurrent
+  target.
+- `SHITHUB_ACTIONS_LOG_BYTES=4096` controls emitted log chunk size.
+
+Healthy run expectations:
+
+- queued jobs drain without unbounded `shithub_actions_queue_depth` growth;
+- runner heartbeats keep advancing and no runner deadlocks;
+- log append p99 stays below five seconds;
+- retention metrics catch up after the retention sweep.
 
 ## Emergency cancel
 
