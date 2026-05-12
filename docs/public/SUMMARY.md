@@ -25,6 +25,7 @@
 - [Overview & conventions](./api/overview.md)
 - [Authentication](./api/auth.md)
 - [Users](./api/users.md)
+- [Organizations](./api/orgs.md)
 - [Repositories](./api/repos.md)
 - [Issues](./api/issues.md)
 - [Labels](./api/labels.md)
