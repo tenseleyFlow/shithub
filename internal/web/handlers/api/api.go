@@ -148,6 +148,9 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountLabels(r)
 		// S50 §4 — pull requests core (list/get/create/patch/merge).
 		h.mountPulls(r)
+		// S50 §4b — pull-request reviews + inline comments + requested
+		// reviewers.
+		h.mountPullReviews(r)
 	})
 }
 

@@ -84,6 +84,16 @@ between minor releases.
   head guard). Reviews + comments + reviewers + update-branch +
   auto-merge land in a follow-up.
 - **Capability:** `pulls` added to `/api/v1/meta`.
+- **REST: PR reviews + inline comments + requested reviewers (S50 §4b).**
+  `GET / POST /api/v1/repos/{o}/{r}/pulls/{number}/reviews`
+  (events `APPROVE` / `REQUEST_CHANGES` / `COMMENT`, with
+  pending-draft attachment on submit),
+  `GET / POST /api/v1/repos/{o}/{r}/pulls/{number}/comments`
+  (inline review comments with file_path / side / position
+  anchoring, `pending` drafts, `in_reply_to_id` threading), and
+  `GET / POST / DELETE /api/v1/repos/{o}/{r}/pulls/{number}/requested_reviewers`
+  (by `user_id` or `username`).
+- **Capability:** `pr-reviews` added to `/api/v1/meta`.
 
 ### Added (internal)
 
