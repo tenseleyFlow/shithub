@@ -78,6 +78,39 @@ func TestOrgBillingCheckoutRedirectsToStripeAndCreatesCustomer(t *testing.T) {
 	}
 }
 
+func TestOrgBillingPortalRedirectsToStripe(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_test_portal"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		createPortalFn: func(_ context.Context, in stripebilling.PortalInput) (stripebilling.PortalSession, error) {
+			if in.CustomerID != "cus_test_portal" {
+				t.Fatalf("portal customer = %q", in.CustomerID)
+			}
+			if !strings.Contains(in.ReturnURL, "/organizations/acme/settings/billing") {
+				t.Fatalf("portal return url = %q", in.ReturnURL)
+			}
+			return stripebilling.PortalSession{ID: "bps_test", URL: "https://billing.stripe.test/session"}, nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/portal", url.Values{})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("portal status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "https://billing.stripe.test/session" {
+		t.Fatalf("portal redirect=%q", got)
+	}
+}
+
 func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
