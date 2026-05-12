@@ -49,6 +49,30 @@ between minor releases.
   shows private rows only to members. Single-repo GETs `404`
   for callers who can't see the row (no existence leak).
 - **Capability:** `repos` added to `/api/v1/meta`.
+- **REST: issues + comments + lock (S50 §3).**
+  `GET /api/v1/repos/{o}/{r}/issues` (with `?state=` filter and
+  `Link:`-header pagination),
+  `GET /api/v1/repos/{o}/{r}/issues/{number}`,
+  `POST /api/v1/repos/{o}/{r}/issues`,
+  `PATCH /api/v1/repos/{o}/{r}/issues/{number}` (title/body
+  author-gated, state/state_reason policy-gated),
+  `GET / POST /api/v1/repos/{o}/{r}/issues/{number}/comments`,
+  `PATCH / DELETE /api/v1/repos/{o}/{r}/issues/comments/{cid}`,
+  `PUT / DELETE /api/v1/repos/{o}/{r}/issues/{number}/lock`.
+- **REST: repo labels (S50 §3).**
+  `GET / POST /api/v1/repos/{o}/{r}/labels` and
+  `GET / PATCH / DELETE /api/v1/repos/{o}/{r}/labels/{name}`.
+- **Capabilities:** `issues`, `labels` added to `/api/v1/meta`.
+- **Reach:** `internal/web/handlers/api.resolveAPIRepo` now
+  resolves both user-owner and org-owner repos — check-runs and
+  every later batch implicitly gain org-repo support.
+
+### Added (internal)
+
+- `issues.Edit` orchestrator wraps `UpdateIssueTitleBody` with
+  markdown re-render + cross-reference re-indexing. Used by the
+  new PATCH-issue endpoint; available for the HTML edit flow when
+  it lands.
 
 ### Changed
 
