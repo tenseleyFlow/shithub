@@ -111,6 +111,10 @@ Required local concepts:
 Paid feature checks must live behind a central entitlement package, not
 as scattered `orgs.plan` checks in handlers.
 
+`make lint-org-plan` enforces this boundary. Schema/sqlc plumbing may
+store and scan the plan value, but product behavior should ask the
+entitlement package whether a feature key is available.
+
 Expected feature keys:
 
 - `org.secret_teams`

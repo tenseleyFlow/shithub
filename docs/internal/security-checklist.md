@@ -35,6 +35,7 @@ document.
 | Org suspension blocks writes | `policy.Can` + `DenyOrgSuspended` | S30 |
 | Repo soft-delete blocks all actions | `policy.Can` + `DenyRepoDeleted` | S15 |
 | Author-self-close on issues/PRs | `policy.Can` author branch | S21/S22 |
+| Paid org feature gates stay behind entitlements | `scripts/lint-org-plan-boundary.sh` in `make ci` | PAYMENTS SP01 |
 
 ## Input handling
 
