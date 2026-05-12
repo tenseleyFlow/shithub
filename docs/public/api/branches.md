@@ -51,6 +51,10 @@ GET /api/v1/repos/{owner}/{repo}/branches/{branch}
 URL-encoded (`feature%2Fx`). Returns the same shape as a list
 entry; unknown branches `404`.
 
+The registered route literal is
+`/api/v1/repos/{owner}/{repo}/branches/*` so branch names may include
+slashes.
+
 ## List tags
 
 ```

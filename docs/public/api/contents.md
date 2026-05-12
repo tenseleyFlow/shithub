@@ -23,6 +23,9 @@ GET /api/v1/repos/{owner}/{repo}/contents/{path}[?ref=]
 Both `/contents` (no trailing path) and `/contents/` (empty
 path) map to "repo root".
 
+The registered path-bearing route literal is
+`/api/v1/repos/{owner}/{repo}/contents/*`.
+
 ## Directory response
 
 An array of entries, **directories first**, then files sorted

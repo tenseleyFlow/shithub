@@ -24,10 +24,10 @@ Scopes:
 ## Endpoints
 
 ```
-GET    /api/v1/repos/{o}/{r}/subscribers          paginated list of watchers
-GET    /api/v1/repos/{o}/{r}/subscription         viewer's current watch level
-PUT    /api/v1/repos/{o}/{r}/subscription         set an explicit level
-DELETE /api/v1/repos/{o}/{r}/subscription         revert to the implicit default
+GET    /api/v1/repos/{owner}/{repo}/subscribers          paginated list of watchers
+GET    /api/v1/repos/{owner}/{repo}/subscription         viewer's current watch level
+PUT    /api/v1/repos/{owner}/{repo}/subscription         set an explicit level
+DELETE /api/v1/repos/{owner}/{repo}/subscription         revert to the implicit default
 ```
 
 ### List subscribers
