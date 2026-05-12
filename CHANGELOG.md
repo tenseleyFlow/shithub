@@ -174,6 +174,16 @@ between minor releases.
   `repo:read`. Empty repos return `[]`; the single-commit GET
   accepts any unambiguous SHA prefix.
 - **Capability:** `commits` added to `/api/v1/meta`.
+- **REST: repo contents (S50 §12).**
+  `GET /api/v1/repos/{o}/{r}/contents/{path}[?ref=]` returns
+  either a directory listing (dirs first, then files
+  alphabetically) or a single file with base64-encoded
+  `content`, `encoding`, `size`, and a `binary` flag (UTF-8
+  validity check). Files over 1 MiB come back as
+  `truncated: true` with empty content — clients fall through
+  to the raw download path. Scope: `repo:read`. Empty `/contents`
+  path returns the repo root.
+- **Capability:** `contents` added to `/api/v1/meta`.
 
 ### Added (internal)
 
