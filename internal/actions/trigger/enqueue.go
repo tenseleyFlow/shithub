@@ -96,6 +96,11 @@ type Result struct {
 	// looked up via ExternalID) for the workflow's jobs. Order
 	// matches Workflow.Jobs declaration order.
 	CheckRunIDs []int64
+	// Skipped is true when the workflow was matched but not enqueued
+	// because the operator disabled it via the workflow_disabled
+	// table. RunID/RunIndex/CheckRunIDs are zero in this case; the
+	// caller's only sensible response is to log + move on.
+	Skipped bool
 }
 
 // Enqueue persists a matched workflow as a queued run with all its
@@ -111,6 +116,20 @@ type Result struct {
 func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	if err := validateParams(&p); err != nil {
 		return Result{}, err
+	}
+	// Honour the per-workflow disable flag (§13 REST). A disabled
+	// workflow's events get matched and reach here, then bail out
+	// before any run/jobs/check_runs rows are written. Re-enabling
+	// (DELETE the row) resumes triggering as normal.
+	disabled, err := actionsdb.New().IsWorkflowDisabled(ctx, deps.Pool, actionsdb.IsWorkflowDisabledParams{
+		RepoID:       p.RepoID,
+		WorkflowFile: p.WorkflowFile,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: check disabled: %w", err)
+	}
+	if disabled {
+		return Result{Skipped: true}, nil
 	}
 	concurrencyResolution, err := concurrency.Resolve(concurrency.ResolveInput{
 		Workflow:     p.Workflow,
