@@ -31,6 +31,7 @@ var APICapabilities = []string{
 	"pulls",
 	"pr-reviews",
 	"search",
+	"orgs",
 }
 
 type metaResponse struct {
