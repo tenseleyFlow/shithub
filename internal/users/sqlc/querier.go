@@ -36,6 +36,7 @@ type Querier interface {
 	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
+	CountUserSSHKeysByKind(ctx context.Context, db DBTX, arg CountUserSSHKeysByKindParams) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
 	CountVerifiedUserEmails(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -67,6 +68,9 @@ type Querier interface {
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
 	// Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
 	GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64) (User, error)
+	// Single-key lookup for the REST GET-by-id endpoint. user_id filter so
+	// one caller can't read another's key by ID.
+	GetUserSSHKey(ctx context.Context, db DBTX, arg GetUserSSHKeyParams) (UserSshKey, error)
 	// Hot path for sshd's AuthorizedKeysCommand. Index lookup via the UNIQUE
 	// index on fingerprint_sha256.
 	GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error)
@@ -96,6 +100,10 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	ListUserNotificationPrefs(ctx context.Context, db DBTX, userID int64) ([]UserNotificationPref, error)
 	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
+	// Paginated kind-filtered list used by the REST surface. Order matches
+	// ListUserSSHKeys so callers can swap between them without observing a
+	// reshuffle.
+	ListUserSSHKeysByKind(ctx context.Context, db DBTX, arg ListUserSSHKeysByKindParams) ([]UserSshKey, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Resolve an old username to the current username via the user_id FK.

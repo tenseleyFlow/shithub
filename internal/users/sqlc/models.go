@@ -2556,6 +2556,7 @@ type UserSshKey struct {
 	LastUsedAt        pgtype.Timestamptz
 	LastUsedIp        *netip.Addr
 	CreatedAt         pgtype.Timestamptz
+	Kind              string
 }
 
 type UserToken struct {

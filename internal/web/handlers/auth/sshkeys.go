@@ -81,6 +81,7 @@ func (h *Handlers) sshKeysAdd(w http.ResponseWriter, r *http.Request) {
 		KeyType:           parsed.Type,
 		KeyBits:           int32(parsed.Bits), //nolint:gosec // bits ≤ 8192 in practice; bounded.
 		PublicKey:         parsed.PublicKey,
+		Kind:              "authentication",
 	}); err != nil {
 		if isPGUniqueViolation(err) {
 			h.renderSSHKeysList(w, r,
