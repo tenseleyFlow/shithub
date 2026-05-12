@@ -184,6 +184,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountEvents(r)
 		// S50 §17 — followers / following.
 		h.mountFollowers(r)
+		// S50 §18 — actions workflow runs / jobs.
+		h.mountActionsRuns(r)
 	})
 }
 
