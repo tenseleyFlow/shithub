@@ -163,10 +163,115 @@ when `mergeable_state` isn't `clean`. `422` when the requested
 merge method is disabled on the repo or when no commits are
 ahead of base. `503` if another merge is in flight.
 
+## Reviews
+
+PR reviews bundle a verdict (`approve`, `request_changes`, or
+`comment`) with optional body and any draft inline comments the
+caller had pending on this PR.
+
+### List reviews
+
+```
+GET /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews
+```
+
+Required scope: `repo:read`. Returns submitted reviews in
+creation order.
+
+### Submit a review
+
+```
+POST /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews
+```
+
+Required scope: `repo:write`. Policy: `ActionPullReview` —
+reviewers must be repo collaborators with at least write access.
+
+```json
+{ "event": "APPROVE", "body": "looks good to me" }
+```
+
+`event` is one of `APPROVE`, `REQUEST_CHANGES`, `COMMENT`
+(lowercase accepted too). Submitting `APPROVE` as the PR author
+returns `403`. Submitting attaches every pending inline comment
+the caller authored on this PR.
+
+## Inline review comments
+
+### List
+
+```
+GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments
+```
+
+Required scope: `repo:read`. Returns one entry per inline
+comment with `file_path`, `side`, `original_commit_sha`,
+`original_line`, `original_position`, optional `current_position`
+(absent → outdated), `pending`, `resolved`, and threading via
+`in_reply_to_id`.
+
+### Add
+
+```
+POST /api/v1/repos/{owner}/{repo}/pulls/{number}/comments
+```
+
+Required scope: `repo:write`. Policy: `ActionPullReview`.
+
+```json
+{
+  "body": "nit: unused import",
+  "file_path": "foo.txt",
+  "side": "right",
+  "original_commit_sha": "abc123",
+  "original_line": 12,
+  "original_position": 8,
+  "current_position": 8,
+  "pending": true
+}
+```
+
+`pending=true` files a draft that's attached to the next review
+the caller submits. `in_reply_to_id` threads under an existing
+comment and inherits its diff anchor.
+
+## Requested reviewers
+
+### List active
+
+```
+GET /api/v1/repos/{owner}/{repo}/pulls/{number}/requested_reviewers
+```
+
+Required scope: `repo:read`. Returns active and historical review
+requests with `dismissed_at` / `satisfied_by_review_id` set when
+applicable.
+
+### Request a reviewer
+
+```
+POST /api/v1/repos/{owner}/{repo}/pulls/{number}/requested_reviewers
+```
+
+Required scope: `repo:write`. Policy: `ActionPullReview`. Body:
+
+```json
+{ "user_id": 42 }
+```
+
+or equivalently `{ "username": "bob" }`. `409` when the user is
+already an active pending reviewer; `422` on unknown user.
+
+### Dismiss a request
+
+```
+DELETE /api/v1/repos/{owner}/{repo}/pulls/{number}/requested_reviewers
+```
+
+Required scope: `repo:write`. Same body. Returns `204`; `404`
+when there is no active request for that user.
+
 ## Not yet shipped
 
-- Reviews (`/pulls/{n}/reviews`)
-- Review comments (`/pulls/{n}/comments`)
-- Requested reviewers
 - `PUT /pulls/{n}/update-branch`
 - `PUT /pulls/{n}/auto-merge`
