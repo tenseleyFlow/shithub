@@ -12,6 +12,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	actionsvars "github.com/tenseleyFlow/shithub/internal/actions/variables"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -29,6 +30,16 @@ func (h *Handlers) settingsActionsSecretSet(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureOrgActionsSecrets)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org actions secrets: entitlement check", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if !decision.Allowed {
+		h.renderOrgActionsSettings(w, r, org, "secrets", orgActionsWriteDeniedMessage(decision, "Organization Actions secrets"), "")
+		return
+	}
 	if h.d.SecretBox == nil {
 		http.Error(w, "actions secret key not configured", http.StatusServiceUnavailable)
 		return
@@ -40,7 +51,7 @@ func (h *Handlers) settingsActionsSecretSet(w http.ResponseWriter, r *http.Reque
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	value := []byte(r.PostFormValue("value"))
-	err := secrets.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}.Set(r.Context(), secrets.OrgScope(org.ID), name, value, viewer.ID)
+	err = secrets.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}.Set(r.Context(), secrets.OrgScope(org.ID), name, value, viewer.ID)
 	if err != nil {
 		h.renderOrgActionsSettings(w, r, org, "secrets", friendlyOrgActionsSecretError(err), "")
 		return
@@ -82,6 +93,16 @@ func (h *Handlers) settingsActionsVariableSet(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureOrgActionsVariables)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org actions variables: entitlement check", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if !decision.Allowed {
+		h.renderOrgActionsSettings(w, r, org, "variables", orgActionsWriteDeniedMessage(decision, "Organization Actions variables"), "")
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "form parse", http.StatusBadRequest)
 		return
@@ -89,7 +110,7 @@ func (h *Handlers) settingsActionsVariableSet(w http.ResponseWriter, r *http.Req
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	value := r.PostFormValue("value")
-	err := actionsvars.Deps{Pool: h.d.Pool}.Set(r.Context(), actionsvars.OrgScope(org.ID), name, value, viewer.ID)
+	err = actionsvars.Deps{Pool: h.d.Pool}.Set(r.Context(), actionsvars.OrgScope(org.ID), name, value, viewer.ID)
 	if err != nil {
 		h.renderOrgActionsSettings(w, r, org, "variables", friendlyOrgActionsVariableError(err), "")
 		return
@@ -131,13 +152,25 @@ func (h *Handlers) loadOrgSettingsOwner(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handlers) renderOrgActionsSettings(w http.ResponseWriter, r *http.Request, org orgsdb.Org, kind, errMsg, notice string) {
+	feature := entitlements.FeatureOrgActionsVariables
+	if kind == "secrets" {
+		feature = entitlements.FeatureOrgActionsSecrets
+	}
+	decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, feature)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org actions settings: entitlement check", "org_id", org.ID, "feature", feature, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
 	data := map[string]any{
-		"CSRFToken":  middleware.CSRFTokenForRequest(r),
-		"Org":        org,
-		"Kind":       kind,
-		"Error":      errMsg,
-		"Notice":     notice,
-		"FormAction": orgActionsSettingsPath(org.Slug, kind),
+		"CSRFToken":             middleware.CSRFTokenForRequest(r),
+		"Org":                   org,
+		"Kind":                  kind,
+		"Error":                 errMsg,
+		"Notice":                notice,
+		"FormAction":            orgActionsSettingsPath(org.Slug, kind),
+		"WritesDisabled":        !decision.Allowed,
+		"WritesDisabledMessage": orgActionsWriteDeniedMessage(decision, orgActionsFeatureLabel(kind)),
 	}
 	switch kind {
 	case "secrets":
@@ -202,6 +235,22 @@ func orgActionsNoticeMessage(code string) string {
 		return "Deleted."
 	default:
 		return ""
+	}
+}
+
+func orgActionsFeatureLabel(kind string) string {
+	if kind == "secrets" {
+		return "Organization Actions secrets"
+	}
+	return "Organization Actions variables"
+}
+
+func orgActionsWriteDeniedMessage(decision entitlements.Decision, label string) string {
+	switch decision.Reason {
+	case entitlements.ReasonBillingActionNeeded:
+		return label + " are read-only until Team billing is brought back into good standing."
+	default:
+		return label + " require Team billing. Upgrade this organization to continue editing them."
 	}
 }
 

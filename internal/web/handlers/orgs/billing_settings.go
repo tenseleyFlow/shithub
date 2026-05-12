@@ -258,7 +258,8 @@ func billingPlanDetail(state orgbilling.State) string {
 		}
 		return label + " " + state.CurrentPeriodEnd.Time.Format("Jan 2, 2006")
 	}
-	if state.Plan == orgbilling.PlanFree {
+	if state.SubscriptionStatus == orgbilling.SubscriptionStatusNone ||
+		state.SubscriptionStatus == orgbilling.SubscriptionStatusCanceled {
 		return "No active paid subscription."
 	}
 	return ""

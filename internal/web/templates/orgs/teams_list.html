@@ -12,6 +12,7 @@
 
   <div class="shithub-org-teams-layout">
     <main class="shithub-org-teams-main">
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
       <div class="shithub-org-team-toolbar">
         <div>
           <h2>Teams</h2>
@@ -28,9 +29,12 @@
             <label><span>Privacy</span>
               <select name="privacy">
                 <option value="visible">Visible</option>
-                <option value="secret">Secret</option>
+                <option value="secret" {{ if not .CanCreateSecretTeams }}disabled{{ end }}>Secret</option>
               </select>
             </label>
+            {{ if not .CanCreateSecretTeams }}
+            <p class="shithub-muted">Secret teams require Team billing. Upgrade the organization in billing and plans to create them.</p>
+            {{ end }}
             <button type="submit" class="shithub-button shithub-button-primary">Create team</button>
           </form>
         </details>
