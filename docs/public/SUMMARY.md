@@ -27,6 +27,7 @@
 - [Users](./api/users.md)
 - [Organizations](./api/orgs.md)
 - [Repositories](./api/repos.md)
+- [Branches and tags](./api/branches.md)
 - [Issues](./api/issues.md)
 - [Labels](./api/labels.md)
 - [Pull requests](./api/pulls.md)
