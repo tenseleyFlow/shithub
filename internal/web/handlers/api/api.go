@@ -186,6 +186,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountFollowers(r)
 		// S50 §18 — actions workflow runs / jobs.
 		h.mountActionsRuns(r)
+		// S50 §19 — stargazers + per-user starred lists.
+		h.mountStargazers(r)
 	})
 }
 
