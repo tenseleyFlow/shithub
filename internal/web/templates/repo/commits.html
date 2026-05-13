@@ -171,6 +171,7 @@
               </div>
             </div>
             <div class="shithub-commit-row-actions">
+              {{ template "verified-badge" .Verification }}
               <a class="shithub-commits-sha" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .Commit.OID }}">{{ .Commit.ShortOID }}</a>
               <button type="button" class="shithub-commit-icon-action" title="Copy full SHA" aria-label="Copy full SHA" data-commit-copy="{{ .Commit.OID }}">{{ octicon "copy" }}</button>
               <a class="shithub-commit-icon-action" href="/{{ $.Owner }}/{{ $.Repo.Name }}/tree/{{ .Commit.OID }}" title="Browse repository at this commit" aria-label="Browse repository at this commit">{{ octicon "code" }}</a>

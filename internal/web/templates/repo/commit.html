@@ -10,7 +10,10 @@
   </header>
 
   <article class="shithub-commit-meta">
-    <h2 class="shithub-commit-subject">{{ .Detail.Subject }}</h2>
+    <h2 class="shithub-commit-subject">
+      {{ .Detail.Subject }}
+      {{ template "verified-badge" .Verification }}
+    </h2>
     {{ if .Detail.Body }}<div class="shithub-commit-body">{{ .BodyHTML }}</div>{{ end }}
 
     <div class="shithub-commit-people">
