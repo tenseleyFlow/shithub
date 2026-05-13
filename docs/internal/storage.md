@@ -150,9 +150,21 @@ make dev-storage
 
 ## Quotas
 
-`Quota{Used, Limit}` is the placeholder type. S04 wires the type only — enforcement lives in a future policy package called from the push pipeline (S14) and attachment uploads. `Limit == 0` means unlimited. `WouldExceed(n)` and `Available()` give callers a uniform interface.
+`Quota{Used, Limit}` is the small arithmetic helper for byte budgets.
+`Limit == 0` means unlimited. `WouldExceed(n)` and `Available()` give
+callers a uniform interface.
 
-When the `users` and `orgs` tables grow `disk_quota_used`/`disk_quota_limit` columns (S05/S09), this struct is the marshal target.
+PAYMENTS SP08 adds organization storage quotas through the billing and
+entitlements domains. Org-owned git pushes enforce storage in the
+pre-receive hook: the hook measures the actual bare repo directory,
+adjusts the org's recalculated usage counters for that repo, and rejects
+pushes that would exceed the effective quota. `RepoFS.DiskUsageBytes`
+is the shared source-size helper used by both the hook and
+`repo:size_recalc`.
+
+Object upload quota enforcement is tracked separately; callers should
+use `internal/entitlements.CheckOrgStorageQuota` once their write path
+knows the owner organization and incoming byte count.
 
 ## Testing
 

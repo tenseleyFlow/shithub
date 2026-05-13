@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,6 +163,37 @@ func (r *RepoFS) Exists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("storage: repofs: stat %s: %w", path, err)
+}
+
+// DiskUsageBytes sums the byte size of every regular file under path.
+// It is used for quota gates and repo:size_recalc, so it validates that
+// the target stays inside the configured repo root and never follows
+// directory symlinks.
+func (r *RepoFS) DiskUsageBytes(ctx context.Context, path string) (int64, error) {
+	if err := r.containedInRoot(path); err != nil {
+		return 0, err
+	}
+	var total int64
+	err := filepath.WalkDir(path, func(_ string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
 }
 
 // InitBare creates a bare git repository at path. Default branch is

@@ -146,6 +146,35 @@ func TestExists_RejectsOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestDiskUsageBytes(t *testing.T) {
+	t.Parallel()
+	r, _ := mustNewRepoFS(t)
+	path, err := r.RepoPath("alice", "usage")
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(path, "objects", "ab"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "HEAD"), []byte("ref: refs/heads/trunk\n"), 0o640); err != nil {
+		t.Fatalf("write HEAD: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "objects", "ab", "pack"), []byte("payload"), 0o640); err != nil {
+		t.Fatalf("write object: %v", err)
+	}
+	got, err := r.DiskUsageBytes(context.Background(), path)
+	if err != nil {
+		t.Fatalf("DiskUsageBytes: %v", err)
+	}
+	want := int64(len("ref: refs/heads/trunk\n") + len("payload"))
+	if got != want {
+		t.Fatalf("DiskUsageBytes = %d, want %d", got, want)
+	}
+	if _, err := r.DiskUsageBytes(context.Background(), "/etc"); !errors.Is(err, ErrEscapesRoot) {
+		t.Fatalf("outside root err = %v, want ErrEscapesRoot", err)
+	}
+}
+
 func TestInitBare_HEADIsTrunk(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {

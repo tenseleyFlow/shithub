@@ -159,8 +159,11 @@ Present but still moving toward full enforcement:
 - Org-owned Actions dispatch now hard-denies new runs when the current
   monthly usage recalculation shows the organization is at or over its
   effective Actions minutes quota.
-- Push/upload storage write paths still need hard-deny checks before quota
-  rows should be advertised on public pricing pages.
+- Org-owned git pushes now hard-deny in pre-receive when the pushed
+  repo's actual on-disk size would put the organization over its
+  effective storage quota.
+- Object upload storage write paths still need hard-deny checks before
+  quota rows should be advertised on public pricing pages.
 - Packages storage cannot be sold until the Packages sprint is active
   and quota enforcement exists.
 
@@ -330,6 +333,11 @@ PAYMENTS SP08 starts hosted-cost metering:
   enqueueing and rejects new runs when Actions minutes used is greater
   than or equal to the effective quota. Personal repositories are not
   gated by organization quotas.
+- Org-owned git pushes measure the actual bare repo directory during
+  pre-receive, adjust the recalculated organization counters for that
+  repository's current disk size, and reject pushes that would exceed
+  the effective storage quota. Personal repositories are not gated by
+  organization quotas.
 - Quota enforcement must read local counters and may force a source
   recalculation before rejecting large writes; counters are repairable
   and should not be treated as an eventually-consistent sole authority
