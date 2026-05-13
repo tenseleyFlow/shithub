@@ -32,6 +32,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -60,6 +61,14 @@ type repoFixture struct {
 // newRepoFixture sets up a Handlers wired to a fresh test DB with two
 // users (owner alice, stranger bob) and two repos (public + private).
 func newRepoFixture(t *testing.T) *repoFixture {
+	return newRepoFixtureWithEnforce(t, config.EnforceConfig{})
+}
+
+// newRepoFixtureWithEnforce mirrors newRepoFixture but plumbs an
+// operator-configured per-feature enforce matrix into the handler
+// Deps. PRO07 tests pass a config with the relevant user-kind flag
+// flipped to true to exercise the enforce path.
+func newRepoFixtureWithEnforce(t *testing.T, enforce config.EnforceConfig) *repoFixture {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -74,13 +83,14 @@ func newRepoFixture(t *testing.T) *repoFixture {
 	objectStore := storage.NewMemoryStore()
 
 	h, err := New(Deps{
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Render:      rr,
-		Pool:        pool,
-		RepoFS:      rfs,
-		ObjectStore: objectStore,
-		Audit:       audit.NewRecorder(),
-		Limiter:     throttle.NewLimiter(),
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Render:         rr,
+		Pool:           pool,
+		RepoFS:         rfs,
+		ObjectStore:    objectStore,
+		Audit:          audit.NewRecorder(),
+		Limiter:        throttle.NewLimiter(),
+		BillingEnforce: enforce,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

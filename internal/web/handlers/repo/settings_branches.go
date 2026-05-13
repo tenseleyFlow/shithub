@@ -245,9 +245,15 @@ func principalFromRepo(row reposdb.Repo) (billing.Principal, bool) {
 // report-only-allowed); a non-empty code means the save is blocked
 // and the caller redirects to the settings page with a banner.
 //
-// Report-only semantics: user-kind would-denies log via Logger and
-// return empty notice. Org-kind would-denies return the SP05
-// notice code.
+// Enforcement semantics:
+//   - Org kind: SP05 enforcement — would-denies return the notice
+//     code unconditionally.
+//   - User kind, PRO07 enforce flag off (default): logs the would-
+//     deny via Logger and returns empty notice (report-only).
+//   - User kind, PRO07 enforce flag on: returns the notice code
+//     (blocks the save). The flag is per-feature; see
+//     EnforceConfig.UserAdvancedBranchProtection and
+//     EnforceConfig.UserRequiredReviewers in internal/infra/config.
 func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billing.Principal, feature entitlements.Feature, requiredReviewers bool) (string, error) {
 	if !entitlements.FeatureAppliesToKind(feature, p.Kind) {
 		return "", nil
@@ -259,7 +265,7 @@ func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billin
 	if decision.Allowed {
 		return "", nil
 	}
-	if p.IsUser() {
+	if p.IsUser() && !h.userBranchProtectionEnforceOn(feature) {
 		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
 			"principal", p.String(),
 			"principal_kind", string(p.Kind),
@@ -270,6 +276,21 @@ func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billin
 		return "", nil
 	}
 	return branchProtectionNoticeCode(decision, requiredReviewers), nil
+}
+
+// userBranchProtectionEnforceOn maps a feature to the operator's
+// per-feature enforce knob. Unknown features default to false (safe:
+// stay in report-only). PRO07 ships with both flags defaulting to
+// false; operators flip per feature after the 7-day telemetry soak.
+func (h *Handlers) userBranchProtectionEnforceOn(feature entitlements.Feature) bool {
+	switch feature {
+	case entitlements.FeatureRequiredReviewers:
+		return h.d.BillingEnforce.UserRequiredReviewers
+	case entitlements.FeatureAdvancedBranchProtection:
+		return h.d.BillingEnforce.UserAdvancedBranchProtection
+	default:
+		return false
+	}
 }
 
 func branchProtectionNoticeCode(decision entitlements.Decision, requiredReviewers bool) string {
