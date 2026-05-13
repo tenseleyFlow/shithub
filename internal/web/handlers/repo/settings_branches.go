@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -192,29 +193,83 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/branches?notice=saved", http.StatusSeeOther)
 }
 
+// branchProtectionEntitlementNotice gates the required-reviewers
+// and advanced-branch-protection knobs on private repos. PRO05
+// extended it to personal private repos in report-only mode — a
+// user-kind would-deny logs an "entitlements.report_only_deny"
+// event but does not block the save. PRO07 flips per-feature
+// enforce on for user kind once production telemetry confirms no
+// existing Free user is over-quota.
+//
+// Public repos and non-private personal/org repos return empty
+// (no gating).
 func (h *Handlers) branchProtectionEntitlementNotice(ctx context.Context, row reposdb.Repo, requiredReviews int, dismissStale bool, requiredChecks []string, dismissStaleChecks bool) (string, error) {
-	if !row.OwnerOrgID.Valid || row.Visibility != reposdb.RepoVisibilityPrivate {
+	if row.Visibility != reposdb.RepoVisibilityPrivate {
+		return "", nil
+	}
+	principal, ok := principalFromRepo(row)
+	if !ok {
 		return "", nil
 	}
 	if requiredReviews > 0 || dismissStale {
-		decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, row.OwnerOrgID.Int64, entitlements.FeatureOrgRequiredReviewers)
-		if err != nil {
-			return "", err
-		}
-		if !decision.Allowed {
-			return branchProtectionNoticeCode(decision, true), nil
+		code, err := h.evaluateBranchProtectionFeature(ctx, principal, entitlements.FeatureRequiredReviewers, true)
+		if err != nil || code != "" {
+			return code, err
 		}
 	}
 	if len(requiredChecks) > 0 || dismissStaleChecks {
-		decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, row.OwnerOrgID.Int64, entitlements.FeatureOrgAdvancedBranchProtection)
-		if err != nil {
-			return "", err
-		}
-		if !decision.Allowed {
-			return branchProtectionNoticeCode(decision, false), nil
+		code, err := h.evaluateBranchProtectionFeature(ctx, principal, entitlements.FeatureAdvancedBranchProtection, false)
+		if err != nil || code != "" {
+			return code, err
 		}
 	}
 	return "", nil
+}
+
+// principalFromRepo returns the billing principal that owns the
+// repo. Personal repos resolve to SubjectKindUser; org-owned to
+// SubjectKindOrg. Returns ok=false when neither owner column is
+// populated (shouldn't happen for a valid repo row).
+func principalFromRepo(row reposdb.Repo) (billing.Principal, bool) {
+	if row.OwnerOrgID.Valid {
+		return billing.PrincipalForOrg(row.OwnerOrgID.Int64), true
+	}
+	if row.OwnerUserID.Valid {
+		return billing.PrincipalForUser(row.OwnerUserID.Int64), true
+	}
+	return billing.Principal{}, false
+}
+
+// evaluateBranchProtectionFeature checks the feature for the given
+// principal. Returns the notice code (empty when allowed or
+// report-only-allowed); a non-empty code means the save is blocked
+// and the caller redirects to the settings page with a banner.
+//
+// Report-only semantics: user-kind would-denies log via Logger and
+// return empty notice. Org-kind would-denies return the SP05
+// notice code.
+func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billing.Principal, feature entitlements.Feature, requiredReviewers bool) (string, error) {
+	if !entitlements.FeatureAppliesToKind(feature, p.Kind) {
+		return "", nil
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, p, feature)
+	if err != nil {
+		return "", err
+	}
+	if decision.Allowed {
+		return "", nil
+	}
+	if p.IsUser() {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", p.String(),
+			"principal_kind", string(p.Kind),
+			"principal_id", p.ID,
+			"feature", string(feature),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan))
+		return "", nil
+	}
+	return branchProtectionNoticeCode(decision, requiredReviewers), nil
 }
 
 func branchProtectionNoticeCode(decision entitlements.Decision, requiredReviewers bool) string {
