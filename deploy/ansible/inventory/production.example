@@ -51,7 +51,7 @@ grafana_cloud_prom_token=REPLACE_ME   # access-policy token
 # shithub_runner_token=REPLACE_ME
 # shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 # shithub_runner_capacity=1
-# shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
+# shithub_runner_default_image=ghcr.io/tenseleyflow/shithub/runner-nix:1.0
 # The role creates shithub-actions on shact0 (172.30.0.1/24), runs
 # dnsmasq on that bridge, and enforces direct-IP egress denial with
 # shithub-runner-firewall.service.

@@ -122,10 +122,24 @@
       before re-running the role so firewall rules target the correct bridge.
   when: shithub_runner_engine == "docker" and not ansible_check_mode
 
-- name: Upload shithubd-runner binary (built by `make build` locally)
+- name: Upload candidate shithubd-runner binary (built by `make build` locally)
   copy:
     src: "{{ playbook_dir }}/../../bin/shithubd-runner"
+    dest: /var/lib/shithubd-runner/binaries/shithubd-runner-candidate
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Candidate runner binary executes on target
+  command: /var/lib/shithubd-runner/binaries/shithubd-runner-candidate version
+  register: shithubd_runner_version
+  changed_when: false
+
+- name: Promote candidate shithubd-runner binary
+  copy:
+    src: /var/lib/shithubd-runner/binaries/shithubd-runner-candidate
     dest: /usr/local/bin/shithubd-runner
+    remote_src: true
     mode: "0755"
     owner: root
     group: root

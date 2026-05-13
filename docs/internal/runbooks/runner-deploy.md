@@ -129,7 +129,7 @@ shithub_runner_enabled=true
 shithub_runner_token=REPLACE_ME
 shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 shithub_runner_capacity=1
-shithub_runner_default_image=ghcr.io/shithub/runner-nix:1.0
+shithub_runner_default_image=ghcr.io/tenseleyflow/shithub/runner-nix:1.0
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
 shithub_runner_container_user=65534:65534
 shithub_runner_pids_limit=512
@@ -156,6 +156,13 @@ For the runner role only:
 make build
 cd deploy/ansible
 ansible-playbook -i inventory/production site.yml -t shithubd-runner
+```
+
+When deploying from a non-Linux operator machine, build the runner binary for
+the target host architecture before running Ansible:
+
+```sh
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 make build
 ```
 
 For the generated DigitalOcean runner inventory:
