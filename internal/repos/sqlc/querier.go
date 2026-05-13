@@ -39,6 +39,9 @@ type Querier interface {
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
 	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
+	// Used by tests to reset cache state between cases. Not called from
+	// production code paths.
+	DeleteCommitVerification(ctx context.Context, db DBTX, arg DeleteCommitVerificationParams) error
 	DeleteProfilePinsForSet(ctx context.Context, db DBTX, setID int64) error
 	// Used by the rename compensator: drop a single redirect row when
 	// the rename has to be rolled back due to a filesystem failure. We
@@ -55,6 +58,14 @@ type Querier interface {
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
 	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
+	// Single-commit read. Used by the single-commit page renderer and the
+	// REST commits/{sha} response. Returns no row when the commit hasn't
+	// been verified yet; caller treats that as "compute on demand".
+	GetCommitVerification(ctx context.Context, db DBTX, arg GetCommitVerificationParams) (CommitVerificationCache, error)
+	// Batch read for the commit-list page. Takes an array of OIDs and
+	// returns existing rows; missing OIDs are absent from the result and
+	// the renderer treats them as "not yet verified".
+	GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error)
 	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	// ─── profile/org pinned repositories ───────────────────────────────
 	GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
@@ -82,6 +93,11 @@ type Querier interface {
 	InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTopicParams) error
 	// ─── transfer requests ─────────────────────────────────────────────────
 	InsertTransferRequest(ctx context.Context, db DBTX, arg InsertTransferRequestParams) (RepoTransferRequest, error)
+	// Stamps invalidated_at on every cache row whose signer_subkey_id
+	// matches. Called from the GPG-key soft-delete path in the same tx as
+	// SoftDeleteSubkeysForGPGKey so the cache and the keyring stay in
+	// sync. The next read of an invalidated row triggers a re-verify.
+	InvalidateVerificationsForSubkey(ctx context.Context, db DBTX, signerSubkeyID pgtype.Int8) error
 	// Used by `shithubd hooks reinstall --all` to enumerate every active
 	// bare repo on disk and re-link its hooks.
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
@@ -200,6 +216,12 @@ type Querier interface {
 	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
 	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Idempotent upsert. The verification orchestrator + backfill worker
+	// both write through this query; both can safely run concurrently
+	// against the same (repo_id, commit_oid) without losing data thanks
+	// to the (repo_id, commit_oid) primary key + ON CONFLICT clause.
+	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
 	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
