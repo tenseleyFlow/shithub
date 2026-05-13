@@ -43,6 +43,43 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid stripe signature", http.StatusBadRequest)
 		return
 	}
+	// PRO08 A3: serialize concurrent deliveries of the same event_id
+	// with a session-scoped advisory lock on a dedicated pool conn.
+	// Without this, the dedup short-circuit at "!created && processed_at"
+	// races: two replays both observe processed_at=NULL, both apply,
+	// double-mutating state. The lock makes the apply path mutually
+	// exclusive per event_id. A racing replay returns 200 immediately —
+	// Stripe stops retrying THIS delivery; if this worker fails the
+	// apply, Stripe will resend later (different delivery, fresh race).
+	conn, err := h.d.Pool.Acquire(r.Context())
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: acquire conn for webhook lock", "event_id", event.ID, "error", err)
+		http.Error(w, "could not acquire webhook lock", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Release()
+	var acquired bool
+	if err := conn.QueryRow(r.Context(), "SELECT pg_try_advisory_lock(hashtext($1)::bigint)", event.ID).Scan(&acquired); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: try advisory lock", "event_id", event.ID, "error", err)
+		http.Error(w, "could not acquire webhook lock", http.StatusInternalServerError)
+		return
+	}
+	if !acquired {
+		// Another worker holds the lock — return 200 so Stripe stops
+		// retrying THIS delivery; the in-flight worker finishes the apply.
+		h.d.Logger.InfoContext(r.Context(), "org billing: webhook in flight elsewhere",
+			"event_id", event.ID, "event_type", event.Type)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok (in flight)"))
+		return
+	}
+	defer func() {
+		// Use Background so unlock runs even if request ctx cancelled.
+		// Best-effort — txn cleanup eventually releases either way.
+		if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_unlock(hashtext($1)::bigint)", event.ID); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "org billing: advisory unlock", "event_id", event.ID, "error", err)
+		}
+	}()
 	receipt, created, err := orgbilling.RecordWebhookEvent(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgbilling.WebhookEvent{
 		ProviderEventID: event.ID,
 		EventType:       string(event.Type),
