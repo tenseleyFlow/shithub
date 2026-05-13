@@ -94,6 +94,17 @@ const (
 	KindOrgBillingSeatSync Kind = "org:billing_seat_sync"
 )
 
+// S51 GPG signature verification backfill. One job per repo;
+// payload {repo_id}. The handler walks the repo's default branch +
+// annotated tags and writes commit_verification_cache rows for every
+// signed object. Dispatched both eagerly (one job per repo when a
+// user adds a GPG key — DispatchForKey) and as a bulk admin command
+// (shithubd gpg-backfill-all — DispatchAll). The handler is
+// idempotent thanks to UpsertCommitVerification's ON CONFLICT.
+const (
+	KindGPGBackfill Kind = "gpg:backfill"
+)
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel the pool subscribes
 // to so it wakes up immediately when a job is enqueued, instead of
 // polling. Callers wrapping enqueue in a tx must NOTIFY inside the
