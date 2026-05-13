@@ -24,7 +24,7 @@ The core forge loop works end-to-end against the codebase you're reading:
 
 - **Identity** — email/password signup, email verification, password reset, TOTP 2FA + recovery codes, SSH keys, personal access tokens (scoped), sessions.
 - **Repositories** — create, fork, archive, transfer, soft-delete with grace, rename with redirects, visibility toggles, branch protection (force-push / deletion / required reviews / required status checks), default-branch swap, topics, README/license/.gitignore templates.
-- **Git** — bare repos on disk; HTTPS smart-HTTP push/pull (SSH service is planned but not shipped yet); pre/post-receive hook integration for size accounting and event emission.
+- **Git** — bare repos on disk; HTTPS smart-HTTP and SSH push/pull (sshd `Match User git` dispatches to shithubd via `AuthorizedKeysCommand`); pre/post-receive hook integration for size accounting and event emission.
 - **Code browsing** — tree, blob (chroma syntax highlighting with light/dark themes), raw, blame, commit history, individual commit views, branch/tag listings, compare views, file finder.
 - **Issues & PRs** — full CRUD on issues + comments + labels + milestones + assignees; pull requests with diff rendering, file-by-file review, line comments, reviews (approve/request-changes/comment), required-reviewer enforcement, status-check gates, three merge methods (merge / squash / rebase), conflict detection.
 - **Social** — stars, watches with notification level, forks (clone-on-create), follows for users/orgs, Home/Explore feeds, trending repositories/developers, stargazer/watcher/follower lists.
@@ -39,11 +39,9 @@ The core forge loop works end-to-end against the codebase you're reading:
 
 Pulled directly from the sprint plan we're working through:
 
-- **SSH git service** — HTTPS works; the SSH front-end is planned. Use HTTPS clone URLs for now.
 - **Actions marketplace parity** — shithub Actions does not execute arbitrary `uses:` steps, matrix builds, service containers, composite actions, or hosted runner images. The project's full CI remains on GitHub Actions until the first-party runner image/Nix toolchain can run it without marketplace setup actions; `.shithub/workflows/checkout-canary.yml` is the current dogfood canary.
 - **Packages, Pages, Projects, Releases, Gists** — none of these surfaces exist yet.
-- **GraphQL API** — only the internal HTTP surface exists. There is no public REST or GraphQL API.
-- **Admin / site-admin surface** — there is no `/admin` UI. Operator tooling is via `shithubd` subcommands and SQL.
+- **GraphQL API** — a documented REST API ships under `/api/v1` (see `docs/public/api/`); a GraphQL surface is not yet planned.
 - **Visual polish** — most pages render correctly but do not look like GitHub yet. Spacing, typography, header/footer chrome, color tokens, octicon coverage, empty-state illustrations, focus states — all still drifting from Primer. Closing this gap is ongoing; expect rough edges page-to-page.
 - **Mobile / responsive** — the current CSS is desktop-first. Small viewports work but aren't tuned.
 - **Deferred from completed sprints** — every sprint spec lists "inbound deferrals" that landed and "outbound deferrals" that were pushed forward. See `.docs/sprints/` for the running list.
@@ -97,12 +95,13 @@ The work is structured as 50 sprints (S00–S49, plus SR1 audit remediation). Ro
 
 - **S00–S04** — scaffolding, DB baseline, web shell, observability, storage abstractions ✅
 - **S05–S09** — identity (auth, 2FA, SSH keys, PATs, profiles) ✅
-- **S10–S20** — repos, git protocols, code browsing, branches/tags, hooks ✅ (SSH service deferred)
+- **S10–S20** — repos, git protocols (HTTPS + SSH), code browsing, branches/tags, hooks ✅
 - **S21–S25** — issues, pulls, reviews, status checks, markdown ✅
 - **S26–S29** — social, forks, search, notifications ✅
-- **S30–S33** — orgs, teams, repo settings, webhooks ✅ (current)
-- **S34–S40** — site admin, security hardening, federation, polish, accessibility, i18n
-- **S41–S49** — actions/CI, social feed, advanced search, GraphQL API, packages, pages, projects, releases, gists
+- **S30–S33** — orgs, teams, repo settings, webhooks ✅
+- **S34** — site admin (`/admin/*`) ✅
+- **S41** — actions/CI v1 ✅
+- **S35–S40, S42–S49** — security hardening, federation, polish, accessibility, i18n; social feed, advanced search, GraphQL API, packages, pages, projects, releases, gists
 
 See `.docs/sprints/` for the per-sprint spec.
 
