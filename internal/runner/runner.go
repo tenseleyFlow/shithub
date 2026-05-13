@@ -39,6 +39,8 @@ type Options struct {
 	Logger             *slog.Logger
 	Labels             []string
 	Capacity           int
+	HostName           string
+	Version            string
 	PollInterval       time.Duration
 	CancelPollInterval time.Duration
 	DefaultImage       string
@@ -53,6 +55,8 @@ type Runner struct {
 	logger             *slog.Logger
 	labels             []string
 	capacity           int
+	hostName           string
+	version            string
 	pollInterval       time.Duration
 	cancelPollInterval time.Duration
 	defaultImage       string
@@ -92,6 +96,8 @@ func New(opts Options) *Runner {
 		logger:             logger,
 		labels:             append([]string{}, opts.Labels...),
 		capacity:           capacity,
+		hostName:           opts.HostName,
+		version:            opts.Version,
 		pollInterval:       poll,
 		cancelPollInterval: cancelPoll,
 		defaultImage:       opts.DefaultImage,
@@ -119,7 +125,12 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
-	claim, err := r.api.Heartbeat(ctx, api.HeartbeatRequest{Labels: r.labels, Capacity: r.capacity})
+	claim, err := r.api.Heartbeat(ctx, api.HeartbeatRequest{
+		Labels:   r.labels,
+		Capacity: r.capacity,
+		HostName: r.hostName,
+		Version:  r.version,
+	})
 	if err != nil {
 		return false, err
 	}

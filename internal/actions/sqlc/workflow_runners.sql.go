@@ -11,16 +11,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getRunnerByID = `-- name: GetRunnerByID :one
-SELECT id, name, labels, capacity, status, last_heartbeat_at,
-       registered_by_user_id, created_at, updated_at
-FROM workflow_runners
+const clearRunnerDraining = `-- name: ClearRunnerDraining :one
+UPDATE workflow_runners
+SET draining_at = NULL,
+    drain_reason = '',
+    updated_at = now()
 WHERE id = $1
+  AND revoked_at IS NULL
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
 `
 
-func (q *Queries) GetRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error) {
-	row := db.QueryRow(ctx, getRunnerByID, id)
-	var i WorkflowRunner
+type ClearRunnerDrainingRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) ClearRunnerDraining(ctx context.Context, db DBTX, id int64) (ClearRunnerDrainingRow, error) {
+	row := db.QueryRow(ctx, clearRunnerDraining, id)
+	var i ClearRunnerDrainingRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -28,6 +51,61 @@ func (q *Queries) GetRunnerByID(ctx context.Context, db DBTX, id int64) (Workflo
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
+		&i.RegisteredByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getRunnerByID = `-- name: GetRunnerByID :one
+SELECT id, name, labels, capacity, status, last_heartbeat_at,
+       host_name, version, draining_at, drain_reason, revoked_at,
+       revoked_reason, registered_by_user_id, created_at, updated_at
+FROM workflow_runners
+WHERE id = $1
+`
+
+type GetRunnerByIDRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) GetRunnerByID(ctx context.Context, db DBTX, id int64) (GetRunnerByIDRow, error) {
+	row := db.QueryRow(ctx, getRunnerByID, id)
+	var i GetRunnerByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Labels,
+		&i.Capacity,
+		&i.Status,
+		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.RegisteredByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -37,14 +115,33 @@ func (q *Queries) GetRunnerByID(ctx context.Context, db DBTX, id int64) (Workflo
 
 const getRunnerByName = `-- name: GetRunnerByName :one
 SELECT id, name, labels, capacity, status, last_heartbeat_at,
-       registered_by_user_id, created_at, updated_at
+       host_name, version, draining_at, drain_reason, revoked_at,
+       revoked_reason, registered_by_user_id, created_at, updated_at
 FROM workflow_runners
 WHERE name = $1
 `
 
-func (q *Queries) GetRunnerByName(ctx context.Context, db DBTX, name string) (WorkflowRunner, error) {
+type GetRunnerByNameRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) GetRunnerByName(ctx context.Context, db DBTX, name string) (GetRunnerByNameRow, error) {
 	row := db.QueryRow(ctx, getRunnerByName, name)
-	var i WorkflowRunner
+	var i GetRunnerByNameRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -52,6 +149,12 @@ func (q *Queries) GetRunnerByName(ctx context.Context, db DBTX, name string) (Wo
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.RegisteredByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -61,11 +164,13 @@ func (q *Queries) GetRunnerByName(ctx context.Context, db DBTX, name string) (Wo
 
 const getRunnerByTokenHash = `-- name: GetRunnerByTokenHash :one
 SELECT r.id, r.name, r.labels, r.capacity, r.status,
-       r.last_heartbeat_at, r.created_at
+       r.last_heartbeat_at, r.host_name, r.version, r.draining_at,
+       r.drain_reason, r.revoked_at, r.revoked_reason, r.created_at
 FROM workflow_runners r
 JOIN runner_tokens t ON t.runner_id = r.id
 WHERE t.token_hash = $1
   AND t.revoked_at IS NULL
+  AND r.revoked_at IS NULL
   AND (t.expires_at IS NULL OR t.expires_at > now())
 `
 
@@ -76,6 +181,12 @@ type GetRunnerByTokenHashRow struct {
 	Capacity        int32
 	Status          WorkflowRunnerStatus
 	LastHeartbeatAt pgtype.Timestamptz
+	HostName        string
+	Version         string
+	DrainingAt      pgtype.Timestamptz
+	DrainReason     string
+	RevokedAt       pgtype.Timestamptz
+	RevokedReason   string
 	CreatedAt       pgtype.Timestamptz
 }
 
@@ -89,6 +200,12 @@ func (q *Queries) GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash [
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -100,10 +217,13 @@ SET labels = $2,
     capacity = $3,
     last_heartbeat_at = now(),
     status = $4,
+    host_name = $5,
+    version = $6,
     updated_at = now()
 WHERE id = $1
 RETURNING id, name, labels, capacity, status, last_heartbeat_at,
-          registered_by_user_id, created_at, updated_at
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
 `
 
 type HeartbeatRunnerParams struct {
@@ -111,16 +231,38 @@ type HeartbeatRunnerParams struct {
 	Labels   []string
 	Capacity int32
 	Status   WorkflowRunnerStatus
+	HostName string
+	Version  string
 }
 
-func (q *Queries) HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error) {
+type HeartbeatRunnerRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (HeartbeatRunnerRow, error) {
 	row := db.QueryRow(ctx, heartbeatRunner,
 		arg.ID,
 		arg.Labels,
 		arg.Capacity,
 		arg.Status,
+		arg.HostName,
+		arg.Version,
 	)
-	var i WorkflowRunner
+	var i HeartbeatRunnerRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -128,6 +270,12 @@ func (q *Queries) HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRun
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.RegisteredByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -140,7 +288,8 @@ const insertRunner = `-- name: InsertRunner :one
 INSERT INTO workflow_runners (name, labels, capacity, registered_by_user_id)
 VALUES ($1, $2, $3, $4)
 RETURNING id, name, labels, capacity, status, last_heartbeat_at,
-          registered_by_user_id, created_at, updated_at
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
 `
 
 type InsertRunnerParams struct {
@@ -150,15 +299,33 @@ type InsertRunnerParams struct {
 	RegisteredByUserID pgtype.Int8
 }
 
+type InsertRunnerRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
-func (q *Queries) InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (WorkflowRunner, error) {
+func (q *Queries) InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (InsertRunnerRow, error) {
 	row := db.QueryRow(ctx, insertRunner,
 		arg.Name,
 		arg.Labels,
 		arg.Capacity,
 		arg.RegisteredByUserID,
 	)
-	var i WorkflowRunner
+	var i InsertRunnerRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -166,6 +333,12 @@ func (q *Queries) InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerPar
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.RegisteredByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -200,9 +373,17 @@ func (q *Queries) InsertRunnerToken(ctx context.Context, db DBTX, arg InsertRunn
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT id, name, labels, capacity, status, last_heartbeat_at, created_at
-FROM workflow_runners
-ORDER BY name ASC
+SELECT r.id, r.name, r.labels, r.capacity, r.status, r.last_heartbeat_at,
+       r.host_name, r.version, r.draining_at, r.drain_reason, r.revoked_at,
+       r.revoked_reason, r.created_at, COUNT(j.id)::integer AS active_job_count
+FROM workflow_runners r
+LEFT JOIN workflow_jobs j
+       ON j.runner_id = r.id
+      AND j.status = 'running'
+GROUP BY r.id, r.name, r.labels, r.capacity, r.status, r.last_heartbeat_at,
+         r.host_name, r.version, r.draining_at, r.drain_reason, r.revoked_at,
+         r.revoked_reason, r.created_at
+ORDER BY r.name ASC
 `
 
 type ListRunnersRow struct {
@@ -212,7 +393,14 @@ type ListRunnersRow struct {
 	Capacity        int32
 	Status          WorkflowRunnerStatus
 	LastHeartbeatAt pgtype.Timestamptz
+	HostName        string
+	Version         string
+	DrainingAt      pgtype.Timestamptz
+	DrainReason     string
+	RevokedAt       pgtype.Timestamptz
+	RevokedReason   string
 	CreatedAt       pgtype.Timestamptz
+	ActiveJobCount  int32
 }
 
 func (q *Queries) ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error) {
@@ -231,7 +419,14 @@ func (q *Queries) ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, e
 			&i.Capacity,
 			&i.Status,
 			&i.LastHeartbeatAt,
+			&i.HostName,
+			&i.Version,
+			&i.DrainingAt,
+			&i.DrainReason,
+			&i.RevokedAt,
+			&i.RevokedReason,
 			&i.CreatedAt,
+			&i.ActiveJobCount,
 		); err != nil {
 			return nil, err
 		}
@@ -245,15 +440,34 @@ func (q *Queries) ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, e
 
 const lockRunnerByID = `-- name: LockRunnerByID :one
 SELECT id, name, labels, capacity, status, last_heartbeat_at,
-       registered_by_user_id, created_at, updated_at
+       host_name, version, draining_at, drain_reason, revoked_at,
+       revoked_reason, registered_by_user_id, created_at, updated_at
 FROM workflow_runners
 WHERE id = $1
 FOR UPDATE
 `
 
-func (q *Queries) LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error) {
+type LockRunnerByIDRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) LockRunnerByID(ctx context.Context, db DBTX, id int64) (LockRunnerByIDRow, error) {
 	row := db.QueryRow(ctx, lockRunnerByID, id)
-	var i WorkflowRunner
+	var i LockRunnerByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -261,11 +475,84 @@ func (q *Queries) LockRunnerByID(ctx context.Context, db DBTX, id int64) (Workfl
 		&i.Capacity,
 		&i.Status,
 		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
 		&i.RegisteredByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const markStaleRunnersOffline = `-- name: MarkStaleRunnersOffline :many
+UPDATE workflow_runners
+SET status = 'offline',
+    updated_at = now()
+WHERE revoked_at IS NULL
+  AND status <> 'offline'
+  AND last_heartbeat_at IS NOT NULL
+  AND last_heartbeat_at < $1
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
+`
+
+type MarkStaleRunnersOfflineRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) MarkStaleRunnersOffline(ctx context.Context, db DBTX, lastHeartbeatAt pgtype.Timestamptz) ([]MarkStaleRunnersOfflineRow, error) {
+	rows, err := db.Query(ctx, markStaleRunnersOffline, lastHeartbeatAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MarkStaleRunnersOfflineRow{}
+	for rows.Next() {
+		var i MarkStaleRunnersOfflineRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Labels,
+			&i.Capacity,
+			&i.Status,
+			&i.LastHeartbeatAt,
+			&i.HostName,
+			&i.Version,
+			&i.DrainingAt,
+			&i.DrainReason,
+			&i.RevokedAt,
+			&i.RevokedReason,
+			&i.RegisteredByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const revokeAllTokensForRunner = `-- name: RevokeAllTokensForRunner :exec
@@ -277,6 +564,127 @@ WHERE runner_id = $1 AND revoked_at IS NULL
 func (q *Queries) RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error {
 	_, err := db.Exec(ctx, revokeAllTokensForRunner, runnerID)
 	return err
+}
+
+const revokeRunner = `-- name: RevokeRunner :one
+UPDATE workflow_runners
+SET revoked_at = COALESCE(revoked_at, now()),
+    revoked_reason = CASE WHEN revoked_at IS NULL THEN $2 ELSE revoked_reason END,
+    draining_at = COALESCE(draining_at, now()),
+    drain_reason = CASE
+        WHEN draining_at IS NULL THEN $2
+        ELSE drain_reason
+    END,
+    status = 'offline',
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
+`
+
+type RevokeRunnerParams struct {
+	ID            int64
+	RevokedReason string
+}
+
+type RevokeRunnerRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) RevokeRunner(ctx context.Context, db DBTX, arg RevokeRunnerParams) (RevokeRunnerRow, error) {
+	row := db.QueryRow(ctx, revokeRunner, arg.ID, arg.RevokedReason)
+	var i RevokeRunnerRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Labels,
+		&i.Capacity,
+		&i.Status,
+		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
+		&i.RegisteredByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setRunnerDraining = `-- name: SetRunnerDraining :one
+UPDATE workflow_runners
+SET draining_at = COALESCE(draining_at, now()),
+    drain_reason = $2,
+    updated_at = now()
+WHERE id = $1
+  AND revoked_at IS NULL
+RETURNING id, name, labels, capacity, status, last_heartbeat_at,
+          host_name, version, draining_at, drain_reason, revoked_at,
+          revoked_reason, registered_by_user_id, created_at, updated_at
+`
+
+type SetRunnerDrainingParams struct {
+	ID          int64
+	DrainReason string
+}
+
+type SetRunnerDrainingRow struct {
+	ID                 int64
+	Name               string
+	Labels             []string
+	Capacity           int32
+	Status             WorkflowRunnerStatus
+	LastHeartbeatAt    pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
+	RegisteredByUserID pgtype.Int8
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) SetRunnerDraining(ctx context.Context, db DBTX, arg SetRunnerDrainingParams) (SetRunnerDrainingRow, error) {
+	row := db.QueryRow(ctx, setRunnerDraining, arg.ID, arg.DrainReason)
+	var i SetRunnerDrainingRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Labels,
+		&i.Capacity,
+		&i.Status,
+		&i.LastHeartbeatAt,
+		&i.HostName,
+		&i.Version,
+		&i.DrainingAt,
+		&i.DrainReason,
+		&i.RevokedAt,
+		&i.RevokedReason,
+		&i.RegisteredByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const touchRunnerHeartbeat = `-- name: TouchRunnerHeartbeat :exec

@@ -24,7 +24,8 @@ func TestHeartbeat_ClaimsJob(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("Decode: %v", err)
 		}
-		if req.Capacity != 2 || strings.Join(req.Labels, ",") != "self-hosted,linux" {
+		if req.Capacity != 2 || strings.Join(req.Labels, ",") != "self-hosted,linux" ||
+			req.HostName != "runner-host" || req.Version != "dev-test" {
 			t.Fatalf("request: %#v", req)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -40,7 +41,12 @@ func TestHeartbeat_ClaimsJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	claim, err := client.Heartbeat(t.Context(), HeartbeatRequest{Labels: []string{"self-hosted", "linux"}, Capacity: 2})
+	claim, err := client.Heartbeat(t.Context(), HeartbeatRequest{
+		Labels:   []string{"self-hosted", "linux"},
+		Capacity: 2,
+		HostName: "runner-host",
+		Version:  "dev-test",
+	})
 	if err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}

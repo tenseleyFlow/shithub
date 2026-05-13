@@ -374,6 +374,8 @@ FROM workflow_jobs j
 LEFT JOIN workflow_runners wr
   ON (j.runs_on = '' OR j.runs_on = ANY(wr.labels))
  AND wr.status IN ('idle', 'busy')
+ AND wr.draining_at IS NULL
+ AND wr.revoked_at IS NULL
 WHERE j.status = 'queued'
   AND j.cancel_requested = false
   AND j.runner_id IS NULL

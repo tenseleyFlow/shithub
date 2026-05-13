@@ -138,7 +138,7 @@ var (
 	ActionsRunnerHeartbeatsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "shithub_actions_runner_heartbeats_total",
-			Help: "Total runner heartbeats by result (claimed, no_job).",
+			Help: "Total runner heartbeats by result (claimed, no_job, rejected).",
 		},
 		[]string{"result"},
 	)
@@ -225,12 +225,26 @@ var (
 		},
 		[]string{"resource"},
 	)
+	ActionsQueueDepthByLabels = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_queue_depth_by_labels",
+			Help: "Current queued Actions jobs by exact runs-on label expression.",
+		},
+		[]string{"labels"},
+	)
 	ActionsActive = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "shithub_actions_active",
 			Help: "Current running Actions workflow items by resource (runs, jobs).",
 		},
 		[]string{"resource"},
+	)
+	ActionsJobClaimLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "shithub_actions_job_claim_latency_seconds",
+			Help:    "Seconds between job enqueue and runner claim.",
+			Buckets: prometheus.ExponentialBuckets(0.1, 2.5, 12),
+		},
 	)
 	ActionsRunnerHeartbeatAgeSeconds = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -239,12 +253,38 @@ var (
 		},
 		[]string{"runner", "status"},
 	)
+	ActionsRunnerOnline = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_online",
+			Help: "Current runner online state by runner (1 online, 0 unavailable).",
+		},
+		[]string{"runner"},
+	)
+	ActionsRunnerStaleTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_stale_total",
+			Help: "Current count of non-revoked runners whose heartbeat is past the stale threshold.",
+		},
+	)
+	ActionsRunnerDraining = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_draining",
+			Help: "Current runner drain state by runner (1 draining, 0 not draining).",
+		},
+		[]string{"runner"},
+	)
 	ActionsRunnerCapacity = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "shithub_actions_runner_capacity",
 			Help: "Configured Actions runner capacity by runner and status.",
 		},
 		[]string{"runner", "status"},
+	)
+	ActionsRunnerRevocationsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shithub_actions_runner_revocations_total",
+			Help: "Total Actions runner hard revocations performed by operator tooling.",
+		},
 	)
 	ActionsStorageObjects = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -291,9 +331,15 @@ func init() {
 		ActionsRunsPrunedTotal,
 		ActionsStepTimeoutsTotal,
 		ActionsQueueDepth,
+		ActionsQueueDepthByLabels,
 		ActionsActive,
+		ActionsJobClaimLatencySeconds,
 		ActionsRunnerHeartbeatAgeSeconds,
+		ActionsRunnerOnline,
+		ActionsRunnerStaleTotal,
+		ActionsRunnerDraining,
 		ActionsRunnerCapacity,
+		ActionsRunnerRevocationsTotal,
 		ActionsStorageObjects,
 		ActionsStorageBytes,
 	)

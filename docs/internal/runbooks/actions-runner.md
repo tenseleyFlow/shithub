@@ -55,6 +55,84 @@ shithubd-runner run \
   --dns-servers 172.30.0.1
 ```
 
+## Pool Operations
+
+List pool state:
+
+```sh
+shithubd admin runner list --output json
+shithubd admin runner queue --output json
+```
+
+`list` includes labels, capacity, active job count, last heartbeat,
+host name, runner version, drain state, and revoke state. `queue`
+groups queued jobs by requested `runs-on` label so unsupported labels
+are visible without querying Postgres.
+
+Drain a runner before host maintenance:
+
+```sh
+shithubd admin runner drain --id 7 --reason 'kernel update'
+```
+
+The runner keeps heartbeating and can finish already claimed jobs, but
+new heartbeat claims return 204 until it is undrained:
+
+```sh
+shithubd admin runner undrain --id 7
+```
+
+Rotate a registration token after a config-management change:
+
+```sh
+shithubd admin runner rotate-token --id 7 --expires-in 24h --output json
+```
+
+Update the runner host config with the printed token, restart
+`shithubd-runner`, then verify heartbeats with `runner list`.
+
+Mark stale runners offline:
+
+```sh
+shithubd admin runner cleanup-stale --older-than 2m
+```
+
+Hard-revoke a compromised runner:
+
+```sh
+shithubd admin runner revoke --id 7 --reason 'host compromise'
+```
+
+Revocation records `revoked_at`, marks the runner offline, revokes every
+registration token for that runner, and causes existing job API JWTs from
+that runner to fail. Use drain for routine maintenance; use revoke when
+the token or host may be compromised.
+
+Destroy/recreate with DigitalOcean:
+
+```sh
+doctl compute droplet list --tag-name shithub-actions-runner
+doctl compute droplet delete <droplet-id>
+```
+
+After recreation, register a fresh runner token and let the provisioning
+role write the new config. Do not reuse a token from a revoked runner.
+
+Emergency controls:
+
+- Stop all new claims: disable Actions at site level or drain every
+  runner with `shithubd admin runner list --output json` followed by
+  `shithubd admin runner drain --id <id>`.
+- Pause one repo/org: set the repo/org Actions policy to disabled so the
+  claim query leaves its queued jobs untouched.
+- Cancel active work for a repo: use the repo Actions UI or job cancel
+  API for each queued/running job.
+- Revoke all runner tokens: iterate `shithubd admin runner revoke --id
+  <id>` over every non-revoked runner.
+- Fence the pool: block or destroy droplets tagged
+  `shithub-actions-runner` in DigitalOcean, then rotate or revoke the
+  affected runner tokens before allowing replacement hosts to connect.
+
 Equivalent config file:
 
 ```toml
@@ -111,7 +189,7 @@ Claim a job:
 curl -fsS "$BASE/api/v1/runners/heartbeat" \
   -H "Authorization: Bearer $RUNNER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1}' \
+  -d '{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1,"host_name":"curl-smoke","version":"manual"}' \
   | tee /tmp/shithub-claim.json
 ```
 
@@ -209,7 +287,9 @@ Expected results:
   jobs are terminal.
 - The PR Checks tab shows the matching check run as success.
 - `/metrics` includes runner registration, heartbeat, JWT, job
-  cancellation, log-scrub, step-timeout, and retention counters.
+  cancellation, log-scrub, step-timeout, retention, queue-depth by label,
+  claim-latency, runner-online, runner-stale, runner-draining, and
+  runner-revocation metrics.
 
 ## Retention Sweep
 

@@ -2861,6 +2861,12 @@ type WorkflowRunner struct {
 	RegisteredByUserID pgtype.Int8
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	HostName           string
+	Version            string
+	DrainingAt         pgtype.Timestamptz
+	DrainReason        string
+	RevokedAt          pgtype.Timestamptz
+	RevokedReason      string
 }
 
 type WorkflowSecret struct {

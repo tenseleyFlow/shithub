@@ -60,6 +60,7 @@ func TestRefreshActionsPublishesQueueRunnerAndStorageGauges(t *testing.T) {
 		JobKey:         "build",
 		JobName:        "Build",
 		RunsOn:         `["ubuntu-latest"]`,
+		NeedsJobs:      []string{},
 		TimeoutMinutes: 30,
 		Permissions:    []byte(`{}`),
 		JobEnv:         []byte(`{}`),
@@ -111,7 +112,7 @@ func TestRefreshActionsPublishesQueueRunnerAndStorageGauges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertRunner: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE workflow_runners SET status = 'busy', last_heartbeat_at = now() - interval '75 seconds' WHERE id = $1`, runner.ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE workflow_runners SET status = 'busy', last_heartbeat_at = now() - interval '75 seconds', draining_at = now(), drain_reason = 'maintenance' WHERE id = $1`, runner.ID); err != nil {
 		t.Fatalf("touch runner heartbeat: %v", err)
 	}
 
@@ -120,9 +121,13 @@ func TestRefreshActionsPublishesQueueRunnerAndStorageGauges(t *testing.T) {
 
 	assertGauge(t, ActionsQueueDepth, []string{"runs"}, 1)
 	assertGauge(t, ActionsQueueDepth, []string{"jobs"}, 1)
+	assertGauge(t, ActionsQueueDepthByLabels, []string{`["ubuntu-latest"]`}, 1)
 	assertGauge(t, ActionsActive, []string{"runs"}, 0)
 	assertGauge(t, ActionsActive, []string{"jobs"}, 0)
 	assertGauge(t, ActionsRunnerCapacity, []string{"runner-a", "busy"}, 3)
+	assertGauge(t, ActionsRunnerOnline, []string{"runner-a"}, 0)
+	assertGauge(t, ActionsRunnerDraining, []string{"runner-a"}, 1)
+	assertPlainGauge(t, ActionsRunnerStaleTotal, 1)
 	if got := gaugeValue(t, ActionsRunnerHeartbeatAgeSeconds, []string{"runner-a", "busy"}); got < 60 {
 		t.Fatalf("runner heartbeat age = %v, want >= 60", got)
 	}
@@ -140,8 +145,12 @@ type labeledGauge interface {
 
 func resetActionsObserverGauges() {
 	ActionsQueueDepth.Reset()
+	ActionsQueueDepthByLabels.Reset()
 	ActionsActive.Reset()
 	ActionsRunnerHeartbeatAgeSeconds.Reset()
+	ActionsRunnerOnline.Reset()
+	ActionsRunnerDraining.Reset()
+	ActionsRunnerStaleTotal.Set(0)
 	ActionsRunnerCapacity.Reset()
 	ActionsStorageObjects.Reset()
 	ActionsStorageBytes.Reset()
@@ -164,4 +173,18 @@ func gaugeValue(t *testing.T, vec labeledGauge, labels []string) float64 {
 		t.Fatalf("gauge %v missing", labels)
 	}
 	return metric.Gauge.GetValue()
+}
+
+func assertPlainGauge(t *testing.T, gauge prometheus.Gauge, want float64) {
+	t.Helper()
+	var metric dto.Metric
+	if err := gauge.Write(&metric); err != nil {
+		t.Fatalf("read gauge: %v", err)
+	}
+	if metric.Gauge == nil {
+		t.Fatal("gauge missing")
+	}
+	if got := metric.Gauge.GetValue(); got != want {
+		t.Fatalf("gauge = %v, want %v", got, want)
+	}
 }

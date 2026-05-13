@@ -15,6 +15,7 @@ import (
 	runnerconfig "github.com/tenseleyFlow/shithub/internal/runner/config"
 	"github.com/tenseleyFlow/shithub/internal/runner/engine"
 	"github.com/tenseleyFlow/shithub/internal/runner/workspace"
+	"github.com/tenseleyFlow/shithub/internal/version"
 )
 
 var runConfigPath string
@@ -52,6 +53,10 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		hostName, err := os.Hostname()
+		if err != nil {
+			hostName = ""
+		}
 		execEngine := engine.NewDocker(engine.DockerConfig{
 			Binary:         cfg.Engine.Kind,
 			DefaultImage:   cfg.Engine.DefaultImage,
@@ -73,6 +78,8 @@ var runCmd = &cobra.Command{
 			Logger:       logger,
 			Labels:       cfg.Runner.Labels,
 			Capacity:     cfg.Runner.Capacity,
+			HostName:     hostName,
+			Version:      version.String(),
 			PollInterval: cfg.Runner.PollInterval,
 			DefaultImage: cfg.Engine.DefaultImage,
 			Clock:        func() time.Time { return time.Now().UTC() },

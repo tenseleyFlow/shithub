@@ -47,6 +47,8 @@ func New(cfg Config) (*Client, error) {
 type HeartbeatRequest struct {
 	Labels   []string `json:"labels"`
 	Capacity int      `json:"capacity"`
+	HostName string   `json:"host_name,omitempty"`
+	Version  string   `json:"version,omitempty"`
 }
 
 type Claim struct {

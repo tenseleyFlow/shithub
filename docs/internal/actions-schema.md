@@ -12,7 +12,7 @@ without churning under them.
 
 ## SQL schema
 
-Actions migrations currently span 0042–0051, 0053, 0057, 0060, and 0064–0066.
+Actions migrations currently span 0042–0051, 0053, 0057, 0060, and 0064–0067.
 Migration 0052 belongs to the repo source-remotes feature, 0054
 belongs to push event protocol tracking, 0055 belongs to the social
 feed, 0056 belongs to user profile contribution settings, 0058 belongs
@@ -34,6 +34,7 @@ to repo name reuse, and 0059 belongs to GitHub org imports.
 | 0057  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
 | 0060  | Actions retention indexes   | Narrow cleanup indexes for terminal steps/runs                |
 | 0066  | `actions_*_policies`, `workflow_run_approvals` | Enablement, runner-pool caps, and approval decisions |
+| 0067  | `workflow_runners` ops state | Host/version metadata, drain state, and hard revocation state |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -395,6 +396,12 @@ Other admin surfaces are scoped to later sub-sprints:
 
 - S41c: `shithubd admin runner register --name <foo>` issues a
   registration token + writes a row to `workflow_runners`.
+- S41j: `shithubd admin runner drain|undrain|rotate-token|revoke|cleanup-stale`
+  gives operators pool controls. Drained runners keep heartbeating and
+  may finish already claimed jobs but receive no new claims. Revoked
+  runners are set offline, all registration tokens are revoked, and job
+  API JWTs from that runner are rejected even if the runner still has an
+  old config file.
 - S41g: `POST /api/v1/jobs/{id}/cancel` and the repository run-detail
   UI request cancellation. Running jobs flip `cancel_requested`; queued
   jobs are made terminal immediately.
