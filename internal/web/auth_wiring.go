@@ -207,6 +207,12 @@ func pickEmailSender(cfg config.Config) (email.Sender, error) {
 			From:        cfg.Auth.EmailFrom,
 			HTTP:        &http.Client{Timeout: 10 * time.Second},
 		}, nil
+	case "resend":
+		return &email.ResendSender{
+			APIKey: cfg.Auth.Resend.APIKey,
+			From:   cfg.Auth.EmailFrom,
+			HTTP:   &http.Client{Timeout: 10 * time.Second},
+		}, nil
 	default:
 		return nil, errors.New("auth: unknown email_backend")
 	}
