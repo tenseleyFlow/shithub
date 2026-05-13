@@ -229,13 +229,29 @@ func (h *Handlers) resolvePrincipalFromSubscription(ctx context.Context, sub *st
 // rejecting org events. PRO-disabled instances never see Pro
 // events, so the org path is unaffected.
 func (h *Handlers) guardPriceKindMatch(kind orgbilling.SubjectKind, sub *stripeapi.Subscription) error {
-	if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 || sub.Items.Data[0] == nil || sub.Items.Data[0].Price == nil {
-		// No price on the event — nothing to validate. Subsequent
-		// apply logic surfaces the missing-data error if needed.
+	teamPrice, proPrice := h.d.BillingPriceIDs()
+	// PRO08 A1: when ANY price is configured we MUST be able to
+	// inspect the event's price-id to enforce cross-kind separation.
+	// A subscription event with empty Items can otherwise bypass the
+	// guard entirely — a Pro-priced subscription with `subject_kind=org`
+	// metadata would silently write Team to the org-side table. Refuse
+	// the apply so Stripe retries (and the operator notices).
+	if teamPrice != "" || proPrice != "" {
+		if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 || sub.Items.Data[0] == nil || sub.Items.Data[0].Price == nil {
+			id := ""
+			if sub != nil {
+				id = strings.TrimSpace(sub.ID)
+			}
+			return fmt.Errorf("stripe subscription %q: no line items in event — refusing apply (cross-kind price guard cannot run)", id)
+		}
+	} else if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 || sub.Items.Data[0] == nil || sub.Items.Data[0].Price == nil {
+		// No prices configured AND no items — nothing to validate.
+		// The instance has billing disabled or runs Pro-only / Team-
+		// only without the other tier's price wired; let the apply
+		// flow handle the rest.
 		return nil
 	}
 	priceID := strings.TrimSpace(sub.Items.Data[0].Price.ID)
-	teamPrice, proPrice := h.d.BillingPriceIDs()
 	switch kind {
 	case orgbilling.SubjectKindOrg:
 		if teamPrice != "" && priceID != "" && priceID != teamPrice {
