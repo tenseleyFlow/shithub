@@ -80,9 +80,30 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns.
+           --   past_due -> preserve any existing lock (MarkPastDue
+           --     sets fresh grace_until on the invoice.payment_failed
+           --     path; if that hasn't arrived yet, leave NULL).
+           --   active / trialing recovering from past_due/unpaid -> clear.
+           --   any other transition -> preserve existing values.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN org_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.grace_until
+           END,
            updated_at = now()
     RETURNING *
 ), org_update AS (
@@ -571,9 +592,27 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns
+           -- (mirror of the org-side fix). The Mark* paths own
+           -- transitions into/out of the locked state.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN user_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.grace_until
+           END,
            updated_at = now()
     RETURNING *
 ), user_update AS (
