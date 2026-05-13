@@ -312,11 +312,12 @@ func (h *Handlers) billingDebugView(r *http.Request, state orgbilling.State) bil
 	debug.LastWebhookProcessedAt = formatOptionalTime(receipt.ProcessedAt)
 	debug.LastWebhookAttempts = receipt.ProcessingAttempts
 	debug.LastWebhookError = strings.TrimSpace(receipt.ProcessError)
-	if receipt.ProcessedAt.Valid {
+	switch {
+	case receipt.ProcessedAt.Valid:
 		debug.LastWebhookStatus = "processed"
-	} else if debug.LastWebhookError != "" {
+	case debug.LastWebhookError != "":
 		debug.LastWebhookStatus = "failed"
-	} else {
+	default:
 		debug.LastWebhookStatus = "pending"
 	}
 	return debug
