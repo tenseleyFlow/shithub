@@ -883,6 +883,13 @@ upserted AS (
 )
 SELECT * FROM upserted;
 
+-- name: ListActiveOrgIDsForUsageRecalc :many
+SELECT id
+FROM orgs
+WHERE deleted_at IS NULL
+ORDER BY id ASC
+LIMIT sqlc.arg(lim)::integer;
+
 -- name: CreateOrgUsageSnapshot :one
 INSERT INTO org_usage_snapshots (
     org_id,

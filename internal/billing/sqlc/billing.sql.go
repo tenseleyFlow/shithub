@@ -1140,6 +1140,34 @@ func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit in
 	return items, nil
 }
 
+const listActiveOrgIDsForUsageRecalc = `-- name: ListActiveOrgIDsForUsageRecalc :many
+SELECT id
+FROM orgs
+WHERE deleted_at IS NULL
+ORDER BY id ASC
+LIMIT $1::integer
+`
+
+func (q *Queries) ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error) {
+	rows, err := db.Query(ctx, listActiveOrgIDsForUsageRecalc, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
 SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
 WHERE subject_kind = 'org' AND subject_id = $1

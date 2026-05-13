@@ -93,6 +93,7 @@ const (
 const (
 	KindOrgBillingSeatSync Kind = "org:billing_seat_sync"
 	KindOrgUsageRecalc     Kind = "org:usage_recalc"
+	KindOrgUsageReconcile  Kind = "org:usage_reconcile"
 )
 
 // S51 GPG signature verification backfill. One job per repo;

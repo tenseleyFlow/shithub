@@ -54,6 +54,7 @@ type Querier interface {
 	// one processing attempt. Rows that are merely new and untouched
 	// (attempts=0, processed_at NULL, no error) are excluded.
 	ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error)
+	ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error)
 	// PRO03: filters on the polymorphic subject columns so the index
 	// billing_invoices_subject_created_idx services this query. The
 	// legacy `org_id` column is kept populated by UpsertInvoice for the

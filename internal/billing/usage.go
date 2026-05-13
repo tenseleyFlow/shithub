@@ -28,6 +28,7 @@ const (
 var (
 	ErrInvalidUsageCounter  = errors.New("billing: usage counters cannot be negative")
 	ErrInvalidUsagePeriod   = errors.New("billing: usage period is invalid")
+	ErrInvalidUsageLimit    = errors.New("billing: usage recalc limit is invalid")
 	ErrInvalidQuotaKind     = errors.New("billing: invalid quota kind")
 	ErrInvalidQuotaOverride = errors.New("billing: invalid quota override")
 )
@@ -108,6 +109,16 @@ func RecalculateOrgUsageCounters(ctx context.Context, deps Deps, orgID int64, pe
 		return UsageCounter{}, err
 	}
 	return UsageCounter(row), nil
+}
+
+func ListActiveOrgIDsForUsageRecalc(ctx context.Context, deps Deps, limit int32) ([]int64, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, ErrInvalidUsageLimit
+	}
+	return billingdb.New().ListActiveOrgIDsForUsageRecalc(ctx, deps.Pool, limit)
 }
 
 func CreateOrgUsageSnapshot(ctx context.Context, deps Deps, orgID int64, source string) (UsageSnapshot, error) {

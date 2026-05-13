@@ -329,6 +329,10 @@ PAYMENTS SP08 starts hosted-cost metering:
   recalculates repository/object/Actions usage for the current monthly
   period and records an audit snapshot unless the payload explicitly
   skips snapshotting.
+- `org:usage_reconcile` is the scheduled/manual fanout job. It lists
+  non-deleted organizations in bounded batches and enqueues one
+  `org:usage_recalc` job per organization, defaulting the child source
+  to `scheduled`.
 - Org-owned workflow dispatch recalculates current monthly usage before
   enqueueing and rejects new runs when Actions minutes used is greater
   than or equal to the effective quota. Personal repositories are not
