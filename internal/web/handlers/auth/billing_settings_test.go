@@ -127,6 +127,38 @@ func TestUserBillingSettingsFreeUserShowsUpgradeCTA(t *testing.T) {
 	}
 }
 
+// Regression: a Stripe customer record is created when the user
+// starts checkout, well before any payment lands. A user who
+// abandoned checkout has a customer_id but no subscription_id and
+// must still see "Upgrade to Pro", not "Manage or cancel".
+func TestUserBillingSettingsCustomerButNoSubscriptionShowsUpgrade(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	srv, pool, captor := newTestServerWithPoolOptions(t, authTestOptions{
+		BillingEnabled: true,
+		Stripe:         &fakeUserStripeRemote{supportsPro: true},
+	})
+	cli, userID := newBillingTestUser(t, srv, pool, captor, "abandoned")
+	deps := userbilling.Deps{Pool: pool}
+	if _, err := userbilling.SetStripeCustomerForPrincipal(ctx, deps, userbilling.PrincipalForUser(userID), "cus_abandoned"); err != nil {
+		t.Fatalf("SetStripeCustomerForPrincipal: %v", err)
+	}
+
+	resp := cli.get(t, "/settings/billing")
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, "SUMMARY=Current plan|Free;") {
+		t.Errorf("user with no subscription should still be Free: %s", s)
+	}
+	if !strings.Contains(s, "CHECKOUT=true;") {
+		t.Errorf("expected CanStartCheckout=true (abandoned-checkout user): %s", s)
+	}
+	if !strings.Contains(s, "MANAGE=false;") {
+		t.Errorf("user with customer_id but no subscription must NOT see Manage: %s", s)
+	}
+}
+
 func TestUserBillingSettingsProUserShowsPlanCardAndPortal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
