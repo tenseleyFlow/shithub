@@ -105,6 +105,47 @@ func (q *Queries) GetUserGPGKeyByFingerprint(ctx context.Context, db DBTX, finge
 	return i, err
 }
 
+const getUserGPGKeyForVerification = `-- name: GetUserGPGKeyForVerification :one
+SELECT id, user_id, name, fingerprint, key_id, armored,
+       can_sign, can_encrypt_comms, can_encrypt_storage, can_certify, can_authenticate,
+       uids, subkeys, primary_algo,
+       created_at, last_used_at, revoked_at, expires_at
+FROM user_gpg_keys
+WHERE id = $1
+`
+
+// Non-user-scoped lookup used by the verification path. Unlike
+// GetUserGPGKey this query does NOT filter on user_id — the caller
+// already validated the subkey resolution and needs the parent
+// record's user_id to drive the email cross-check. Includes revoked
+// rows so historical commit verifications can still resolve their
+// signer attribution.
+func (q *Queries) GetUserGPGKeyForVerification(ctx context.Context, db DBTX, id int64) (UserGpgKey, error) {
+	row := db.QueryRow(ctx, getUserGPGKeyForVerification, id)
+	var i UserGpgKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Fingerprint,
+		&i.KeyID,
+		&i.Armored,
+		&i.CanSign,
+		&i.CanEncryptComms,
+		&i.CanEncryptStorage,
+		&i.CanCertify,
+		&i.CanAuthenticate,
+		&i.Uids,
+		&i.Subkeys,
+		&i.PrimaryAlgo,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const insertUserGPGKey = `-- name: InsertUserGPGKey :one
 
 INSERT INTO user_gpg_keys (

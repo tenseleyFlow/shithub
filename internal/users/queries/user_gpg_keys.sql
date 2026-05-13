@@ -47,6 +47,20 @@ SELECT id, user_id, name, fingerprint, key_id, armored,
 FROM user_gpg_keys
 WHERE id = $1 AND user_id = $2;
 
+-- name: GetUserGPGKeyForVerification :one
+-- Non-user-scoped lookup used by the verification path. Unlike
+-- GetUserGPGKey this query does NOT filter on user_id — the caller
+-- already validated the subkey resolution and needs the parent
+-- record's user_id to drive the email cross-check. Includes revoked
+-- rows so historical commit verifications can still resolve their
+-- signer attribution.
+SELECT id, user_id, name, fingerprint, key_id, armored,
+       can_sign, can_encrypt_comms, can_encrypt_storage, can_certify, can_authenticate,
+       uids, subkeys, primary_algo,
+       created_at, last_used_at, revoked_at, expires_at
+FROM user_gpg_keys
+WHERE id = $1;
+
 -- name: GetUserGPGKeyByFingerprint :one
 -- Uniqueness probe used by the add path to surface a friendly
 -- "this key is already registered" error before the unique index

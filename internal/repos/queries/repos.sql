@@ -354,6 +354,37 @@ JOIN users u ON u.id = r.owner_user_id
 WHERE r.deleted_at IS NULL
 ORDER BY r.id;
 
+-- name: ListAllActiveReposWithOwner :many
+-- Used by the GPG verification backfill (S51) to enumerate every
+-- active repo system-wide. Unlike ListAllRepoFullNames this query
+-- handles BOTH user-owned and org-owned repos via a COALESCE between
+-- users.username and orgs.slug; the owner string is whatever
+-- RepoFS.RepoPath expects.
+SELECT
+    r.id,
+    r.name,
+    r.default_branch,
+    COALESCE(u.username, o.slug) AS owner
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs  o ON o.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+ORDER BY r.id;
+
+-- name: GetRepoForBackfill :one
+-- Lookup the per-repo backfill metadata. Mirrors the row shape of
+-- ListAllActiveReposWithOwner so the per-repo job handler can run
+-- the same code path the bulk handler uses.
+SELECT
+    r.id,
+    r.name,
+    r.default_branch,
+    COALESCE(u.username, o.slug) AS owner
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs  o ON o.id = r.owner_org_id
+WHERE r.id = $1 AND r.deleted_at IS NULL;
+
 -- ─── S27 forks ─────────────────────────────────────────────────────
 
 -- name: CreateForkRepo :one

@@ -92,6 +92,13 @@ type Querier interface {
 	// violation. Returns any row matching the fingerprint regardless of
 	// which user owns it (global uniqueness is the contract).
 	GetUserGPGKeyByFingerprint(ctx context.Context, db DBTX, fingerprint string) (UserGpgKey, error)
+	// Non-user-scoped lookup used by the verification path. Unlike
+	// GetUserGPGKey this query does NOT filter on user_id — the caller
+	// already validated the subkey resolution and needs the parent
+	// record's user_id to drive the email cross-check. Includes revoked
+	// rows so historical commit verifications can still resolve their
+	// signer attribution.
+	GetUserGPGKeyForVerification(ctx context.Context, db DBTX, id int64) (UserGpgKey, error)
 	// Hot path for commit/tag signature verification. The signature
 	// packet carries the signing subkey's fingerprint; this query
 	// resolves it back to the primary key (and via FK to the user).

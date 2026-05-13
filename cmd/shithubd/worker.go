@@ -150,6 +150,10 @@ var workerCmd = &cobra.Command{
 			Pool: pool, Logger: logger, Stripe: stripeRemote,
 		}))
 
+		p.Register(worker.KindGPGBackfill, jobs.GPGBackfill(jobs.GPGBackfillDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger,
+		}))
+
 		notifSender, _ := pickNotifEmailSender(cfg)
 		p.Register(worker.KindNotifyFanout, jobs.NotifyFanout(jobs.NotifyFanoutDeps{
 			Pool:           pool,

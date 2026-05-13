@@ -1889,6 +1889,20 @@ type CodeSearchPath struct {
 	Tsv     interface{}
 }
 
+type CommitVerificationCache struct {
+	RepoID           int64
+	CommitOid        string
+	Reason           string
+	Verified         bool
+	SignerUserID     pgtype.Int8
+	SignerSubkeyID   pgtype.Int8
+	Kind             string
+	SignatureArmored pgtype.Text
+	Payload          []byte
+	VerifiedAt       pgtype.Timestamptz
+	InvalidatedAt    pgtype.Timestamptz
+}
+
 type DeviceAuthorization struct {
 	ID              int64
 	DeviceCodeHash  []byte
