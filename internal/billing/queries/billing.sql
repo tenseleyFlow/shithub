@@ -80,9 +80,30 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns.
+           --   past_due -> preserve any existing lock (MarkPastDue
+           --     sets fresh grace_until on the invoice.payment_failed
+           --     path; if that hasn't arrived yet, leave NULL).
+           --   active / trialing recovering from past_due/unpaid -> clear.
+           --   any other transition -> preserve existing values.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN org_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.grace_until
+           END,
            updated_at = now()
     RETURNING *
 ), org_update AS (
@@ -445,6 +466,97 @@ UPDATE billing_webhook_events
    AND provider_event_id = $1
 RETURNING *;
 
+-- name: SetWebhookEventSubject :exec
+-- Records the resolved subject on the receipt row after a successful
+-- subject-resolution step. Called from the apply path before guard +
+-- state mutation so the receipt carries the audit trail even if the
+-- subsequent apply fails. Migration 0075's CHECK constraint enforces
+-- both-or-neither; callers must pass a non-zero subject.
+UPDATE billing_webhook_events
+   SET subject_kind = sqlc.arg(subject_kind)::billing_subject_kind,
+       subject_id   = sqlc.arg(subject_id)::bigint
+ WHERE provider = 'stripe'
+   AND provider_event_id = sqlc.arg(provider_event_id)::text;
+
+-- name: IsOrgBillingEventStale :one
+-- PRO08 D4: returns true when an incoming Stripe event's timestamp
+-- is older than the last event we've already applied for this org.
+-- Stripe doesn't guarantee delivery order across retries; without
+-- this guard a stale `subscription.updated[active]` could re-activate
+-- a canceled subscription. Returns false when no prior event has
+-- been recorded (last_event_at IS NULL) — the first event is never
+-- stale.
+SELECT COALESCE(last_event_at > sqlc.arg(event_at)::timestamptz, false)::boolean AS stale
+  FROM org_billing_states
+ WHERE org_id = sqlc.arg(org_id)::bigint;
+
+-- name: IsUserBillingEventStale :one
+SELECT COALESCE(last_event_at > sqlc.arg(event_at)::timestamptz, false)::boolean AS stale
+  FROM user_billing_states
+ WHERE user_id = sqlc.arg(user_id)::bigint;
+
+-- name: TouchOrgBillingLastEventAt :exec
+-- PRO08 D4: bump last_event_at on successful apply. Conditional so
+-- a fresh apply driven by an out-of-order-but-recent retry doesn't
+-- regress the timestamp (GREATEST). NULL last_event_at acquires the
+-- incoming value.
+UPDATE org_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, sqlc.arg(event_at)::timestamptz), sqlc.arg(event_at)::timestamptz)
+ WHERE org_id = sqlc.arg(org_id)::bigint;
+
+-- name: TouchUserBillingLastEventAt :exec
+UPDATE user_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, sqlc.arg(event_at)::timestamptz), sqlc.arg(event_at)::timestamptz)
+ WHERE user_id = sqlc.arg(user_id)::bigint;
+
+-- name: MarkInvoiceRefunded :one
+-- PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+-- the invoice.status='paid' after a refund and fires a charge.refunded
+-- event; this helper flips the shithub-side row to 'refunded' so the
+-- billing settings UI shows the refunded state.
+--
+-- A NULL refunded_at means "no refund seen"; the value is set on the
+-- first call and preserved on subsequent calls (refund partial → full
+-- doesn't move the wall-clock timestamp).
+UPDATE billing_invoices
+   SET status = 'refunded',
+       refunded_at = COALESCE(refunded_at, now()),
+       updated_at = now()
+ WHERE provider = 'stripe'
+   AND stripe_invoice_id = sqlc.arg(stripe_invoice_id)::text
+RETURNING *;
+
+-- name: TryAcquireWebhookEventLock :one
+-- PRO08 A3: transaction-scoped advisory lock keyed on the hash of
+-- the provider_event_id. Two concurrent webhook deliveries for the
+-- same event_id race past CreateWebhookEventReceipt before either has
+-- marked it processed; without serialization, both proceed to apply
+-- and double-mutate state. This lock makes the apply path mutually
+-- exclusive per event. Returns true when acquired; false means
+-- another worker holds it — caller should let Stripe retry.
+--
+-- pg_try_advisory_xact_lock takes a bigint; hashtext returns int4
+-- which sign-extends safely. The lock auto-releases at txn end.
+SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS acquired;
+
+-- name: ListFailedWebhookEvents :many
+-- Operator query for "events we received but failed to process."
+-- A row is "failed" when it has a non-empty process_error OR when
+-- it has never been processed (processed_at NULL) and has at least
+-- one processing attempt. Rows that are merely new and untouched
+-- (attempts=0, processed_at NULL, no error) are excluded.
+SELECT id, provider, provider_event_id, event_type, api_version,
+       received_at, processed_at, processing_attempts, process_error,
+       subject_kind, subject_id
+  FROM billing_webhook_events
+ WHERE provider = 'stripe'
+   AND (
+        process_error <> ''
+        OR (processed_at IS NULL AND processing_attempts > 0)
+       )
+ ORDER BY received_at DESC
+ LIMIT $1;
+
 -- ─── user_billing_states (PRO03) ──────────────────────────────────
 
 -- name: GetUserBillingState :one
@@ -528,9 +640,27 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns
+           -- (mirror of the org-side fix). The Mark* paths own
+           -- transitions into/out of the locked state.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN user_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.grace_until
+           END,
            updated_at = now()
     RETURNING *
 ), user_update AS (

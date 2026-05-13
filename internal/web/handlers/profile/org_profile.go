@@ -133,7 +133,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"OrgRepositoriesURL": orgRepositoriesBaseURL(string(org.Slug)),
 		"PinnedRepos":        pinnedRepos,
 		"PinCandidates":      pinCandidates,
-		"PinsRemaining":      profilePinsRemaining(pinCandidates),
+		"PinsRemaining":      profilePinsRemaining(pinCandidates, profilePinLimit),
 		"RepoCount":          int64(len(repos)),
 		"TeamCount":          teamCount,
 		"MemberCount":        memberCount,

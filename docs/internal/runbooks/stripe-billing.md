@@ -130,6 +130,125 @@ To pause paid onboarding without changing stored subscription state:
 
 Existing local billing rows remain in the database. Billing routes
 unmount, plan comparison links become disabled, and entitlement state
-continues to derive from the latest local billing projection. Handle any
-Stripe-side cancellations or refunds in the Stripe dashboard until the
-admin billing tools exist.
+continues to derive from the latest local billing projection.
+
+## Subject resolution chain (PRO08)
+
+When a Stripe event arrives, the webhook handler walks this chain to
+identify which shithub subject (org or user) the event applies to.
+The first match wins; events that fall off the end are loud-failed
+(except `customer.subscription.deleted`, which is a 200 no-op so
+Stripe stops retrying — operator reconciles manually).
+
+| # | Source | Applies to | Notes |
+|---|---|---|---|
+| 1 | `metadata.shithub_subject_kind` + `shithub_subject_id` | checkout, subscription | PRO04 — only path that resolves user-kind via metadata |
+| 2 | `metadata.shithub_org_id` | checkout, subscription | Legacy SP03 — org-only backstop for pre-PRO04 customers |
+| 3 | `client_reference_id` | checkout only | Legacy SP03 — parsed as int, org-only by convention |
+| 4 | `customer.id` lookup against both `org_billing_states` and `user_billing_states` | all event types | User table searched first then org |
+| 5 | `subscription.id` lookup against both tables | subscription, invoice | Used when customer lookup misses |
+
+Invoice events do not check metadata (1–3); they go straight to
+customer/subscription lookup. Stripe doesn't stamp our metadata on
+invoices by default — they inherit from the subscription via
+`subscription_data.metadata` set at checkout creation time.
+
+## Per-feature enforcement flags (PRO07 + PRO08)
+
+User-tier paygates (Pro) ship in report-only mode by default. Each
+feature has an independent operator flag that flips it from report-
+only to hard enforce. The flag is one-way until the operator reverts
+it — flip per feature after 7 days of clean telemetry.
+
+| Config key | Gate site | Default |
+|---|---|---|
+| `SHITHUB_BILLING__ENFORCE__USER_REQUIRED_REVIEWERS` | branch-protection rule save | `false` |
+| `SHITHUB_BILLING__ENFORCE__USER_ADVANCED_BRANCH_PROTECTION` | branch-protection rule save (prevent_*, signing, status checks) | `false` |
+| `SHITHUB_BILLING__ENFORCE__USER_PROFILE_PINS_BEYOND_FREE` | profile pin save | `false` |
+
+Report-only mode logs `entitlements.report_only_deny` events with
+the principal + feature. Tail logs for 7 days, confirm no Free user
+is tripping a gate, then flip the relevant flag and redeploy.
+
+## Refunds (PRO08 D2)
+
+Stripe refunds are issued from the Stripe Dashboard. shithub picks
+up the `charge.refunded` event automatically and:
+
+1. Looks up the invoice row by `stripe_invoice_id` (from `charge.invoice`).
+2. Flips its status to `refunded` and stamps `refunded_at`.
+3. Surfaces the refunded state on `/settings/billing` and the
+   org billing settings page.
+
+Refunds do **not** automatically cancel the subscription. If you
+want to revoke Pro access alongside the refund, cancel the
+subscription separately in the Stripe Dashboard — that fires
+`customer.subscription.deleted` which shithub handles by setting
+`users.plan='free'` (or org equivalent).
+
+A refund for an invoice shithub has never seen (e.g., an out-of-band
+one-off charge) logs a warning and 200-no-ops — investigate via
+the inspection query below.
+
+## Operator inspection: failed webhook events (PRO08 A2 + Agent A)
+
+Webhook receipts that failed to apply (resolver missed, guard
+refused, apply errored) are kept in `billing_webhook_events` with a
+non-empty `process_error`. PRO08 added (subject_kind, subject_id)
+columns so operators can answer "what did this event apply to" even
+on failed rows.
+
+To see events received but not yet successfully applied:
+
+```sql
+SELECT provider_event_id, event_type, received_at, processing_attempts,
+       process_error, subject_kind, subject_id
+  FROM billing_webhook_events
+ WHERE process_error <> ''
+    OR (processed_at IS NULL AND processing_attempts > 0)
+ ORDER BY received_at DESC
+ LIMIT 50;
+```
+
+The same data is available via `orgbilling.ListFailedWebhookEvents`
+from Go code.
+
+## Cross-kind misroute protection (PRO08 A1)
+
+When both `STRIPE_TEAM_PRICE_ID` and `STRIPE_PRO_PRICE_ID` are
+configured, the webhook guard refuses any subscription event whose
+price-id doesn't match the resolved subject's expected price (Team
+for orgs, Pro for users). A Pro-priced subscription with
+metadata claiming `subject_kind=org` (or vice versa) hits the guard,
+the apply is refused, and the receipt records the mismatch in
+`process_error`. The guard also refuses subscription events with
+empty `items.data` — otherwise an attacker who can spoof Stripe
+could bypass the price check entirely.
+
+## Stale events (PRO08 D4)
+
+Stripe doesn't guarantee delivery order across retries. shithub
+records the latest Stripe event timestamp per subject in
+`{org,user}_billing_states.last_event_at` and refuses to apply
+older events. Reverse-ordered retries (e.g., `subscription.updated[active]`
+arriving after `subscription.updated[canceled]`) are dropped with
+an `org billing: dropping stale Stripe event` log line and a
+200-no-op to Stripe.
+
+## Concurrent replay protection (PRO08 A3)
+
+The webhook handler acquires a session-scoped advisory lock keyed
+on the event id at request entry. Two concurrent deliveries of the
+same event serialize at the lock; the racing replay returns 200
+without running the apply. Production should never see this in
+practice (Stripe doesn't fan-out parallel retries) — the lock
+defends against malicious senders who hold the webhook secret.
+
+## Subscription-overwrite guard (PRO08 D3)
+
+If a customer somehow ends up with two active Stripe subscriptions
+(operator manually created one in the Dashboard), shithub refuses
+to flip its `stripe_subscription_id` to point at the new one.
+The receipt records the mismatch — operator must reconcile the
+Stripe-side state (cancel the duplicate) before the apply succeeds.
+

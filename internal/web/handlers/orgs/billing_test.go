@@ -320,6 +320,13 @@ func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) 
 	if !receipt.ProcessedAt.Valid || receipt.ProcessingAttempts != 1 {
 		t.Fatalf("unexpected receipt after first processing: %+v", receipt)
 	}
+	// PRO08 A2: subject must be recorded on the receipt after resolve.
+	if !receipt.SubjectKind.Valid || receipt.SubjectKind.BillingSubjectKind != billingdb.BillingSubjectKindOrg {
+		t.Fatalf("receipt subject_kind: got %+v, want org", receipt.SubjectKind)
+	}
+	if !receipt.SubjectID.Valid || receipt.SubjectID.Int64 != orgID {
+		t.Fatalf("receipt subject_id: got %+v, want %d", receipt.SubjectID, orgID)
+	}
 
 	req = httptest.NewRequest(http.MethodPost, "/stripe/webhook", strings.NewReader(`{"id":"evt_sub_active"}`))
 	req.Header.Set("Stripe-Signature", "sig_test")
@@ -585,7 +592,21 @@ func newOrgBillingMux(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote st
 	return newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, remote)
 }
 
+// newOrgBillingMuxWithPrices is the price-aware variant used by the
+// PRO08 cross-kind guard tests. Default mux leaves Team / Pro price
+// IDs empty (guard short-circuits); these tests need them populated
+// so the guard actually exercises its logic.
+func newOrgBillingMuxWithPrices(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote stripebilling.Remote, teamPriceID, proPriceID string) *chi.Mux {
+	t.Helper()
+	return newOrgBillingMuxFull(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, remote, teamPriceID, proPriceID)
+}
+
 func newOrgBillingMuxForUser(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, remote stripebilling.Remote) *chi.Mux {
+	t.Helper()
+	return newOrgBillingMuxFull(t, pool, viewer, remote, "", "")
+}
+
+func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, remote stripebilling.Remote, teamPriceID, proPriceID string) *chi.Mux {
 	t.Helper()
 	tmplFS := fstest.MapFS{
 		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
@@ -610,6 +631,8 @@ func newOrgBillingMuxForUser(t *testing.T, pool *pgxpool.Pool, viewer middleware
 		StripeSuccessURL:      "https://shithub.example/organizations/{org}/billing/success",
 		StripeCancelURL:       "https://shithub.example/organizations/{org}/billing/cancel",
 		StripePortalReturnURL: "https://shithub.example/organizations/{org}/settings/billing",
+		StripeTeamPriceID:     teamPriceID,
+		StripeProPriceID:      proPriceID,
 	})
 	if err != nil {
 		t.Fatalf("orgsh.New: %v", err)

@@ -207,6 +207,91 @@ func TestRecordWebhookEventIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestSetWebhookEventSubjectForPrincipalRecordsAuditTrail locks PRO08
+// A2: after a successful resolve in the webhook apply path, the
+// receipt row carries (subject_kind, subject_id) so the operator
+// query for "which subject did this event apply to" works.
+func TestSetWebhookEventSubjectForPrincipalRecordsAuditTrail(t *testing.T) {
+	_, deps, org := setup(t)
+	ctx := context.Background()
+	if _, _, err := billing.RecordWebhookEvent(ctx, deps, billing.WebhookEvent{
+		ProviderEventID: "evt_subject_record",
+		EventType:       "customer.subscription.updated",
+		APIVersion:      "2024-06-20",
+		Payload:         []byte(`{"id":"evt_subject_record"}`),
+	}); err != nil {
+		t.Fatalf("RecordWebhookEvent: %v", err)
+	}
+	if err := billing.SetWebhookEventSubjectForPrincipal(ctx, deps, "evt_subject_record", billing.PrincipalForOrg(org.ID)); err != nil {
+		t.Fatalf("SetWebhookEventSubjectForPrincipal: %v", err)
+	}
+	receipt, err := billing.GetWebhookEventReceipt(ctx, deps, "evt_subject_record")
+	if err != nil {
+		t.Fatalf("GetWebhookEventReceipt: %v", err)
+	}
+	if !receipt.SubjectKind.Valid || receipt.SubjectKind.BillingSubjectKind != billingdb.BillingSubjectKindOrg {
+		t.Fatalf("subject_kind: got %+v, want org", receipt.SubjectKind)
+	}
+	if !receipt.SubjectID.Valid || receipt.SubjectID.Int64 != org.ID {
+		t.Fatalf("subject_id: got %+v, want %d", receipt.SubjectID, org.ID)
+	}
+}
+
+// TestListFailedWebhookEventsReturnsErroredAndStuckEntries locks the
+// operator inspection query used in the runbook. A receipt with a
+// non-empty process_error or with processing_attempts > 0 but no
+// processed_at must appear; a clean unprocessed row (attempts=0)
+// must NOT appear.
+func TestListFailedWebhookEventsReturnsErroredAndStuckEntries(t *testing.T) {
+	_, deps, _ := setup(t)
+	ctx := context.Background()
+
+	// 1. failed row (process_error non-empty)
+	if _, _, err := billing.RecordWebhookEvent(ctx, deps, billing.WebhookEvent{
+		ProviderEventID: "evt_failed", EventType: "x", Payload: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("record failed: %v", err)
+	}
+	if _, err := billing.MarkWebhookEventFailed(ctx, deps, "evt_failed", "boom"); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	// 2. clean processed row — must NOT appear.
+	if _, _, err := billing.RecordWebhookEvent(ctx, deps, billing.WebhookEvent{
+		ProviderEventID: "evt_clean", EventType: "x", Payload: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("record clean: %v", err)
+	}
+	if _, err := billing.MarkWebhookEventProcessed(ctx, deps, "evt_clean"); err != nil {
+		t.Fatalf("mark clean: %v", err)
+	}
+
+	// 3. brand-new untouched row — must NOT appear.
+	if _, _, err := billing.RecordWebhookEvent(ctx, deps, billing.WebhookEvent{
+		ProviderEventID: "evt_new", EventType: "x", Payload: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("record new: %v", err)
+	}
+
+	rows, err := billing.ListFailedWebhookEvents(ctx, deps, 50)
+	if err != nil {
+		t.Fatalf("ListFailedWebhookEvents: %v", err)
+	}
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.ProviderEventID] = true
+	}
+	if !got["evt_failed"] {
+		t.Errorf("expected evt_failed in failed list, got %v", got)
+	}
+	if got["evt_clean"] {
+		t.Errorf("evt_clean (processed, no error) leaked into failed list: %v", got)
+	}
+	if got["evt_new"] {
+		t.Errorf("evt_new (untouched) leaked into failed list: %v", got)
+	}
+}
+
 func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	_, deps, org := setup(t)
 	ctx := context.Background()

@@ -55,6 +55,7 @@ const (
 	InvoiceStatusPaid          = billingdb.BillingInvoiceStatusPaid
 	InvoiceStatusVoid          = billingdb.BillingInvoiceStatusVoid
 	InvoiceStatusUncollectible = billingdb.BillingInvoiceStatusUncollectible
+	InvoiceStatusRefunded      = billingdb.BillingInvoiceStatusRefunded
 )
 
 var (
@@ -293,6 +294,143 @@ func GetWebhookEventReceipt(ctx context.Context, deps Deps, providerEventID stri
 	return billingdb.New().GetWebhookEventReceipt(ctx, deps.Pool, providerEventID)
 }
 
+// SetWebhookEventSubjectForPrincipal records the resolved subject on
+// the receipt row. Called after a successful subject-resolution step
+// in the webhook apply path (before guard + state mutation) so the
+// audit trail survives even if the apply later fails. Migration 0075's
+// CHECK constraint enforces both-or-neither — the helper rejects a
+// zero principal.
+func SetWebhookEventSubjectForPrincipal(ctx context.Context, deps Deps, providerEventID string, p Principal) error {
+	if err := validateDeps(deps); err != nil {
+		return err
+	}
+	providerEventID = strings.TrimSpace(providerEventID)
+	if providerEventID == "" {
+		return ErrWebhookEventID
+	}
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	return billingdb.New().SetWebhookEventSubject(ctx, deps.Pool, billingdb.SetWebhookEventSubjectParams{
+		SubjectKind:     billingdb.BillingSubjectKind(p.Kind),
+		SubjectID:       p.ID,
+		ProviderEventID: providerEventID,
+	})
+}
+
+// MarkInvoiceRefunded flips a billing_invoices row to status='refunded'
+// and stamps refunded_at. PRO08 D2: surface a Stripe-side refund in
+// shithub's billing settings UI. The Stripe invoice itself stays
+// status='paid' after a refund; shithub maintains its own UI surface.
+// Returns pgx.ErrNoRows when the invoice id isn't on file (Stripe
+// refunded an invoice we never recorded — operator should reconcile).
+func MarkInvoiceRefunded(ctx context.Context, deps Deps, stripeInvoiceID string) (billingdb.BillingInvoice, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingInvoice{}, err
+	}
+	stripeInvoiceID = strings.TrimSpace(stripeInvoiceID)
+	if stripeInvoiceID == "" {
+		return billingdb.BillingInvoice{}, ErrStripeInvoiceID
+	}
+	return billingdb.New().MarkInvoiceRefunded(ctx, deps.Pool, stripeInvoiceID)
+}
+
+// IsBillingEventStaleForPrincipal reports whether an incoming Stripe
+// event's timestamp is older than the last event we've already applied
+// for this principal. PRO08 D4: the handler refuses stale events so
+// reverse-ordered retries can't regress state (e.g., a stale
+// subscription.updated[active] arriving after a fresh
+// subscription.updated[canceled] re-activating the principal).
+//
+// Returns false when there's no prior event on file (the first event
+// is never stale) or when the row simply doesn't exist (defaults to
+// allow; the caller's own ErrNoRows path handles missing-state).
+func IsBillingEventStaleForPrincipal(ctx context.Context, deps Deps, p Principal, eventAt time.Time) (bool, error) {
+	if err := validateDeps(deps); err != nil {
+		return false, err
+	}
+	if err := p.Validate(); err != nil {
+		return false, err
+	}
+	if eventAt.IsZero() {
+		return false, nil
+	}
+	q := billingdb.New()
+	switch p.Kind {
+	case SubjectKindOrg:
+		stale, err := q.IsOrgBillingEventStale(ctx, deps.Pool, billingdb.IsOrgBillingEventStaleParams{
+			OrgID:   p.ID,
+			EventAt: pgTime(eventAt),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		return stale, nil
+	case SubjectKindUser:
+		stale, err := q.IsUserBillingEventStale(ctx, deps.Pool, billingdb.IsUserBillingEventStaleParams{
+			UserID:  p.ID,
+			EventAt: pgTime(eventAt),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		return stale, nil
+	}
+	return false, nil
+}
+
+// TouchBillingLastEventAtForPrincipal bumps last_event_at on the
+// principal's billing-state row. PRO08 D4: called after a successful
+// apply so subsequent staleness checks have a baseline. The query
+// uses GREATEST(prev, incoming) so an out-of-order-but-recent retry
+// doesn't regress the timestamp.
+func TouchBillingLastEventAtForPrincipal(ctx context.Context, deps Deps, p Principal, eventAt time.Time) error {
+	if err := validateDeps(deps); err != nil {
+		return err
+	}
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if eventAt.IsZero() {
+		return nil
+	}
+	q := billingdb.New()
+	switch p.Kind {
+	case SubjectKindOrg:
+		return q.TouchOrgBillingLastEventAt(ctx, deps.Pool, billingdb.TouchOrgBillingLastEventAtParams{
+			OrgID:   p.ID,
+			EventAt: pgTime(eventAt),
+		})
+	case SubjectKindUser:
+		return q.TouchUserBillingLastEventAt(ctx, deps.Pool, billingdb.TouchUserBillingLastEventAtParams{
+			UserID:  p.ID,
+			EventAt: pgTime(eventAt),
+		})
+	}
+	return nil
+}
+
+// ListFailedWebhookEvents is the operator query for "events we
+// received but failed to process." Returns rows whose process_error
+// is non-empty OR that have any processing_attempts but no
+// processed_at (in-flight failures). Returned in descending received_at
+// order; limit caps the result set.
+func ListFailedWebhookEvents(ctx context.Context, deps Deps, limit int32) ([]billingdb.ListFailedWebhookEventsRow, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	return billingdb.New().ListFailedWebhookEvents(ctx, deps.Pool, limit)
+}
+
 func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billingdb.BillingInvoice, error) {
 	if err := validateDeps(deps); err != nil {
 		return billingdb.BillingInvoice{}, err
@@ -510,7 +648,8 @@ func validInvoiceStatus(status InvoiceStatus) bool {
 		InvoiceStatusOpen,
 		InvoiceStatusPaid,
 		InvoiceStatusVoid,
-		InvoiceStatusUncollectible:
+		InvoiceStatusUncollectible,
+		InvoiceStatusRefunded:
 		return true
 	default:
 		return false

@@ -182,6 +182,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	followState := h.userFollowState(r.Context(), user.ID, viewer)
 	visibleRepos := h.visibleUserRepos(r.Context(), user.ID, viewer)
 	pinnedRepos, pinCandidates := h.userPinData(r.Context(), user)
+	userPinsCap, _ := h.userProfilePinCap(r.Context(), user.ID)
 	readme, hasReadme := h.profileReadme(r.Context(), user, viewer)
 	displayName := user.DisplayName
 	if displayName == "" {
@@ -213,7 +214,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"Contributions":              h.contributionCalendar(r.Context(), user, viewer, r.URL.Query()),
 		"PinnedRepos":                pinnedRepos,
 		"PinCandidates":              pinCandidates,
-		"PinsRemaining":              profilePinsRemaining(pinCandidates),
+		"PinsRemaining":              profilePinsRemaining(pinCandidates, userPinsCap),
 		"CanCustomizePins":           isSelf,
 		"PinsAction":                 "/" + url.PathEscape(user.Username) + "/pins",
 		"ContributionSettingsAction": "/" + url.PathEscape(user.Username) + "/contribution-settings",

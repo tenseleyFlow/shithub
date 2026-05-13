@@ -34,6 +34,21 @@ type Querier interface {
 	GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error)
 	GetUserBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (UserBillingState, error)
 	GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
+	// PRO08 D4: returns true when an incoming Stripe event's timestamp
+	// is older than the last event we've already applied for this org.
+	// Stripe doesn't guarantee delivery order across retries; without
+	// this guard a stale `subscription.updated[active]` could re-activate
+	// a canceled subscription. Returns false when no prior event has
+	// been recorded (last_event_at IS NULL) — the first event is never
+	// stale.
+	IsOrgBillingEventStale(ctx context.Context, db DBTX, arg IsOrgBillingEventStaleParams) (bool, error)
+	IsUserBillingEventStale(ctx context.Context, db DBTX, arg IsUserBillingEventStaleParams) (bool, error)
+	// Operator query for "events we received but failed to process."
+	// A row is "failed" when it has a non-empty process_error OR when
+	// it has never been processed (processed_at NULL) and has at least
+	// one processing attempt. Rows that are merely new and untouched
+	// (attempts=0, processed_at NULL, no error) are excluded.
+	ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error)
 	// PRO03: filters on the polymorphic subject columns so the index
 	// billing_invoices_subject_created_idx services this query. The
 	// legacy `org_id` column is kept populated by UpsertInvoice for the
@@ -46,6 +61,15 @@ type Querier interface {
 	ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListInvoicesForSubjectParams) ([]BillingInvoice, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
+	// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+	// the invoice.status='paid' after a refund and fires a charge.refunded
+	// event; this helper flips the shithub-side row to 'refunded' so the
+	// billing settings UI shows the refunded state.
+	//
+	// A NULL refunded_at means "no refund seen"; the value is set on the
+	// first call and preserved on subsequent calls (refund partial → full
+	// doesn't move the wall-clock timestamp).
+	MarkInvoiceRefunded(ctx context.Context, db DBTX, stripeInvoiceID string) (BillingInvoice, error)
 	MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParams) (OrgBillingState, error)
 	MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error)
 	MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCanceledParams) (MarkUserCanceledRow, error)
@@ -55,6 +79,29 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
 	SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeCustomerParams) (OrgBillingState, error)
 	SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUserStripeCustomerParams) (UserBillingState, error)
+	// Records the resolved subject on the receipt row after a successful
+	// subject-resolution step. Called from the apply path before guard +
+	// state mutation so the receipt carries the audit trail even if the
+	// subsequent apply fails. Migration 0075's CHECK constraint enforces
+	// both-or-neither; callers must pass a non-zero subject.
+	SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWebhookEventSubjectParams) error
+	// PRO08 D4: bump last_event_at on successful apply. Conditional so
+	// a fresh apply driven by an out-of-order-but-recent retry doesn't
+	// regress the timestamp (GREATEST). NULL last_event_at acquires the
+	// incoming value.
+	TouchOrgBillingLastEventAt(ctx context.Context, db DBTX, arg TouchOrgBillingLastEventAtParams) error
+	TouchUserBillingLastEventAt(ctx context.Context, db DBTX, arg TouchUserBillingLastEventAtParams) error
+	// PRO08 A3: transaction-scoped advisory lock keyed on the hash of
+	// the provider_event_id. Two concurrent webhook deliveries for the
+	// same event_id race past CreateWebhookEventReceipt before either has
+	// marked it processed; without serialization, both proceed to apply
+	// and double-mutate state. This lock makes the apply path mutually
+	// exclusive per event. Returns true when acquired; false means
+	// another worker holds it — caller should let Stripe retry.
+	//
+	// pg_try_advisory_xact_lock takes a bigint; hashtext returns int4
+	// which sign-extends safely. The lock auto-releases at txn end.
+	TryAcquireWebhookEventLock(ctx context.Context, db DBTX, hashtext string) (bool, error)
 	// ─── billing_invoices ──────────────────────────────────────────────
 	// PRO03: writes both legacy `org_id` and polymorphic
 	// `(subject_kind, subject_id)`. Callers continue to bind org_id only;
