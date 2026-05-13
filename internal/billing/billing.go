@@ -26,15 +26,20 @@ type Deps struct {
 
 type (
 	Plan               = billingdb.OrgPlan
+	UserPlan           = billingdb.UserPlan
 	SubscriptionStatus = billingdb.BillingSubscriptionStatus
 	InvoiceStatus      = billingdb.BillingInvoiceStatus
 	State              = billingdb.OrgBillingState
+	UserState          = billingdb.UserBillingState
 )
 
 const (
 	PlanFree       = billingdb.OrgPlanFree
 	PlanTeam       = billingdb.OrgPlanTeam
 	PlanEnterprise = billingdb.OrgPlanEnterprise
+
+	UserPlanFree = billingdb.UserPlanFree
+	UserPlanPro  = billingdb.UserPlanPro
 
 	SubscriptionStatusNone       = billingdb.BillingSubscriptionStatusNone
 	SubscriptionStatusIncomplete = billingdb.BillingSubscriptionStatusIncomplete
@@ -126,6 +131,20 @@ func GetOrgBillingState(ctx context.Context, deps Deps, orgID int64) (State, err
 		return State{}, ErrOrgIDRequired
 	}
 	return billingdb.New().GetOrgBillingState(ctx, deps.Pool, orgID)
+}
+
+// GetUserBillingState is the user-side counterpart to
+// GetOrgBillingState. Returns pgx.ErrNoRows if the user has no
+// seeded billing state (shouldn't happen post-PRO03 backfill but
+// callers handle defensively).
+func GetUserBillingState(ctx context.Context, deps Deps, userID int64) (UserState, error) {
+	if err := validateDeps(deps); err != nil {
+		return UserState{}, err
+	}
+	if userID == 0 {
+		return UserState{}, ErrOrgIDRequired // reuse: "subject id required"
+	}
+	return billingdb.New().GetUserBillingState(ctx, deps.Pool, userID)
 }
 
 func GetOrgBillingStateByStripeCustomer(ctx context.Context, deps Deps, customerID string) (State, error) {
