@@ -501,15 +501,21 @@ func sortPinCandidates(candidates []profilePinCandidate) {
 	})
 }
 
-func profilePinsRemaining(candidates []profilePinCandidate) int {
+// profilePinsRemaining reports how many additional pins the owner
+// can add given the entitled cap. PRO08 C5: the cap is now a
+// parameter — for orgs, callers pass profilePinLimit; for users,
+// callers resolve via userProfilePinCap which reads entitlements.
+// Previously the function hard-coded profilePinLimit and would
+// under-count a Pro user's remaining slots.
+func profilePinsRemaining(candidates []profilePinCandidate, cap int64) int {
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.IsPinned {
 			count++
 		}
 	}
-	if count >= profilePinLimit {
+	if int64(count) >= cap {
 		return 0
 	}
-	return profilePinLimit - count
+	return int(cap) - count
 }
