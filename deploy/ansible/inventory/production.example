@@ -18,9 +18,13 @@ shithub_group=shithub
 shithub_data_root=/data
 # pgx pool size; matches the worker pool too.
 shithub_db_pool_max=20
-# Postmark sender + DKIM are configured before the deploy.
+# Transactional sender + DKIM/SPF are configured before the deploy.
+# Backend is `postmark` or `resend`; set the matching secret below
+# (vault both — they are not safe to commit).
 shithub_email_from="shithub <noreply@shithub.example>"
-shithub_email_backend=postmark
+shithub_email_backend=resend
+# shithub_postmark_token=...                # when backend=postmark
+shithub_resend_api_key=re_REPLACE_ME        # when backend=resend
 # Runtime object storage. DigitalOcean Spaces uses virtual-hosted style
 # addressing and TLS; region remains us-east-1 for SigV4 signing.
 s3_endpoint=nyc3.digitaloceanspaces.com
