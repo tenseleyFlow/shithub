@@ -320,6 +320,13 @@ func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) 
 	if !receipt.ProcessedAt.Valid || receipt.ProcessingAttempts != 1 {
 		t.Fatalf("unexpected receipt after first processing: %+v", receipt)
 	}
+	// PRO08 A2: subject must be recorded on the receipt after resolve.
+	if !receipt.SubjectKind.Valid || receipt.SubjectKind.BillingSubjectKind != billingdb.BillingSubjectKindOrg {
+		t.Fatalf("receipt subject_kind: got %+v, want org", receipt.SubjectKind)
+	}
+	if !receipt.SubjectID.Valid || receipt.SubjectID.Int64 != orgID {
+		t.Fatalf("receipt subject_id: got %+v, want %d", receipt.SubjectID, orgID)
+	}
 
 	req = httptest.NewRequest(http.MethodPost, "/stripe/webhook", strings.NewReader(`{"id":"evt_sub_active"}`))
 	req.Header.Set("Stripe-Signature", "sig_test")
