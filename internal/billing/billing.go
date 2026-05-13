@@ -317,6 +317,87 @@ func SetWebhookEventSubjectForPrincipal(ctx context.Context, deps Deps, provider
 	})
 }
 
+// IsBillingEventStaleForPrincipal reports whether an incoming Stripe
+// event's timestamp is older than the last event we've already applied
+// for this principal. PRO08 D4: the handler refuses stale events so
+// reverse-ordered retries can't regress state (e.g., a stale
+// subscription.updated[active] arriving after a fresh
+// subscription.updated[canceled] re-activating the principal).
+//
+// Returns false when there's no prior event on file (the first event
+// is never stale) or when the row simply doesn't exist (defaults to
+// allow; the caller's own ErrNoRows path handles missing-state).
+func IsBillingEventStaleForPrincipal(ctx context.Context, deps Deps, p Principal, eventAt time.Time) (bool, error) {
+	if err := validateDeps(deps); err != nil {
+		return false, err
+	}
+	if err := p.Validate(); err != nil {
+		return false, err
+	}
+	if eventAt.IsZero() {
+		return false, nil
+	}
+	q := billingdb.New()
+	switch p.Kind {
+	case SubjectKindOrg:
+		stale, err := q.IsOrgBillingEventStale(ctx, deps.Pool, billingdb.IsOrgBillingEventStaleParams{
+			OrgID:   p.ID,
+			EventAt: pgTime(eventAt),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		return stale, nil
+	case SubjectKindUser:
+		stale, err := q.IsUserBillingEventStale(ctx, deps.Pool, billingdb.IsUserBillingEventStaleParams{
+			UserID:  p.ID,
+			EventAt: pgTime(eventAt),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		return stale, nil
+	}
+	return false, nil
+}
+
+// TouchBillingLastEventAtForPrincipal bumps last_event_at on the
+// principal's billing-state row. PRO08 D4: called after a successful
+// apply so subsequent staleness checks have a baseline. The query
+// uses GREATEST(prev, incoming) so an out-of-order-but-recent retry
+// doesn't regress the timestamp.
+func TouchBillingLastEventAtForPrincipal(ctx context.Context, deps Deps, p Principal, eventAt time.Time) error {
+	if err := validateDeps(deps); err != nil {
+		return err
+	}
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if eventAt.IsZero() {
+		return nil
+	}
+	q := billingdb.New()
+	switch p.Kind {
+	case SubjectKindOrg:
+		return q.TouchOrgBillingLastEventAt(ctx, deps.Pool, billingdb.TouchOrgBillingLastEventAtParams{
+			OrgID:   p.ID,
+			EventAt: pgTime(eventAt),
+		})
+	case SubjectKindUser:
+		return q.TouchUserBillingLastEventAt(ctx, deps.Pool, billingdb.TouchUserBillingLastEventAtParams{
+			UserID:  p.ID,
+			EventAt: pgTime(eventAt),
+		})
+	}
+	return nil
+}
+
 // ListFailedWebhookEvents is the operator query for "events we
 // received but failed to process." Returns rows whose process_error
 // is non-empty OR that have any processing_attempts but no

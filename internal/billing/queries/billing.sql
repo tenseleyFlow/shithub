@@ -478,6 +478,37 @@ UPDATE billing_webhook_events
  WHERE provider = 'stripe'
    AND provider_event_id = sqlc.arg(provider_event_id)::text;
 
+-- name: IsOrgBillingEventStale :one
+-- PRO08 D4: returns true when an incoming Stripe event's timestamp
+-- is older than the last event we've already applied for this org.
+-- Stripe doesn't guarantee delivery order across retries; without
+-- this guard a stale `subscription.updated[active]` could re-activate
+-- a canceled subscription. Returns false when no prior event has
+-- been recorded (last_event_at IS NULL) — the first event is never
+-- stale.
+SELECT COALESCE(last_event_at > sqlc.arg(event_at)::timestamptz, false)::boolean AS stale
+  FROM org_billing_states
+ WHERE org_id = sqlc.arg(org_id)::bigint;
+
+-- name: IsUserBillingEventStale :one
+SELECT COALESCE(last_event_at > sqlc.arg(event_at)::timestamptz, false)::boolean AS stale
+  FROM user_billing_states
+ WHERE user_id = sqlc.arg(user_id)::bigint;
+
+-- name: TouchOrgBillingLastEventAt :exec
+-- PRO08 D4: bump last_event_at on successful apply. Conditional so
+-- a fresh apply driven by an out-of-order-but-recent retry doesn't
+-- regress the timestamp (GREATEST). NULL last_event_at acquires the
+-- incoming value.
+UPDATE org_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, sqlc.arg(event_at)::timestamptz), sqlc.arg(event_at)::timestamptz)
+ WHERE org_id = sqlc.arg(org_id)::bigint;
+
+-- name: TouchUserBillingLastEventAt :exec
+UPDATE user_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, sqlc.arg(event_at)::timestamptz), sqlc.arg(event_at)::timestamptz)
+ WHERE user_id = sqlc.arg(user_id)::bigint;
+
 -- name: TryAcquireWebhookEventLock :one
 -- PRO08 A3: transaction-scoped advisory lock keyed on the hash of
 -- the provider_event_id. Two concurrent webhook deliveries for the

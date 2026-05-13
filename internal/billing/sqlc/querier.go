@@ -34,6 +34,15 @@ type Querier interface {
 	GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error)
 	GetUserBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (UserBillingState, error)
 	GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
+	// PRO08 D4: returns true when an incoming Stripe event's timestamp
+	// is older than the last event we've already applied for this org.
+	// Stripe doesn't guarantee delivery order across retries; without
+	// this guard a stale `subscription.updated[active]` could re-activate
+	// a canceled subscription. Returns false when no prior event has
+	// been recorded (last_event_at IS NULL) — the first event is never
+	// stale.
+	IsOrgBillingEventStale(ctx context.Context, db DBTX, arg IsOrgBillingEventStaleParams) (bool, error)
+	IsUserBillingEventStale(ctx context.Context, db DBTX, arg IsUserBillingEventStaleParams) (bool, error)
 	// Operator query for "events we received but failed to process."
 	// A row is "failed" when it has a non-empty process_error OR when
 	// it has never been processed (processed_at NULL) and has at least
@@ -67,6 +76,12 @@ type Querier interface {
 	// subsequent apply fails. Migration 0075's CHECK constraint enforces
 	// both-or-neither; callers must pass a non-zero subject.
 	SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWebhookEventSubjectParams) error
+	// PRO08 D4: bump last_event_at on successful apply. Conditional so
+	// a fresh apply driven by an out-of-order-but-recent retry doesn't
+	// regress the timestamp (GREATEST). NULL last_event_at acquires the
+	// incoming value.
+	TouchOrgBillingLastEventAt(ctx context.Context, db DBTX, arg TouchOrgBillingLastEventAtParams) error
+	TouchUserBillingLastEventAt(ctx context.Context, db DBTX, arg TouchUserBillingLastEventAtParams) error
 	// PRO08 A3: transaction-scoped advisory lock keyed on the hash of
 	// the provider_event_id. Two concurrent webhook deliveries for the
 	// same event_id race past CreateWebhookEventReceipt before either has
