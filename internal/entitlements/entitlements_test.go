@@ -214,6 +214,48 @@ func TestUsageLimitsExposeFreeQuotas(t *testing.T) {
 	}
 }
 
+func TestUsageLimitsApplyQuotaOverrides(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool, orgID := setupEntitlementOrg(t)
+	deps := billing.Deps{Pool: pool}
+	if _, err := billing.UpsertOrgQuotaOverride(ctx, deps, billing.QuotaOverrideInput{
+		OrgID:           orgID,
+		Kind:            billing.QuotaKindStorageBytes,
+		LimitValue:      10 * 1024 * 1024 * 1024,
+		CreatedByUserID: 1,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride storage: %v", err)
+	}
+	if _, err := billing.UpsertOrgQuotaOverride(ctx, deps, billing.QuotaOverrideInput{
+		OrgID:           orgID,
+		Kind:            billing.QuotaKindActionsMinutes,
+		Unlimited:       true,
+		CreatedByUserID: 1,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride minutes: %v", err)
+	}
+
+	set, err := entitlements.ForOrg(ctx, entitlements.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("ForOrg: %v", err)
+	}
+	storage, err := set.Limit(entitlements.LimitOrgStorageQuota)
+	if err != nil {
+		t.Fatalf("Limit storage: %v", err)
+	}
+	if !storage.Allowed || !storage.Defined || !storage.Overridden || storage.Value != 10*1024*1024*1024 || storage.Unlimited {
+		t.Fatalf("storage override limit = %+v", storage)
+	}
+	minutes, err := set.Limit(entitlements.LimitOrgActionsMinutesQuota)
+	if err != nil {
+		t.Fatalf("Limit actions minutes: %v", err)
+	}
+	if !minutes.Allowed || !minutes.Defined || !minutes.Overridden || !minutes.Unlimited || minutes.Value != 0 {
+		t.Fatalf("actions minutes override limit = %+v", minutes)
+	}
+}
+
 func TestUnknownFeatureAndLimit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

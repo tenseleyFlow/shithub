@@ -188,6 +188,104 @@ func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
 	}
 }
 
+func TestOrgBillingSettingsRendersUsageThresholds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	start, end := orgbilling.MonthlyUsagePeriod(time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC))
+	if _, err := orgbilling.UpsertOrgUsageCounters(ctx, orgbilling.Deps{Pool: pool}, orgbilling.UsageCounterSnapshot{
+		OrgID:                orgID,
+		RepoStorageBytes:     490 * 1024 * 1024,
+		ObjectStorageBytes:   0,
+		ActionsLogBytes:      0,
+		ActionsArtifactBytes: 0,
+		ActionsMinutesUsed:   1600,
+		ActionsPeriodStart:   start,
+		ActionsPeriodEnd:     end,
+		CalculatedAt:         start.Add(12 * time.Hour),
+	}); err != nil {
+		t.Fatalf("UpsertOrgUsageCounters: %v", err)
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "USAGE=storage:490 MiB/500 MiB/98%/is-danger;") {
+		t.Fatalf("settings did not render storage usage threshold: %s", body)
+	}
+	if !strings.Contains(body, "USAGE=actions-minutes:1600 minutes/2000 minutes/80%/is-warning;") {
+		t.Fatalf("settings did not render actions usage threshold: %s", body)
+	}
+	if !strings.Contains(body, "USAGE_ALERT=This organization has used at least 95% of its storage quota.") {
+		t.Fatalf("settings did not render quota warning: %s", body)
+	}
+}
+
+func TestOrgBillingSettingsAppliesQuotaOverrides(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	start, end := orgbilling.MonthlyUsagePeriod(time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC))
+	deps := orgbilling.Deps{Pool: pool}
+	if _, err := orgbilling.UpsertOrgUsageCounters(ctx, deps, orgbilling.UsageCounterSnapshot{
+		OrgID:                orgID,
+		RepoStorageBytes:     6 * 1024 * 1024 * 1024,
+		ObjectStorageBytes:   0,
+		ActionsLogBytes:      0,
+		ActionsArtifactBytes: 0,
+		ActionsMinutesUsed:   2100,
+		ActionsPeriodStart:   start,
+		ActionsPeriodEnd:     end,
+		CalculatedAt:         start.Add(12 * time.Hour),
+	}); err != nil {
+		t.Fatalf("UpsertOrgUsageCounters: %v", err)
+	}
+	if _, err := orgbilling.UpsertOrgQuotaOverride(ctx, deps, orgbilling.QuotaOverrideInput{
+		OrgID:           orgID,
+		Kind:            orgbilling.QuotaKindStorageBytes,
+		LimitValue:      10 * 1024 * 1024 * 1024,
+		Note:            "temporary migration",
+		CreatedByUserID: ownerID,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride storage: %v", err)
+	}
+	if _, err := orgbilling.UpsertOrgQuotaOverride(ctx, deps, orgbilling.QuotaOverrideInput{
+		OrgID:           orgID,
+		Kind:            orgbilling.QuotaKindActionsMinutes,
+		Unlimited:       true,
+		CreatedByUserID: ownerID,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride actions: %v", err)
+	}
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner", IsSiteAdmin: true}, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "USAGE=storage:6 GiB/10 GiB override/60%/is-ok;") {
+		t.Fatalf("settings did not apply storage override: %s", body)
+	}
+	if !strings.Contains(body, "USAGE=actions-minutes:2100 minutes/Unlimited override/Unlimited/is-ok;") {
+		t.Fatalf("settings did not apply actions override: %s", body)
+	}
+	if !strings.Contains(body, "OVERRIDE=Storage:10 GiB;") || !strings.Contains(body, "OVERRIDE=Actions minutes:Unlimited;") {
+		t.Fatalf("settings did not render site-admin quota overrides: %s", body)
+	}
+}
+
 func TestOrgBillingSettingsSiteAdminDebugShowsProviderState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -611,7 +709,7 @@ func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cu
 	tmplFS := fstest.MapFS{
 		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/billing_result.html":   {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}SEATS={{ .Seats.ActiveMembers }}/{{ .Seats.BillableSeats }}/{{ .Seats.PendingInvites }};{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.ActiveMembers }}/{{ .Seats.BillableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
 		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},

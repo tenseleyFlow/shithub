@@ -50,9 +50,11 @@ Rules for paid-org copy:
 - Do not promise SAML, SCIM, LDAP, managed users, audit exports, data
   residency, compliance attestations, contracts, or custom support
   until the matching implementation sprint ships.
-- Do not advertise Packages, Pages, Wikis, Projects, Actions minutes,
-  or storage quotas until those surfaces have enforcement and usage
-  accounting.
+- Do not advertise Packages, Pages, Wikis, or Projects until those
+  surfaces exist. Storage and Actions quota copy may appear on
+  owner-only billing settings once usage accounting exists, but public
+  pricing pages must not present them as broadly enforced until the
+  matching hard-deny gates have shipped.
 - Use upgrade language for unavailable Team features instead of hiding
   existing data. Downgrades preserve configuration and make gated
   settings read-only where possible.

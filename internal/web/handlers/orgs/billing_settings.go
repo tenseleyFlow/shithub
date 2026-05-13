@@ -51,11 +51,37 @@ type billingPrivateCollaborationBreakdown struct {
 	Detail     string
 }
 
+type billingUsageBreakdown struct {
+	Available       bool
+	PeriodLabel     string
+	CalculatedLabel string
+	Alert           billingAlert
+	Rows            []billingUsageRow
+}
+
+type billingUsageRow struct {
+	Key          string
+	Label        string
+	UsedLabel    string
+	LimitLabel   string
+	PercentLabel string
+	PercentValue int64
+	Detail       string
+	StatusClass  string
+}
+
 type billingAlert struct {
 	Class      string
 	Message    string
 	ActionText string
 	ActionHref string
+}
+
+type billingQuotaOverrideView struct {
+	Kind      string
+	Limit     string
+	Note      string
+	UpdatedAt string
 }
 
 type billingDebugView struct {
@@ -69,6 +95,7 @@ type billingDebugView struct {
 	LastWebhookProcessedAt   string
 	LastWebhookAttempts      int32
 	LastWebhookError         string
+	QuotaOverrides           []billingQuotaOverrideView
 }
 
 func (h *Handlers) settingsBilling(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +239,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		h.d.Logger.WarnContext(r.Context(), "org billing: count pending invitations", "org_id", org.ID, "error", err)
 	}
 	privateCollab := h.billingPrivateCollaborationBreakdown(r, org.ID)
+	usage := h.billingUsageBreakdown(r, org.ID)
 	invoices, err := orgbilling.ListInvoicesForOrg(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, 10)
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "org billing: list invoices", "org_id", org.ID, "error", err)
@@ -220,7 +248,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	debug := billingDebugView{}
 	if viewer.IsSiteAdmin {
-		debug = h.billingDebugView(r, state)
+		debug = h.billingDebugView(r, org.ID, state)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing", map[string]any{
 		"Title":                org.Slug + " - billing and plans",
@@ -236,6 +264,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		"Summary":              billingSummary(state, memberCount),
 		"Seats":                billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
 		"PrivateCollaboration": privateCollab,
+		"Usage":                usage,
 		"CanStartCheckout":     h.billingConfigured(),
 		// Gate on StripeSubscriptionID, not StripeCustomerID. A
 		// customer record exists from the moment a Checkout Session
@@ -271,6 +300,152 @@ func (h *Handlers) billingPrivateCollaborationBreakdown(r *http.Request, orgID i
 		Count:      usage.Count,
 		LimitLabel: fmt.Sprintf("%d", usage.Limit),
 		Detail:     "Free organizations can add up to 3 unique people with effective access to private org repositories. Public collaboration is not counted.",
+	}
+}
+
+func (h *Handlers) billingUsageBreakdown(r *http.Request, orgID int64) billingUsageBreakdown {
+	entitlementSet, err := entitlements.ForOrg(r.Context(), entitlements.Deps{Pool: h.d.Pool}, orgID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: load usage entitlements", "org_id", orgID, "error", err)
+		return unavailableBillingUsage("Usage limits could not be calculated right now.")
+	}
+	counters, err := orgbilling.GetOrgUsageCounters(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			h.d.Logger.WarnContext(r.Context(), "org billing: load usage counters", "org_id", orgID, "error", err)
+		}
+		return unavailableBillingUsage("Usage counters have not been recorded for this organization yet.")
+	}
+	storageLimit, err := entitlementSet.Limit(entitlements.LimitOrgStorageQuota)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: storage limit", "org_id", orgID, "error", err)
+		return unavailableBillingUsage("Storage limits could not be calculated right now.")
+	}
+	actionsLimit, err := entitlementSet.Limit(entitlements.LimitOrgActionsMinutesQuota)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: actions minutes limit", "org_id", orgID, "error", err)
+		return unavailableBillingUsage("Actions limits could not be calculated right now.")
+	}
+
+	totalStorage := counters.RepoStorageBytes + counters.ObjectStorageBytes
+	periodLabel := "Current month"
+	if counters.ActionsPeriodStart.Valid && counters.ActionsPeriodEnd.Valid {
+		periodLabel = counters.ActionsPeriodStart.Time.Format("Jan 2") + " - " + counters.ActionsPeriodEnd.Time.Add(-time.Nanosecond).Format("Jan 2, 2006")
+	}
+	usage := billingUsageBreakdown{
+		Available:       true,
+		PeriodLabel:     periodLabel,
+		CalculatedLabel: formatOptionalTime(counters.CalculatedAt),
+		Rows: []billingUsageRow{
+			billingUsageRowForLimit(
+				"storage",
+				"Storage",
+				totalStorage,
+				storageLimit,
+				"Repository storage "+formatBytes(counters.RepoStorageBytes)+"; object storage "+formatBytes(counters.ObjectStorageBytes)+" including "+formatBytes(counters.ActionsLogBytes)+" of Actions logs and "+formatBytes(counters.ActionsArtifactBytes)+" of artifacts.",
+			),
+			billingUsageRowForLimit(
+				"actions-minutes",
+				"Actions minutes",
+				counters.ActionsMinutesUsed,
+				actionsLimit,
+				"Completed and canceled workflow job runtime rounded up to whole minutes for the monthly period.",
+			),
+		},
+	}
+	usage.Alert = billingUsageAlert(usage.Rows)
+	return usage
+}
+
+func unavailableBillingUsage(message string) billingUsageBreakdown {
+	return billingUsageBreakdown{
+		Available: false,
+		Alert: billingAlert{
+			Class:   "shithub-flash-notice",
+			Message: message,
+		},
+		Rows: []billingUsageRow{
+			{Key: "storage", Label: "Storage", UsedLabel: "Unavailable", LimitLabel: "Unavailable", PercentLabel: "—", Detail: "Usage data is unavailable.", StatusClass: "is-muted"},
+			{Key: "actions-minutes", Label: "Actions minutes", UsedLabel: "Unavailable", LimitLabel: "Unavailable", PercentLabel: "—", Detail: "Usage data is unavailable.", StatusClass: "is-muted"},
+		},
+	}
+}
+
+func billingUsageRowForLimit(key, label string, used int64, limit entitlements.LimitValue, detail string) billingUsageRow {
+	if used < 0 {
+		used = 0
+	}
+	row := billingUsageRow{
+		Key:          key,
+		Label:        label,
+		UsedLabel:    billingUsageAmountLabel(used, limit.Unit),
+		LimitLabel:   billingLimitLabel(limit),
+		PercentLabel: "—",
+		Detail:       detail,
+		StatusClass:  "is-muted",
+	}
+	if !limit.Defined || limit.Unlimited || limit.Value <= 0 {
+		if limit.Unlimited {
+			row.PercentLabel = "Unlimited"
+			row.StatusClass = "is-ok"
+		}
+		return row
+	}
+	row.PercentValue = cappedPercentValue(used, limit.Value)
+	row.PercentLabel = formatPercent(used, limit.Value)
+	switch {
+	case used > limit.Value:
+		row.StatusClass = "is-over"
+	case row.PercentValue >= 95:
+		row.StatusClass = "is-danger"
+	case row.PercentValue >= 80:
+		row.StatusClass = "is-warning"
+	default:
+		row.StatusClass = "is-ok"
+	}
+	if limit.Overridden {
+		row.Detail += " A temporary site-admin quota override is active."
+	}
+	return row
+}
+
+func billingUsageAlert(rows []billingUsageRow) billingAlert {
+	var warning80, warning95, over *billingUsageRow
+	for i := range rows {
+		row := &rows[i]
+		switch row.StatusClass {
+		case "is-over":
+			if over == nil {
+				over = row
+			}
+		case "is-danger":
+			if warning95 == nil {
+				warning95 = row
+			}
+		case "is-warning":
+			if warning80 == nil {
+				warning80 = row
+			}
+		}
+	}
+	switch {
+	case over != nil:
+		return billingAlert{
+			Class:   "shithub-flash-error",
+			Message: "This organization is over its " + strings.ToLower(over.Label) + " quota. Upgrade or reduce usage before additional hosted-cost writes are accepted.",
+		}
+	case warning95 != nil:
+		return billingAlert{
+			Class:   "shithub-flash-error",
+			Message: "This organization has used at least 95% of its " + strings.ToLower(warning95.Label) + " quota. Upgrade or reduce usage before additional hosted-cost writes are blocked.",
+		}
+	case warning80 != nil:
+		return billingAlert{
+			Class:   "shithub-flash-notice",
+			Message: "This organization has used at least 80% of its " + strings.ToLower(warning80.Label) + " quota.",
+		}
+	default:
+		return billingAlert{}
 	}
 }
 
@@ -327,12 +502,18 @@ func billingNotice(code string) string {
 	}
 }
 
-func (h *Handlers) billingDebugView(r *http.Request, state orgbilling.State) billingDebugView {
+func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilling.State) billingDebugView {
 	debug := billingDebugView{
 		StripeCustomerID:         pgTextString(state.StripeCustomerID),
 		StripeSubscriptionID:     pgTextString(state.StripeSubscriptionID),
 		StripeSubscriptionItemID: pgTextString(state.StripeSubscriptionItemID),
 		LastWebhookEventID:       strings.TrimSpace(state.LastWebhookEventID),
+	}
+	overrides, err := orgbilling.ListOrgQuotaOverrides(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: list quota overrides", "org_id", orgID, "error", err)
+	} else {
+		debug.QuotaOverrides = billingQuotaOverrideViews(overrides)
 	}
 	if debug.LastWebhookEventID == "" {
 		return debug
@@ -359,6 +540,36 @@ func (h *Handlers) billingDebugView(r *http.Request, state orgbilling.State) bil
 		debug.LastWebhookStatus = "pending"
 	}
 	return debug
+}
+
+func billingQuotaOverrideViews(overrides []orgbilling.QuotaOverride) []billingQuotaOverrideView {
+	items := make([]billingQuotaOverrideView, 0, len(overrides))
+	for _, override := range overrides {
+		label := "Unavailable"
+		switch override.Kind {
+		case orgbilling.QuotaKindStorageBytes:
+			label = "Storage"
+		case orgbilling.QuotaKindActionsMinutes:
+			label = "Actions minutes"
+		}
+		limit := "Unavailable"
+		if override.Unlimited {
+			limit = "Unlimited"
+		} else if override.LimitValue.Valid {
+			unit := "bytes"
+			if override.Kind == orgbilling.QuotaKindActionsMinutes {
+				unit = "minutes"
+			}
+			limit = billingUsageAmountLabel(override.LimitValue.Int64, unit)
+		}
+		items = append(items, billingQuotaOverrideView{
+			Kind:      label,
+			Limit:     limit,
+			Note:      strings.TrimSpace(override.Note),
+			UpdatedAt: formatOptionalTime(override.UpdatedAt),
+		})
+	}
+	return items
 }
 
 func billingSummary(state orgbilling.State, memberCount int) []billingSummaryItem {
@@ -617,4 +828,81 @@ func formatCurrencyAmount(currency string, cents int64) string {
 		currency = "USD"
 	}
 	return fmt.Sprintf("%s$%d.%02d %s", sign, major, minor, currency)
+}
+
+func billingUsageAmountLabel(value int64, unit string) string {
+	switch unit {
+	case "bytes":
+		return formatBytes(value)
+	case "minutes":
+		return fmt.Sprintf("%d minutes", value)
+	default:
+		return fmt.Sprintf("%d", value)
+	}
+}
+
+func billingLimitLabel(limit entitlements.LimitValue) string {
+	if !limit.Defined {
+		if limit.Reason == entitlements.ReasonEnterpriseContactSales {
+			return "Contact sales"
+		}
+		return "Unavailable"
+	}
+	if limit.Unlimited {
+		if limit.Overridden {
+			return "Unlimited override"
+		}
+		return "Unlimited"
+	}
+	label := billingUsageAmountLabel(limit.Value, limit.Unit)
+	if limit.Overridden {
+		return label + " override"
+	}
+	return label
+}
+
+func cappedPercentValue(used, limit int64) int64 {
+	if used <= 0 || limit <= 0 {
+		return 0
+	}
+	percent := (used*100 + limit/2) / limit
+	if percent > 100 {
+		return 100
+	}
+	return percent
+}
+
+func formatPercent(used, limit int64) string {
+	if used <= 0 || limit <= 0 {
+		return "0%"
+	}
+	tenths := (used*1000 + limit/2) / limit
+	if tenths%10 == 0 {
+		return fmt.Sprintf("%d%%", tenths/10)
+	}
+	return fmt.Sprintf("%d.%d%%", tenths/10, tenths%10)
+}
+
+func formatBytes(bytes int64) string {
+	if bytes < 0 {
+		bytes = 0
+	}
+	if bytes < 1024 {
+		if bytes == 1 {
+			return "1 B"
+		}
+		return fmt.Sprintf("%d B", bytes)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	div := int64(1024)
+	unitIndex := 0
+	for unitIndex < len(units)-1 && bytes >= div*1024 {
+		div *= 1024
+		unitIndex++
+	}
+	tenths := (bytes*10 + div/2) / div
+	if tenths%10 == 0 {
+		return fmt.Sprintf("%d %s", tenths/10, units[unitIndex])
+	}
+	return fmt.Sprintf("%d.%d %s", tenths/10, tenths%10, units[unitIndex])
 }

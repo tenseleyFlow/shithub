@@ -84,6 +84,47 @@
         </div>
       </section>
 
+      <section class="shithub-org-settings-section" aria-labelledby="org-billing-usage-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-billing-usage-heading" class="Subhead-heading">Usage</h2>
+          {{ if .Usage.PeriodLabel }}<div class="Subhead-description">{{ .Usage.PeriodLabel }}{{ if .Usage.CalculatedLabel }} · Calculated {{ .Usage.CalculatedLabel }}{{ end }}</div>{{ end }}
+        </div>
+        {{ with .Usage.Alert }}{{ if .Message }}
+        <p class="shithub-flash {{ .Class }}" role="status">{{ .Message }}</p>
+        {{ end }}{{ end }}
+        <div class="Box">
+          <div class="Box-body p-0">
+            <table class="shithub-org-billing-table shithub-org-billing-usage-table">
+              <thead>
+                <tr>
+                  <th scope="col">Quota</th>
+                  <th scope="col">Used</th>
+                  <th scope="col">Limit</th>
+                  <th scope="col">Usage</th>
+                  <th scope="col">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Usage.Rows }}
+                <tr>
+                  <td>{{ .Label }}</td>
+                  <td>{{ .UsedLabel }}</td>
+                  <td>{{ .LimitLabel }}</td>
+                  <td>
+                    <div class="shithub-org-billing-progress-cell">
+                      <progress class="shithub-org-billing-progress {{ .StatusClass }}" max="100" value="{{ .PercentValue }}">{{ .PercentLabel }}</progress>
+                      <span>{{ .PercentLabel }}</span>
+                    </div>
+                  </td>
+                  <td>{{ .Detail }}</td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="manage-plan" class="shithub-org-settings-section" aria-labelledby="org-billing-manage-heading">
         <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
           <h2 id="org-billing-manage-heading" class="Subhead-heading">Manage plan</h2>
@@ -169,6 +210,18 @@
                   <td>Private org collaborators</td>
                   <td>Up to 3 effective collaborators</td>
                   <td>Unlimited while active</td>
+                  <td>Contact sales</td>
+                </tr>
+                <tr>
+                  <td>Storage quota</td>
+                  <td>500 MiB</td>
+                  <td>2 GiB</td>
+                  <td>Contact sales</td>
+                </tr>
+                <tr>
+                  <td>Actions minutes per month</td>
+                  <td>2,000 minutes</td>
+                  <td>3,000 minutes</td>
                   <td>Contact sales</td>
                 </tr>
                 <tr>
@@ -261,6 +314,18 @@
                 <tr><th scope="row">Webhook processed</th><td>{{ if .Debug.LastWebhookProcessedAt }}{{ .Debug.LastWebhookProcessedAt }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Webhook attempts</th><td>{{ .Debug.LastWebhookAttempts }}</td></tr>
                 <tr><th scope="row">Webhook error</th><td>{{ if .Debug.LastWebhookError }}{{ .Debug.LastWebhookError }}{{ else }}—{{ end }}</td></tr>
+                <tr>
+                  <th scope="row">Quota overrides</th>
+                  <td>
+                    {{ if .Debug.QuotaOverrides }}
+                    {{ range .Debug.QuotaOverrides }}
+                    <div><strong>{{ .Kind }}:</strong> {{ .Limit }}{{ if .Note }} · {{ .Note }}{{ end }}{{ if .UpdatedAt }} · updated {{ .UpdatedAt }}{{ end }}</div>
+                    {{ end }}
+                    {{ else }}
+                    —
+                    {{ end }}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
