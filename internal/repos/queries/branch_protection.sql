@@ -27,9 +27,10 @@ WHERE id = $1;
 INSERT INTO branch_protection_rules (
     repo_id, pattern,
     prevent_force_push, prevent_deletion, require_pr_for_push,
+    require_signed_commits,
     allowed_pusher_user_ids, created_by_user_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, sqlc.narg(created_by_user_id)::bigint
+    $1, $2, $3, $4, $5, sqlc.arg(require_signed_commits)::boolean, $6, sqlc.narg(created_by_user_id)::bigint
 )
 RETURNING id;
 
@@ -39,6 +40,7 @@ SET pattern = $2,
     prevent_force_push = $3,
     prevent_deletion = $4,
     require_pr_for_push = $5,
+    require_signed_commits = sqlc.arg(require_signed_commits)::boolean,
     allowed_pusher_user_ids = $6
 WHERE id = $1;
 

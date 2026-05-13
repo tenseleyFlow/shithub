@@ -102,14 +102,46 @@ type BillingConfig struct {
 	Enabled     bool                `toml:"enabled"`
 	GracePeriod time.Duration       `toml:"grace_period"`
 	Stripe      StripeBillingConfig `toml:"stripe"`
+	// Enforce gates the per-feature flip from PRO05's report-only mode
+	// to hard enforcement for user-kind principals. Each feature carries
+	// its own knob so the launch can revert one feature without rolling
+	// back the deploy (PRO07 pitfall: "do not enforce a feature you
+	// can't unenforce"). Org-kind enforcement has been on since SP05 and
+	// is not gated by this struct.
+	Enforce EnforceConfig `toml:"enforce"`
+}
+
+// EnforceConfig is the PRO07 per-feature enforcement matrix. Defaults
+// (all false) keep production in report-only mode; operators flip
+// features individually after the 7-day telemetry soak ratifies that
+// no Free user is currently exercising the gate. The flag order and
+// names are stable — flipping any to true is a one-way deploy that
+// operators back out with the same knob, not by reverting code.
+type EnforceConfig struct {
+	// UserAdvancedBranchProtection: when true, Free users on private
+	// personal repos are blocked from setting prevent_force_push,
+	// prevent_deletion, or require_signed_commits.
+	UserAdvancedBranchProtection bool `toml:"user_advanced_branch_protection"`
+	// UserRequiredReviewers: when true, Free users on private personal
+	// repos are blocked from setting required_review_count > 0.
+	UserRequiredReviewers bool `toml:"user_required_reviewers"`
+	// UserProfilePinsBeyondFree: when true, Free users are blocked from
+	// pinning more than the Free cap (6) profile repos. PRO07 ships this
+	// gate without a report-only phase — the cap is small, the failure
+	// mode is benign, and a Free user has no way to have exceeded the
+	// cap before this knob existed.
+	UserProfilePinsBeyondFree bool `toml:"user_profile_pins_beyond_free"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
 // URLs are optional; when omitted the web layer derives them from auth.base_url.
+// PRO04 introduced ProPriceID for the user-tier Pro plan; it stays empty
+// when the operator has only enabled the org-tier Team plan.
 type StripeBillingConfig struct {
 	SecretKey       string `toml:"secret_key"`
 	WebhookSecret   string `toml:"webhook_secret"`
 	TeamPriceID     string `toml:"team_price_id"`
+	ProPriceID      string `toml:"pro_price_id"`
 	SuccessURL      string `toml:"success_url"`
 	CancelURL       string `toml:"cancel_url"`
 	PortalReturnURL string `toml:"portal_return_url"`

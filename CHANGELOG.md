@@ -10,8 +10,57 @@ between minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **PRO08 Pro tier GA audit remediation.** Thirteen audit findings
+  across the Stripe webhook layer, subscription state machine, and
+  Pro v1 feature gates: webhook receipts now record (subject_kind,
+  subject_id) for operator queries; the cross-kind price guard
+  refuses subscription events with empty `Items.Data`; concurrent
+  webhook replays serialize via a session-scoped advisory lock; the
+  snapshot CTE preserves grace-lock columns under `past_due`
+  transitions instead of wiping them; subscription-overwrite guard
+  refuses to repoint a principal's bound subscription id at a
+  different one; reverse-ordered (stale) Stripe events are dropped
+  via a new `last_event_at` column; `customer.subscription.deleted`
+  for unknown subjects is now a 200 no-op so Stripe stops retrying.
+  Charge refunds flip invoices to `status='refunded'` with UI
+  surfacing on both user and org billing pages (new
+  `billing_invoice_status='refunded'` enum value + `refunded_at`
+  column). Advanced branch protection gate rewired to fire on the
+  PRO01-ratified inputs (`prevent_force_push`, `prevent_deletion`,
+  `require_signed_commits`) rather than only on required status
+  checks — `require_signed_commits` is now exposed in the rule
+  form (visible toggle; underlying enforcement ships with commit
+  signing). Multi-reviewer denies carry a distinct upgrade copy
+  (`required-reviewers-multi-upgrade(-pro)`) and user-tier denies
+  point at `/settings/billing` instead of the org settings page.
+  `profilePinsRemaining` now respects the entitled cap for Pro users.
+  Migrations 0077 (`last_event_at`) and 0078 (`refunded` enum +
+  `refunded_at` column) ship with the fix. Audit closure in
+  `docs/internal/billing.md`; runbook updates in
+  `docs/internal/runbooks/stripe-billing.md`.
+
 ### Added
 
+- **Personal Pro tier feature gates (PRO07).** Pro v1 lights up four
+  user-tier paygates ratified in PRO01: required reviewers on private
+  personal repos, multi-reviewer thresholds, advanced branch
+  protection (prevent force-push / deletion / require signed commits),
+  and profile pins above the Free cap of 6 (Pro raises this to 100).
+  Each gate is enforced via a per-feature operator flag in
+  `billing.enforce.*` so launches are reversible without a code
+  rollback. PRO07 ships dark (all flags default false) and operators
+  flip each feature on after the 7-day report-only telemetry soak.
+  Pro user accounts retain existing required-reviewer rules and pin
+  configuration through cancellation; the gate refuses to create new
+  gated state on Free but never deletes prior data. Added the
+  `FeatureProfilePinsBeyondFree` (user-only) and
+  `FeatureCodeOwnersReview` (placeholder; no-op enforce until the
+  CODEOWNERS parser ships) entitlement constants, plus the
+  `LimitProfilePinsFreeCap` / `LimitProfilePinsProCap` limit
+  constants. Migration `0076_profile_pins_pro_cap` raises the
+  `profile_pins.position` check constraint from `1..6` to `1..100`.
 - **REST API contract (S50 §0).** `GET /api/v1/meta` returns the
   server's version stamp and a list of feature capability strings
   for client-side feature detection. Every `/api/v1/*` response

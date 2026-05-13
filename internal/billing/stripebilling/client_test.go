@@ -24,6 +24,104 @@ func TestNewValidatesRequiredConfig(t *testing.T) {
 	}
 }
 
+func TestSupportsProReflectsConfig(t *testing.T) {
+	t.Parallel()
+	teamOnly, err := New(Config{
+		SecretKey:     "sk_test_123",
+		WebhookSecret: "whsec_123",
+		TeamPriceID:   "price_team",
+	})
+	if err != nil {
+		t.Fatalf("New team-only: %v", err)
+	}
+	if teamOnly.SupportsPro() {
+		t.Errorf("SupportsPro should be false when ProPriceID empty")
+	}
+
+	withPro, err := New(Config{
+		SecretKey:     "sk_test_123",
+		WebhookSecret: "whsec_123",
+		TeamPriceID:   "price_team",
+		ProPriceID:    "price_pro",
+	})
+	if err != nil {
+		t.Fatalf("New with pro: %v", err)
+	}
+	if !withPro.SupportsPro() {
+		t.Errorf("SupportsPro should be true when ProPriceID set")
+	}
+}
+
+func TestNormalizeSubjectLegacyOrgOnly(t *testing.T) {
+	t.Parallel()
+	kind, id, label, err := normalizeSubject("", 0, "", 42, "acme")
+	if err != nil {
+		t.Fatalf("legacy org-only: %v", err)
+	}
+	if kind != SubjectKindOrg || id != 42 || label != "acme" {
+		t.Errorf("legacy normalize: kind=%s id=%d label=%q", kind, id, label)
+	}
+}
+
+func TestNormalizeSubjectExplicitUser(t *testing.T) {
+	t.Parallel()
+	kind, id, label, err := normalizeSubject(SubjectKindUser, 7, "alice", 0, "")
+	if err != nil {
+		t.Fatalf("explicit user: %v", err)
+	}
+	if kind != SubjectKindUser || id != 7 || label != "alice" {
+		t.Errorf("user normalize: kind=%s id=%d label=%q", kind, id, label)
+	}
+}
+
+func TestNormalizeSubjectRejectsBogusKind(t *testing.T) {
+	t.Parallel()
+	if _, _, _, err := normalizeSubject("alien", 1, "x", 0, ""); !errors.Is(err, ErrInvalidSubjectKind) {
+		t.Fatalf("expected ErrInvalidSubjectKind, got %v", err)
+	}
+}
+
+func TestNormalizeSubjectRequiresIDOrOrgFallback(t *testing.T) {
+	t.Parallel()
+	// User kind without an ID is invalid.
+	if _, _, _, err := normalizeSubject(SubjectKindUser, 0, "", 0, ""); !errors.Is(err, ErrInvalidSubjectKind) {
+		t.Fatalf("user without id: expected ErrInvalidSubjectKind, got %v", err)
+	}
+	// Org kind with zero SubjectID but OrgID set falls back.
+	kind, id, _, err := normalizeSubject(SubjectKindOrg, 0, "acme", 99, "acme")
+	if err != nil {
+		t.Fatalf("org fallback: %v", err)
+	}
+	if kind != SubjectKindOrg || id != 99 {
+		t.Errorf("org fallback: kind=%s id=%d", kind, id)
+	}
+}
+
+func TestSubjectMetadataOrgKindIncludesLegacyKeys(t *testing.T) {
+	t.Parallel()
+	m := subjectMetadata(SubjectKindOrg, 42, "acme", 42, "acme")
+	if m[MetadataSubjectKind] != "org" || m[MetadataSubjectID] != "42" {
+		t.Errorf("PRO04 keys missing for org: %+v", m)
+	}
+	if m[MetadataOrgID] != "42" || m[MetadataOrgSlug] != "acme" {
+		t.Errorf("legacy keys missing for org: %+v", m)
+	}
+}
+
+func TestSubjectMetadataUserKindOmitsLegacyOrgKeys(t *testing.T) {
+	t.Parallel()
+	m := subjectMetadata(SubjectKindUser, 7, "alice", 0, "")
+	if m[MetadataSubjectKind] != "user" || m[MetadataSubjectID] != "7" {
+		t.Errorf("PRO04 keys missing for user: %+v", m)
+	}
+	if _, ok := m[MetadataOrgID]; ok {
+		t.Errorf("user metadata should omit MetadataOrgID; got %+v", m)
+	}
+	if _, ok := m[MetadataOrgSlug]; ok {
+		t.Errorf("user metadata should omit MetadataOrgSlug; got %+v", m)
+	}
+}
+
 func TestVerifyWebhookUsesSigningSecret(t *testing.T) {
 	t.Parallel()
 	client, err := New(Config{

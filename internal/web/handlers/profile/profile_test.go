@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -54,7 +55,19 @@ func setupProfileEnvWithRepoFS(t *testing.T) *profileEnv {
 	return setupProfileEnvWithDeps(t, nil, repoFS)
 }
 
+// setupProfileEnvWithBillingEnforce is the PRO07 entry point: same
+// scaffold as setupProfileEnv but with operator-configured per-feature
+// enforce flags. Zero-value enforce (all false) matches the default
+// helper and keeps report-only behavior.
+func setupProfileEnvWithBillingEnforce(t *testing.T, enforce config.EnforceConfig) *profileEnv {
+	return setupProfileEnvWithDepsAndEnforce(t, nil, nil, enforce)
+}
+
 func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repoFS *storage.RepoFS) *profileEnv {
+	return setupProfileEnvWithDepsAndEnforce(t, objectStore, repoFS, config.EnforceConfig{})
+}
+
+func setupProfileEnvWithDepsAndEnforce(t *testing.T, objectStore storage.ObjectStore, repoFS *storage.RepoFS, enforce config.EnforceConfig) *profileEnv {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -78,8 +91,9 @@ func setupProfileEnvWithDeps(t *testing.T, objectStore storage.ObjectStore, repo
 	h, err := profileh.New(profileh.Deps{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Render: rr, Pool: pool,
-		RepoFS:      repoFS,
-		ObjectStore: objectStore,
+		RepoFS:         repoFS,
+		ObjectStore:    objectStore,
+		BillingEnforce: enforce,
 	})
 	if err != nil {
 		t.Fatalf("profileh.New: %v", err)

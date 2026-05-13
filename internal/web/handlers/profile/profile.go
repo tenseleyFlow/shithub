@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/avatars"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -50,6 +51,12 @@ type Deps struct {
 	ObjectStore storage.ObjectStore
 	Limiter     *throttle.Limiter
 	Audit       *audit.Recorder
+	// BillingEnforce carries PRO07's per-feature enforcement flags.
+	// Zero value (all false) keeps profile-pin gating in report-only mode:
+	// Free users over the cap continue to hit a generic 400, the would-deny
+	// is logged for the soak. When UserProfilePinsBeyondFree flips true
+	// the same overflow returns 402 with an upgrade banner.
+	BillingEnforce config.EnforceConfig
 }
 
 // Handlers is the registered profile handler set.
@@ -175,6 +182,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	followState := h.userFollowState(r.Context(), user.ID, viewer)
 	visibleRepos := h.visibleUserRepos(r.Context(), user.ID, viewer)
 	pinnedRepos, pinCandidates := h.userPinData(r.Context(), user)
+	userPinsCap, _ := h.userProfilePinCap(r.Context(), user.ID)
 	readme, hasReadme := h.profileReadme(r.Context(), user, viewer)
 	displayName := user.DisplayName
 	if displayName == "" {
@@ -206,7 +214,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"Contributions":              h.contributionCalendar(r.Context(), user, viewer, r.URL.Query()),
 		"PinnedRepos":                pinnedRepos,
 		"PinCandidates":              pinCandidates,
-		"PinsRemaining":              profilePinsRemaining(pinCandidates),
+		"PinsRemaining":              profilePinsRemaining(pinCandidates, userPinsCap),
 		"CanCustomizePins":           isSelf,
 		"PinsAction":                 "/" + url.PathEscape(user.Username) + "/pins",
 		"ContributionSettingsAction": "/" + url.PathEscape(user.Username) + "/contribution-settings",

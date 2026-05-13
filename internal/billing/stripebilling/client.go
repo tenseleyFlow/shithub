@@ -18,23 +18,44 @@ import (
 )
 
 const (
-	MetadataOrgID   = "shithub_org_id"
-	MetadataOrgSlug = "shithub_org_slug"
+	// MetadataOrgID and MetadataOrgSlug are the legacy SP03 keys.
+	// PRO04 introduces MetadataSubjectKind and MetadataSubjectID;
+	// new subscriptions stamp both for forward compatibility, the
+	// webhook resolver falls back to the legacy keys for org rows
+	// created before PRO04 deployed.
+	MetadataOrgID        = "shithub_org_id"
+	MetadataOrgSlug      = "shithub_org_slug"
+	MetadataSubjectKind  = "shithub_subject_kind"
+	MetadataSubjectID    = "shithub_subject_id"
+	MetadataSubjectLabel = "shithub_subject_label" // human-readable, e.g. org slug or username
+)
+
+// SubjectKind mirrors billing.SubjectKind without taking a hard
+// dependency on the billing package (avoid import cycle).
+// Conversions live in the webhook handler.
+type SubjectKind string
+
+const (
+	SubjectKindUser SubjectKind = "user"
+	SubjectKindOrg  SubjectKind = "org"
 )
 
 var (
 	ErrSecretKeyRequired     = errors.New("stripe billing: secret key is required")
 	ErrWebhookSecretRequired = errors.New("stripe billing: webhook secret is required")
 	ErrTeamPriceRequired     = errors.New("stripe billing: team price id is required")
+	ErrProPriceRequired      = errors.New("stripe billing: pro price id is required")
 	ErrCustomerIDRequired    = errors.New("stripe billing: customer id is required")
 	ErrSubscriptionItemID    = errors.New("stripe billing: subscription item id is required")
 	ErrURLRequired           = errors.New("stripe billing: redirect url is required")
+	ErrInvalidSubjectKind    = errors.New("stripe billing: invalid subject kind")
 )
 
 type Config struct {
 	SecretKey     string
 	WebhookSecret string
 	TeamPriceID   string
+	ProPriceID    string // PRO04: required once user-tier path is enabled
 	AutomaticTax  bool
 }
 
@@ -50,14 +71,24 @@ type Client struct {
 	stripe        *stripeapi.Client
 	webhookSecret string
 	teamPriceID   string
+	proPriceID    string
 	automaticTax  bool
 }
 
+// CustomerInput carries enough subject context to populate Stripe
+// metadata for new customer records. The legacy `OrgID`/`OrgSlug`
+// pair stays for backward compatibility with SP03 callers; PRO04
+// callers populate `Kind` + `SubjectID` + `Label`, and the
+// metadata stamps both old and new keys.
 type CustomerInput struct {
 	OrgID   int64
 	OrgSlug string
 	OrgName string
 	Email   string
+
+	Kind      SubjectKind // PRO04: "user" | "org"
+	SubjectID int64       // PRO04: user id or org id
+	Label     string      // PRO04: human-readable (org slug or username)
 }
 
 type Customer struct {
@@ -71,6 +102,10 @@ type CheckoutInput struct {
 	SeatCount  int64
 	SuccessURL string
 	CancelURL  string
+
+	Kind      SubjectKind // PRO04: routes to TeamPriceID (org) or ProPriceID (user)
+	SubjectID int64       // PRO04: user id or org id
+	Label     string      // PRO04: human-readable for metadata.shithub_subject_label
 }
 
 type CheckoutSession struct {
@@ -98,6 +133,7 @@ func New(cfg Config) (*Client, error) {
 	cfg.SecretKey = strings.TrimSpace(cfg.SecretKey)
 	cfg.WebhookSecret = strings.TrimSpace(cfg.WebhookSecret)
 	cfg.TeamPriceID = strings.TrimSpace(cfg.TeamPriceID)
+	cfg.ProPriceID = strings.TrimSpace(cfg.ProPriceID)
 	if cfg.SecretKey == "" {
 		return nil, ErrSecretKeyRequired
 	}
@@ -107,28 +143,49 @@ func New(cfg Config) (*Client, error) {
 	if cfg.TeamPriceID == "" {
 		return nil, ErrTeamPriceRequired
 	}
+	// ProPriceID is optional at construction (operators on the
+	// SP-only path don't have it). Pro-path callers will get
+	// ErrProPriceRequired at CheckoutSession time if they try to
+	// route a user-kind checkout against a client that lacks the
+	// price id.
 	return &Client{
 		stripe:        stripeapi.NewClient(cfg.SecretKey),
 		webhookSecret: cfg.WebhookSecret,
 		teamPriceID:   cfg.TeamPriceID,
+		proPriceID:    cfg.ProPriceID,
 		automaticTax:  cfg.AutomaticTax,
 	}, nil
 }
 
+// SupportsPro reports whether the client was configured with a Pro
+// price. Wiring code uses this to decide whether to register the
+// user-tier checkout/portal routes; refusing the routes when Pro
+// isn't configured keeps the operator-disabled path consistent.
+func (c *Client) SupportsPro() bool { return c.proPriceID != "" }
+
 func (c *Client) CreateCustomer(ctx context.Context, in CustomerInput) (Customer, error) {
+	// PRO04: subject-aware customer creation. When `in.Kind` is set
+	// the new metadata keys + idempotency-key prefix include the
+	// kind; legacy SP03 callers (no Kind set) keep the org-only
+	// behavior so existing org customers don't get duplicated.
+	kind, subjectID, label, err := normalizeSubject(in.Kind, in.SubjectID, in.Label, in.OrgID, in.OrgSlug)
+	if err != nil {
+		return Customer{}, err
+	}
 	name := strings.TrimSpace(in.OrgName)
 	if name == "" {
-		name = strings.TrimSpace(in.OrgSlug)
+		name = label
 	}
+	descriptor := fmt.Sprintf("shithub %s %s", kind, label)
 	params := &stripeapi.CustomerCreateParams{
 		Name:        stripeapi.String(name),
-		Description: stripeapi.String(fmt.Sprintf("shithub organization %s", strings.TrimSpace(in.OrgSlug))),
-		Metadata:    orgMetadata(in.OrgID, in.OrgSlug),
+		Description: stripeapi.String(descriptor),
+		Metadata:    subjectMetadata(kind, subjectID, label, in.OrgID, in.OrgSlug),
 	}
 	if email := strings.TrimSpace(in.Email); email != "" {
 		params.Email = stripeapi.String(email)
 	}
-	params.SetIdempotencyKey(idempotencyKey("customer", in.OrgID, "v1"))
+	params.SetIdempotencyKey(idempotencyKey("customer", string(kind), subjectID, "v1"))
 	customer, err := c.stripe.V1Customers.Create(ctx, params)
 	if err != nil {
 		return Customer{}, err
@@ -149,24 +206,45 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, in CheckoutInput) (C
 	if in.CancelURL == "" {
 		return CheckoutSession{}, fmt.Errorf("%w: cancel_url", ErrURLRequired)
 	}
-	if in.SeatCount < 1 {
-		in.SeatCount = 1
+	kind, subjectID, label, err := normalizeSubject(in.Kind, in.SubjectID, in.Label, in.OrgID, in.OrgSlug)
+	if err != nil {
+		return CheckoutSession{}, err
 	}
-	metadata := orgMetadata(in.OrgID, in.OrgSlug)
+	// Route price + quantity by kind. Pro is single-seat; Team
+	// quantity equals the caller-provided seat count.
+	var priceID string
+	var quantity int64
+	switch kind {
+	case SubjectKindOrg:
+		priceID = c.teamPriceID
+		quantity = in.SeatCount
+		if quantity < 1 {
+			quantity = 1
+		}
+	case SubjectKindUser:
+		if c.proPriceID == "" {
+			return CheckoutSession{}, ErrProPriceRequired
+		}
+		priceID = c.proPriceID
+		quantity = 1
+	default:
+		return CheckoutSession{}, fmt.Errorf("%w: %q", ErrInvalidSubjectKind, kind)
+	}
+	metadata := subjectMetadata(kind, subjectID, label, in.OrgID, in.OrgSlug)
 	mode := string(stripeapi.CheckoutSessionModeSubscription)
 	paymentMethodCollection := string(stripeapi.CheckoutSessionPaymentMethodCollectionAlways)
 	billingAddressCollection := string(stripeapi.CheckoutSessionBillingAddressCollectionAuto)
 	params := &stripeapi.CheckoutSessionCreateParams{
 		Mode:                     stripeapi.String(mode),
 		Customer:                 stripeapi.String(in.CustomerID),
-		ClientReferenceID:        stripeapi.String(strconv.FormatInt(in.OrgID, 10)),
+		ClientReferenceID:        stripeapi.String(strconv.FormatInt(subjectID, 10)),
 		SuccessURL:               stripeapi.String(in.SuccessURL),
 		CancelURL:                stripeapi.String(in.CancelURL),
 		PaymentMethodCollection:  stripeapi.String(paymentMethodCollection),
 		BillingAddressCollection: stripeapi.String(billingAddressCollection),
 		LineItems: []*stripeapi.CheckoutSessionCreateLineItemParams{{
-			Price:    stripeapi.String(c.teamPriceID),
-			Quantity: stripeapi.Int64(in.SeatCount),
+			Price:    stripeapi.String(priceID),
+			Quantity: stripeapi.Int64(quantity),
 		}},
 		Metadata: metadata,
 		SubscriptionData: &stripeapi.CheckoutSessionCreateSubscriptionDataParams{
@@ -178,7 +256,7 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, in CheckoutInput) (C
 			Enabled: stripeapi.Bool(true),
 		}
 	}
-	params.SetIdempotencyKey(idempotencyKey("checkout", in.OrgID, "team", strconv.FormatInt(in.SeatCount, 10)))
+	params.SetIdempotencyKey(idempotencyKey("checkout", string(kind), subjectID, planLabelForKind(kind), strconv.FormatInt(quantity, 10)))
 	session, err := c.stripe.V1CheckoutSessions.Create(ctx, params)
 	if err != nil {
 		return CheckoutSession{}, err
@@ -226,11 +304,81 @@ func (c *Client) VerifyWebhook(payload []byte, signatureHeader string) (stripeap
 	return webhook.ConstructEvent(payload, signatureHeader, c.webhookSecret)
 }
 
-func orgMetadata(orgID int64, orgSlug string) map[string]string {
-	return map[string]string{
-		MetadataOrgID:   strconv.FormatInt(orgID, 10),
-		MetadataOrgSlug: strings.TrimSpace(orgSlug),
+// normalizeSubject resolves the (kind, id, label) tuple from a
+// CheckoutInput / CustomerInput. Legacy SP03 callers populate only
+// OrgID/OrgSlug and zero Kind — those default to SubjectKindOrg
+// for backward compatibility. PRO04 callers populate Kind +
+// SubjectID + Label and may leave OrgID/OrgSlug zero (user kind).
+//
+// Cross-checks: if both legacy OrgID and explicit user-kind
+// SubjectID are set, the explicit Kind wins; the OrgID stays in
+// the metadata for audit but the routing key is Kind+SubjectID.
+func normalizeSubject(kind SubjectKind, subjectID int64, label string, orgID int64, orgSlug string) (SubjectKind, int64, string, error) {
+	if kind == "" {
+		// Legacy path: org-only.
+		if orgID <= 0 {
+			return "", 0, "", fmt.Errorf("%w: %q", ErrInvalidSubjectKind, kind)
+		}
+		return SubjectKindOrg, orgID, strings.TrimSpace(orgSlug), nil
 	}
+	if kind != SubjectKindOrg && kind != SubjectKindUser {
+		return "", 0, "", fmt.Errorf("%w: %q", ErrInvalidSubjectKind, kind)
+	}
+	if subjectID <= 0 {
+		// Fall back to OrgID for org kind when caller forgot to set
+		// SubjectID explicitly; tightens the API without breaking
+		// the SP03→PRO04 transition.
+		if kind == SubjectKindOrg && orgID > 0 {
+			subjectID = orgID
+		} else {
+			return "", 0, "", fmt.Errorf("%w: subject id required for kind %q", ErrInvalidSubjectKind, kind)
+		}
+	}
+	label = strings.TrimSpace(label)
+	if label == "" && kind == SubjectKindOrg {
+		label = strings.TrimSpace(orgSlug)
+	}
+	return kind, subjectID, label, nil
+}
+
+// subjectMetadata returns the Stripe metadata map stamped on
+// customers, checkout sessions, and subscription objects. Both the
+// new MetadataSubject* keys and the legacy MetadataOrg* keys are
+// emitted when the kind is org — this keeps SP03-deployed webhook
+// resolvers working through the transition. User-kind metadata
+// omits the legacy keys (no legacy resolver expected them).
+func subjectMetadata(kind SubjectKind, subjectID int64, label string, orgID int64, orgSlug string) map[string]string {
+	m := map[string]string{
+		MetadataSubjectKind:  string(kind),
+		MetadataSubjectID:    strconv.FormatInt(subjectID, 10),
+		MetadataSubjectLabel: label,
+	}
+	if kind == SubjectKindOrg {
+		if orgID == 0 {
+			orgID = subjectID
+		}
+		if orgSlug == "" {
+			orgSlug = label
+		}
+		m[MetadataOrgID] = strconv.FormatInt(orgID, 10)
+		m[MetadataOrgSlug] = strings.TrimSpace(orgSlug)
+	}
+	return m
+}
+
+// planLabelForKind returns the marketing label baked into the
+// idempotency key. Keeps Pro and Team checkouts from colliding on
+// the same idempotency string even if a single subject ID exists
+// on both subject_kind tables (which the schema prohibits, but
+// defense-in-depth).
+func planLabelForKind(kind SubjectKind) string {
+	switch kind {
+	case SubjectKindUser:
+		return "pro"
+	case SubjectKindOrg:
+		return "team"
+	}
+	return string(kind)
 }
 
 func idempotencyKey(parts ...any) string {

@@ -11,6 +11,7 @@
 - [Account settings](./user/account.md)
   - [Two-factor authentication](./user/2fa.md)
   - [GPG keys & commit signing](./user/gpg-keys.md)
+  - [Pro for personal accounts](./user/billing.md)
 - [Issues](./user/issues.md)
 - [Pull requests](./user/pull-requests.md)
   - [Branch protection & reviews](./user/branch-protection.md)

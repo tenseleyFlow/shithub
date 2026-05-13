@@ -87,6 +87,58 @@ Rules for paid-org copy:
 | Data residency/compliance | Deferred | Deferred | Later Enterprise feature |
 | Billing support | Basic instance support | Billing support after runbook exists | Contact sales |
 
+## Pro v1 user-tier matrix (PRO07)
+
+Pro is the user-tier paid plan (single seat, $4/month). PRO01 ratified
+the v1 feature set; PRO07 wires the enforcement matrix. CODEOWNERS is a
+registered placeholder with a no-op enforce path until the parser ships.
+
+| Capability | Free | Pro |
+| --- | --- | --- |
+| Public/private personal repos | Included | Included |
+| Required reviewers on private personal repos | Upgrade | Included |
+| Multi-reviewer (>1 approvals) on private personal repos | Upgrade | Included |
+| Advanced branch protection on private personal repos | Upgrade | Included |
+| CODEOWNERS review | Deferred | Deferred |
+| Profile pins | 6 | 100 |
+
+Multi-reviewer is **not** a separate feature constant — the numeric
+threshold lives in the deny payload of `FeatureRequiredReviewers`.
+
+### Per-feature enforcement flags
+
+PRO05 plumbed user-kind report-only logging through every gating site.
+PRO07 lights up the gates one feature at a time via
+`billing.enforce.*` in the operator's config. Defaults are all false
+(report-only). Each flag is a one-way deploy that operators can roll
+back without code changes.
+
+| Config key | Gate site | Default |
+| --- | --- | --- |
+| `billing.enforce.user_required_reviewers` | `internal/web/handlers/repo/settings_branches.go` | false |
+| `billing.enforce.user_advanced_branch_protection` | `internal/web/handlers/repo/settings_branches.go` | false |
+| `billing.enforce.user_profile_pins_beyond_free` | `internal/web/handlers/profile/pins.go` | false |
+
+Rollout discipline:
+
+1. Deploy with all flags false. Run the report-only telemetry query
+   for 7 days. Confirm zero unexpected user-kind would-denies.
+2. Flip one feature flag in staging. Soak 7 days.
+3. Flip the same feature flag in production.
+4. Repeat per feature.
+
+PRO07's pitfall doc explicitly forbids enforcing a feature without an
+unenforce path. New gating sites land with their own flag; do not
+share flags across features.
+
+### Downgrade preservation
+
+`users.plan = 'free'` after cancellation grandfather's existing gated
+state — required-reviewer rules, profile pins above 6, advanced flags
+on existing rules. The gate refuses to **create** new gated state on
+Free, but never deletes prior configuration. This is the same
+contract as the org-tier downgrade.
+
 ## Current capability audit
 
 Already present and safe to gate:
@@ -317,3 +369,79 @@ organization upgrades again.
 - Stripe Billing: `https://docs.stripe.com/billing`
 - Stripe pricing models:
   `https://docs.stripe.com/products-prices/pricing-models`
+
+## PRO08 GA audit closure
+
+**Audit dates**: 2026-05-13 (run + remediation in a single sprint).
+
+**Scope**: PRO04 Stripe adapter + PRO05 entitlements Principal +
+PRO06 user-tier billing settings + PRO07 Pro v1 feature gates.
+
+**Methodology**: four parallel security/correctness audit agents
+ran read-only inspections against the PRO07 tip plus the deployed
+host (`shithub.sh`). Findings were triaged per-bug; HIGH and
+MEDIUM severity gaps were fixed inline on the `payments-pro/08-pro-ga-audit`
+branch with locking tests. LOW-severity items were either fixed or
+documented per the user directive "we don't want to take any chances
+with payments."
+
+### Findings + remediation status
+
+| # | Severity | Finding | Fix | Test |
+|---|---|---|---|---|
+| A1 | MED | `guardPriceKindMatch` bypassable on empty `Items` | refuse empty-items when prices configured | `TestBillingWebhookGuardRefusesEmptyItemsWhenPricesConfigured` |
+| A2 | HIGH | `(subject_kind, subject_id)` never written to receipts | `SetWebhookEventSubjectForPrincipal` after every resolve; `ListFailedWebhookEvents` operator query | `TestSetWebhookEventSubjectForPrincipalRecordsAuditTrail`, `TestListFailedWebhookEventsReturnsErroredAndStuckEntries` |
+| A3 | MED | Concurrent dup-replay TOCTOU race | session-scoped advisory lock keyed on event id | `TestBillingWebhookConcurrentReplayAppliesOnce` |
+| D1 | HIGH | Snapshot CTE wipes lock columns on past_due transitions | conditional preservation in `ApplySubscriptionSnapshot` + user analog | `TestApplySubscriptionSnapshotPreservesGraceLockOnPastDue` (+ recovery + user-side mirror) |
+| D2 | LOW | No `charge.refunded` handler | new dispatch + `MarkInvoiceRefunded` query + enum + UI surface | `TestBillingWebhookChargeRefundedMarksInvoiceRefunded` (+ unknown invoice + standalone refund) |
+| D3 | MED | Two subscriptions per customer silently overwrite | `guardSubscriptionOverwrite` rejects different-sub apply | `TestBillingWebhookGuardRefusesSecondSubscriptionForSameCustomer` |
+| D4 | MED | No stale-event detection (reverse-order corruption) | `last_event_at` column + `IsBillingEventStaleForPrincipal` + handler guard + post-apply touch | `TestBillingWebhookDropsStaleEvent` |
+| D5 | LOW | `customer.subscription.deleted` for unknown sub 5xx's | log + 200 no-op so Stripe stops retrying | `TestBillingWebhookSubscriptionDeletedForUnknownSubIsNoOp` |
+| C1 | HIGH | `require_signed_commits` unreachable from UI | form field + template checkbox + sqlc plumbing | covered by `TestSettingsBranches_UserKindEnforceFlipPreventForcePushBlocks` table |
+| C2 | HIGH | Advanced BP gate fires on wrong inputs | rewire predicate to fire on prevent_*, signing, AND status-checks | table test |
+| C3 | MED | Multi-reviewer deny copy indistinguishable | thread reviewer count → `required-reviewers-multi-upgrade(-pro)` codes | `TestSettingsBranches_UserKindEnforceFlipMultiReviewerBlocks` |
+| C4 | MED | Notice copy says "Team" / "organization" on user-tier denies | user-kind variants (`-pro` suffix) with `/settings/billing` href | `TestSettingsBranches_UserKindEnforceFlipRequiredReviewersBlocksSingle` (Pro copy) |
+| C5 | LOW | `profilePinsRemaining` hard-codes cap; under-counts for Pro | thread entitled cap into the function | covered by existing profile_test suite + no regression |
+
+Authorization audit (Agent B) found **no** cross-tenant data leak,
+no invoice-scoping bleed, and no deny-shape 500 reachable from
+production paths. Two `err→500` branches in the entitlement gate
+remain (in `RequirePrincipalFeature` and `evaluateBranchProtectionFeature`)
+but are defended against by the AFTER-INSERT seed triggers on
+both billing-state tables — `pgx.ErrNoRows` for a valid principal
+is dead code in production.
+
+### Pre-existing failures NOT introduced by PRO08
+
+These were noted across prior sprints and remain open:
+
+- `TestPrivateCollaborationExpansionEnforcesFreeLimitAndTeamUnlimited`
+- `TestPrivateCollaborationUsageCountsEffectivePrivateAccess`
+- `TestRepoPrivateVisibilityCountsRepoSpecificGrants`
+
+The fourth pre-existing failure
+(`TestSettingsBranchesAllowsDowngradedOrgToRemoveAdvancedSettings`)
+was fixed opportunistically while in the branch-protection cluster
+(seed fixture needed `AllowedPusherUserIds: []int64{}` to satisfy
+the NOT NULL constraint).
+
+### Go/no-go: GA
+
+**GO**, conditional on the operator completing the Stripe Dashboard
+checklist documented in `docs/internal/runbooks/stripe-billing.md`
+under "Subject resolution chain" and "Per-feature enforcement flags"
+sections. Production binary needs redeploy to pick up:
+
+- Migrations 0077 (`last_event_at`) + 0078 (`refunded` enum + column)
+- The 13 code fixes above
+
+Deploy steps:
+
+1. `ssh root@shithub.sh "sudo -u shithub /usr/local/bin/shithubd migrate up"` — applies 0077 + 0078
+2. Restart `shithubd-web.service` and `shithubd-worker.service`
+3. Verify with: `SELECT version_id FROM goose_db_version ORDER BY version_id DESC LIMIT 1` → expect `78`
+4. Configure Stripe env vars per the runbook (still in test mode until ratified)
+5. Run the smoke checklist in `runbooks/stripe-billing.md#smoke-test`
+6. Flip enforce flags per feature after 7-day report-only soak
+
+**No production customers exist today** (`SELECT plan, count(*) FROM users WHERE deleted_at IS NULL` → `free: 2`; same for orgs), so the deploy carries near-zero risk to existing customers — there are none on Pro/Team plans.

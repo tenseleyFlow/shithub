@@ -18,6 +18,8 @@ import (
 
 	authpkg "github.com/tenseleyFlow/shithub/internal/auth"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -25,6 +27,9 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
+// profilePinLimit is the org-side cap; PRO01 keeps orgs at gh's
+// visible 6. User-side caps are resolved per-principal via
+// entitlements (Free=6, Pro=100).
 const profilePinLimit = 6
 
 var (
@@ -91,7 +96,7 @@ func (h *Handlers) updateOrgPins(w http.ResponseWriter, r *http.Request, orgID i
 	}
 
 	candidates := h.publicOrgPinCandidates(ctx, org.ID, string(org.Slug))
-	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates)
+	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates, profilePinLimit)
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
@@ -126,7 +131,12 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 	}
 
 	candidates := h.publicUserPinCandidates(ctx, user.ID)
-	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates)
+	maxPins, beyondFreeAllowed := h.userProfilePinCap(ctx, user.ID)
+	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates, maxPins)
+	if errors.Is(err, errTooManyPins) {
+		h.handleUserPinOverflow(w, r, user.ID, beyondFreeAllowed)
+		return
+	}
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
@@ -137,6 +147,57 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 		return
 	}
 	http.Redirect(w, r, "/"+url.PathEscape(user.Username)+"#pinned", http.StatusSeeOther)
+}
+
+// userProfilePinCap resolves the entitled pin cap for a user. Returns
+// (cap, beyondFreeAllowed). Falls back to the Free cap if entitlement
+// resolution errors so a degraded billing path can't silently raise
+// the limit. beyondFreeAllowed mirrors CanUse(FeatureProfilePinsBeyondFree)
+// — the caller uses it to flavor the upgrade-banner copy and tells
+// the report-only logger whether the deny would have triggered.
+func (h *Handlers) userProfilePinCap(ctx context.Context, userID int64) (int64, bool) {
+	set, err := entitlements.ForPrincipal(ctx, entitlements.Deps{Pool: h.d.Pool}, billing.PrincipalForUser(userID))
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "profile pins: load entitlements", "user_id", userID, "error", err)
+		return entitlements.FreeProfilePinsCap, false
+	}
+	decision := set.CanUse(entitlements.FeatureProfilePinsBeyondFree)
+	if decision.Allowed {
+		return entitlements.ProProfilePinsCap, true
+	}
+	return entitlements.FreeProfilePinsCap, false
+}
+
+// handleUserPinOverflow renders the over-cap response for a personal
+// profile pin submission. When the operator hasn't flipped the enforce
+// flag (PRO05 report-only default), logs the would-deny and falls back
+// to the pre-PRO07 400 response. With enforce on, returns 402 + an
+// upgrade banner pointing at /settings/billing.
+func (h *Handlers) handleUserPinOverflow(w http.ResponseWriter, r *http.Request, userID int64, beyondFreeAllowed bool) {
+	// Pro users that hit this branch are over the Pro cap (100) — that's
+	// a DB-sanity 400 regardless of enforcement.
+	if beyondFreeAllowed {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	if !h.d.BillingEnforce.UserProfilePinsBeyondFree {
+		h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
+			"principal", billing.PrincipalForUser(userID).String(),
+			"principal_kind", string(billing.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureProfilePinsBeyondFree),
+			"reason", string(entitlements.ReasonUpgradeRequired),
+			"required_plan", "pro")
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	decision := entitlements.Decision{
+		Feature:      entitlements.FeatureProfilePinsBeyondFree,
+		RequiredPlan: billing.Plan("pro"),
+		Reason:       entitlements.ReasonUpgradeRequired,
+	}
+	banner := decision.PrincipalUpgradeBanner("Pinned repositories", billing.PrincipalForUser(userID), "")
+	http.Error(w, banner.Message, banner.StatusCode)
 }
 
 func (h *Handlers) orgPinData(ctx context.Context, orgID int64, orgSlug string, repos []orgProfileRepo) ([]orgProfileRepo, []profilePinCandidate) {
@@ -244,7 +305,7 @@ func (h *Handlers) publicOrgPinCandidates(ctx context.Context, orgID int64, orgS
 	return out
 }
 
-func selectedProfilePinIDs(values []string, candidates []profilePinCandidate) ([]int64, error) {
+func selectedProfilePinIDs(values []string, candidates []profilePinCandidate, maxPins int64) ([]int64, error) {
 	allowed := make(map[int64]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		allowed[candidate.ID] = struct{}{}
@@ -265,7 +326,7 @@ func selectedProfilePinIDs(values []string, candidates []profilePinCandidate) ([
 		seen[repoID] = struct{}{}
 		out = append(out, repoID)
 	}
-	if len(out) > profilePinLimit {
+	if int64(len(out)) > maxPins {
 		return nil, errTooManyPins
 	}
 	return out, nil
@@ -440,15 +501,21 @@ func sortPinCandidates(candidates []profilePinCandidate) {
 	})
 }
 
-func profilePinsRemaining(candidates []profilePinCandidate) int {
+// profilePinsRemaining reports how many additional pins the owner
+// can add given the entitled cap. PRO08 C5: the cap is now a
+// parameter — for orgs, callers pass profilePinLimit; for users,
+// callers resolve via userProfilePinCap which reads entitlements.
+// Previously the function hard-coded profilePinLimit and would
+// under-count a Pro user's remaining slots.
+func profilePinsRemaining(candidates []profilePinCandidate, cap int64) int {
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.IsPinned {
 			count++
 		}
 	}
-	if count >= profilePinLimit {
+	if int64(count) >= cap {
 		return 0
 	}
-	return profilePinLimit - count
+	return int(cap) - count
 }

@@ -67,11 +67,32 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns.
+           --   past_due -> preserve any existing lock (MarkPastDue
+           --     sets fresh grace_until on the invoice.payment_failed
+           --     path; if that hasn't arrived yet, leave NULL).
+           --   active / trialing recovering from past_due/unpaid -> clear.
+           --   any other transition -> preserve existing values.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(org_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN org_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND org_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE org_billing_states.grace_until
+           END,
            updated_at = now()
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), org_update AS (
     UPDATE orgs
        SET plan = $2::org_plan,
@@ -79,7 +100,7 @@ WITH state AS (
      WHERE id = $1::bigint
     RETURNING id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type ApplySubscriptionSnapshotParams struct {
@@ -118,6 +139,7 @@ type ApplySubscriptionSnapshotRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error) {
@@ -157,6 +179,7 @@ func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg Ap
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -217,11 +240,29 @@ WITH state AS (
                WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.past_due_at, now())
                ELSE NULL
            END,
-           locked_at = NULL,
-           lock_reason = NULL,
-           grace_until = NULL,
+           -- PRO08 D1: never unconditionally NULL the lock columns
+           -- (mirror of the org-side fix). The Mark* paths own
+           -- transitions into/out of the locked state.
+           locked_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.locked_at, now())
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.locked_at
+           END,
+           lock_reason = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.lock_reason, 'past_due'::billing_lock_reason)
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.lock_reason
+           END,
+           grace_until = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN user_billing_states.grace_until
+               WHEN EXCLUDED.subscription_status IN ('active', 'trialing')
+                    AND user_billing_states.subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE user_billing_states.grace_until
+           END,
            updated_at = now()
-    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), user_update AS (
     UPDATE users
        SET plan = $2::user_plan,
@@ -229,7 +270,7 @@ WITH state AS (
      WHERE id = $1::bigint
     RETURNING id
 )
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type ApplyUserSubscriptionSnapshotParams struct {
@@ -266,6 +307,7 @@ type ApplyUserSubscriptionSnapshotRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 // Mirrors ApplySubscriptionSnapshot for orgs minus the seat columns
@@ -306,6 +348,7 @@ func (q *Queries) ApplyUserSubscriptionSnapshot(ctx context.Context, db DBTX, ar
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -326,7 +369,7 @@ WITH state AS (
            grace_until = NULL,
            updated_at = now()
      WHERE org_id = $1
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), org_update AS (
     UPDATE orgs
        SET plan = state.plan,
@@ -335,7 +378,7 @@ WITH state AS (
      WHERE orgs.id = state.org_id
     RETURNING orgs.id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type ClearBillingLockRow struct {
@@ -360,6 +403,7 @@ type ClearBillingLockRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (ClearBillingLockRow, error) {
@@ -387,6 +431,7 @@ func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (C
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -407,7 +452,7 @@ WITH state AS (
            grace_until = NULL,
            updated_at = now()
      WHERE user_id = $1
-    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), user_update AS (
     UPDATE users
        SET plan = state.plan,
@@ -416,7 +461,7 @@ WITH state AS (
      WHERE users.id = state.user_id
     RETURNING users.id
 )
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type ClearUserBillingLockRow struct {
@@ -439,6 +484,7 @@ type ClearUserBillingLockRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) ClearUserBillingLock(ctx context.Context, db DBTX, userID int64) (ClearUserBillingLockRow, error) {
@@ -464,6 +510,7 @@ func (q *Queries) ClearUserBillingLock(ctx context.Context, db DBTX, userID int6
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -628,7 +675,7 @@ func (q *Queries) CreateWebhookEventReceipt(ctx context.Context, db DBTX, arg Cr
 const getOrgBillingState = `-- name: GetOrgBillingState :one
 
 
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states WHERE org_id = $1
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states WHERE org_id = $1
 `
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -658,12 +705,13 @@ func (q *Queries) GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) 
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
 
 const getOrgBillingStateByStripeCustomer = `-- name: GetOrgBillingStateByStripeCustomer :one
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states
 WHERE provider = 'stripe'
   AND stripe_customer_id = $1
 `
@@ -693,12 +741,13 @@ func (q *Queries) GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBT
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
 
 const getOrgBillingStateByStripeSubscription = `-- name: GetOrgBillingStateByStripeSubscription :one
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM org_billing_states
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states
 WHERE provider = 'stripe'
   AND stripe_subscription_id = $1
 `
@@ -728,13 +777,14 @@ func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
 
 const getUserBillingState = `-- name: GetUserBillingState :one
 
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states WHERE user_id = $1
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM user_billing_states WHERE user_id = $1
 `
 
 // ─── user_billing_states (PRO03) ──────────────────────────────────
@@ -761,12 +811,13 @@ func (q *Queries) GetUserBillingState(ctx context.Context, db DBTX, userID int64
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
 
 const getUserBillingStateByStripeCustomer = `-- name: GetUserBillingStateByStripeCustomer :one
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM user_billing_states
 WHERE provider = 'stripe'
   AND stripe_customer_id = $1
 `
@@ -794,12 +845,13 @@ func (q *Queries) GetUserBillingStateByStripeCustomer(ctx context.Context, db DB
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
 
 const getUserBillingStateByStripeSubscription = `-- name: GetUserBillingStateByStripeSubscription :one
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM user_billing_states
 WHERE provider = 'stripe'
   AND stripe_subscription_id = $1
 `
@@ -827,6 +879,7 @@ func (q *Queries) GetUserBillingStateByStripeSubscription(ctx context.Context, d
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -857,8 +910,116 @@ func (q *Queries) GetWebhookEventReceipt(ctx context.Context, db DBTX, providerE
 	return i, err
 }
 
+const isOrgBillingEventStale = `-- name: IsOrgBillingEventStale :one
+SELECT COALESCE(last_event_at > $1::timestamptz, false)::boolean AS stale
+  FROM org_billing_states
+ WHERE org_id = $2::bigint
+`
+
+type IsOrgBillingEventStaleParams struct {
+	EventAt pgtype.Timestamptz
+	OrgID   int64
+}
+
+// PRO08 D4: returns true when an incoming Stripe event's timestamp
+// is older than the last event we've already applied for this org.
+// Stripe doesn't guarantee delivery order across retries; without
+// this guard a stale `subscription.updated[active]` could re-activate
+// a canceled subscription. Returns false when no prior event has
+// been recorded (last_event_at IS NULL) — the first event is never
+// stale.
+func (q *Queries) IsOrgBillingEventStale(ctx context.Context, db DBTX, arg IsOrgBillingEventStaleParams) (bool, error) {
+	row := db.QueryRow(ctx, isOrgBillingEventStale, arg.EventAt, arg.OrgID)
+	var stale bool
+	err := row.Scan(&stale)
+	return stale, err
+}
+
+const isUserBillingEventStale = `-- name: IsUserBillingEventStale :one
+SELECT COALESCE(last_event_at > $1::timestamptz, false)::boolean AS stale
+  FROM user_billing_states
+ WHERE user_id = $2::bigint
+`
+
+type IsUserBillingEventStaleParams struct {
+	EventAt pgtype.Timestamptz
+	UserID  int64
+}
+
+func (q *Queries) IsUserBillingEventStale(ctx context.Context, db DBTX, arg IsUserBillingEventStaleParams) (bool, error) {
+	row := db.QueryRow(ctx, isUserBillingEventStale, arg.EventAt, arg.UserID)
+	var stale bool
+	err := row.Scan(&stale)
+	return stale, err
+}
+
+const listFailedWebhookEvents = `-- name: ListFailedWebhookEvents :many
+SELECT id, provider, provider_event_id, event_type, api_version,
+       received_at, processed_at, processing_attempts, process_error,
+       subject_kind, subject_id
+  FROM billing_webhook_events
+ WHERE provider = 'stripe'
+   AND (
+        process_error <> ''
+        OR (processed_at IS NULL AND processing_attempts > 0)
+       )
+ ORDER BY received_at DESC
+ LIMIT $1
+`
+
+type ListFailedWebhookEventsRow struct {
+	ID                 int64
+	Provider           BillingProvider
+	ProviderEventID    string
+	EventType          string
+	ApiVersion         string
+	ReceivedAt         pgtype.Timestamptz
+	ProcessedAt        pgtype.Timestamptz
+	ProcessingAttempts int32
+	ProcessError       string
+	SubjectKind        NullBillingSubjectKind
+	SubjectID          pgtype.Int8
+}
+
+// Operator query for "events we received but failed to process."
+// A row is "failed" when it has a non-empty process_error OR when
+// it has never been processed (processed_at NULL) and has at least
+// one processing attempt. Rows that are merely new and untouched
+// (attempts=0, processed_at NULL, no error) are excluded.
+func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error) {
+	rows, err := db.Query(ctx, listFailedWebhookEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFailedWebhookEventsRow{}
+	for rows.Next() {
+		var i ListFailedWebhookEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Provider,
+			&i.ProviderEventID,
+			&i.EventType,
+			&i.ApiVersion,
+			&i.ReceivedAt,
+			&i.ProcessedAt,
+			&i.ProcessingAttempts,
+			&i.ProcessError,
+			&i.SubjectKind,
+			&i.SubjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
 WHERE subject_kind = 'org' AND subject_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
@@ -906,6 +1067,7 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 			&i.UpdatedAt,
 			&i.SubjectKind,
 			&i.SubjectID,
+			&i.RefundedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -918,7 +1080,7 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 }
 
 const listInvoicesForSubject = `-- name: ListInvoicesForSubject :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
 WHERE subject_kind = $1::billing_subject_kind
   AND subject_id = $2::bigint
 ORDER BY created_at DESC, id DESC
@@ -968,6 +1130,7 @@ func (q *Queries) ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListI
 			&i.UpdatedAt,
 			&i.SubjectKind,
 			&i.SubjectID,
+			&i.RefundedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1033,7 +1196,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE org_id = $2::bigint
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), org_update AS (
     UPDATE orgs
        SET plan = 'free',
@@ -1041,7 +1204,7 @@ WITH state AS (
      WHERE id = $2::bigint
     RETURNING id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type MarkCanceledParams struct {
@@ -1071,6 +1234,7 @@ type MarkCanceledRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error) {
@@ -1098,6 +1262,57 @@ func (q *Queries) MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledPar
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
+	)
+	return i, err
+}
+
+const markInvoiceRefunded = `-- name: MarkInvoiceRefunded :one
+UPDATE billing_invoices
+   SET status = 'refunded',
+       refunded_at = COALESCE(refunded_at, now()),
+       updated_at = now()
+ WHERE provider = 'stripe'
+   AND stripe_invoice_id = $1::text
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+`
+
+// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+// the invoice.status='paid' after a refund and fires a charge.refunded
+// event; this helper flips the shithub-side row to 'refunded' so the
+// billing settings UI shows the refunded state.
+//
+// A NULL refunded_at means "no refund seen"; the value is set on the
+// first call and preserved on subsequent calls (refund partial → full
+// doesn't move the wall-clock timestamp).
+func (q *Queries) MarkInvoiceRefunded(ctx context.Context, db DBTX, stripeInvoiceID string) (BillingInvoice, error) {
+	row := db.QueryRow(ctx, markInvoiceRefunded, stripeInvoiceID)
+	var i BillingInvoice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeInvoiceID,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.Status,
+		&i.Number,
+		&i.Currency,
+		&i.AmountDueCents,
+		&i.AmountPaidCents,
+		&i.AmountRemainingCents,
+		&i.HostedInvoiceUrl,
+		&i.InvoicePdfUrl,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.DueAt,
+		&i.PaidAt,
+		&i.VoidedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubjectKind,
+		&i.SubjectID,
+		&i.RefundedAt,
 	)
 	return i, err
 }
@@ -1112,7 +1327,7 @@ UPDATE org_billing_states
        last_webhook_event_id = $2::text,
        updated_at = now()
  WHERE org_id = $3::bigint
-RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 `
 
 type MarkPastDueParams struct {
@@ -1146,6 +1361,7 @@ func (q *Queries) MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParam
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1171,7 +1387,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE org_id = $2::bigint
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), org_update AS (
     UPDATE orgs
        SET plan = state.plan,
@@ -1180,7 +1396,7 @@ WITH state AS (
      WHERE orgs.id = state.org_id
     RETURNING orgs.id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type MarkPaymentSucceededParams struct {
@@ -1210,6 +1426,7 @@ type MarkPaymentSucceededRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error) {
@@ -1237,6 +1454,7 @@ func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPay
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1254,7 +1472,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE user_id = $2::bigint
-    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), user_update AS (
     UPDATE users
        SET plan = 'free',
@@ -1262,7 +1480,7 @@ WITH state AS (
      WHERE id = $2::bigint
     RETURNING id
 )
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type MarkUserCanceledParams struct {
@@ -1290,6 +1508,7 @@ type MarkUserCanceledRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCanceledParams) (MarkUserCanceledRow, error) {
@@ -1315,6 +1534,7 @@ func (q *Queries) MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCan
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1329,7 +1549,7 @@ UPDATE user_billing_states
        last_webhook_event_id = $2::text,
        updated_at = now()
  WHERE user_id = $3::bigint
-RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 `
 
 type MarkUserPastDueParams struct {
@@ -1361,6 +1581,7 @@ func (q *Queries) MarkUserPastDue(ctx context.Context, db DBTX, arg MarkUserPast
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1386,7 +1607,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE user_id = $2::bigint
-    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 ), user_update AS (
     UPDATE users
        SET plan = state.plan,
@@ -1395,7 +1616,7 @@ WITH state AS (
      WHERE users.id = state.user_id
     RETURNING users.id
 )
-SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
 `
 
 type MarkUserPaymentSucceededParams struct {
@@ -1423,6 +1644,7 @@ type MarkUserPaymentSucceededRow struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 func (q *Queries) MarkUserPaymentSucceeded(ctx context.Context, db DBTX, arg MarkUserPaymentSucceededParams) (MarkUserPaymentSucceededRow, error) {
@@ -1448,6 +1670,7 @@ func (q *Queries) MarkUserPaymentSucceeded(ctx context.Context, db DBTX, arg Mar
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1523,7 +1746,7 @@ ON CONFLICT (org_id) DO UPDATE
    SET stripe_customer_id = EXCLUDED.stripe_customer_id,
        provider = 'stripe',
        updated_at = now()
-RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 `
 
 type SetStripeCustomerParams struct {
@@ -1556,6 +1779,7 @@ func (q *Queries) SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeC
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
 }
@@ -1567,7 +1791,7 @@ ON CONFLICT (user_id) DO UPDATE
    SET stripe_customer_id = EXCLUDED.stripe_customer_id,
        provider = 'stripe',
        updated_at = now()
-RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
 `
 
 type SetUserStripeCustomerParams struct {
@@ -1598,8 +1822,90 @@ func (q *Queries) SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUse
 		&i.LastWebhookEventID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastEventAt,
 	)
 	return i, err
+}
+
+const setWebhookEventSubject = `-- name: SetWebhookEventSubject :exec
+UPDATE billing_webhook_events
+   SET subject_kind = $1::billing_subject_kind,
+       subject_id   = $2::bigint
+ WHERE provider = 'stripe'
+   AND provider_event_id = $3::text
+`
+
+type SetWebhookEventSubjectParams struct {
+	SubjectKind     BillingSubjectKind
+	SubjectID       int64
+	ProviderEventID string
+}
+
+// Records the resolved subject on the receipt row after a successful
+// subject-resolution step. Called from the apply path before guard +
+// state mutation so the receipt carries the audit trail even if the
+// subsequent apply fails. Migration 0075's CHECK constraint enforces
+// both-or-neither; callers must pass a non-zero subject.
+func (q *Queries) SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWebhookEventSubjectParams) error {
+	_, err := db.Exec(ctx, setWebhookEventSubject, arg.SubjectKind, arg.SubjectID, arg.ProviderEventID)
+	return err
+}
+
+const touchOrgBillingLastEventAt = `-- name: TouchOrgBillingLastEventAt :exec
+UPDATE org_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, $1::timestamptz), $1::timestamptz)
+ WHERE org_id = $2::bigint
+`
+
+type TouchOrgBillingLastEventAtParams struct {
+	EventAt pgtype.Timestamptz
+	OrgID   int64
+}
+
+// PRO08 D4: bump last_event_at on successful apply. Conditional so
+// a fresh apply driven by an out-of-order-but-recent retry doesn't
+// regress the timestamp (GREATEST). NULL last_event_at acquires the
+// incoming value.
+func (q *Queries) TouchOrgBillingLastEventAt(ctx context.Context, db DBTX, arg TouchOrgBillingLastEventAtParams) error {
+	_, err := db.Exec(ctx, touchOrgBillingLastEventAt, arg.EventAt, arg.OrgID)
+	return err
+}
+
+const touchUserBillingLastEventAt = `-- name: TouchUserBillingLastEventAt :exec
+UPDATE user_billing_states
+   SET last_event_at = GREATEST(COALESCE(last_event_at, $1::timestamptz), $1::timestamptz)
+ WHERE user_id = $2::bigint
+`
+
+type TouchUserBillingLastEventAtParams struct {
+	EventAt pgtype.Timestamptz
+	UserID  int64
+}
+
+func (q *Queries) TouchUserBillingLastEventAt(ctx context.Context, db DBTX, arg TouchUserBillingLastEventAtParams) error {
+	_, err := db.Exec(ctx, touchUserBillingLastEventAt, arg.EventAt, arg.UserID)
+	return err
+}
+
+const tryAcquireWebhookEventLock = `-- name: TryAcquireWebhookEventLock :one
+SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS acquired
+`
+
+// PRO08 A3: transaction-scoped advisory lock keyed on the hash of
+// the provider_event_id. Two concurrent webhook deliveries for the
+// same event_id race past CreateWebhookEventReceipt before either has
+// marked it processed; without serialization, both proceed to apply
+// and double-mutate state. This lock makes the apply path mutually
+// exclusive per event. Returns true when acquired; false means
+// another worker holds it — caller should let Stripe retry.
+//
+// pg_try_advisory_xact_lock takes a bigint; hashtext returns int4
+// which sign-extends safely. The lock auto-releases at txn end.
+func (q *Queries) TryAcquireWebhookEventLock(ctx context.Context, db DBTX, hashtext string) (bool, error) {
+	row := db.QueryRow(ctx, tryAcquireWebhookEventLock, hashtext)
+	var acquired bool
+	err := row.Scan(&acquired)
+	return acquired, err
 }
 
 const upsertInvoice = `-- name: UpsertInvoice :one
@@ -1666,7 +1972,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
 `
 
 type UpsertInvoiceParams struct {
@@ -1740,6 +2046,150 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 		&i.UpdatedAt,
 		&i.SubjectKind,
 		&i.SubjectID,
+		&i.RefundedAt,
+	)
+	return i, err
+}
+
+const upsertInvoiceForSubject = `-- name: UpsertInvoiceForSubject :one
+INSERT INTO billing_invoices (
+    subject_kind,
+    subject_id,
+    provider,
+    stripe_invoice_id,
+    stripe_customer_id,
+    stripe_subscription_id,
+    status,
+    number,
+    currency,
+    amount_due_cents,
+    amount_paid_cents,
+    amount_remaining_cents,
+    hosted_invoice_url,
+    invoice_pdf_url,
+    period_start,
+    period_end,
+    due_at,
+    paid_at,
+    voided_at
+)
+VALUES (
+    $1::billing_subject_kind,
+    $2::bigint,
+    'stripe',
+    $3::text,
+    $4::text,
+    $5::text,
+    $6::billing_invoice_status,
+    $7::text,
+    $8::text,
+    $9::bigint,
+    $10::bigint,
+    $11::bigint,
+    $12::text,
+    $13::text,
+    $14::timestamptz,
+    $15::timestamptz,
+    $16::timestamptz,
+    $17::timestamptz,
+    $18::timestamptz
+)
+ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
+   SET subject_kind = EXCLUDED.subject_kind,
+       subject_id = EXCLUDED.subject_id,
+       stripe_customer_id = EXCLUDED.stripe_customer_id,
+       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+       status = EXCLUDED.status,
+       number = EXCLUDED.number,
+       currency = EXCLUDED.currency,
+       amount_due_cents = EXCLUDED.amount_due_cents,
+       amount_paid_cents = EXCLUDED.amount_paid_cents,
+       amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       hosted_invoice_url = EXCLUDED.hosted_invoice_url,
+       invoice_pdf_url = EXCLUDED.invoice_pdf_url,
+       period_start = EXCLUDED.period_start,
+       period_end = EXCLUDED.period_end,
+       due_at = EXCLUDED.due_at,
+       paid_at = EXCLUDED.paid_at,
+       voided_at = EXCLUDED.voided_at,
+       updated_at = now()
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+`
+
+type UpsertInvoiceForSubjectParams struct {
+	SubjectKind          BillingSubjectKind
+	SubjectID            int64
+	StripeInvoiceID      string
+	StripeCustomerID     string
+	StripeSubscriptionID pgtype.Text
+	Status               BillingInvoiceStatus
+	Number               string
+	Currency             string
+	AmountDueCents       int64
+	AmountPaidCents      int64
+	AmountRemainingCents int64
+	HostedInvoiceUrl     string
+	InvoicePdfUrl        string
+	PeriodStart          pgtype.Timestamptz
+	PeriodEnd            pgtype.Timestamptz
+	DueAt                pgtype.Timestamptz
+	PaidAt               pgtype.Timestamptz
+	VoidedAt             pgtype.Timestamptz
+}
+
+// PRO04 polymorphic invoice upsert. Writes (subject_kind,
+// subject_id) directly; org_id stays NULL for user-kind rows (per
+// the 0074 migration's nullable change). The existing
+// UpsertInvoice query stays as the org-kind path during the
+// transitional deploy — both can coexist because the UNIQUE
+// (provider, stripe_invoice_id) prevents duplicate rows.
+func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg UpsertInvoiceForSubjectParams) (BillingInvoice, error) {
+	row := db.QueryRow(ctx, upsertInvoiceForSubject,
+		arg.SubjectKind,
+		arg.SubjectID,
+		arg.StripeInvoiceID,
+		arg.StripeCustomerID,
+		arg.StripeSubscriptionID,
+		arg.Status,
+		arg.Number,
+		arg.Currency,
+		arg.AmountDueCents,
+		arg.AmountPaidCents,
+		arg.AmountRemainingCents,
+		arg.HostedInvoiceUrl,
+		arg.InvoicePdfUrl,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.DueAt,
+		arg.PaidAt,
+		arg.VoidedAt,
+	)
+	var i BillingInvoice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeInvoiceID,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.Status,
+		&i.Number,
+		&i.Currency,
+		&i.AmountDueCents,
+		&i.AmountPaidCents,
+		&i.AmountRemainingCents,
+		&i.HostedInvoiceUrl,
+		&i.InvoicePdfUrl,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.DueAt,
+		&i.PaidAt,
+		&i.VoidedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubjectKind,
+		&i.SubjectID,
+		&i.RefundedAt,
 	)
 	return i, err
 }

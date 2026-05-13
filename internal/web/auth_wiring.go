@@ -24,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
@@ -162,6 +163,20 @@ func buildAuthHandlers(
 		logger.Warn("auth: no totp_key_b64 configured; 2FA enrollment routes disabled",
 			"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable 2FA")
 	}
+	var stripeRemote stripebilling.Remote
+	if cfg.Billing.Enabled {
+		remote, err := stripebilling.New(stripebilling.Config{
+			SecretKey:     cfg.Billing.Stripe.SecretKey,
+			WebhookSecret: cfg.Billing.Stripe.WebhookSecret,
+			TeamPriceID:   cfg.Billing.Stripe.TeamPriceID,
+			ProPriceID:    cfg.Billing.Stripe.ProPriceID,
+			AutomaticTax:  cfg.Billing.Stripe.AutomaticTax,
+		})
+		if err != nil {
+			return nil, err
+		}
+		stripeRemote = remote
+	}
 	return authh.New(authh.Deps{
 		Logger:       logger,
 		Render:       rr,
@@ -187,6 +202,13 @@ func buildAuthHandlers(
 		Audit:                    audit.NewRecorder(),
 		ObjectStore:              objectStore,
 		OrgBillingEnabled:        cfg.Billing.Enabled,
+		BillingEnabled:           cfg.Billing.Enabled,
+		BillingGracePeriod:       cfg.Billing.GracePeriod,
+		Stripe:                   stripeRemote,
+		StripeSuccessURL:         cfg.Billing.Stripe.SuccessURL,
+		StripeCancelURL:          cfg.Billing.Stripe.CancelURL,
+		StripePortalReturnURL:    cfg.Billing.Stripe.PortalReturnURL,
+		BaseURL:                  cfg.Auth.BaseURL,
 	})
 }
 

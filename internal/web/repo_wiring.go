@@ -88,5 +88,6 @@ func buildRepoHandlers(
 			SSHEnabled: cfg.Auth.SSH.Enabled,
 			SSHHost:    cfg.Auth.SSH.Host,
 		},
+		BillingEnforce: cfg.Billing.Enforce,
 	})
 }

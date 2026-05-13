@@ -41,6 +41,7 @@ func buildOrgHandlers(
 			SecretKey:     cfg.Billing.Stripe.SecretKey,
 			WebhookSecret: cfg.Billing.Stripe.WebhookSecret,
 			TeamPriceID:   cfg.Billing.Stripe.TeamPriceID,
+			ProPriceID:    cfg.Billing.Stripe.ProPriceID,
 			AutomaticTax:  cfg.Billing.Stripe.AutomaticTax,
 		})
 		if err != nil {
@@ -76,6 +77,8 @@ func buildOrgHandlers(
 		StripeSuccessURL:      cfg.Billing.Stripe.SuccessURL,
 		StripeCancelURL:       cfg.Billing.Stripe.CancelURL,
 		StripePortalReturnURL: cfg.Billing.Stripe.PortalReturnURL,
+		StripeTeamPriceID:     cfg.Billing.Stripe.TeamPriceID,
+		StripeProPriceID:      cfg.Billing.Stripe.ProPriceID,
 	})
 }
 
