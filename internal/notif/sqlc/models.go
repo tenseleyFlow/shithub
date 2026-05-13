@@ -185,6 +185,48 @@ func (ns NullBillingProvider) Value() (driver.Value, error) {
 	return string(ns.BillingProvider), nil
 }
 
+type BillingSubjectKind string
+
+const (
+	BillingSubjectKindUser BillingSubjectKind = "user"
+	BillingSubjectKindOrg  BillingSubjectKind = "org"
+)
+
+func (e *BillingSubjectKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BillingSubjectKind(s)
+	case string:
+		*e = BillingSubjectKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BillingSubjectKind: %T", src)
+	}
+	return nil
+}
+
+type NullBillingSubjectKind struct {
+	BillingSubjectKind BillingSubjectKind
+	Valid              bool // Valid is true if BillingSubjectKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBillingSubjectKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.BillingSubjectKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BillingSubjectKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBillingSubjectKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BillingSubjectKind), nil
+}
+
 type BillingSubscriptionStatus string
 
 const (
@@ -1401,6 +1443,48 @@ func (ns NullTrendingScope) Value() (driver.Value, error) {
 	return string(ns.TrendingScope), nil
 }
 
+type UserPlan string
+
+const (
+	UserPlanFree UserPlan = "free"
+	UserPlanPro  UserPlan = "pro"
+)
+
+func (e *UserPlan) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserPlan(s)
+	case string:
+		*e = UserPlan(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserPlan: %T", src)
+	}
+	return nil
+}
+
+type NullUserPlan struct {
+	UserPlan UserPlan
+	Valid    bool // Valid is true if UserPlan is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserPlan) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserPlan, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserPlan.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserPlan) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserPlan), nil
+}
+
 type WatchLevel string
 
 const (
@@ -1863,7 +1947,7 @@ type AuthThrottle struct {
 
 type BillingInvoice struct {
 	ID                   int64
-	OrgID                int64
+	OrgID                pgtype.Int8
 	Provider             BillingProvider
 	StripeInvoiceID      string
 	StripeCustomerID     string
@@ -1883,6 +1967,8 @@ type BillingInvoice struct {
 	VoidedAt             pgtype.Timestamptz
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
+	SubjectKind          BillingSubjectKind
+	SubjectID            int64
 }
 
 type BillingSeatSnapshot struct {
@@ -1907,6 +1993,8 @@ type BillingWebhookEvent struct {
 	ProcessedAt        pgtype.Timestamptz
 	ProcessError       string
 	ProcessingAttempts int32
+	SubjectKind        NullBillingSubjectKind
+	SubjectID          pgtype.Int8
 }
 
 type BranchProtectionRule struct {
@@ -2627,6 +2715,29 @@ type User struct {
 	SessionEpoch                int32
 	IsSiteAdmin                 bool
 	IncludePrivateContributions bool
+	Plan                        UserPlan
+}
+
+type UserBillingState struct {
+	UserID                   int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
 }
 
 type UserEmail struct {
