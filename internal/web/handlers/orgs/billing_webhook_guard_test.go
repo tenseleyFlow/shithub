@@ -185,6 +185,72 @@ func TestBillingWebhookGuardRefusesTeamPriceOnUserSubject(t *testing.T) {
 	}
 }
 
+// TestBillingWebhookDropsStaleEvent locks PRO08 D4: a Stripe event
+// with `created` older than the persisted last_event_at must NOT
+// regress state. Pre-PRO08 a reverse-ordered retry could re-activate
+// a canceled subscription. The handler returns 200 (Stripe stops
+// retrying THIS delivery) and leaves state alone.
+func TestBillingWebhookDropsStaleEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+
+	// Establish a fresh canceled state via direct apply + touch.
+	if _, err := orgbilling.MarkCanceledForPrincipal(ctx, orgbilling.Deps{Pool: pool}, orgbilling.PrincipalForOrg(orgID), "evt_canceled"); err != nil {
+		t.Fatalf("MarkCanceled: %v", err)
+	}
+	freshTime := time.Now().UTC()
+	if err := orgbilling.TouchBillingLastEventAtForPrincipal(ctx, orgbilling.Deps{Pool: pool}, orgbilling.PrincipalForOrg(orgID), freshTime); err != nil {
+		t.Fatalf("touch fresh: %v", err)
+	}
+
+	// A stale (older) subscription.updated[active] arrives. event.Created
+	// is 1 hour BEFORE the persisted last_event_at.
+	staleCreated := freshTime.Add(-1 * time.Hour).Unix()
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_stale_active",
+		"customer": "cus_stale",
+		"status":   "active",
+		"metadata": map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_stale",
+			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
+			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
+			"price":                map[string]string{"id": testTeamPriceID},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:      "evt_stale_active",
+				Type:    stripeapi.EventType("customer.subscription.updated"),
+				Created: staleCreated,
+				Data:    &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMuxWithPrices(t, pool, ownerID, fake, testTeamPriceID, testProPriceID)
+	resp := postBillingWebhook(t, mux, "evt_stale_active")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stale event status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if state.Plan != orgbilling.PlanFree {
+		t.Fatalf("stale event corrupted state: plan=%s want free", state.Plan)
+	}
+	if state.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
+		t.Fatalf("stale event corrupted status: got %s want canceled", state.SubscriptionStatus)
+	}
+}
+
 // TestBillingWebhookGuardRefusesSecondSubscriptionForSameCustomer locks
 // PRO08 D3: when the principal already has a Stripe subscription on
 // file, a webhook event referencing a DIFFERENT subscription must be
