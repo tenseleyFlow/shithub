@@ -26,7 +26,7 @@ func TestEnforcePreReceiveStorageQuotaRejectsOrgRepoOverLimit(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
 	user, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
-		Username: "alice", DisplayName: "Alice", PasswordHash: "$argon2id$v=19$m=16384,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Username: "alice", DisplayName: "Alice", PasswordHash: "$argon2id$v=19$m=16384,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", // #nosec G101 -- test fixture password hash, not a credential
 	})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
