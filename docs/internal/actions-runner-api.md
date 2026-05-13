@@ -24,6 +24,16 @@ The command inserts `workflow_runners`, stores only a SHA-256 hash in
 the runner token before it expires, because the runner uses that same token for
 heartbeat authentication.
 
+Operators can drain, undrain, rotate, and hard-revoke runners with
+`shithubd admin runner drain`, `undrain`, `rotate-token`, and `revoke`.
+Drained runners keep heartbeating and may finish already claimed jobs,
+but heartbeat claims return 204 until the runner is undrained. Hard
+revocation sets the runner offline, records `revoked_at`, revokes all
+registration tokens, and makes job API JWTs minted for that runner
+invalid. This is the token-compromise boundary: a host with an old config
+file cannot claim new jobs or update already claimed jobs after
+revocation lands in Postgres.
+
 `POST /api/v1/runners/heartbeat` accepts:
 
 ```http
@@ -77,7 +87,12 @@ runner API endpoints.
 Request body:
 
 ```json
-{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1}
+{
+  "labels": ["self-hosted", "linux", "ubuntu-latest", "x64"],
+  "capacity": 1,
+  "host_name": "runner-host-1",
+  "version": "v0.1.0"
+}
 ```
 
 Returns 204 when no matching job is claimable. Returns 200 with
@@ -89,6 +104,9 @@ disabled repos, approval-pending runs, per-repo concurrent job caps, and
 per-owner/org concurrent job caps are not dispatchable. Approval simply
 sets `workflow_runs.approved_by_user_id`; the next heartbeat can claim the
 same queued jobs, so no duplicate run is created.
+`host_name` and `version` are optional runner metadata. The server stores
+trimmed values up to 255 bytes for pool diagnostics and preserves the
+previous values when old runners omit them.
 The job payload includes `checkout_url`, `checkout_token`, resolved
 `secrets`, and `mask_values`; repo secrets shadow org secrets with the
 same name. The server also stores an encrypted claim-time copy of the mask
