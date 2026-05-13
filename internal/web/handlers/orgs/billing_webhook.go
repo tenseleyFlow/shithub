@@ -102,6 +102,7 @@ func (h *Handlers) applyStripeCheckoutCompleted(ctx context.Context, event strip
 	if err != nil {
 		return err
 	}
+	h.recordWebhookSubject(ctx, event.ID, principal)
 	_, err = orgbilling.SetStripeCustomerForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, customerID)
 	return err
 }
@@ -147,6 +148,7 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 	if err != nil {
 		return err
 	}
+	h.recordWebhookSubject(ctx, event.ID, principal)
 	// Cross-kind price-id check: if the subscription's first item
 	// price doesn't match the expected price for the resolved kind,
 	// refuse to apply. A Pro price on an org subject (or Team on
@@ -262,6 +264,7 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 	if err != nil {
 		return err
 	}
+	h.recordWebhookSubject(ctx, event.ID, principalState.Principal)
 	status, err := stripeInvoiceStatus(inv.Status)
 	if err != nil {
 		return err
@@ -449,6 +452,24 @@ func unixTime(ts int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(ts, 0).UTC()
+}
+
+// recordWebhookSubject persists the resolved principal on the receipt
+// row so failed events keep their audit trail. Logs and continues on
+// error — the subject is auxiliary; the state-mutation path is the
+// load-bearing thing. A zero principal (invalid kind / ID) is treated
+// as a programmer error and silently dropped: the both-or-neither
+// CHECK constraint on the receipt table would reject the write.
+func (h *Handlers) recordWebhookSubject(ctx context.Context, eventID string, p orgbilling.Principal) {
+	if err := p.Validate(); err != nil {
+		h.d.Logger.WarnContext(ctx, "org billing: webhook subject record skipped — invalid principal",
+			"event_id", eventID, "error", err)
+		return
+	}
+	if err := orgbilling.SetWebhookEventSubjectForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, eventID, p); err != nil {
+		h.d.Logger.WarnContext(ctx, "org billing: webhook subject record failed",
+			"event_id", eventID, "principal", p.String(), "error", err)
+	}
 }
 
 func unmarshalStripeEventObject[T any](event stripeapi.Event, out *T) error {
