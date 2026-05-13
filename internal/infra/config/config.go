@@ -106,10 +106,13 @@ type BillingConfig struct {
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
 // URLs are optional; when omitted the web layer derives them from auth.base_url.
+// PRO04 introduced ProPriceID for the user-tier Pro plan; it stays empty
+// when the operator has only enabled the org-tier Team plan.
 type StripeBillingConfig struct {
 	SecretKey       string `toml:"secret_key"`
 	WebhookSecret   string `toml:"webhook_secret"`
 	TeamPriceID     string `toml:"team_price_id"`
+	ProPriceID      string `toml:"pro_price_id"`
 	SuccessURL      string `toml:"success_url"`
 	CancelURL       string `toml:"cancel_url"`
 	PortalReturnURL string `toml:"portal_return_url"`
