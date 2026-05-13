@@ -75,6 +75,10 @@ type Querier interface {
 	// O(1) cost the user-side path enjoys.
 	GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerOrgAndNameParams) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
+	// Lookup the per-repo backfill metadata. Mirrors the row shape of
+	// ListAllActiveReposWithOwner so the per-repo job handler can run
+	// the same code path the bulk handler uses.
+	GetRepoForBackfill(ctx context.Context, db DBTX, id int64) (GetRepoForBackfillRow, error)
 	// Returns the owner slug for a repo. Used by size-recalc, indexing, and
 	// other jobs that need the bare-repo on-disk path. Org-owned repos use the
 	// org slug in the same path position as user-owned repos.
@@ -98,6 +102,12 @@ type Querier interface {
 	// SoftDeleteSubkeysForGPGKey so the cache and the keyring stay in
 	// sync. The next read of an invalidated row triggers a re-verify.
 	InvalidateVerificationsForSubkey(ctx context.Context, db DBTX, signerSubkeyID pgtype.Int8) error
+	// Used by the GPG verification backfill (S51) to enumerate every
+	// active repo system-wide. Unlike ListAllRepoFullNames this query
+	// handles BOTH user-owned and org-owned repos via a COALESCE between
+	// users.username and orgs.slug; the owner string is whatever
+	// RepoFS.RepoPath expects.
+	ListAllActiveReposWithOwner(ctx context.Context, db DBTX) ([]ListAllActiveReposWithOwnerRow, error)
 	// Used by `shithubd hooks reinstall --all` to enumerate every active
 	// bare repo on disk and re-link its hooks.
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
