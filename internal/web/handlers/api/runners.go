@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -55,7 +56,13 @@ func (h *Handlers) mountRunners(r chi.Router) {
 type runnerHeartbeatRequest struct {
 	Labels   []string `json:"labels"`
 	Capacity int      `json:"capacity"`
+	HostName string   `json:"host_name"`
+	Version  string   `json:"version"`
 }
+
+const runnerMetadataMaxBytes = 255
+
+var errRunnerRevoked = errors.New("runner is revoked")
 
 func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if h.d.RunnerJWT == nil {
@@ -94,9 +101,22 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "capacity must be between 1 and 64")
 		return
 	}
+	hostName := cleanRunnerMetadata(body.HostName)
+	if hostName == "" {
+		hostName = runner.HostName
+	}
+	version := cleanRunnerMetadata(body.Version)
+	if version == "" {
+		version = runner.Version
+	}
 
-	job, steps, resolvedSecrets, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity))
+	job, steps, resolvedSecrets, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity), hostName, version)
 	if err != nil {
+		if errors.Is(err, errRunnerRevoked) {
+			metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("rejected").Inc()
+			writeAPIError(w, http.StatusUnauthorized, "runner revoked")
+			return
+		}
 		h.d.Logger.ErrorContext(r.Context(), "runner heartbeat claim failed", "runner_id", runner.ID, "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "runner heartbeat failed")
 		return
@@ -134,6 +154,22 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
 	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Add(2)
 	writeJSON(w, http.StatusOK, h.presentRunnerClaim(job, steps, resolvedSecrets, token, checkoutToken, time.Unix(claims.Exp, 0)))
+}
+
+func cleanRunnerMetadata(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= runnerMetadataMaxBytes {
+		return value
+	}
+	var b strings.Builder
+	for _, r := range value {
+		runeLen := utf8.RuneLen(r)
+		if runeLen < 0 || b.Len()+runeLen > runnerMetadataMaxBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (h *Handlers) authenticateRunner(w http.ResponseWriter, r *http.Request) (actionsdb.GetRunnerByTokenHashRow, bool) {
@@ -178,6 +214,8 @@ func (h *Handlers) claimRunnerJob(
 	runnerID int64,
 	labels []string,
 	capacity int32,
+	hostName string,
+	version string,
 ) (actionsdb.ClaimQueuedWorkflowJobRow, []actionsdb.ListRunnerStepsForJobRow, map[string]string, bool, error) {
 	q := actionsdb.New()
 	tx, err := h.d.Pool.Begin(ctx)
@@ -191,20 +229,44 @@ func (h *Handlers) claimRunnerJob(
 		}
 	}()
 
-	if _, err := q.LockRunnerByID(ctx, tx, runnerID); err != nil {
+	lockedRunner, err := q.LockRunnerByID(ctx, tx, runnerID)
+	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+	}
+	if lockedRunner.RevokedAt.Valid {
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, errRunnerRevoked
 	}
 	running, err := q.CountRunningJobsForRunner(ctx, tx, runnerID)
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
-	if running >= capacity {
-		if _, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
+	heartbeat := func(status actionsdb.WorkflowRunnerStatus) error {
+		_, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
 			ID:       runnerID,
 			Labels:   labels,
 			Capacity: capacity,
-			Status:   actionsdb.WorkflowRunnerStatusBusy,
-		}); err != nil {
+			Status:   status,
+			HostName: hostName,
+			Version:  version,
+		})
+		return err
+	}
+	if lockedRunner.DrainingAt.Valid {
+		status := actionsdb.WorkflowRunnerStatusIdle
+		if running > 0 {
+			status = actionsdb.WorkflowRunnerStatusBusy
+		}
+		if err := heartbeat(status); err != nil {
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		}
+		committed = true
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
+	}
+	if running >= capacity {
+		if err := heartbeat(actionsdb.WorkflowRunnerStatusBusy); err != nil {
 			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -222,12 +284,7 @@ func (h *Handlers) claimRunnerJob(
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
-		if _, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
-			ID:       runnerID,
-			Labels:   labels,
-			Capacity: capacity,
-			Status:   actionsdb.WorkflowRunnerStatusIdle,
-		}); err != nil {
+		if err := heartbeat(actionsdb.WorkflowRunnerStatusIdle); err != nil {
 			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -257,7 +314,7 @@ func (h *Handlers) claimRunnerJob(
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
-	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID)
+	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID, job.Event)
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
@@ -268,18 +325,24 @@ func (h *Handlers) claimRunnerJob(
 	if running+1 >= capacity {
 		status = actionsdb.WorkflowRunnerStatusBusy
 	}
-	if _, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
-		ID:       runnerID,
-		Labels:   labels,
-		Capacity: capacity,
-		Status:   status,
-	}); err != nil {
+	if err := heartbeat(status); err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+	}
+	var claimLatencySeconds float64
+	observeClaimLatency := false
+	if job.CreatedAt.Valid {
+		if latency := time.Since(job.CreatedAt.Time); latency >= 0 {
+			claimLatencySeconds = latency.Seconds()
+			observeClaimLatency = true
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
 	committed = true
+	if observeClaimLatency {
+		metrics.ActionsJobClaimLatencySeconds.Observe(claimLatencySeconds)
+	}
 	return job, steps, resolvedSecrets, true, nil
 }
 
@@ -326,7 +389,14 @@ func (h *Handlers) authenticateRunnerJob(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
 		return runnerJobAuth{}, false
 	}
-	job, err := actionsdb.New().GetWorkflowJobByID(r.Context(), h.d.Pool, pathJobID)
+	q := actionsdb.New()
+	runner, err := q.GetRunnerByID(r.Context(), h.d.Pool, runnerID)
+	if err != nil || runner.RevokedAt.Valid {
+		metrics.ActionsRunnerJWTTotal.WithLabelValues("rejected").Inc()
+		writeAPIError(w, http.StatusUnauthorized, "job token invalid")
+		return runnerJobAuth{}, false
+	}
+	job, err := q.GetWorkflowJobByID(r.Context(), h.d.Pool, pathJobID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeAPIError(w, http.StatusNotFound, "job not found")
@@ -1016,11 +1086,14 @@ type secretResolutionDB interface {
 }
 
 func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map[string]string, error) {
-	return h.resolveVisibleSecretsFromDB(ctx, h.d.Pool, repoID)
+	return h.resolveVisibleSecretsFromDB(ctx, h.d.Pool, repoID, "")
 }
 
-func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64) (map[string]string, error) {
+func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64, event actionsdb.WorkflowRunEvent) (map[string]string, error) {
 	if h.d.SecretBox == nil {
+		return nil, nil
+	}
+	if event == actionsdb.WorkflowRunEventPullRequest {
 		return nil, nil
 	}
 	repo, err := reposdb.New().GetRepoByID(ctx, db, repoID)

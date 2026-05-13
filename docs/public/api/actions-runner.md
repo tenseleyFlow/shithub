@@ -19,6 +19,11 @@ Claims one queued workflow job for a registered runner when labels and
 capacity match. Returns `204 No Content` when no job is available, or
 `200 OK` with a job payload and job JWT.
 
+The runner may include `host_name` and `version` in the heartbeat body
+for operator diagnostics. Drained runners return `204 No Content` and do
+not claim new jobs. Revoked runners receive `401 Unauthorized`, and job
+JWTs previously minted for that runner are rejected.
+
 ## Job log chunks
 
 ```

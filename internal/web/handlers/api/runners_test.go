@@ -22,6 +22,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
+	actionslifecycle "github.com/tenseleyFlow/shithub/internal/actions/lifecycle"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsecrets "github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
@@ -58,7 +59,7 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	router := newRunnerAPIRouter(t, pool, logger, signer)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
-		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1,"host_name":"runner-host","version":"dev-test"}`))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -120,6 +121,13 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	if checkoutClaims.JobID != resp.Job.ID || checkoutClaims.RunID != runID || checkoutClaims.RepoID != repoID ||
 		checkoutClaims.Purpose != runnerjwt.PurposeCheckout {
 		t.Fatalf("checkout claims/job mismatch: claims=%+v job=%+v", checkoutClaims, resp.Job)
+	}
+	runnerRow, err := actionsdb.New().GetRunnerByID(ctx, pool, runnerID)
+	if err != nil {
+		t.Fatalf("GetRunnerByID: %v", err)
+	}
+	if runnerRow.HostName != "runner-host" || runnerRow.Version != "dev-test" {
+		t.Fatalf("runner metadata: host=%q version=%q", runnerRow.HostName, runnerRow.Version)
 	}
 
 	var logResp struct {
@@ -185,6 +193,101 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("second heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRunnerHeartbeatDoesNotClaimWhenDraining(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, runnerID := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	q := actionsdb.New()
+	if _, err := q.SetRunnerDraining(ctx, pool, actionsdb.SetRunnerDrainingParams{
+		ID:          runnerID,
+		DrainReason: "maintenance",
+	}); err != nil {
+		t.Fatalf("SetRunnerDraining: %v", err)
+	}
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1,"host_name":"draining-host","version":"dev-test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("job was claimed while runner drained: %#v", jobs)
+	}
+	job, err := q.GetWorkflowJobByID(ctx, pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if job.RunnerID.Valid {
+		t.Fatalf("job was assigned to runner while drained: %+v", job)
+	}
+	runnerRow, err := q.GetRunnerByID(ctx, pool, runnerID)
+	if err != nil {
+		t.Fatalf("GetRunnerByID: %v", err)
+	}
+	if !runnerRow.DrainingAt.Valid || runnerRow.HostName != "draining-host" {
+		t.Fatalf("runner drain/metadata not preserved: %+v", runnerRow)
+	}
+}
+
+func TestRunnerJobTokenRejectedAfterRunnerRevoked(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, runnerID := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("claim status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID int64 `json:"id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	q := actionsdb.New()
+	if _, err := q.RevokeRunner(ctx, pool, actionsdb.RevokeRunnerParams{
+		ID:            runnerID,
+		RevokedReason: "compromised",
+	}); err != nil {
+		t.Fatalf("RevokeRunner: %v", err)
+	}
+	if err := q.RevokeAllTokensForRunner(ctx, pool, runnerID); err != nil {
+		t.Fatalf("RevokeAllTokensForRunner: %v", err)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/status", claim.Job.ID),
+		strings.NewReader(`{"status":"running"}`))
+	statusReq.Header.Set("Authorization", "Bearer "+claim.Token)
+	statusRR := httptest.NewRecorder()
+	router.ServeHTTP(statusRR, statusReq)
+	if statusRR.Code != http.StatusUnauthorized {
+		t.Fatalf("status: got %d, want 401; body=%s", statusRR.Code, statusRR.Body.String())
 	}
 }
 
@@ -307,6 +410,94 @@ func TestRunnerSecretsAreClaimedAndServerScrubsLogs(t *testing.T) {
 	got := string(chunks[0].Chunk)
 	if strings.Contains(got, "hunter2") || got != "before *** after\n" {
 		t.Fatalf("stored log chunk was not scrubbed: %q", got)
+	}
+}
+
+func TestRunnerHeartbeatDoesNotClaimApprovalPendingRun(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	q := actionsdb.New()
+	if _, err := pool.Exec(ctx, `UPDATE workflow_runs SET need_approval = true WHERE id = $1`, runID); err != nil {
+		t.Fatalf("mark run approval pending: %v", err)
+	}
+	if _, err := q.InsertWorkflowRunApproval(ctx, pool, actionsdb.InsertWorkflowRunApprovalParams{
+		RunID:           runID,
+		RequestedReason: "test approval",
+	}); err != nil {
+		t.Fatalf("InsertWorkflowRunApproval: %v", err)
+	}
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("pending heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("approval-pending job changed: %+v", jobs)
+	}
+
+	if _, err := actionslifecycle.ApproveRun(ctx, actionslifecycle.Deps{Pool: pool, Logger: logger}, runID, userID); err != nil {
+		t.Fatalf("ApproveRun: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("approved heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRunnerDoesNotInjectSecretsIntoPullRequestRuns(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIEventRun(t, pool, logger, repoID, userID, trigger.EventPullRequest, map[string]any{"action": "opened"})
+	box := testRunnerAPISecretBox(t)
+	if err := (actionsecrets.Deps{Pool: pool, Box: box}).Set(ctx, actionsecrets.RepoScope(repoID), "TOKEN", []byte("hunter2"), userID); err != nil {
+		t.Fatalf("Set secret: %v", err)
+	}
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouterWithSecretBox(t, pool, logger, runnerAPISigner(t, time.Now()), box)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Job struct {
+			RunID      int64             `json:"run_id"`
+			Secrets    map[string]string `json:"secrets"`
+			MaskValues []string          `json:"mask_values"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	if claim.Job.RunID != runID {
+		t.Fatalf("claimed wrong run: %+v", claim.Job)
+	}
+	if len(claim.Job.Secrets) != 0 || len(claim.Job.MaskValues) != 0 {
+		t.Fatalf("pull_request run received secrets: %+v", claim.Job)
 	}
 }
 
@@ -908,6 +1099,11 @@ func setupRunnerAPIRepo(t *testing.T, pool *pgxpool.Pool) (repoID, userID int64)
 
 func enqueueRunnerAPIRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64) int64 {
 	t.Helper()
+	return enqueueRunnerAPIEventRun(t, pool, logger, repoID, userID, trigger.EventPush, map[string]any{"ref": "refs/heads/trunk"})
+}
+
+func enqueueRunnerAPIEventRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, event trigger.EventKind, payload map[string]any) int64 {
+	t.Helper()
 	wf, diags, err := workflow.Parse([]byte(`name: ci
 on: push
 jobs:
@@ -930,10 +1126,10 @@ jobs:
 		WorkflowFile:   ".shithub/workflows/ci.yml",
 		HeadSHA:        strings.Repeat("a", 40),
 		HeadRef:        "refs/heads/trunk",
-		EventKind:      trigger.EventPush,
-		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		EventKind:      event,
+		EventPayload:   payload,
 		ActorUserID:    userID,
-		TriggerEventID: "push:test",
+		TriggerEventID: "runner-api-test:" + string(event),
 		Workflow:       wf,
 	})
 	if err != nil {

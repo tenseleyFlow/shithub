@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -129,6 +130,51 @@ func TestSettingsBranchesAllowsPaidPrivateOrgRepoAdvancedSettings(t *testing.T) 
 		t.Fatalf("redirect location=%q", got)
 	}
 	assertBranchProtectionRule(t, f, repo.ID, 2, []string{"ci", "lint"}, true, true)
+}
+
+func TestSettingsBranchesAllowsDowngradedOrgToRemoveAdvancedSettings(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	ruleID, err := f.handlers.rq.UpsertBranchProtectionRule(context.Background(), f.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:          repo.ID,
+		Pattern:         "trunk",
+		PreventDeletion: true,
+	})
+	if err != nil {
+		t.Fatalf("seed branch rule: %v", err)
+	}
+	if err := f.handlers.rq.UpdateBranchProtectionReviewSettings(context.Background(), f.pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
+		ID:                        ruleID,
+		RequiredReviewCount:       2,
+		DismissStaleReviewsOnPush: true,
+	}); err != nil {
+		t.Fatalf("seed review settings: %v", err)
+	}
+	if err := f.handlers.rq.UpdateBranchProtectionCheckSettings(context.Background(), f.pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
+		ID:                             ruleID,
+		StatusChecksRequired:           []string{"ci"},
+		DismissStaleStatusChecksOnPush: true,
+	}); err != nil {
+		t.Fatalf("seed check settings: %v", err)
+	}
+
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/acme/private-org-repo/settings/branches", url.Values{
+		"id":      {strconv.FormatInt(ruleID, 10)},
+		"pattern": {"trunk"},
+	})
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=saved" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	assertBranchProtectionRule(t, f, repo.ID, 0, nil, false, false)
 }
 
 func (f *repoFixture) branchesSettingsMux(userID int64, username string) http.Handler {

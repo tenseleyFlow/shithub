@@ -171,17 +171,13 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 // jobs package) would need to round-trip through the queue just to
 // observe the open.
 //
-// Collaborator gate: actor must be the repo's owning user. Same v1
-// posture as the synchronize path.
+// Trust gate: the trigger handler evaluates the author through
+// internal/auth/policy and either queues the run as trusted or marks it
+// approval-required. This helper only supplies the canonical PR event.
 func enqueueOpenedActionsTrigger(ctx context.Context, deps Deps, p CreateParams, prRow pullsdb.PullRequest, prNumber int64, baseOID, headOID string) error {
 	repo, err := reposdb.New().GetRepoByID(ctx, deps.Pool, p.RepoID)
 	if err != nil {
 		return fmt.Errorf("load repo: %w", err)
-	}
-	if !repo.OwnerUserID.Valid || repo.OwnerUserID.Int64 != p.AuthorUserID {
-		// Conservative collaborator gate — non-owner authors don't
-		// trigger. External-PR + org-member triggers parked for v2.
-		return nil
 	}
 	changed, err := repogit.ChangedPaths(ctx, p.GitDir, baseOID, headOID)
 	if err != nil {
@@ -198,7 +194,7 @@ func enqueueOpenedActionsTrigger(ctx context.Context, deps Deps, p CreateParams,
 		authorLogin,
 	)
 	job := trigger.JobPayload{
-		RepoID:         p.RepoID,
+		RepoID:         repo.ID,
 		HeadSHA:        prRow.HeadOid,
 		HeadRef:        "refs/heads/" + prRow.HeadRef,
 		EventKind:      trigger.EventPullRequest,

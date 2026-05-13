@@ -112,7 +112,14 @@ func (h *Handlers) applyActionsLifecycleControls(r *http.Request, row reposdb.Re
 		return
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
-	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row))
+	repoRef := policy.NewRepoRefFromRepo(row)
+	if view.ApprovalPending {
+		approvalDec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionActionsApprove, repoRef)
+		if approvalDec.Allow {
+			view.CanApprove = true
+		}
+	}
+	dec := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, repoRef)
 	if !dec.Allow {
 		return
 	}

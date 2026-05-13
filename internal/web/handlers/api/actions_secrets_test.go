@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -25,7 +27,9 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -120,6 +124,68 @@ func newSecretsTestEnv(t *testing.T) *secretsTestEnv {
 		tokenRO:   mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoRead)),
 		tokenRW:   mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite)),
 	}
+}
+
+func (e *secretsTestEnv) seedOrg(t *testing.T, slug string) int64 {
+	t.Helper()
+	org, err := orgs.Create(context.Background(), orgs.Deps{Pool: e.pool}, orgs.CreateParams{
+		Slug:            slug,
+		DisplayName:     slug,
+		CreatedByUserID: e.userID,
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	return org.ID
+}
+
+func (e *secretsTestEnv) activateTeamPlan(t *testing.T, orgID int64) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	_, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: e.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_api_actions_" + strconv.FormatInt(orgID, 10),
+		StripeSubscriptionItemID: "si_api_actions_" + strconv.FormatInt(orgID, 10),
+		CurrentPeriodStart:       now,
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_api_actions_" + strconv.FormatInt(orgID, 10),
+	})
+	if err != nil {
+		t.Fatalf("activate team plan: %v", err)
+	}
+}
+
+func (e *secretsTestEnv) encryptedSecretBody(t *testing.T) []byte {
+	t.Helper()
+	pubReq := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/actions/secrets/public-key", nil)
+	pubReq.Header.Set("Authorization", "Bearer "+e.tokenRO)
+	pubRR := httptest.NewRecorder()
+	e.router.ServeHTTP(pubRR, pubReq)
+	if pubRR.Code != http.StatusOK {
+		t.Fatalf("public key status: got %d; body=%s", pubRR.Code, pubRR.Body.String())
+	}
+	var pk apiSecretsPublicKey
+	if err := json.Unmarshal(pubRR.Body.Bytes(), &pk); err != nil {
+		t.Fatalf("decode public key: %v", err)
+	}
+	pubBytes, err := base64.StdEncoding.DecodeString(pk.Key)
+	if err != nil {
+		t.Fatalf("decode public key bytes: %v", err)
+	}
+	var pubKey [32]byte
+	copy(pubKey[:], pubBytes)
+
+	sealed, err := box.SealAnonymous(nil, []byte("org-secret-value"), &pubKey, rand.Reader)
+	if err != nil {
+		t.Fatalf("SealAnonymous: %v", err)
+	}
+	body, _ := json.Marshal(map[string]string{
+		"encrypted_value": base64.StdEncoding.EncodeToString(sealed),
+		"key_id":          pk.KeyID,
+	})
+	return body
 }
 
 func TestActionsSecrets_PublicKeyEndpoint(t *testing.T) {
@@ -283,5 +349,53 @@ func TestActionsSecrets_PutRequiresRepoWrite(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestActionsSecrets_OrgPutRequiresTeamEntitlement(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	orgID := env.seedOrg(t, "acme")
+	body := env.encryptedSecretBody(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/orgs/acme/actions/secrets/MY_TOKEN", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusPaymentRequired {
+		t.Fatalf("free org PUT: got %d, want 402; body=%s", rr.Code, rr.Body.String())
+	}
+	var count int
+	if err := env.pool.QueryRow(context.Background(), `SELECT count(*) FROM workflow_secrets WHERE org_id = $1`, orgID).Scan(&count); err != nil {
+		t.Fatalf("count org secrets: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("free org secret count=%d, want 0", count)
+	}
+
+	env.activateTeamPlan(t, orgID)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/orgs/acme/actions/secrets/MY_TOKEN", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("team org PUT: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestActionsSecrets_OrgDeleteAllowedWithoutTeamEntitlement(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	orgID := env.seedOrg(t, "acme")
+	if err := (secrets.Deps{Pool: env.pool, Box: env.secretBox}).Set(context.Background(), secrets.OrgScope(orgID), "OLD_TOKEN", []byte("legacy"), env.userID); err != nil {
+		t.Fatalf("seed org secret: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/orgs/acme/actions/secrets/OLD_TOKEN", nil)
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete: got %d, want 204; body=%s", rr.Code, rr.Body.String())
 	}
 }

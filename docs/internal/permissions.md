@@ -56,6 +56,8 @@ The complete map (also enforced by the matrix test):
 | `repo:delete`                         | `admin`          |
 | `repo:transfer`                       | `admin`          |
 | `repo:visibility`                     | `admin`          |
+| `actions:run`                         | `write`          |
+| `actions:approve`                     | `maintain`       |
 | `issue:read`                          | `read` (private) |
 | `issue:create`                        | logged in on public; `read` on private |
 | `issue:comment`                       | logged in on public; `read` on private |

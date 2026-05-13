@@ -15,6 +15,7 @@ import (
 
 type fakeAPI struct {
 	claim        *api.Claim
+	heartbeats   []api.HeartbeatRequest
 	statuses     []api.StatusRequest
 	stepStatuses []api.StatusRequest
 	logs         []api.LogRequest
@@ -24,7 +25,8 @@ type fakeAPI struct {
 	next         int
 }
 
-func (f *fakeAPI) Heartbeat(_ context.Context, _ api.HeartbeatRequest) (*api.Claim, error) {
+func (f *fakeAPI) Heartbeat(_ context.Context, req api.HeartbeatRequest) (*api.Claim, error) {
+	f.heartbeats = append(f.heartbeats, req)
 	return f.claim, nil
 }
 
@@ -160,13 +162,30 @@ func (f *fakeWorkspaces) Remove(_, _ int64) error {
 
 func TestRunOnce_NoClaim(t *testing.T) {
 	t.Parallel()
-	r := New(Options{API: &fakeAPI{}, Engine: &fakeEngine{}, Workspaces: &fakeWorkspaces{}})
+	fapi := &fakeAPI{}
+	r := New(Options{
+		API:        fapi,
+		Engine:     &fakeEngine{},
+		Workspaces: &fakeWorkspaces{},
+		Labels:     []string{"self-hosted", "linux"},
+		Capacity:   2,
+		HostName:   "runner-host",
+		Version:    "dev-test",
+	})
 	claimed, err := r.RunOnce(t.Context())
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
 	if claimed {
 		t.Fatal("claimed = true")
+	}
+	if len(fapi.heartbeats) != 1 {
+		t.Fatalf("heartbeats: %#v", fapi.heartbeats)
+	}
+	got := fapi.heartbeats[0]
+	if got.Capacity != 2 || got.HostName != "runner-host" || got.Version != "dev-test" ||
+		len(got.Labels) != 2 || got.Labels[0] != "self-hosted" || got.Labels[1] != "linux" {
+		t.Fatalf("heartbeat: %#v", got)
 	}
 }
 

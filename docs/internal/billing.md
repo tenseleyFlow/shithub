@@ -180,6 +180,50 @@ PAYMENTS SP04 adds the self-serve onboarding flow:
   tells the owner that activation waits for webhook processing; cancel
   keeps the organization on Free and offers a retry path.
 
+PAYMENTS SP05 adds the local entitlement boundary. Product code must ask
+`internal/entitlements` for feature decisions instead of inspecting
+`orgs.plan` directly. The package derives access from
+`org_billing_states`, understands billing-good-standing states, and
+returns upgrade metadata for user-facing handlers.
+
+PAYMENTS SP06 wires the first Team gates:
+
+- Secret teams require Team to create. Existing secret teams remain
+  visible to authorized viewers after downgrade; owners can remove
+  members and repository grants, but adding members or granting more
+  repository access is blocked until Team billing is active again.
+- Required reviewers and advanced status-check branch protection are
+  Team-only for private organization repositories. Public organization
+  repositories keep those safety controls available on Free.
+- Downgraded private organization repositories may delete protection
+  rules or submit a rule update that clears the gated review/check
+  settings.
+- Org-level Actions secrets and variables require Team for create or
+  update in both HTML settings and REST API routes. Delete stays
+  available so owners can clean up gated configuration after downgrade.
+- Org-level Actions secrets and variables API routes require
+  organization owner or site-admin access before entitlement checks.
+
+PAYMENTS SP07 completes the first self-serve billing settings surface:
+
+- `GET /organizations/{org}/settings/billing` is owner-only and is
+  linked from organization settings when Stripe Billing is configured.
+- The page shows current local plan state, subscription status, payment
+  source summary, recent Stripe-synced invoice snapshots, and actionable
+  banners for past-due, grace-period, canceled, scheduled-cancel, and
+  billing-action-needed states.
+- Seat accounting is shown as three separate values: current active
+  members, billable seats from the latest local billing state, and
+  pending invitations. Pending invitations are explicitly not billed
+  until accepted.
+- Team organizations manage payment method, invoices, cancellation, and
+  downgrade through Stripe Billing Portal. shithub never collects card
+  data directly and downgrades continue to preserve paid configuration
+  as read-only data.
+- Normal organization owners do not see raw Stripe customer,
+  subscription, or subscription-item IDs. Site admins see a debug panel
+  with those IDs and the latest locally recorded webhook receipt state.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -242,10 +286,6 @@ organization upgrades again.
 - Whether Free should limit private org collaborators before usage
   metering exists, or whether the first paid gates are advanced controls
   only.
-- Whether required reviewers are gated only for private org repos. The
-  current lean is private-org-only.
-- Whether org-level Actions secrets and variables should be Team-only
-  even for public repositories. The current lean is yes for org scope.
 - Exact Free and Team quota numbers for Actions and storage. These must
   come from real host-cost estimates before SP08.
 

@@ -145,3 +145,70 @@ func TestWriteRunnerQueueOutputJSON(t *testing.T) {
 		t.Fatalf("oldest seconds=%d", got[0].OldestQueuedSeconds)
 	}
 }
+
+func TestWriteRunnerListOutputJSONIncludesOpsFields(t *testing.T) {
+	now := time.Date(2026, 5, 12, 16, 30, 0, 0, time.UTC)
+	rows := []actionsdb.ListRunnersRow{{
+		ID:              7,
+		Name:            "runner-a",
+		Labels:          []string{"self-hosted", "linux"},
+		Capacity:        2,
+		Status:          actionsdb.WorkflowRunnerStatusBusy,
+		LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-75 * time.Second), Valid: true},
+		HostName:        "host-a",
+		Version:         "dev-test",
+		DrainingAt:      pgtype.Timestamptz{Time: now.Add(-30 * time.Second), Valid: true},
+		DrainReason:     "maintenance",
+		ActiveJobCount:  1,
+	}}
+	var buf bytes.Buffer
+	if err := writeRunnerListOutput(&buf, "json", rows, now); err != nil {
+		t.Fatalf("writeRunnerListOutput: %v", err)
+	}
+	var got []runnerListOutputRow
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rows=%d body=%s", len(got), buf.String())
+	}
+	if got[0].HostName != "host-a" || got[0].Version != "dev-test" ||
+		got[0].ActiveJobCount != 1 || got[0].LastHeartbeatAgeSeconds != 75 ||
+		got[0].DrainingAt == "" || got[0].DrainReason != "maintenance" {
+		t.Fatalf("unexpected row: %+v", got[0])
+	}
+}
+
+func TestWriteRunnerStateOutputText(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeRunnerStateOutput(&buf, "text", "runner draining", runnerStateOutput{
+		ID:          7,
+		Name:        "runner-a",
+		Status:      "busy",
+		DrainingAt:  "2026-05-12T16:30:00Z",
+		DrainReason: "maintenance",
+	}); err != nil {
+		t.Fatalf("writeRunnerStateOutput: %v", err)
+	}
+	body := buf.String()
+	for _, want := range []string{
+		"runner draining",
+		"id: 7",
+		"name: runner-a",
+		"drain_reason: maintenance",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("text output missing %q in %s", want, body)
+		}
+	}
+}
+
+func TestParseRunnerIDRejectsInvalid(t *testing.T) {
+	for _, raw := range []string{"", "0", "-1", "abc"} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := parseRunnerID("admin runner test", raw); err == nil {
+				t.Fatal("parseRunnerID returned nil error")
+			}
+		})
+	}
+}

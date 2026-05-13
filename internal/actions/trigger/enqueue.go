@@ -78,6 +78,14 @@ type EnqueueParams struct {
 	// persisted; concurrency.group is resolved against the trigger
 	// context and enforced before runners can claim younger jobs.
 	Workflow *workflow.Workflow
+
+	// NeedApproval pauses runner dispatch until a maintainer approves the
+	// run. The row still becomes visible in the Actions UI and check list.
+	NeedApproval bool
+
+	// ApprovalReason is stored with the approval request. It must stay
+	// structural; never include event payloads, env, logs, or secrets.
+	ApprovalReason string
 }
 
 // Result reports the outcome of an Enqueue call.
@@ -180,7 +188,7 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		ActorUserID:      pgInt8(p.ActorUserID),
 		ParentRunID:      pgInt8(p.ParentRunID),
 		ConcurrencyGroup: concurrencyResolution.Group,
-		NeedApproval:     false,
+		NeedApproval:     p.NeedApproval,
 		TriggerEventID:   p.TriggerEventID,
 	})
 	if err != nil {
@@ -206,6 +214,14 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	}
 	if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionQueued); err != nil {
 		return Result{}, fmt.Errorf("trigger: emit run queued event: %w", err)
+	}
+	if p.NeedApproval {
+		if _, err := q.InsertWorkflowRunApproval(ctx, tx, actionsdb.InsertWorkflowRunApprovalParams{
+			RunID:           run.ID,
+			RequestedReason: p.ApprovalReason,
+		}); err != nil {
+			return Result{}, fmt.Errorf("trigger: insert approval request: %w", err)
+		}
 	}
 
 	// Persist child jobs + their steps. Order in Workflow.Jobs is YAML

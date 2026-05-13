@@ -197,9 +197,9 @@ between minor releases.
   for GETs, `user:write` for mutations. Existing
   `/api/v1/repos/{o}/{r}/commits[/{sha}]` responses now carry a
   `verification` object with the same shape gh emits.
-  Migrations: `0066_user_gpg_keys.sql`,
-  `0067_user_gpg_subkeys.sql`,
-  `0068_commit_verification_cache.sql`.
+  Migrations: `0068_user_gpg_keys.sql`,
+  `0069_user_gpg_subkeys.sql`,
+  `0070_commit_verification_cache.sql`.
 - **Capability:** `gpg-keys` added to `/api/v1/meta`.
 - **REST: repo contents (S50 §12).**
   `GET /api/v1/repos/{o}/{r}/contents/{path}[?ref=]` returns

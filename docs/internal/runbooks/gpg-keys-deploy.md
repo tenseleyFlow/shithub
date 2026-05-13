@@ -28,9 +28,9 @@ in-band — no maintenance window required.
 ## Deploy
 
 3. Apply migrations. Three new versions land:
-   - `0066_user_gpg_keys.sql` — primary keys table
-   - `0067_user_gpg_subkeys.sql` — subkey fingerprint reverse-lookup
-   - `0068_commit_verification_cache.sql` — verification result cache
+   - `0068_user_gpg_keys.sql` — primary keys table
+   - `0069_user_gpg_subkeys.sql` — subkey fingerprint reverse-lookup
+   - `0070_commit_verification_cache.sql` — verification result cache
 
    ```sh
    ssh root@shithub.sh "sudo -u shithub /opt/shithub/bin/shithubd migrate up"

@@ -231,6 +231,15 @@ SELECT count(*)::integer
 FROM org_members
 WHERE org_id = $1;
 
+-- name: CountPendingOrgInvitations :one
+SELECT count(*)::integer
+FROM org_invitations
+WHERE org_id = $1
+  AND accepted_at IS NULL
+  AND declined_at IS NULL
+  AND canceled_at IS NULL
+  AND expires_at > now();
+
 -- ─── billing_invoices ──────────────────────────────────────────────
 
 -- name: UpsertInvoice :one
