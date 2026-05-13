@@ -1,0 +1,22 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Add new GPG key</h1>
+    {{ with .AddError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    <form method="POST" action="/settings/keys/gpg" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>
+        <span>Title</span>
+        <input type="text" name="title" maxlength="80" value="{{ .AddTitle }}">
+      </label>
+      <label>
+        <span>Key</span>
+        <textarea name="armored_key" rows="10" required spellcheck="false"
+                  placeholder="Begins with '-----BEGIN PGP PUBLIC KEY BLOCK-----'">{{ .AddBlob }}</textarea>
+      </label>
+      <button type="submit" class="shithub-button shithub-button-primary">Add GPG key</button>
+    </form>
+  </div>
+</div>
+{{- end }}
