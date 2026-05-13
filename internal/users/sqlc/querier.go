@@ -39,6 +39,8 @@ type Querier interface {
 	// Drives the 3-changes-per-60d cap.
 	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
+	// Excludes revoked rows so the per-user cap (100) counts live keys.
+	CountUserGPGKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeysByKind(ctx context.Context, db DBTX, arg CountUserSSHKeysByKindParams) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
@@ -81,6 +83,20 @@ type Querier interface {
 	GetUserEmailByAddress(ctx context.Context, db DBTX, email string) (UserEmail, error)
 	GetUserEmailByID(ctx context.Context, db DBTX, id int64) (UserEmail, error)
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
+	// Scoped single-key lookup for REST GET-by-id. user_id filter prevents
+	// cross-user reads (existence-leak-safe: returns no row if the id
+	// belongs to another user).
+	GetUserGPGKey(ctx context.Context, db DBTX, arg GetUserGPGKeyParams) (UserGpgKey, error)
+	// Uniqueness probe used by the add path to surface a friendly
+	// "this key is already registered" error before the unique index
+	// violation. Returns any row matching the fingerprint regardless of
+	// which user owns it (global uniqueness is the contract).
+	GetUserGPGKeyByFingerprint(ctx context.Context, db DBTX, fingerprint string) (UserGpgKey, error)
+	// Hot path for commit/tag signature verification. The signature
+	// packet carries the signing subkey's fingerprint; this query
+	// resolves it back to the primary key (and via FK to the user).
+	// Index lookup via the partial unique index.
+	GetUserGPGSubkeyByFingerprint(ctx context.Context, db DBTX, fingerprint string) (UserGpgSubkey, error)
 	// Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
 	GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64) (User, error)
 	// Single-key lookup for the REST GET-by-id endpoint. user_id filter so
@@ -102,6 +118,18 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Inserts a parsed primary GPG key. Subkeys land in user_gpg_subkeys
+	// in the same transaction (see InsertUserGPGSubkey). expires_at is
+	// nullable; many keys have no expiration. revoked_at stays NULL on
+	// insert; soft-delete sets it.
+	InsertUserGPGKey(ctx context.Context, db DBTX, arg InsertUserGPGKeyParams) (UserGpgKey, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// One row per subkey of a primary key. Always inserted in the same
+	// transaction as the parent InsertUserGPGKey so the verification
+	// hot path's fingerprint lookup is consistent with the REST nested
+	// shape.
+	InsertUserGPGSubkey(ctx context.Context, db DBTX, arg InsertUserGPGSubkeyParams) (UserGpgSubkey, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserSSHKeyParams) (UserSshKey, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
@@ -113,7 +141,14 @@ type Querier interface {
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
+	// Reads all live subkeys for one primary; used when invalidating the
+	// verification cache on primary soft-delete (every dependent subkey
+	// needs its cache rows stamped invalidated too).
+	ListSubkeysForGPGKey(ctx context.Context, db DBTX, gpgKeyID int64) ([]UserGpgSubkey, error)
 	ListUserEmailsForUser(ctx context.Context, db DBTX, userID int64) ([]UserEmail, error)
+	// Paginated list for the REST surface; HTML settings page reuses with
+	// a generous limit and no offset.
+	ListUserGPGKeys(ctx context.Context, db DBTX, arg ListUserGPGKeysParams) ([]UserGpgKey, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	ListUserNotificationPrefs(ctx context.Context, db DBTX, userID int64) ([]UserNotificationPref, error)
 	ListUserSSHKeys(ctx context.Context, db DBTX, userID int64) ([]UserSshKey, error)
@@ -148,10 +183,22 @@ type Querier interface {
 	// user and is verified.
 	SetUserEmailPrimary(ctx context.Context, db DBTX, arg SetUserEmailPrimaryParams) error
 	SetVerificationToken(ctx context.Context, db DBTX, arg SetVerificationTokenParams) error
+	// Stamps revoked_at on every live subkey of a primary. Called in the
+	// same transaction as SoftDeleteUserGPGKey so the partial unique index
+	// frees up the fingerprint for re-upload if the user rotates.
+	SoftDeleteSubkeysForGPGKey(ctx context.Context, db DBTX, gpgKeyID int64) error
 	SoftDeleteUser(ctx context.Context, db DBTX, id int64) error
+	// Scoped soft-delete: stamps revoked_at, preserves the row for audit
+	// continuity. Returns the number of rows affected so the handler can
+	// distinguish "not found" from "deleted" without a follow-up query.
+	SoftDeleteUserGPGKey(ctx context.Context, db DBTX, arg SoftDeleteUserGPGKeyParams) (int64, error)
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
 	TouchDeviceAuthorizationPoll(ctx context.Context, db DBTX, id int64) error
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error
+	// Best-effort last-used stamp called from the verification path when
+	// a signature successfully resolves to this key. No timeout / error
+	// propagation; the caller fires-and-forgets via a goroutine.
+	TouchUserGPGKeyLastUsed(ctx context.Context, db DBTX, id int64) error
 	TouchUserLastLogin(ctx context.Context, db DBTX, id int64) error
 	TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error
 	// Clears the suspended state. Mirrors SuspendUser; used by the

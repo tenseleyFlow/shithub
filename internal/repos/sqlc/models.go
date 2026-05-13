@@ -2545,6 +2545,41 @@ type UserEmail struct {
 	CreatedAt             pgtype.Timestamptz
 }
 
+type UserGpgKey struct {
+	ID                int64
+	UserID            int64
+	Name              string
+	Fingerprint       string
+	KeyID             string
+	Armored           string
+	CanSign           bool
+	CanEncryptComms   bool
+	CanEncryptStorage bool
+	CanCertify        bool
+	CanAuthenticate   bool
+	Uids              []string
+	Subkeys           []byte
+	PrimaryAlgo       string
+	CreatedAt         pgtype.Timestamptz
+	LastUsedAt        pgtype.Timestamptz
+	RevokedAt         pgtype.Timestamptz
+	ExpiresAt         pgtype.Timestamptz
+}
+
+type UserGpgSubkey struct {
+	ID                int64
+	GpgKeyID          int64
+	Fingerprint       string
+	KeyID             string
+	CanSign           bool
+	CanEncryptComms   bool
+	CanEncryptStorage bool
+	CanCertify        bool
+	ExpiresAt         pgtype.Timestamptz
+	RevokedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+}
+
 type UserNotificationPref struct {
 	UserID    int64
 	Key       string
