@@ -293,6 +293,45 @@ func GetWebhookEventReceipt(ctx context.Context, deps Deps, providerEventID stri
 	return billingdb.New().GetWebhookEventReceipt(ctx, deps.Pool, providerEventID)
 }
 
+// SetWebhookEventSubjectForPrincipal records the resolved subject on
+// the receipt row. Called after a successful subject-resolution step
+// in the webhook apply path (before guard + state mutation) so the
+// audit trail survives even if the apply later fails. Migration 0075's
+// CHECK constraint enforces both-or-neither — the helper rejects a
+// zero principal.
+func SetWebhookEventSubjectForPrincipal(ctx context.Context, deps Deps, providerEventID string, p Principal) error {
+	if err := validateDeps(deps); err != nil {
+		return err
+	}
+	providerEventID = strings.TrimSpace(providerEventID)
+	if providerEventID == "" {
+		return ErrWebhookEventID
+	}
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	return billingdb.New().SetWebhookEventSubject(ctx, deps.Pool, billingdb.SetWebhookEventSubjectParams{
+		SubjectKind:     billingdb.BillingSubjectKind(p.Kind),
+		SubjectID:       p.ID,
+		ProviderEventID: providerEventID,
+	})
+}
+
+// ListFailedWebhookEvents is the operator query for "events we
+// received but failed to process." Returns rows whose process_error
+// is non-empty OR that have any processing_attempts but no
+// processed_at (in-flight failures). Returned in descending received_at
+// order; limit caps the result set.
+func ListFailedWebhookEvents(ctx context.Context, deps Deps, limit int32) ([]billingdb.ListFailedWebhookEventsRow, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	return billingdb.New().ListFailedWebhookEvents(ctx, deps.Pool, limit)
+}
+
 func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billingdb.BillingInvoice, error) {
 	if err := validateDeps(deps); err != nil {
 		return billingdb.BillingInvoice{}, err

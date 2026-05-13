@@ -445,6 +445,36 @@ UPDATE billing_webhook_events
    AND provider_event_id = $1
 RETURNING *;
 
+-- name: SetWebhookEventSubject :exec
+-- Records the resolved subject on the receipt row after a successful
+-- subject-resolution step. Called from the apply path before guard +
+-- state mutation so the receipt carries the audit trail even if the
+-- subsequent apply fails. Migration 0075's CHECK constraint enforces
+-- both-or-neither; callers must pass a non-zero subject.
+UPDATE billing_webhook_events
+   SET subject_kind = sqlc.arg(subject_kind)::billing_subject_kind,
+       subject_id   = sqlc.arg(subject_id)::bigint
+ WHERE provider = 'stripe'
+   AND provider_event_id = sqlc.arg(provider_event_id)::text;
+
+-- name: ListFailedWebhookEvents :many
+-- Operator query for "events we received but failed to process."
+-- A row is "failed" when it has a non-empty process_error OR when
+-- it has never been processed (processed_at NULL) and has at least
+-- one processing attempt. Rows that are merely new and untouched
+-- (attempts=0, processed_at NULL, no error) are excluded.
+SELECT id, provider, provider_event_id, event_type, api_version,
+       received_at, processed_at, processing_attempts, process_error,
+       subject_kind, subject_id
+  FROM billing_webhook_events
+ WHERE provider = 'stripe'
+   AND (
+        process_error <> ''
+        OR (processed_at IS NULL AND processing_attempts > 0)
+       )
+ ORDER BY received_at DESC
+ LIMIT $1;
+
 -- ─── user_billing_states (PRO03) ──────────────────────────────────
 
 -- name: GetUserBillingState :one

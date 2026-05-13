@@ -34,6 +34,12 @@ type Querier interface {
 	GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error)
 	GetUserBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (UserBillingState, error)
 	GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
+	// Operator query for "events we received but failed to process."
+	// A row is "failed" when it has a non-empty process_error OR when
+	// it has never been processed (processed_at NULL) and has at least
+	// one processing attempt. Rows that are merely new and untouched
+	// (attempts=0, processed_at NULL, no error) are excluded.
+	ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error)
 	// PRO03: filters on the polymorphic subject columns so the index
 	// billing_invoices_subject_created_idx services this query. The
 	// legacy `org_id` column is kept populated by UpsertInvoice for the
@@ -55,6 +61,12 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
 	SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeCustomerParams) (OrgBillingState, error)
 	SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUserStripeCustomerParams) (UserBillingState, error)
+	// Records the resolved subject on the receipt row after a successful
+	// subject-resolution step. Called from the apply path before guard +
+	// state mutation so the receipt carries the audit trail even if the
+	// subsequent apply fails. Migration 0075's CHECK constraint enforces
+	// both-or-neither; callers must pass a non-zero subject.
+	SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWebhookEventSubjectParams) error
 	// ─── billing_invoices ──────────────────────────────────────────────
 	// PRO03: writes both legacy `org_id` and polymorphic
 	// `(subject_kind, subject_id)`. Callers continue to bind org_id only;

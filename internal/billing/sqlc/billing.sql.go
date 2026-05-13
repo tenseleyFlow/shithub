@@ -857,6 +857,71 @@ func (q *Queries) GetWebhookEventReceipt(ctx context.Context, db DBTX, providerE
 	return i, err
 }
 
+const listFailedWebhookEvents = `-- name: ListFailedWebhookEvents :many
+SELECT id, provider, provider_event_id, event_type, api_version,
+       received_at, processed_at, processing_attempts, process_error,
+       subject_kind, subject_id
+  FROM billing_webhook_events
+ WHERE provider = 'stripe'
+   AND (
+        process_error <> ''
+        OR (processed_at IS NULL AND processing_attempts > 0)
+       )
+ ORDER BY received_at DESC
+ LIMIT $1
+`
+
+type ListFailedWebhookEventsRow struct {
+	ID                 int64
+	Provider           BillingProvider
+	ProviderEventID    string
+	EventType          string
+	ApiVersion         string
+	ReceivedAt         pgtype.Timestamptz
+	ProcessedAt        pgtype.Timestamptz
+	ProcessingAttempts int32
+	ProcessError       string
+	SubjectKind        NullBillingSubjectKind
+	SubjectID          pgtype.Int8
+}
+
+// Operator query for "events we received but failed to process."
+// A row is "failed" when it has a non-empty process_error OR when
+// it has never been processed (processed_at NULL) and has at least
+// one processing attempt. Rows that are merely new and untouched
+// (attempts=0, processed_at NULL, no error) are excluded.
+func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error) {
+	rows, err := db.Query(ctx, listFailedWebhookEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFailedWebhookEventsRow{}
+	for rows.Next() {
+		var i ListFailedWebhookEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Provider,
+			&i.ProviderEventID,
+			&i.EventType,
+			&i.ApiVersion,
+			&i.ReceivedAt,
+			&i.ProcessedAt,
+			&i.ProcessingAttempts,
+			&i.ProcessError,
+			&i.SubjectKind,
+			&i.SubjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
 SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
 WHERE subject_kind = 'org' AND subject_id = $1
@@ -1600,6 +1665,30 @@ func (q *Queries) SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUse
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const setWebhookEventSubject = `-- name: SetWebhookEventSubject :exec
+UPDATE billing_webhook_events
+   SET subject_kind = $1::billing_subject_kind,
+       subject_id   = $2::bigint
+ WHERE provider = 'stripe'
+   AND provider_event_id = $3::text
+`
+
+type SetWebhookEventSubjectParams struct {
+	SubjectKind     BillingSubjectKind
+	SubjectID       int64
+	ProviderEventID string
+}
+
+// Records the resolved subject on the receipt row after a successful
+// subject-resolution step. Called from the apply path before guard +
+// state mutation so the receipt carries the audit trail even if the
+// subsequent apply fails. Migration 0075's CHECK constraint enforces
+// both-or-neither; callers must pass a non-zero subject.
+func (q *Queries) SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWebhookEventSubjectParams) error {
+	_, err := db.Exec(ctx, setWebhookEventSubject, arg.SubjectKind, arg.SubjectID, arg.ProviderEventID)
+	return err
 }
 
 const upsertInvoice = `-- name: UpsertInvoice :one
