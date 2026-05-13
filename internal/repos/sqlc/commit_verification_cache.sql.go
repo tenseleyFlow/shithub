@@ -72,15 +72,15 @@ WHERE repo_id = $1 AND commit_oid = ANY($2::text[])
 `
 
 type GetCommitVerificationsForOIDsParams struct {
-	RepoID  int64
-	Column2 []string
+	RepoID int64
+	Oids   []string
 }
 
 // Batch read for the commit-list page. Takes an array of OIDs and
 // returns existing rows; missing OIDs are absent from the result and
 // the renderer treats them as "not yet verified".
 func (q *Queries) GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error) {
-	rows, err := db.Query(ctx, getCommitVerificationsForOIDs, arg.RepoID, arg.Column2)
+	rows, err := db.Query(ctx, getCommitVerificationsForOIDs, arg.RepoID, arg.Oids)
 	if err != nil {
 		return nil, err
 	}
