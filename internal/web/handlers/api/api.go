@@ -152,6 +152,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountUserEmails(r)
 		// S50 §1 — user SSH keys CRUD.
 		h.mountUserKeys(r)
+		// S51 — user GPG keys CRUD. Capability advertised in Sub-PR 6.
+		h.mountGPGKeys(r)
 		// S50 §2 — repos REST core (list/single/create/patch/delete).
 		h.mountRepos(r)
 		// S50 §3 — issues + comments + lock.
