@@ -466,6 +466,40 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 	return i, err
 }
 
+const getRepoForBackfill = `-- name: GetRepoForBackfill :one
+SELECT
+    r.id,
+    r.name,
+    r.default_branch,
+    COALESCE(u.username, o.slug) AS owner
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs  o ON o.id = r.owner_org_id
+WHERE r.id = $1 AND r.deleted_at IS NULL
+`
+
+type GetRepoForBackfillRow struct {
+	ID            int64
+	Name          string
+	DefaultBranch string
+	Owner         string
+}
+
+// Lookup the per-repo backfill metadata. Mirrors the row shape of
+// ListAllActiveReposWithOwner so the per-repo job handler can run
+// the same code path the bulk handler uses.
+func (q *Queries) GetRepoForBackfill(ctx context.Context, db DBTX, id int64) (GetRepoForBackfillRow, error) {
+	row := db.QueryRow(ctx, getRepoForBackfill, id)
+	var i GetRepoForBackfillRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DefaultBranch,
+		&i.Owner,
+	)
+	return i, err
+}
+
 const getRepoOwnerUsernameByID = `-- name: GetRepoOwnerUsernameByID :one
 SELECT COALESCE(u.username::varchar, o.slug::varchar) AS owner_username, r.name AS repo_name
 FROM repos r
@@ -629,6 +663,56 @@ type InsertRepoTopicParams struct {
 func (q *Queries) InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTopicParams) error {
 	_, err := db.Exec(ctx, insertRepoTopic, arg.RepoID, arg.Topic)
 	return err
+}
+
+const listAllActiveReposWithOwner = `-- name: ListAllActiveReposWithOwner :many
+SELECT
+    r.id,
+    r.name,
+    r.default_branch,
+    COALESCE(u.username, o.slug) AS owner
+FROM repos r
+LEFT JOIN users u ON u.id = r.owner_user_id
+LEFT JOIN orgs  o ON o.id = r.owner_org_id
+WHERE r.deleted_at IS NULL
+ORDER BY r.id
+`
+
+type ListAllActiveReposWithOwnerRow struct {
+	ID            int64
+	Name          string
+	DefaultBranch string
+	Owner         string
+}
+
+// Used by the GPG verification backfill (S51) to enumerate every
+// active repo system-wide. Unlike ListAllRepoFullNames this query
+// handles BOTH user-owned and org-owned repos via a COALESCE between
+// users.username and orgs.slug; the owner string is whatever
+// RepoFS.RepoPath expects.
+func (q *Queries) ListAllActiveReposWithOwner(ctx context.Context, db DBTX) ([]ListAllActiveReposWithOwnerRow, error) {
+	rows, err := db.Query(ctx, listAllActiveReposWithOwner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllActiveReposWithOwnerRow{}
+	for rows.Next() {
+		var i ListAllActiveReposWithOwnerRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DefaultBranch,
+			&i.Owner,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAllRepoFullNames = `-- name: ListAllRepoFullNames :many

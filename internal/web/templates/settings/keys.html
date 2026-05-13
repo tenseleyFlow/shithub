@@ -2,8 +2,10 @@
 <div class="shithub-settings-page">
   {{ template "settings-nav" . }}
   <div class="shithub-settings-content">
-    <h1>SSH keys</h1>
+    <h1>SSH and GPG keys</h1>
+
     <section class="shithub-settings-section">
+      <h2>SSH keys</h2>
       <p>SSH keys let you push and clone over SSH without typing a password. Generate one with <code>ssh-keygen -t ed25519</code> and paste the contents of the <code>.pub</code> file below.</p>
 
       {{ if .Keys }}
@@ -11,6 +13,7 @@
         {{ range .Keys }}
         <li class="shithub-key-row">
           <div>
+            <span class="shithub-key-type-badge">SSH</span>
             <strong>{{ .Title }}</strong>
             <span class="shithub-key-meta">{{ .KeyType }}{{ if .KeyBits }} · {{ .KeyBits }} bits{{ end }}</span>
             <code class="shithub-key-fp">{{ .FingerprintSha256 }}</code>
@@ -29,7 +32,7 @@
     </section>
 
     <section class="shithub-settings-section">
-      <h2>Add a key</h2>
+      <h3>Add an SSH key</h3>
       {{ with .AddError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
       <form method="POST" action="/settings/keys" novalidate>
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -44,6 +47,44 @@
         </label>
         <button type="submit" class="shithub-button shithub-button-primary">Add SSH key</button>
       </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <div class="shithub-settings-section-head">
+        <h2>GPG keys</h2>
+        <a class="shithub-button shithub-button-primary" href="/settings/keys/gpg/new">New GPG key</a>
+      </div>
+      <p>This is a list of GPG keys associated with your account. Remove any keys that you do not recognize.</p>
+
+      {{ if .GPGKeys }}
+      <ul class="shithub-key-list">
+        {{ range .GPGKeys }}
+        <li class="shithub-key-row">
+          <div class="shithub-key-row-body">
+            <span class="shithub-key-type-badge">GPG</span>
+            {{ if .Name }}<strong>{{ .Name }}</strong>{{ end }}
+            {{ range .Emails }}
+              <div><span class="shithub-key-meta-label">Email address:</span>
+                   <span class="shithub-email-chip">{{ .Email }}</span></div>
+            {{ end }}
+            <div><span class="shithub-key-meta-label">Key ID:</span>
+                 <code class="shithub-key-fp">{{ .KeyID }}</code></div>
+            {{ if .SubkeyIDs }}
+            <div><span class="shithub-key-meta-label">Subkeys:</span>
+                 <code class="shithub-key-fp">{{ range $i, $id := .SubkeyIDs }}{{ if $i }}, {{ end }}{{ $id }}{{ end }}</code></div>
+            {{ end }}
+            <div class="shithub-key-last">Added on {{ .CreatedAt.Format "Jan 2, 2006" }}</div>
+          </div>
+          <form method="POST" action="/settings/keys/gpg/{{ .ID }}/delete" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+          </form>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-key-empty">No GPG keys yet.</p>
+      {{ end }}
     </section>
   </div>
 </div>

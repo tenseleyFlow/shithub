@@ -3,9 +3,12 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,31 +20,91 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
-// sshKeysList renders /settings/keys with the user's existing keys + a
-// blank add form.
+// sshKeysList renders the combined /settings/keys page (both SSH and
+// GPG sections) with the user's existing keys + a blank SSH add form.
+// The sidebar entry was renamed to "SSH and GPG keys" in S51 to match
+// gh's pattern of bundling both surfaces on one settings page.
 func (h *Handlers) sshKeysList(w http.ResponseWriter, r *http.Request) {
-	h.renderSSHKeysList(w, r, "", "", "")
+	h.renderKeysList(w, r, "", "", "")
 }
 
-// renderSSHKeysList is the shared render path for the list page; addError /
-// addTitle / addBlob preserve form state when the add path re-renders.
-func (h *Handlers) renderSSHKeysList(w http.ResponseWriter, r *http.Request, addError, addTitle, addBlob string) {
+// renderKeysList is the shared render path for the combined SSH+GPG
+// list page. addError / addTitle / addBlob preserve SSH-side form
+// state when the SSH add path re-renders; the GPG add path renders a
+// separate page (settings/keys_gpg_add) so its form state lives there.
+func (h *Handlers) renderKeysList(w http.ResponseWriter, r *http.Request, addError, addTitle, addBlob string) {
 	user := middleware.CurrentUserFromContext(r.Context())
-	keys, err := h.q.ListUserSSHKeys(r.Context(), h.d.Pool, user.ID)
+	sshKeys, err := h.q.ListUserSSHKeys(r.Context(), h.d.Pool, user.ID)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "ssh: list", "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	gpgKeys, err := h.q.ListUserGPGKeys(r.Context(), h.d.Pool, usersdb.ListUserGPGKeysParams{
+		UserID: user.ID,
+		Limit:  int32(gpgListPageSize), //nolint:gosec // bounded constant
+		Offset: 0,
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "gpg: list", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
 	h.renderPage(w, r, "settings/keys", map[string]any{
-		"Title":          "SSH keys",
+		"Title":          "SSH and GPG keys",
 		"CSRFToken":      middleware.CSRFTokenForRequest(r),
 		"SettingsActive": "keys",
-		"Keys":           keys,
+		"Keys":           sshKeys,
+		"GPGKeys":        viewModelGPGKeys(gpgKeys),
 		"AddError":       addError,
 		"AddTitle":       addTitle,
 		"AddBlob":        addBlob,
 	})
+}
+
+// gpgListPageSize is the SHOULD-be-enough cap for the per-user GPG
+// key count in the settings UI. Mirrors the parser's MaxKeysPerUser;
+// the list is short by definition.
+const gpgListPageSize = 100
+
+// gpgKeyView is the template-facing shape of a GPG key row. Decoupled
+// from the sqlc UserGpgKey row so the template doesn't have to know
+// about pgtype wrappers or unmarshal subkeys JSON inline.
+type gpgKeyView struct {
+	ID        int64
+	Name      string
+	KeyID     string
+	Emails    []struct{ Email string }
+	SubkeyIDs []string
+	CreatedAt time.Time
+}
+
+// viewModelGPGKeys transforms the sqlc row shape into the template-
+// facing struct. Unmarshals the subkeys JSONB once per row so the
+// template can render the comma-separated subkey-IDs line without
+// re-parsing.
+func viewModelGPGKeys(rows []usersdb.UserGpgKey) []gpgKeyView {
+	views := make([]gpgKeyView, 0, len(rows))
+	for _, row := range rows {
+		view := gpgKeyView{
+			ID:        row.ID,
+			Name:      row.Name,
+			KeyID:     strings.ToUpper(row.KeyID),
+			CreatedAt: row.CreatedAt.Time,
+		}
+		for _, uid := range row.Uids {
+			view.Emails = append(view.Emails, struct{ Email string }{Email: uid})
+		}
+		var subkeys []struct {
+			KeyID string `json:"KeyID"`
+		}
+		_ = json.Unmarshal(row.Subkeys, &subkeys)
+		for _, sk := range subkeys {
+			view.SubkeyIDs = append(view.SubkeyIDs, strings.ToUpper(sk.KeyID))
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 // sshKeysAdd handles POST /settings/keys.
@@ -56,7 +119,7 @@ func (h *Handlers) sshKeysAdd(w http.ResponseWriter, r *http.Request) {
 
 	parsed, err := sshkey.Parse(title, blob)
 	if err != nil {
-		h.renderSSHKeysList(w, r, friendlySSHError(err), title, blob)
+		h.renderKeysList(w, r, friendlySSHError(err), title, blob)
 		return
 	}
 
@@ -68,7 +131,7 @@ func (h *Handlers) sshKeysAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if count >= int64(sshkey.MaxKeysPerUser) {
-		h.renderSSHKeysList(w, r,
+		h.renderKeysList(w, r,
 			"You've reached the per-user SSH-key cap. Delete an unused key first.",
 			title, blob)
 		return
@@ -84,7 +147,7 @@ func (h *Handlers) sshKeysAdd(w http.ResponseWriter, r *http.Request) {
 		Kind:              "authentication",
 	}); err != nil {
 		if isPGUniqueViolation(err) {
-			h.renderSSHKeysList(w, r,
+			h.renderKeysList(w, r,
 				"That key is already registered (here or on another account).",
 				title, blob)
 			return

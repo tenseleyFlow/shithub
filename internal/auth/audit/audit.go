@@ -42,6 +42,8 @@ const (
 	ActionAccountSuspended      Action = "account_suspended"
 	ActionSSHKeyAdded           Action = "ssh_key_added"
 	ActionSSHKeyDeleted         Action = "ssh_key_deleted"
+	ActionGPGKeyAdded           Action = "gpg_key_added"
+	ActionGPGKeyDeleted         Action = "gpg_key_deleted"
 	ActionPATCreated            Action = "pat_created"
 	ActionPATRevoked            Action = "pat_revoked"
 	ActionUsernameChanged       Action = "username_changed"

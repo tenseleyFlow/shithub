@@ -11512,3 +11512,101 @@ button.shithub-repo-action {
     flex-direction: column;
   }
 }
+
+/* ─── S51 GPG keys settings additions ─────────────────────────────── */
+/* Section heading row with a right-aligned "New GPG key" button.    */
+.shithub-settings-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+/* Bold-label prefix in the key row metadata ("Email address:",       */
+/* "Key ID:", "Subkeys:").                                            */
+.shithub-key-meta-label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+/* Outlined pill rendering of the GPG UID email, mirroring gh's       */
+/* visual.                                                            */
+.shithub-email-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: var(--shithub-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  border: 1px solid rgba(110, 118, 129, 0.4);
+  border-radius: 999px;
+  color: inherit;
+}
+/* "SSH" / "GPG" type badge on the left of each key row.              */
+.shithub-key-type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: var(--shithub-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(110, 118, 129, 0.4);
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ─── S51 Verified-badge popover (commit / tag pages) ─────────────── */
+.shithub-verified-badge {
+  display: inline-block;
+  position: relative;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.shithub-verified-badge > summary {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  list-style: none;
+}
+.shithub-verified-badge > summary::-webkit-details-marker { display: none; }
+.shithub-verified-badge--verified > summary {
+  color: #3fb950;
+  border-color: #2da44e;
+}
+.shithub-verified-badge--unverified > summary {
+  color: #d29922;
+  border-color: #9e6a03;
+}
+.shithub-verified-popover {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 8px 12px;
+  border: 1px solid rgba(110, 118, 129, 0.4);
+  border-radius: 6px;
+  background: var(--shithub-bg-surface, #161b22);
+  color: inherit;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.shithub-verified-popover p { margin: 0 0 6px; }
+.shithub-verified-popover dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+.shithub-verified-popover dt { font-weight: 600; }
+.shithub-verified-popover dd {
+  margin: 0;
+  font-family: var(--shithub-mono, ui-monospace, SFMono-Regular, monospace);
+  word-break: break-all;
+}

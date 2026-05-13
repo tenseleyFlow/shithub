@@ -21,6 +21,7 @@ import (
 	diffsource "github.com/tenseleyFlow/shithub/internal/repos/diff/source"
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
+	"github.com/tenseleyFlow/shithub/internal/repos/sigverify"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -111,6 +112,24 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	rows := make([]commitRow, 0, len(commits))
 	for _, c := range commits {
 		rows = append(rows, newCommitRow(c, resolver.Resolve(r.Context(), c.AuthorEmail)))
+	}
+
+	// Batch-load signature verification cache for the page. Failure
+	// is non-fatal — the rows default to UnsignedView and the page
+	// renders without badges.
+	if len(rows) > 0 {
+		oids := make([]string, len(rows))
+		for i := range rows {
+			oids[i] = rows[i].Commit.OID
+		}
+		verifications, vErr := sigverify.LoadViewsForOIDs(r.Context(), h.d.Pool, row.ID, oids)
+		if vErr != nil {
+			h.d.Logger.WarnContext(r.Context(), "commits: load verifications", "error", vErr, "repo_id", row.ID)
+		} else {
+			for i := range rows {
+				rows[i].Verification = sigverify.LookupView(verifications, rows[i].Commit.OID)
+			}
+		}
 	}
 
 	filterValues := commitFilterValues(pathFilter, authorFilter, sinceRaw, untilRaw)
@@ -221,18 +240,30 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load signature verification cache row for this commit. Failure
+	// is non-fatal — falls back to UnsignedView so the page renders
+	// without a badge.
+	verification, vErr := sigverify.LoadView(r.Context(), h.d.Pool, row.ID, detail.OID)
+	if vErr != nil {
+		// pgx.ErrNoRows is normal (commit hasn't been verified yet);
+		// LoadView already returns UnsignedView for that case. Other
+		// errors get logged but the page still renders.
+		h.d.Logger.WarnContext(r.Context(), "commit: load verification", "error", vErr, "repo_id", row.ID, "sha", detail.OID)
+	}
+
 	h.d.Render.RenderPage(w, r, "repo/commit", map[string]any{
-		"Title":     detail.Subject + " · " + row.Name,
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Owner":     owner.Username,
-		"Repo":      row,
-		"Detail":    detail,
-		"Author":    author,
-		"Committer": committer,
-		"BodyHTML":  template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
-		"DiffHTML":  diffHTML,
-		"DiffMode":  string(mode),
-		"HideWS":    hideWS,
+		"Title":        detail.Subject + " · " + row.Name,
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Owner":        owner.Username,
+		"Repo":         row,
+		"Detail":       detail,
+		"Author":       author,
+		"Committer":    committer,
+		"BodyHTML":     template.HTML(linkifyCommitBody(detail.Body)), //nolint:gosec // escaped inside
+		"DiffHTML":     diffHTML,
+		"DiffMode":     string(mode),
+		"HideWS":       hideWS,
+		"Verification": verification,
 	})
 }
 
@@ -306,18 +337,20 @@ func (h *Handlers) commitsAtom(w http.ResponseWriter, r *http.Request) {
 // git data so templates can render avatars and profile links without
 // re-running the resolver.
 type commitRow struct {
-	Commit      git.Commit
-	Author      identity.Resolved
-	AuthorLabel string
-	AuthorHref  string
+	Commit       git.Commit
+	Author       identity.Resolved
+	AuthorLabel  string
+	AuthorHref   string
+	Verification sigverify.View
 }
 
 func newCommitRow(c git.Commit, author identity.Resolved) commitRow {
 	return commitRow{
-		Commit:      c,
-		Author:      author,
-		AuthorLabel: commitAuthorLabel(c, author),
-		AuthorHref:  commitAuthorHref(author),
+		Commit:       c,
+		Author:       author,
+		AuthorLabel:  commitAuthorLabel(c, author),
+		AuthorHref:   commitAuthorHref(author),
+		Verification: sigverify.UnsignedView(),
 	}
 }
 
