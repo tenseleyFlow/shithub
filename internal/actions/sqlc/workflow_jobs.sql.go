@@ -26,6 +26,7 @@ WITH candidate AS (
       AND j.cancel_requested = false
       AND j.runner_id IS NULL
       AND CASE
+          WHEN COALESCE(sp.actions_enabled, true) = false THEN false
           WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true
           WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'disabled' THEN false
           WHEN COALESCE(op.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true

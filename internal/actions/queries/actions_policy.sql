@@ -7,6 +7,7 @@ SELECT
     COALESCE(op.actions_enabled, 'inherit'::actions_policy_state)::actions_policy_state AS org_actions_enabled,
     COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state)::actions_policy_state AS repo_actions_enabled,
     CASE
+        WHEN COALESCE(sp.actions_enabled, true) = false THEN false
         WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true
         WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'disabled' THEN false
         WHEN COALESCE(op.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true

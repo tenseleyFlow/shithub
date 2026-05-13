@@ -213,6 +213,30 @@ func TestEvaluateTrigger_DeniesArchivedAndDisabledRepos(t *testing.T) {
 	}
 }
 
+func TestEvaluateTrigger_SiteDisableOverridesRepoEnable(t *testing.T) {
+	t.Parallel()
+	f := setupPolicyFx(t)
+	q := actionsdb.New()
+	if _, err := q.UpsertActionsRepoPolicy(f.ctx, f.pool, actionsdb.UpsertActionsRepoPolicyParams{
+		RepoID:         f.repo.ID,
+		ActionsEnabled: actionsdb.ActionsPolicyStateEnabled,
+	}); err != nil {
+		t.Fatalf("UpsertActionsRepoPolicy: %v", err)
+	}
+	if _, err := f.pool.Exec(f.ctx, `UPDATE actions_site_policy SET actions_enabled = false WHERE id = true`); err != nil {
+		t.Fatalf("disable site policy: %v", err)
+	}
+
+	dec, err := actionspolicy.EvaluateTrigger(f.ctx, actionspolicy.Deps{Pool: f.pool}, actionspolicy.TriggerRequest{
+		Repo:        f.repo,
+		EventKind:   string(trigger.EventPush),
+		ActorUserID: f.owner.ID,
+	})
+	if !errors.Is(err, actionspolicy.ErrActionsDisabled) || dec.Allow || dec.Policy.ActionsEnabled {
+		t.Fatalf("site-disabled decision=%+v err=%v", dec, err)
+	}
+}
+
 func TestEvaluateTrigger_EnforcesQueueAndActorCaps(t *testing.T) {
 	t.Parallel()
 	f := setupPolicyFx(t)
