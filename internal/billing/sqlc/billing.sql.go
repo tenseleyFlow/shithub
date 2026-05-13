@@ -161,6 +161,155 @@ func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg Ap
 	return i, err
 }
 
+const applyUserSubscriptionSnapshot = `-- name: ApplyUserSubscriptionSnapshot :one
+WITH state AS (
+    INSERT INTO user_billing_states (
+        user_id,
+        provider,
+        plan,
+        subscription_status,
+        stripe_subscription_id,
+        stripe_subscription_item_id,
+        current_period_start,
+        current_period_end,
+        cancel_at_period_end,
+        trial_end,
+        canceled_at,
+        last_webhook_event_id,
+        past_due_at,
+        locked_at,
+        lock_reason,
+        grace_until
+    )
+    VALUES (
+        $1::bigint,
+        'stripe',
+        $2::user_plan,
+        $3::billing_subscription_status,
+        $4::text,
+        $5::text,
+        $6::timestamptz,
+        $7::timestamptz,
+        $8::boolean,
+        $9::timestamptz,
+        $10::timestamptz,
+        $11::text,
+        CASE
+            WHEN $3::billing_subscription_status = 'past_due' THEN now()
+            ELSE NULL
+        END,
+        NULL,
+        NULL,
+        NULL
+    )
+    ON CONFLICT (user_id) DO UPDATE
+       SET plan = EXCLUDED.plan,
+           subscription_status = EXCLUDED.subscription_status,
+           stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+           stripe_subscription_item_id = EXCLUDED.stripe_subscription_item_id,
+           current_period_start = EXCLUDED.current_period_start,
+           current_period_end = EXCLUDED.current_period_end,
+           cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+           trial_end = EXCLUDED.trial_end,
+           canceled_at = EXCLUDED.canceled_at,
+           last_webhook_event_id = EXCLUDED.last_webhook_event_id,
+           past_due_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.past_due_at, now())
+               ELSE NULL
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           updated_at = now()
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), user_update AS (
+    UPDATE users
+       SET plan = $2::user_plan,
+           updated_at = now()
+     WHERE id = $1::bigint
+    RETURNING id
+)
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type ApplyUserSubscriptionSnapshotParams struct {
+	UserID                   int64
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LastWebhookEventID       string
+}
+
+type ApplyUserSubscriptionSnapshotRow struct {
+	UserID                   int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+// Mirrors ApplySubscriptionSnapshot for orgs minus the seat columns
+// and with `user_plan` as the plan enum. The same CTE pattern keeps
+// users.plan and user_billing_states.plan atomic.
+func (q *Queries) ApplyUserSubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplyUserSubscriptionSnapshotParams) (ApplyUserSubscriptionSnapshotRow, error) {
+	row := db.QueryRow(ctx, applyUserSubscriptionSnapshot,
+		arg.UserID,
+		arg.Plan,
+		arg.SubscriptionStatus,
+		arg.StripeSubscriptionID,
+		arg.StripeSubscriptionItemID,
+		arg.CurrentPeriodStart,
+		arg.CurrentPeriodEnd,
+		arg.CancelAtPeriodEnd,
+		arg.TrialEnd,
+		arg.CanceledAt,
+		arg.LastWebhookEventID,
+	)
+	var i ApplyUserSubscriptionSnapshotRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const clearBillingLock = `-- name: ClearBillingLock :one
 WITH state AS (
     UPDATE org_billing_states
@@ -226,6 +375,83 @@ func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (C
 		&i.SubscriptionStatus,
 		&i.BillableSeats,
 		&i.SeatSnapshotAt,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const clearUserBillingLock = `-- name: ClearUserBillingLock :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = CASE
+               WHEN subscription_status = 'canceled' THEN 'free'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status = 'canceled' THEN 'none'
+               ELSE subscription_status
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           updated_at = now()
+     WHERE user_id = $1
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), user_update AS (
+    UPDATE users
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE users.id = state.user_id
+    RETURNING users.id
+)
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type ClearUserBillingLockRow struct {
+	UserID                   int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+func (q *Queries) ClearUserBillingLock(ctx context.Context, db DBTX, userID int64) (ClearUserBillingLockRow, error) {
+	row := db.QueryRow(ctx, clearUserBillingLock, userID)
+	var i ClearUserBillingLockRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
 		&i.CurrentPeriodStart,
 		&i.CurrentPeriodEnd,
 		&i.CancelAtPeriodEnd,
@@ -363,7 +589,7 @@ VALUES (
     $4::jsonb
 )
 ON CONFLICT (provider, provider_event_id) DO NOTHING
-RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts
+RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts, subject_kind, subject_id
 `
 
 type CreateWebhookEventReceiptParams struct {
@@ -393,6 +619,8 @@ func (q *Queries) CreateWebhookEventReceipt(ctx context.Context, db DBTX, arg Cr
 		&i.ProcessedAt,
 		&i.ProcessError,
 		&i.ProcessingAttempts,
+		&i.SubjectKind,
+		&i.SubjectID,
 	)
 	return i, err
 }
@@ -504,8 +732,107 @@ func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db
 	return i, err
 }
 
+const getUserBillingState = `-- name: GetUserBillingState :one
+
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states WHERE user_id = $1
+`
+
+// ─── user_billing_states (PRO03) ──────────────────────────────────
+func (q *Queries) GetUserBillingState(ctx context.Context, db DBTX, userID int64) (UserBillingState, error) {
+	row := db.QueryRow(ctx, getUserBillingState, userID)
+	var i UserBillingState
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserBillingStateByStripeCustomer = `-- name: GetUserBillingStateByStripeCustomer :one
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states
+WHERE provider = 'stripe'
+  AND stripe_customer_id = $1
+`
+
+func (q *Queries) GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error) {
+	row := db.QueryRow(ctx, getUserBillingStateByStripeCustomer, stripeCustomerID)
+	var i UserBillingState
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserBillingStateByStripeSubscription = `-- name: GetUserBillingStateByStripeSubscription :one
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM user_billing_states
+WHERE provider = 'stripe'
+  AND stripe_subscription_id = $1
+`
+
+func (q *Queries) GetUserBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (UserBillingState, error) {
+	row := db.QueryRow(ctx, getUserBillingStateByStripeSubscription, stripeSubscriptionID)
+	var i UserBillingState
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getWebhookEventReceipt = `-- name: GetWebhookEventReceipt :one
-SELECT id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts FROM billing_webhook_events
+SELECT id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts, subject_kind, subject_id FROM billing_webhook_events
 WHERE provider = 'stripe'
   AND provider_event_id = $1
 `
@@ -524,24 +851,30 @@ func (q *Queries) GetWebhookEventReceipt(ctx context.Context, db DBTX, providerE
 		&i.ProcessedAt,
 		&i.ProcessError,
 		&i.ProcessingAttempts,
+		&i.SubjectKind,
+		&i.SubjectID,
 	)
 	return i, err
 }
 
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at FROM billing_invoices
-WHERE org_id = $1
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+WHERE subject_kind = 'org' AND subject_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
 `
 
 type ListInvoicesForOrgParams struct {
-	OrgID int64
-	Limit int32
+	SubjectID int64
+	Limit     int32
 }
 
+// PRO03: filters on the polymorphic subject columns so the index
+// billing_invoices_subject_created_idx services this query. The
+// legacy `org_id` column is kept populated by UpsertInvoice for the
+// transitional window; this query no longer reads it.
 func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoicesForOrgParams) ([]BillingInvoice, error) {
-	rows, err := db.Query(ctx, listInvoicesForOrg, arg.OrgID, arg.Limit)
+	rows, err := db.Query(ctx, listInvoicesForOrg, arg.SubjectID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -571,6 +904,70 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 			&i.VoidedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SubjectKind,
+			&i.SubjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvoicesForSubject = `-- name: ListInvoicesForSubject :many
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+WHERE subject_kind = $1::billing_subject_kind
+  AND subject_id = $2::bigint
+ORDER BY created_at DESC, id DESC
+LIMIT $3::integer
+`
+
+type ListInvoicesForSubjectParams struct {
+	SubjectKind BillingSubjectKind
+	SubjectID   int64
+	Lim         int32
+}
+
+// Polymorphic invoice listing for PRO04+ callers. The org-flavored
+// ListInvoicesForOrg above is the same query with subject_kind
+// hard-coded; this surface lets a user-side caller pass kind='user'
+// without forking the helper.
+func (q *Queries) ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListInvoicesForSubjectParams) ([]BillingInvoice, error) {
+	rows, err := db.Query(ctx, listInvoicesForSubject, arg.SubjectKind, arg.SubjectID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BillingInvoice{}
+	for rows.Next() {
+		var i BillingInvoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Provider,
+			&i.StripeInvoiceID,
+			&i.StripeCustomerID,
+			&i.StripeSubscriptionID,
+			&i.Status,
+			&i.Number,
+			&i.Currency,
+			&i.AmountDueCents,
+			&i.AmountPaidCents,
+			&i.AmountRemainingCents,
+			&i.HostedInvoiceUrl,
+			&i.InvoicePdfUrl,
+			&i.PeriodStart,
+			&i.PeriodEnd,
+			&i.DueAt,
+			&i.PaidAt,
+			&i.VoidedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SubjectKind,
+			&i.SubjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -844,13 +1241,224 @@ func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPay
 	return i, err
 }
 
+const markUserCanceled = `-- name: MarkUserCanceled :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = 'free',
+           subscription_status = 'canceled',
+           canceled_at = COALESCE(canceled_at, now()),
+           locked_at = now(),
+           lock_reason = 'canceled',
+           grace_until = NULL,
+           cancel_at_period_end = false,
+           last_webhook_event_id = $1::text,
+           updated_at = now()
+     WHERE user_id = $2::bigint
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), user_update AS (
+    UPDATE users
+       SET plan = 'free',
+           updated_at = now()
+     WHERE id = $2::bigint
+    RETURNING id
+)
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type MarkUserCanceledParams struct {
+	LastWebhookEventID string
+	UserID             int64
+}
+
+type MarkUserCanceledRow struct {
+	UserID                   int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+func (q *Queries) MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCanceledParams) (MarkUserCanceledRow, error) {
+	row := db.QueryRow(ctx, markUserCanceled, arg.LastWebhookEventID, arg.UserID)
+	var i MarkUserCanceledRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markUserPastDue = `-- name: MarkUserPastDue :one
+UPDATE user_billing_states
+   SET subscription_status = 'past_due',
+       past_due_at = COALESCE(past_due_at, now()),
+       locked_at = now(),
+       lock_reason = 'past_due',
+       grace_until = $1::timestamptz,
+       last_webhook_event_id = $2::text,
+       updated_at = now()
+ WHERE user_id = $3::bigint
+RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+`
+
+type MarkUserPastDueParams struct {
+	GraceUntil         pgtype.Timestamptz
+	LastWebhookEventID string
+	UserID             int64
+}
+
+func (q *Queries) MarkUserPastDue(ctx context.Context, db DBTX, arg MarkUserPastDueParams) (UserBillingState, error) {
+	row := db.QueryRow(ctx, markUserPastDue, arg.GraceUntil, arg.LastWebhookEventID, arg.UserID)
+	var i UserBillingState
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markUserPaymentSucceeded = `-- name: MarkUserPaymentSucceeded :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'pro'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'active'
+               ELSE subscription_status
+           END,
+           past_due_at = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE past_due_at
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           last_webhook_event_id = $1::text,
+           updated_at = now()
+     WHERE user_id = $2::bigint
+    RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+), user_update AS (
+    UPDATE users
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE users.id = state.user_id
+    RETURNING users.id
+)
+SELECT user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at FROM state
+`
+
+type MarkUserPaymentSucceededParams struct {
+	LastWebhookEventID string
+	UserID             int64
+}
+
+type MarkUserPaymentSucceededRow struct {
+	UserID                   int64
+	Provider                 BillingProvider
+	StripeCustomerID         pgtype.Text
+	StripeSubscriptionID     pgtype.Text
+	StripeSubscriptionItemID pgtype.Text
+	Plan                     UserPlan
+	SubscriptionStatus       BillingSubscriptionStatus
+	CurrentPeriodStart       pgtype.Timestamptz
+	CurrentPeriodEnd         pgtype.Timestamptz
+	CancelAtPeriodEnd        bool
+	TrialEnd                 pgtype.Timestamptz
+	PastDueAt                pgtype.Timestamptz
+	CanceledAt               pgtype.Timestamptz
+	LockedAt                 pgtype.Timestamptz
+	LockReason               NullBillingLockReason
+	GraceUntil               pgtype.Timestamptz
+	LastWebhookEventID       string
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+func (q *Queries) MarkUserPaymentSucceeded(ctx context.Context, db DBTX, arg MarkUserPaymentSucceededParams) (MarkUserPaymentSucceededRow, error) {
+	row := db.QueryRow(ctx, markUserPaymentSucceeded, arg.LastWebhookEventID, arg.UserID)
+	var i MarkUserPaymentSucceededRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const markWebhookEventFailed = `-- name: MarkWebhookEventFailed :one
 UPDATE billing_webhook_events
    SET process_error = $2,
        processing_attempts = processing_attempts + 1
  WHERE provider = 'stripe'
    AND provider_event_id = $1
-RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts
+RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts, subject_kind, subject_id
 `
 
 type MarkWebhookEventFailedParams struct {
@@ -872,6 +1480,8 @@ func (q *Queries) MarkWebhookEventFailed(ctx context.Context, db DBTX, arg MarkW
 		&i.ProcessedAt,
 		&i.ProcessError,
 		&i.ProcessingAttempts,
+		&i.SubjectKind,
+		&i.SubjectID,
 	)
 	return i, err
 }
@@ -883,7 +1493,7 @@ UPDATE billing_webhook_events
        processing_attempts = processing_attempts + 1
  WHERE provider = 'stripe'
    AND provider_event_id = $1
-RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts
+RETURNING id, provider, provider_event_id, event_type, api_version, payload, received_at, processed_at, process_error, processing_attempts, subject_kind, subject_id
 `
 
 func (q *Queries) MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error) {
@@ -900,6 +1510,8 @@ func (q *Queries) MarkWebhookEventProcessed(ctx context.Context, db DBTX, provid
 		&i.ProcessedAt,
 		&i.ProcessError,
 		&i.ProcessingAttempts,
+		&i.SubjectKind,
+		&i.SubjectID,
 	)
 	return i, err
 }
@@ -948,10 +1560,54 @@ func (q *Queries) SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeC
 	return i, err
 }
 
+const setUserStripeCustomer = `-- name: SetUserStripeCustomer :one
+INSERT INTO user_billing_states (user_id, provider, stripe_customer_id)
+VALUES ($1, 'stripe', $2)
+ON CONFLICT (user_id) DO UPDATE
+   SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+       provider = 'stripe',
+       updated_at = now()
+RETURNING user_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at
+`
+
+type SetUserStripeCustomerParams struct {
+	UserID           int64
+	StripeCustomerID pgtype.Text
+}
+
+func (q *Queries) SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUserStripeCustomerParams) (UserBillingState, error) {
+	row := db.QueryRow(ctx, setUserStripeCustomer, arg.UserID, arg.StripeCustomerID)
+	var i UserBillingState
+	err := row.Scan(
+		&i.UserID,
+		&i.Provider,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeSubscriptionItemID,
+		&i.Plan,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.CancelAtPeriodEnd,
+		&i.TrialEnd,
+		&i.PastDueAt,
+		&i.CanceledAt,
+		&i.LockedAt,
+		&i.LockReason,
+		&i.GraceUntil,
+		&i.LastWebhookEventID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertInvoice = `-- name: UpsertInvoice :one
 
 INSERT INTO billing_invoices (
     org_id,
+    subject_kind,
+    subject_id,
     provider,
     stripe_invoice_id,
     stripe_customer_id,
@@ -971,6 +1627,8 @@ INSERT INTO billing_invoices (
     voided_at
 )
 VALUES (
+    $1::bigint,
+    'org'::billing_subject_kind,
     $1::bigint,
     'stripe',
     $2::text,
@@ -1008,7 +1666,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id
 `
 
 type UpsertInvoiceParams struct {
@@ -1032,6 +1690,11 @@ type UpsertInvoiceParams struct {
 }
 
 // ─── billing_invoices ──────────────────────────────────────────────
+// PRO03: writes both legacy `org_id` and polymorphic
+// `(subject_kind, subject_id)`. Callers continue to bind org_id only;
+// the subject columns are derived. After PRO04 migrates all callers
+// to the polymorphic shape, a follow-up migration drops `org_id` and
+// this query loses the legacy column from its INSERT list.
 func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceParams) (BillingInvoice, error) {
 	row := db.QueryRow(ctx, upsertInvoice,
 		arg.OrgID,
@@ -1075,6 +1738,8 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 		&i.VoidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SubjectKind,
+		&i.SubjectID,
 	)
 	return i, err
 }

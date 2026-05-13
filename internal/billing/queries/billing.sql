@@ -243,8 +243,15 @@ WHERE org_id = $1
 -- ─── billing_invoices ──────────────────────────────────────────────
 
 -- name: UpsertInvoice :one
+-- PRO03: writes both legacy `org_id` and polymorphic
+-- `(subject_kind, subject_id)`. Callers continue to bind org_id only;
+-- the subject columns are derived. After PRO04 migrates all callers
+-- to the polymorphic shape, a follow-up migration drops `org_id` and
+-- this query loses the legacy column from its INSERT list.
 INSERT INTO billing_invoices (
     org_id,
+    subject_kind,
+    subject_id,
     provider,
     stripe_invoice_id,
     stripe_customer_id,
@@ -264,6 +271,8 @@ INSERT INTO billing_invoices (
     voided_at
 )
 VALUES (
+    sqlc.arg(org_id)::bigint,
+    'org'::billing_subject_kind,
     sqlc.arg(org_id)::bigint,
     'stripe',
     sqlc.arg(stripe_invoice_id)::text,
@@ -304,10 +313,25 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
 RETURNING *;
 
 -- name: ListInvoicesForOrg :many
+-- PRO03: filters on the polymorphic subject columns so the index
+-- billing_invoices_subject_created_idx services this query. The
+-- legacy `org_id` column is kept populated by UpsertInvoice for the
+-- transitional window; this query no longer reads it.
 SELECT * FROM billing_invoices
-WHERE org_id = $1
+WHERE subject_kind = 'org' AND subject_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2;
+
+-- name: ListInvoicesForSubject :many
+-- Polymorphic invoice listing for PRO04+ callers. The org-flavored
+-- ListInvoicesForOrg above is the same query with subject_kind
+-- hard-coded; this surface lets a user-side caller pass kind='user'
+-- without forking the helper.
+SELECT * FROM billing_invoices
+WHERE subject_kind = sqlc.arg(subject_kind)::billing_subject_kind
+  AND subject_id = sqlc.arg(subject_id)::bigint
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(lim)::integer;
 
 -- ─── billing_webhook_events ────────────────────────────────────────
 
@@ -350,3 +374,194 @@ UPDATE billing_webhook_events
  WHERE provider = 'stripe'
    AND provider_event_id = $1
 RETURNING *;
+
+-- ─── user_billing_states (PRO03) ──────────────────────────────────
+
+-- name: GetUserBillingState :one
+SELECT * FROM user_billing_states WHERE user_id = $1;
+
+-- name: GetUserBillingStateByStripeCustomer :one
+SELECT * FROM user_billing_states
+WHERE provider = 'stripe'
+  AND stripe_customer_id = $1;
+
+-- name: GetUserBillingStateByStripeSubscription :one
+SELECT * FROM user_billing_states
+WHERE provider = 'stripe'
+  AND stripe_subscription_id = $1;
+
+-- name: SetUserStripeCustomer :one
+INSERT INTO user_billing_states (user_id, provider, stripe_customer_id)
+VALUES ($1, 'stripe', $2)
+ON CONFLICT (user_id) DO UPDATE
+   SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+       provider = 'stripe',
+       updated_at = now()
+RETURNING *;
+
+-- name: ApplyUserSubscriptionSnapshot :one
+-- Mirrors ApplySubscriptionSnapshot for orgs minus the seat columns
+-- and with `user_plan` as the plan enum. The same CTE pattern keeps
+-- users.plan and user_billing_states.plan atomic.
+WITH state AS (
+    INSERT INTO user_billing_states (
+        user_id,
+        provider,
+        plan,
+        subscription_status,
+        stripe_subscription_id,
+        stripe_subscription_item_id,
+        current_period_start,
+        current_period_end,
+        cancel_at_period_end,
+        trial_end,
+        canceled_at,
+        last_webhook_event_id,
+        past_due_at,
+        locked_at,
+        lock_reason,
+        grace_until
+    )
+    VALUES (
+        sqlc.arg(user_id)::bigint,
+        'stripe',
+        sqlc.arg(plan)::user_plan,
+        sqlc.arg(subscription_status)::billing_subscription_status,
+        sqlc.narg(stripe_subscription_id)::text,
+        sqlc.narg(stripe_subscription_item_id)::text,
+        sqlc.narg(current_period_start)::timestamptz,
+        sqlc.narg(current_period_end)::timestamptz,
+        sqlc.arg(cancel_at_period_end)::boolean,
+        sqlc.narg(trial_end)::timestamptz,
+        sqlc.narg(canceled_at)::timestamptz,
+        sqlc.arg(last_webhook_event_id)::text,
+        CASE
+            WHEN sqlc.arg(subscription_status)::billing_subscription_status = 'past_due' THEN now()
+            ELSE NULL
+        END,
+        NULL,
+        NULL,
+        NULL
+    )
+    ON CONFLICT (user_id) DO UPDATE
+       SET plan = EXCLUDED.plan,
+           subscription_status = EXCLUDED.subscription_status,
+           stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+           stripe_subscription_item_id = EXCLUDED.stripe_subscription_item_id,
+           current_period_start = EXCLUDED.current_period_start,
+           current_period_end = EXCLUDED.current_period_end,
+           cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+           trial_end = EXCLUDED.trial_end,
+           canceled_at = EXCLUDED.canceled_at,
+           last_webhook_event_id = EXCLUDED.last_webhook_event_id,
+           past_due_at = CASE
+               WHEN EXCLUDED.subscription_status = 'past_due' THEN COALESCE(user_billing_states.past_due_at, now())
+               ELSE NULL
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           updated_at = now()
+    RETURNING *
+), user_update AS (
+    UPDATE users
+       SET plan = sqlc.arg(plan)::user_plan,
+           updated_at = now()
+     WHERE id = sqlc.arg(user_id)::bigint
+    RETURNING id
+)
+SELECT * FROM state;
+
+-- name: MarkUserPastDue :one
+UPDATE user_billing_states
+   SET subscription_status = 'past_due',
+       past_due_at = COALESCE(past_due_at, now()),
+       locked_at = now(),
+       lock_reason = 'past_due',
+       grace_until = sqlc.narg(grace_until)::timestamptz,
+       last_webhook_event_id = sqlc.arg(last_webhook_event_id)::text,
+       updated_at = now()
+ WHERE user_id = sqlc.arg(user_id)::bigint
+RETURNING *;
+
+-- name: MarkUserPaymentSucceeded :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'pro'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN 'active'
+               ELSE subscription_status
+           END,
+           past_due_at = CASE
+               WHEN subscription_status IN ('past_due', 'unpaid', 'incomplete') THEN NULL
+               ELSE past_due_at
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           last_webhook_event_id = sqlc.arg(last_webhook_event_id)::text,
+           updated_at = now()
+     WHERE user_id = sqlc.arg(user_id)::bigint
+    RETURNING *
+), user_update AS (
+    UPDATE users
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE users.id = state.user_id
+    RETURNING users.id
+)
+SELECT * FROM state;
+
+-- name: MarkUserCanceled :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = 'free',
+           subscription_status = 'canceled',
+           canceled_at = COALESCE(canceled_at, now()),
+           locked_at = now(),
+           lock_reason = 'canceled',
+           grace_until = NULL,
+           cancel_at_period_end = false,
+           last_webhook_event_id = sqlc.arg(last_webhook_event_id)::text,
+           updated_at = now()
+     WHERE user_id = sqlc.arg(user_id)::bigint
+    RETURNING *
+), user_update AS (
+    UPDATE users
+       SET plan = 'free',
+           updated_at = now()
+     WHERE id = sqlc.arg(user_id)::bigint
+    RETURNING id
+)
+SELECT * FROM state;
+
+-- name: ClearUserBillingLock :one
+WITH state AS (
+    UPDATE user_billing_states
+       SET plan = CASE
+               WHEN subscription_status = 'canceled' THEN 'free'
+               ELSE plan
+           END,
+           subscription_status = CASE
+               WHEN subscription_status = 'canceled' THEN 'none'
+               ELSE subscription_status
+           END,
+           locked_at = NULL,
+           lock_reason = NULL,
+           grace_until = NULL,
+           updated_at = now()
+     WHERE user_id = $1
+    RETURNING *
+), user_update AS (
+    UPDATE users
+       SET plan = state.plan,
+           updated_at = now()
+      FROM state
+     WHERE users.id = state.user_id
+    RETURNING users.id
+)
+SELECT * FROM state;
