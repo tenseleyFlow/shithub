@@ -161,6 +161,7 @@ SET pattern = $2,
     prevent_force_push = $3,
     prevent_deletion = $4,
     require_pr_for_push = $5,
+    require_signed_commits = $7::boolean,
     allowed_pusher_user_ids = $6
 WHERE id = $1
 `
@@ -172,6 +173,7 @@ type UpdateBranchProtectionRuleParams struct {
 	PreventDeletion      bool
 	RequirePrForPush     bool
 	AllowedPusherUserIds []int64
+	RequireSignedCommits bool
 }
 
 func (q *Queries) UpdateBranchProtectionRule(ctx context.Context, db DBTX, arg UpdateBranchProtectionRuleParams) error {
@@ -182,6 +184,7 @@ func (q *Queries) UpdateBranchProtectionRule(ctx context.Context, db DBTX, arg U
 		arg.PreventDeletion,
 		arg.RequirePrForPush,
 		arg.AllowedPusherUserIds,
+		arg.RequireSignedCommits,
 	)
 	return err
 }
@@ -206,9 +209,10 @@ const upsertBranchProtectionRule = `-- name: UpsertBranchProtectionRule :one
 INSERT INTO branch_protection_rules (
     repo_id, pattern,
     prevent_force_push, prevent_deletion, require_pr_for_push,
+    require_signed_commits,
     allowed_pusher_user_ids, created_by_user_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7::bigint
+    $1, $2, $3, $4, $5, $7::boolean, $6, $8::bigint
 )
 RETURNING id
 `
@@ -220,6 +224,7 @@ type UpsertBranchProtectionRuleParams struct {
 	PreventDeletion      bool
 	RequirePrForPush     bool
 	AllowedPusherUserIds []int64
+	RequireSignedCommits bool
 	CreatedByUserID      pgtype.Int8
 }
 
@@ -231,6 +236,7 @@ func (q *Queries) UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg U
 		arg.PreventDeletion,
 		arg.RequirePrForPush,
 		arg.AllowedPusherUserIds,
+		arg.RequireSignedCommits,
 		arg.CreatedByUserID,
 	)
 	var id int64
