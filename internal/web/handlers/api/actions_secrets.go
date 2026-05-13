@@ -14,6 +14,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -160,7 +161,11 @@ func (h *Handlers) actionsSecretsDeleteRepo(w http.ResponseWriter, r *http.Reque
 // ─── org scope ──────────────────────────────────────────────────────
 
 func (h *Handlers) actionsSecretsPublicKeyOrg(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org")); !ok {
+	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
+	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
 		return
 	}
 	h.writeSecretsPublicKey(w, r)
@@ -169,6 +174,9 @@ func (h *Handlers) actionsSecretsPublicKeyOrg(w http.ResponseWriter, r *http.Req
 func (h *Handlers) actionsSecretsListOrg(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
 		return
 	}
 	rows, err := h.secretsDeps().List(r.Context(), secrets.OrgScope(org.ID))
@@ -187,6 +195,9 @@ func (h *Handlers) actionsSecretsListOrg(w http.ResponseWriter, r *http.Request)
 func (h *Handlers) actionsSecretsGetOrg(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
 		return
 	}
 	name := chi.URLParam(r, "name")
@@ -209,6 +220,12 @@ func (h *Handlers) actionsSecretsPutOrg(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if !h.requireAPIOrgOwner(w, r, org) {
+		return
+	}
+	if !h.requireOrgFeature(w, r, org, entitlements.FeatureOrgActionsSecrets, "Organization Actions secrets") {
+		return
+	}
 	plaintext, ok := h.decodeSecretBody(w, r)
 	if !ok {
 		return
@@ -224,6 +241,9 @@ func (h *Handlers) actionsSecretsPutOrg(w http.ResponseWriter, r *http.Request) 
 func (h *Handlers) actionsSecretsDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
 		return
 	}
 	if err := h.secretsDeps().Delete(r.Context(), secrets.OrgScope(org.ID), chi.URLParam(r, "name")); err != nil {

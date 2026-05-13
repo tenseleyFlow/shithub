@@ -4,10 +4,13 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/tenseleyFlow/shithub/internal/actions/variables"
 )
 
 func TestActionsVariables_CreateListGetUpdateDelete(t *testing.T) {
@@ -107,5 +110,63 @@ func TestActionsVariables_CreateRequiresRepoWrite(t *testing.T) {
 	env.router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestActionsVariables_OrgWritesRequireTeamEntitlement(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	orgID := env.seedOrg(t, "acme")
+
+	body, _ := json.Marshal(map[string]string{"name": "API_URL", "value": "https://api.example"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs/acme/actions/variables", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusPaymentRequired {
+		t.Fatalf("free org create: got %d, want 402; body=%s", rr.Code, rr.Body.String())
+	}
+	var count int
+	if err := env.pool.QueryRow(context.Background(), `SELECT count(*) FROM actions_variables WHERE org_id = $1`, orgID).Scan(&count); err != nil {
+		t.Fatalf("count org variables: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("free org variable count=%d, want 0", count)
+	}
+
+	env.activateTeamPlan(t, orgID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/orgs/acme/actions/variables", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("team org create: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestActionsVariables_OrgUpdateBlockedButDeleteAllowedWithoutTeam(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	orgID := env.seedOrg(t, "acme")
+	if err := (variables.Deps{Pool: env.pool}).Set(context.Background(), variables.OrgScope(orgID), "API_URL", "https://api.example", env.userID); err != nil {
+		t.Fatalf("seed org variable: %v", err)
+	}
+
+	updateBody, _ := json.Marshal(map[string]string{"value": "https://api.example/v2"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/orgs/acme/actions/variables/API_URL", bytes.NewReader(updateBody))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusPaymentRequired {
+		t.Fatalf("free org update: got %d, want 402; body=%s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/orgs/acme/actions/variables/API_URL", nil)
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	rr = httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("free org delete: got %d, want 204; body=%s", rr.Code, rr.Body.String())
 	}
 }
