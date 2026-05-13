@@ -55,6 +55,7 @@ const (
 	InvoiceStatusPaid          = billingdb.BillingInvoiceStatusPaid
 	InvoiceStatusVoid          = billingdb.BillingInvoiceStatusVoid
 	InvoiceStatusUncollectible = billingdb.BillingInvoiceStatusUncollectible
+	InvoiceStatusRefunded      = billingdb.BillingInvoiceStatusRefunded
 )
 
 var (
@@ -315,6 +316,23 @@ func SetWebhookEventSubjectForPrincipal(ctx context.Context, deps Deps, provider
 		SubjectID:       p.ID,
 		ProviderEventID: providerEventID,
 	})
+}
+
+// MarkInvoiceRefunded flips a billing_invoices row to status='refunded'
+// and stamps refunded_at. PRO08 D2: surface a Stripe-side refund in
+// shithub's billing settings UI. The Stripe invoice itself stays
+// status='paid' after a refund; shithub maintains its own UI surface.
+// Returns pgx.ErrNoRows when the invoice id isn't on file (Stripe
+// refunded an invoice we never recorded — operator should reconcile).
+func MarkInvoiceRefunded(ctx context.Context, deps Deps, stripeInvoiceID string) (billingdb.BillingInvoice, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingInvoice{}, err
+	}
+	stripeInvoiceID = strings.TrimSpace(stripeInvoiceID)
+	if stripeInvoiceID == "" {
+		return billingdb.BillingInvoice{}, ErrStripeInvoiceID
+	}
+	return billingdb.New().MarkInvoiceRefunded(ctx, deps.Pool, stripeInvoiceID)
 }
 
 // IsBillingEventStaleForPrincipal reports whether an incoming Stripe
@@ -630,7 +648,8 @@ func validInvoiceStatus(status InvoiceStatus) bool {
 		InvoiceStatusOpen,
 		InvoiceStatusPaid,
 		InvoiceStatusVoid,
-		InvoiceStatusUncollectible:
+		InvoiceStatusUncollectible,
+		InvoiceStatusRefunded:
 		return true
 	default:
 		return false

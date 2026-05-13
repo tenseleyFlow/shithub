@@ -1019,7 +1019,7 @@ func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit in
 }
 
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
 WHERE subject_kind = 'org' AND subject_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
@@ -1067,6 +1067,7 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 			&i.UpdatedAt,
 			&i.SubjectKind,
 			&i.SubjectID,
+			&i.RefundedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1079,7 +1080,7 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 }
 
 const listInvoicesForSubject = `-- name: ListInvoicesForSubject :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
 WHERE subject_kind = $1::billing_subject_kind
   AND subject_id = $2::bigint
 ORDER BY created_at DESC, id DESC
@@ -1129,6 +1130,7 @@ func (q *Queries) ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListI
 			&i.UpdatedAt,
 			&i.SubjectKind,
 			&i.SubjectID,
+			&i.RefundedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1261,6 +1263,56 @@ func (q *Queries) MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledPar
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+	)
+	return i, err
+}
+
+const markInvoiceRefunded = `-- name: MarkInvoiceRefunded :one
+UPDATE billing_invoices
+   SET status = 'refunded',
+       refunded_at = COALESCE(refunded_at, now()),
+       updated_at = now()
+ WHERE provider = 'stripe'
+   AND stripe_invoice_id = $1::text
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+`
+
+// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+// the invoice.status='paid' after a refund and fires a charge.refunded
+// event; this helper flips the shithub-side row to 'refunded' so the
+// billing settings UI shows the refunded state.
+//
+// A NULL refunded_at means "no refund seen"; the value is set on the
+// first call and preserved on subsequent calls (refund partial → full
+// doesn't move the wall-clock timestamp).
+func (q *Queries) MarkInvoiceRefunded(ctx context.Context, db DBTX, stripeInvoiceID string) (BillingInvoice, error) {
+	row := db.QueryRow(ctx, markInvoiceRefunded, stripeInvoiceID)
+	var i BillingInvoice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeInvoiceID,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.Status,
+		&i.Number,
+		&i.Currency,
+		&i.AmountDueCents,
+		&i.AmountPaidCents,
+		&i.AmountRemainingCents,
+		&i.HostedInvoiceUrl,
+		&i.InvoicePdfUrl,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.DueAt,
+		&i.PaidAt,
+		&i.VoidedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubjectKind,
+		&i.SubjectID,
+		&i.RefundedAt,
 	)
 	return i, err
 }
@@ -1920,7 +1972,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
 `
 
 type UpsertInvoiceParams struct {
@@ -1994,6 +2046,7 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 		&i.UpdatedAt,
 		&i.SubjectKind,
 		&i.SubjectID,
+		&i.RefundedAt,
 	)
 	return i, err
 }
@@ -2060,7 +2113,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
 `
 
 type UpsertInvoiceForSubjectParams struct {
@@ -2136,6 +2189,7 @@ func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg Upse
 		&i.UpdatedAt,
 		&i.SubjectKind,
 		&i.SubjectID,
+		&i.RefundedAt,
 	)
 	return i, err
 }

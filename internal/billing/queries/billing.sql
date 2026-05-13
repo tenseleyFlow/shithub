@@ -509,6 +509,23 @@ UPDATE user_billing_states
    SET last_event_at = GREATEST(COALESCE(last_event_at, sqlc.arg(event_at)::timestamptz), sqlc.arg(event_at)::timestamptz)
  WHERE user_id = sqlc.arg(user_id)::bigint;
 
+-- name: MarkInvoiceRefunded :one
+-- PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+-- the invoice.status='paid' after a refund and fires a charge.refunded
+-- event; this helper flips the shithub-side row to 'refunded' so the
+-- billing settings UI shows the refunded state.
+--
+-- A NULL refunded_at means "no refund seen"; the value is set on the
+-- first call and preserved on subsequent calls (refund partial → full
+-- doesn't move the wall-clock timestamp).
+UPDATE billing_invoices
+   SET status = 'refunded',
+       refunded_at = COALESCE(refunded_at, now()),
+       updated_at = now()
+ WHERE provider = 'stripe'
+   AND stripe_invoice_id = sqlc.arg(stripe_invoice_id)::text
+RETURNING *;
+
 -- name: TryAcquireWebhookEventLock :one
 -- PRO08 A3: transaction-scoped advisory lock keyed on the hash of
 -- the provider_event_id. Two concurrent webhook deliveries for the

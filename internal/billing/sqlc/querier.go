@@ -61,6 +61,15 @@ type Querier interface {
 	ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListInvoicesForSubjectParams) ([]BillingInvoice, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
+	// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
+	// the invoice.status='paid' after a refund and fires a charge.refunded
+	// event; this helper flips the shithub-side row to 'refunded' so the
+	// billing settings UI shows the refunded state.
+	//
+	// A NULL refunded_at means "no refund seen"; the value is set on the
+	// first call and preserved on subsequent calls (refund partial → full
+	// doesn't move the wall-clock timestamp).
+	MarkInvoiceRefunded(ctx context.Context, db DBTX, stripeInvoiceID string) (BillingInvoice, error)
 	MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParams) (OrgBillingState, error)
 	MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error)
 	MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCanceledParams) (MarkUserCanceledRow, error)
