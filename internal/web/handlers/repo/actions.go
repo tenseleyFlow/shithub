@@ -88,39 +88,46 @@ type actionsPaginationView struct {
 }
 
 type actionsRunDetailView struct {
-	ID             int64
-	RunIndex       int64
-	WorkflowFile   string
-	WorkflowName   string
-	Title          string
-	HeadSha        string
-	HeadShaShort   string
-	HeadRef        string
-	Event          string
-	EventLabel     string
-	ActorUsername  string
-	StateText      string
-	StateClass     string
-	StateIcon      string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Duration       string
-	IsTerminal     bool
-	StatusHref     string
-	CancelHref     string
-	CanCancel      bool
-	RerunHref      string
-	CanRerun       bool
-	ParentRunIndex int64
-	ParentRunHref  string
-	ActionsHref    string
-	CodeHref       string
-	ArtifactCount  int
-	JobCount       int
-	CompletedCount int
-	FailureCount   int
-	Jobs           []actionsJobDetailView
-	Stages         []actionsJobStageView
+	ID               int64
+	RunIndex         int64
+	WorkflowFile     string
+	WorkflowName     string
+	Title            string
+	HeadSha          string
+	HeadShaShort     string
+	HeadRef          string
+	Event            string
+	EventLabel       string
+	ActorUsername    string
+	StateText        string
+	StateClass       string
+	StateIcon        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Duration         string
+	IsTerminal       bool
+	NeedApproval     bool
+	ApprovalPending  bool
+	ApprovalRejected bool
+	ApprovalReason   string
+	ApproveHref      string
+	RejectHref       string
+	CanApprove       bool
+	StatusHref       string
+	CancelHref       string
+	CanCancel        bool
+	RerunHref        string
+	CanRerun         bool
+	ParentRunIndex   int64
+	ParentRunHref    string
+	ActionsHref      string
+	CodeHref         string
+	ArtifactCount    int
+	JobCount         int
+	CompletedCount   int
+	FailureCount     int
+	Jobs             []actionsJobDetailView
+	Stages           []actionsJobStageView
 }
 
 type actionsJobDetailView struct {
@@ -748,36 +755,44 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 	runPath := basePath + "/runs/" + strconv.FormatInt(run.RunIndex, 10)
 	now := time.Now()
 	stateText, stateClass, stateIcon := workflowRunState(run.Status, run.Conclusion)
+	approvalPending := run.NeedApproval && !run.ApprovedByUserID.Valid && run.Status == actionsdb.WorkflowRunStatusQueued
+	if approvalPending {
+		stateText, stateClass, stateIcon = "Approval required", "pending", "clock"
+	}
 	updatedAt := pgTime(run.UpdatedAt, run.CreatedAt.Time)
 	view := actionsRunDetailView{
-		ID:             run.ID,
-		RunIndex:       run.RunIndex,
-		WorkflowFile:   run.WorkflowFile,
-		WorkflowName:   run.WorkflowName,
-		Title:          workflowDisplayName(run.WorkflowName, run.WorkflowFile),
-		HeadSha:        run.HeadSha,
-		HeadShaShort:   shortSHA(run.HeadSha),
-		HeadRef:        run.HeadRef,
-		Event:          string(run.Event),
-		EventLabel:     workflowRunEventLabel(string(run.Event)),
-		ActorUsername:  run.ActorUsername,
-		StateText:      stateText,
-		StateClass:     stateClass,
-		StateIcon:      stateIcon,
-		CreatedAt:      run.CreatedAt.Time,
-		UpdatedAt:      updatedAt,
-		Duration:       workflowRunDuration(run.Status, run.StartedAt, run.CompletedAt, run.CreatedAt, updatedAt, now),
-		IsTerminal:     workflowRunTerminal(run.Status),
-		StatusHref:     runPath + "/status",
-		CancelHref:     runPath + "/cancel",
-		RerunHref:      runPath + "/rerun",
-		ActionsHref:    basePath,
-		CodeHref:       "/" + owner + "/" + repoName + "/tree/" + codeTarget(run.HeadRef, run.HeadSha),
-		ArtifactCount:  len(artifacts),
-		JobCount:       len(jobs),
-		CompletedCount: 0,
-		FailureCount:   0,
-		Jobs:           make([]actionsJobDetailView, 0, len(jobs)),
+		ID:              run.ID,
+		RunIndex:        run.RunIndex,
+		WorkflowFile:    run.WorkflowFile,
+		WorkflowName:    run.WorkflowName,
+		Title:           workflowDisplayName(run.WorkflowName, run.WorkflowFile),
+		HeadSha:         run.HeadSha,
+		HeadShaShort:    shortSHA(run.HeadSha),
+		HeadRef:         run.HeadRef,
+		Event:           string(run.Event),
+		EventLabel:      workflowRunEventLabel(string(run.Event)),
+		ActorUsername:   run.ActorUsername,
+		StateText:       stateText,
+		StateClass:      stateClass,
+		StateIcon:       stateIcon,
+		CreatedAt:       run.CreatedAt.Time,
+		UpdatedAt:       updatedAt,
+		Duration:        workflowRunDuration(run.Status, run.StartedAt, run.CompletedAt, run.CreatedAt, updatedAt, now),
+		IsTerminal:      workflowRunTerminal(run.Status),
+		NeedApproval:    run.NeedApproval,
+		ApprovalPending: approvalPending,
+		StatusHref:      runPath + "/status",
+		ApproveHref:     runPath + "/approve",
+		RejectHref:      runPath + "/reject",
+		CancelHref:      runPath + "/cancel",
+		RerunHref:       runPath + "/rerun",
+		ActionsHref:     basePath,
+		CodeHref:        "/" + owner + "/" + repoName + "/tree/" + codeTarget(run.HeadRef, run.HeadSha),
+		ArtifactCount:   len(artifacts),
+		JobCount:        len(jobs),
+		CompletedCount:  0,
+		FailureCount:    0,
+		Jobs:            make([]actionsJobDetailView, 0, len(jobs)),
 	}
 	if run.ParentRunID.Valid {
 		parent, err := q.GetWorkflowRunByID(ctx, h.d.Pool, run.ParentRunID.Int64)
@@ -786,12 +801,23 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 			view.ParentRunHref = basePath + "/runs/" + strconv.FormatInt(parent.RunIndex, 10)
 		}
 	}
+	if run.NeedApproval {
+		if approval, err := q.GetWorkflowRunApproval(ctx, h.d.Pool, run.ID); err == nil {
+			view.ApprovalReason = approval.RequestedReason
+			view.ApprovalRejected = approval.RejectedAt.Valid
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return actionsRunDetailView{}, err
+		}
+	}
 	for _, job := range jobs {
 		steps, err := q.ListStepsForJob(ctx, h.d.Pool, job.ID)
 		if err != nil {
 			return actionsRunDetailView{}, err
 		}
 		jobView := actionsJobDetailViewFromRow(job, owner, repoName, run.RunIndex, now)
+		if approvalPending && job.Status == actionsdb.WorkflowJobStatusQueued {
+			jobView.WaitReason = "Waiting for maintainer approval"
+		}
 		jobView.Steps = make([]actionsStepDetailView, 0, len(steps))
 		for _, step := range steps {
 			jobView.Steps = append(jobView.Steps, actionsStepDetailViewFromRow(step, owner, repoName, run.RunIndex, job.JobIndex, now))

@@ -115,6 +115,46 @@ func TestSettingsActionsRepoVariableCRUDRendersValue(t *testing.T) {
 	}
 }
 
+func TestSettingsActionsPolicyCRUD(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	mux := f.actionsSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/settings/actions", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET policy status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "POLICY=inherit:inherit:true:true:50;") {
+		t.Fatalf("default policy missing: %s", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost, "/alice/public-repo/settings/actions", url.Values{
+		"actions_enabled":              {"disabled"},
+		"require_pr_approval":          {"false"},
+		"max_repo_queued_runs":         {"3"},
+		"max_repo_concurrent_jobs":     {"2"},
+		"max_owner_concurrent_jobs":    {"5"},
+		"actor_trigger_limit_per_hour": {"7"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST policy status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/settings/actions", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET saved policy status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "POLICY=disabled:false:false:false:3;") {
+		t.Fatalf("saved policy missing: %s", got)
+	}
+}
+
 func (f *repoFixture) actionsSettingsMux(userID int64, username string) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(func(next http.Handler) http.Handler {

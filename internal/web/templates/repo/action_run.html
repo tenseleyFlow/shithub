@@ -24,6 +24,16 @@
           <button type="submit" class="shithub-button">{{ octicon "history" }} Re-run jobs</button>
         </form>
       {{ end }}
+      {{ if and .Run.ApprovalPending .Run.CanApprove }}
+        <form method="POST" action="{{ .Run.ApproveHref }}" class="shithub-actions-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-primary">{{ octicon "check" }} Approve and run</button>
+        </form>
+        <form method="POST" action="{{ .Run.RejectHref }}" class="shithub-actions-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">{{ octicon "x" }} Reject</button>
+        </form>
+      {{ end }}
       {{ if .Run.CanCancel }}
         <form method="POST" action="{{ .Run.CancelHref }}" class="shithub-actions-inline-form">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -55,6 +65,18 @@
     </aside>
 
     <div class="shithub-actions-run-main">
+      {{ if .Run.ApprovalPending }}
+        <section class="shithub-actions-approval-box">
+          <strong>{{ octicon "clock" }} Waiting for approval</strong>
+          <p>{{ if .Run.ApprovalReason }}{{ .Run.ApprovalReason }}{{ else }}This workflow is paused until a maintainer approves it.{{ end }}</p>
+        </section>
+      {{ else if .Run.ApprovalRejected }}
+        <section class="shithub-actions-approval-box">
+          <strong>{{ octicon "x-circle" }} Workflow rejected</strong>
+          <p>This run was not dispatched to a runner.</p>
+        </section>
+      {{ end }}
+
       <section id="summary" class="shithub-actions-summary-strip">
         <div>
           <span>Triggered via</span>

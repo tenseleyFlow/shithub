@@ -5980,6 +5980,25 @@ button.shithub-repo-action {
   color: var(--fg-muted);
   font-size: 0.82rem;
 }
+.shithub-actions-approval-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-actions-approval-box strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.shithub-actions-approval-box p {
+  margin: 0;
+  color: var(--fg-muted);
+}
 .shithub-actions-workflow-card,
 .shithub-actions-annotations {
   border: 1px solid var(--border-default);
