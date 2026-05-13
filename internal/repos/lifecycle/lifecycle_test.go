@@ -14,7 +14,9 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -85,6 +87,19 @@ func setup(t *testing.T) *env {
 		repoID:     res.Repo.ID,
 		originalFS: res.DiskPath,
 	}
+}
+
+func mustLifecycleUser(t *testing.T, db usersdb.DBTX, username string) usersdb.User {
+	t.Helper()
+	user, err := usersdb.New().CreateUser(context.Background(), db, usersdb.CreateUserParams{
+		Username:     username,
+		DisplayName:  username,
+		PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser %s: %v", username, err)
+	}
+	return user
 }
 
 func TestRename_HappyPath(t *testing.T) {
@@ -190,6 +205,37 @@ func TestSetVisibility(t *testing.T) {
 	}
 	if err := lifecycle.SetVisibility(context.Background(), env.deps, env.alice.ID, env.repoID, "bogus"); !errors.Is(err, lifecycle.ErrInvalidVisibility) {
 		t.Errorf("invalid: err=%v, want ErrInvalidVisibility", err)
+	}
+}
+
+func TestSetVisibilityRespectsPrivateCollaborationLimit(t *testing.T) {
+	t.Parallel()
+	env := setup(t)
+	ctx := context.Background()
+	org, err := orgs.Create(ctx, orgs.Deps{Pool: env.deps.Pool}, orgs.CreateParams{
+		Slug:            "acme",
+		CreatedByUserID: env.alice.ID,
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, env.deps.Pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "soon-private",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("create org repo: %v", err)
+	}
+	for _, userID := range []int64{env.bob.ID, mustLifecycleUser(t, env.deps.Pool, "carol").ID, mustLifecycleUser(t, env.deps.Pool, "dave").ID} {
+		if _, err := env.deps.Pool.Exec(ctx, `INSERT INTO repo_collaborators (repo_id, user_id, role) VALUES ($1, $2, 'read')`, repo.ID, userID); err != nil {
+			t.Fatalf("insert collaborator: %v", err)
+		}
+	}
+	err = lifecycle.SetVisibility(ctx, env.deps, env.alice.ID, repo.ID, "private")
+	if !errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+		t.Fatalf("SetVisibility err=%v, want private collaboration limit", err)
 	}
 }
 

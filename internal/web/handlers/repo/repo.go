@@ -24,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -559,6 +560,8 @@ func friendlyCreateError(err error) string {
 		return "Unknown license selection."
 	case errors.Is(err, repos.ErrUnknownGitignore):
 		return "Unknown .gitignore selection."
+	case errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded):
+		return err.Error()
 	}
 	if t, ok := isThrottled(err); ok {
 		return "You're creating repositories too quickly. Try again in " + t + "."

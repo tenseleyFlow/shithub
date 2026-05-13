@@ -15,6 +15,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
@@ -423,6 +424,8 @@ func writeRepoCreateError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusConflict, "name taken for owner")
 	case errors.Is(err, repos.ErrNoVerifiedEmail):
 		writeAPIError(w, http.StatusUnprocessableEntity, "actor has no verified primary email")
+	case errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded):
+		writeAPIError(w, http.StatusPaymentRequired, err.Error())
 	default:
 		writeAPIError(w, http.StatusInternalServerError, "create failed")
 	}
@@ -509,6 +512,10 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 			ldeps := lifecycle.Deps{Pool: h.d.Pool, RepoFS: h.d.RepoFS, Audit: h.d.Audit, Logger: h.d.Logger}
 			if err := lifecycle.SetVisibility(r.Context(), ldeps, auth.UserID, repo.ID, newVis); err != nil {
 				h.d.Logger.ErrorContext(r.Context(), "api: set visibility", "error", err)
+				if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+					writeAPIError(w, http.StatusPaymentRequired, err.Error())
+					return
+				}
 				writeAPIError(w, http.StatusInternalServerError, "visibility update failed")
 				return
 			}

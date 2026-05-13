@@ -4,6 +4,7 @@ package orgs
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -191,6 +192,8 @@ func teamsNoticeMessage(code string) string {
 		return "Secret teams are read-only until Team billing is brought back into good standing."
 	case "secret-teams-enterprise":
 		return "Secret teams are unavailable for Enterprise preview organizations. Contact sales to enable them."
+	case "private-collab-upgrade":
+		return "Free organizations can have up to 3 private collaborators. Upgrade to Team to add more private collaborators."
 	default:
 		return ""
 	}
@@ -335,7 +338,13 @@ func (h *Handlers) teamMemberAddRemove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		role := r.PostFormValue("role")
-		_ = orgs.AddTeamMember(r.Context(), h.deps(), team.ID, uid, viewer.ID, role)
+		if err := orgs.AddTeamMember(r.Context(), h.deps(), team.ID, uid, viewer.ID, role); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "teams: add member", "org_id", org.ID, "team_id", team.ID, "user_id", uid, "error", err)
+			if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+				http.Redirect(w, r, h.teamPath(org, team)+"?notice=private-collab-upgrade", http.StatusSeeOther)
+				return
+			}
+		}
 	}
 	http.Redirect(w, r, h.teamPath(org, team), http.StatusSeeOther)
 }
@@ -381,8 +390,14 @@ func (h *Handlers) teamRepoGrant(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, h.teamPath(org, team)+"?notice="+noticeCode, http.StatusSeeOther)
 			return
 		}
-		_ = orgs.GrantTeamRepoAccess(r.Context(), h.deps(), team.ID, repoID, viewer.ID,
-			r.PostFormValue("role"))
+		if err := orgs.GrantTeamRepoAccess(r.Context(), h.deps(), team.ID, repoID, viewer.ID,
+			r.PostFormValue("role")); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "teams: grant repo", "org_id", org.ID, "team_id", team.ID, "repo_id", repoID, "error", err)
+			if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+				http.Redirect(w, r, h.teamPath(org, team)+"?notice=private-collab-upgrade", http.StatusSeeOther)
+				return
+			}
+		}
 	}
 	http.Redirect(w, r, h.teamPath(org, team), http.StatusSeeOther)
 }

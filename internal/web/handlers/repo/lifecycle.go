@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -406,6 +407,8 @@ func (h *Handlers) lifecycleError(w http.ResponseWriter, r *http.Request, err er
 		http.Error(w, "transfer no longer pending", http.StatusConflict)
 	case errors.Is(err, lifecycle.ErrPastGrace):
 		http.Error(w, "soft-delete grace expired", http.StatusGone)
+	case errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded):
+		http.Error(w, err.Error(), http.StatusPaymentRequired)
 	default:
 		h.d.Logger.WarnContext(r.Context(), "lifecycle: unexpected error", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

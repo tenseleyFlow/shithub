@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 )
 
@@ -110,6 +111,13 @@ func AddTeamMember(ctx context.Context, deps Deps, teamID, userID, addedByUserID
 	if err != nil {
 		return err
 	}
+	check, err := entitlements.CheckTeamMemberPrivateCollaboration(ctx, entitlements.Deps{Pool: deps.Pool}, teamID, userID)
+	if err != nil {
+		return err
+	}
+	if err := check.Err(); err != nil {
+		return err
+	}
 	return orgsdb.New().AddTeamMember(ctx, deps.Pool, orgsdb.AddTeamMemberParams{
 		TeamID:        teamID,
 		UserID:        userID,
@@ -132,6 +140,13 @@ func RemoveTeamMember(ctx context.Context, deps Deps, teamID, userID int64) erro
 func GrantTeamRepoAccess(ctx context.Context, deps Deps, teamID, repoID, addedByUserID int64, role string) error {
 	r, err := parseTeamRepoRole(role)
 	if err != nil {
+		return err
+	}
+	check, err := entitlements.CheckTeamPrivateRepoGrant(ctx, entitlements.Deps{Pool: deps.Pool}, teamID, repoID)
+	if err != nil {
+		return err
+	}
+	if err := check.Err(); err != nil {
 		return err
 	}
 	return orgsdb.New().GrantTeamRepoAccess(ctx, deps.Pool, orgsdb.GrantTeamRepoAccessParams{

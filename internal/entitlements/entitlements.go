@@ -30,6 +30,8 @@ const (
 type Limit string
 
 const (
+	FreePrivateCollaborationLimit int64 = 3
+
 	LimitOrgPrivateCollaboration Limit = "org.private_collaboration_limit"
 	LimitOrgStorageQuota         Limit = "org.storage_quota"
 	LimitOrgActionsMinutesQuota  Limit = "org.actions_minutes_quota"
@@ -157,7 +159,11 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 	switch name {
 	case LimitOrgPrivateCollaboration:
 		value.Defined = true
-		value.Unlimited = true
+		if decision.Allowed {
+			value.Unlimited = true
+		} else {
+			value.Value = FreePrivateCollaborationLimit
+		}
 	case LimitOrgStorageQuota, LimitOrgActionsMinutesQuota:
 		// SP08 owns usage accounting and concrete quota numbers. Until
 		// then, expose entitlement state without pretending metering is enforced.

@@ -16,6 +16,7 @@ import (
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -42,6 +43,12 @@ type billingSeatBreakdown struct {
 	BillableSeats  int64
 	PendingInvites int
 	SnapshotLabel  string
+}
+
+type billingPrivateCollaborationBreakdown struct {
+	Count      int64
+	LimitLabel string
+	Detail     string
 }
 
 type billingAlert struct {
@@ -204,6 +211,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "org billing: count pending invitations", "org_id", org.ID, "error", err)
 	}
+	privateCollab := h.billingPrivateCollaborationBreakdown(r, org.ID)
 	invoices, err := orgbilling.ListInvoicesForOrg(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, 10)
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "org billing: list invoices", "org_id", org.ID, "error", err)
@@ -227,6 +235,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		"BillingAlert":          billingAlertForState(state, org.Slug),
 		"Summary":               billingSummary(state, memberCount),
 		"Seats":                 billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
+		"PrivateCollaboration":  privateCollab,
 		"CanStartCheckout":      h.billingConfigured(),
 		"CanManageSubscription": h.billingConfigured() && state.StripeCustomerID.Valid && strings.TrimSpace(state.StripeCustomerID.String) != "",
 		"GracePeriodLabel":      formatGracePeriod(h.d.BillingGracePeriod),
@@ -234,6 +243,29 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		"IsSiteAdmin":           viewer.IsSiteAdmin,
 		"Debug":                 debug,
 	})
+}
+
+func (h *Handlers) billingPrivateCollaborationBreakdown(r *http.Request, orgID int64) billingPrivateCollaborationBreakdown {
+	usage, err := entitlements.PrivateCollaborationUsageForOrg(r.Context(), entitlements.Deps{Pool: h.d.Pool}, orgID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: private collaboration usage", "org_id", orgID, "error", err)
+		return billingPrivateCollaborationBreakdown{
+			LimitLabel: "Unavailable",
+			Detail:     "Private collaborator usage could not be calculated right now.",
+		}
+	}
+	if usage.Unlimited {
+		return billingPrivateCollaborationBreakdown{
+			Count:      usage.Count,
+			LimitLabel: "Unlimited",
+			Detail:     "Team billing allows unlimited effective private collaborators while the subscription is active or in grace.",
+		}
+	}
+	return billingPrivateCollaborationBreakdown{
+		Count:      usage.Count,
+		LimitLabel: fmt.Sprintf("%d", usage.Limit),
+		Detail:     "Free organizations can add up to 3 unique people with effective access to private org repositories. Public collaboration is not counted.",
+	}
 }
 
 func (h *Handlers) ensureStripeCustomer(r *http.Request, org orgsdb.Org, state orgbilling.State) (orgbilling.State, error) {
