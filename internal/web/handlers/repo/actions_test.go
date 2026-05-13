@@ -170,6 +170,59 @@ func TestRepoTabActionsRendersDispatchWorkflowsForWriters(t *testing.T) {
 	}
 }
 
+func TestRepoActionsManagementPagesRenderPlaceholdersAndActiveNav(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      1,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -time.Hour,
+		DoneOffset:    -time.Minute,
+	}, now)
+
+	tests := []struct {
+		path  string
+		key   string
+		title string
+		empty string
+	}{
+		{"/alice/public-repo/actions/caches", "caches", "Caches", "No caches"},
+		{"/alice/public-repo/actions/attestations", "attestations", "Attestations", "No attestations"},
+		{"/alice/public-repo/actions/runners", "runners", "Runners", "Repository runner management is coming later"},
+		{"/alice/public-repo/actions/metrics/usage", "usage", "Actions Usage Metrics", "No usage metrics available yet"},
+		{"/alice/public-repo/actions/metrics/performance", "performance", "Actions Performance Metrics", "No performance metrics available yet"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			resp := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			body := resp.Body.String()
+			for _, want := range []string{
+				"MGMT=" + tt.key + ":" + tt.title + ":" + tt.empty + ";",
+				"MGMTNAV=" + tt.key + ":true:",
+				"COUNT=1;",
+				"WF=CI:false;",
+			} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("body missing %q in %s", want, body)
+				}
+			}
+		})
+	}
+}
+
 func TestRepoActionsDispatchAcceptsFormInputs(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -906,6 +959,11 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
+	mux.Get("/{owner}/{repo}/actions/caches", f.handlers.repoActionsCaches)
+	mux.Get("/{owner}/{repo}/actions/attestations", f.handlers.repoActionsAttestations)
+	mux.Get("/{owner}/{repo}/actions/runners", f.handlers.repoActionsRunners)
+	mux.Get("/{owner}/{repo}/actions/metrics/usage", f.handlers.repoActionsUsageMetrics)
+	mux.Get("/{owner}/{repo}/actions/metrics/performance", f.handlers.repoActionsPerformanceMetrics)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", f.handlers.repoActionRunRerun)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/approve", f.handlers.repoActionRunApprove)

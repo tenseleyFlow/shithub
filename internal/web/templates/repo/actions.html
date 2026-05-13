@@ -1,25 +1,7 @@
 {{ define "page" -}}
 {{ template "repo-header" . }}
 <section class="shithub-actions-page">
-  <aside class="shithub-actions-sidebar" aria-label="Actions navigation">
-    <a href="/{{ .Owner }}/{{ .Repo.Name }}/actions" class="shithub-actions-nav-item{{ if not .Filters.Workflow }} is-active{{ end }}"{{ if not .Filters.Workflow }} aria-current="page"{{ end }}>
-      {{ octicon "play" }} <span>All workflows</span>
-      <span class="shithub-actions-nav-count">{{ .RunCount }}</span>
-    </a>
-    <div class="shithub-actions-sidebar-section">
-      <h2>Workflows</h2>
-      {{ if .Workflows }}
-        {{ range .Workflows }}
-          <a href="{{ .Href }}" class="shithub-actions-nav-item{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }}>
-            {{ octicon "workflow" }} <span>{{ .Name }}</span>
-            <span class="shithub-actions-nav-count">{{ .Count }}</span>
-          </a>
-        {{ end }}
-      {{ else }}
-        <p>No workflows have run yet.</p>
-      {{ end }}
-    </div>
-  </aside>
+  {{ template "actions-sidebar" . }}
 
   <div class="shithub-actions-main">
     <header class="shithub-actions-head">
@@ -68,7 +50,6 @@
             </div>
           </details>
         {{ end }}
-        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">{{ octicon "gear" }} Actions settings</a>
       </div>
     </header>
 

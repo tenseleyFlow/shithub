@@ -1,0 +1,65 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-actions-page">
+  {{ template "actions-sidebar" . }}
+
+  <div class="shithub-actions-main">
+    <header class="shithub-actions-head shithub-actions-management-head">
+      <div>
+        <h1>{{ .Page.Title }}</h1>
+        <p>{{ .Page.Description }}</p>
+      </div>
+      {{ if .Page.PrimaryAction }}
+        {{ if .Page.PrimaryDisabled }}
+          <span class="shithub-button shithub-button-primary shithub-button-disabled" aria-disabled="true">{{ .Page.PrimaryAction }}</span>
+        {{ else }}
+          <a class="shithub-button shithub-button-primary" href="#">{{ .Page.PrimaryAction }}</a>
+        {{ end }}
+      {{ end }}
+    </header>
+
+    {{ if .Page.Stats }}
+      <section class="shithub-actions-metric-grid" aria-label="{{ .Page.Title }} summary">
+        {{ range .Page.Stats }}
+          <article>
+            <h2>{{ .Label }}</h2>
+            <strong>{{ .Value }}</strong>
+            <p>{{ .Note }}</p>
+          </article>
+        {{ end }}
+      </section>
+    {{ end }}
+
+    {{ if .Page.Tabs }}
+      <nav class="shithub-actions-management-tabs" aria-label="{{ .Page.Title }} views">
+        {{ range .Page.Tabs }}
+          <span class="{{ if .Active }}is-active{{ else }}is-disabled{{ end }}"{{ if .Active }} aria-current="page"{{ else }} aria-disabled="true"{{ end }}>
+            {{ octicon .Icon }} {{ .Label }}
+          </span>
+        {{ end }}
+      </nav>
+    {{ end }}
+
+    {{ if .Page.SearchPlaceholder }}
+      <form class="shithub-actions-management-filter" role="search" aria-label="{{ .Page.SearchPlaceholder }}">
+        <label>
+          {{ octicon "search" }}
+          <span class="sr-only">{{ .Page.SearchPlaceholder }}</span>
+          <input type="search" placeholder="{{ .Page.SearchPlaceholder }}" disabled>
+        </label>
+      </form>
+    {{ end }}
+
+    <section class="shithub-actions-management-box">
+      <header>
+        <strong>{{ .Page.CountLabel }}</strong>
+      </header>
+      <div class="shithub-actions-management-empty">
+        <span class="shithub-actions-empty-icon">{{ octicon .Page.Icon }}</span>
+        <h2>{{ .Page.EmptyTitle }}</h2>
+        <p>{{ .Page.EmptyBody }}</p>
+      </div>
+    </section>
+  </div>
+</section>
+{{- end }}
