@@ -46,6 +46,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/passwords"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
@@ -93,6 +94,21 @@ type Deps struct {
 	// wires this still gets a working grant for the canonical
 	// shithub-cli client_id.
 	DeviceCode devicecode.Config
+	// BillingEnabled gates whether the user-tier billing settings
+	// surface (PRO06) registers its routes. False ⇒ /settings/billing
+	// renders a "paid plans not configured on this instance" page;
+	// checkout / portal routes return 404. Operators flip this once
+	// they've configured a Stripe secret + Pro price.
+	BillingEnabled        bool
+	BillingGracePeriod    time.Duration
+	Stripe                stripebilling.Remote
+	StripeSuccessURL      string
+	StripeCancelURL       string
+	StripePortalReturnURL string
+	// BaseURL is the canonical absolute URL of this shithub instance.
+	// Used to construct Stripe return URLs when no per-route override
+	// is configured.
+	BaseURL string
 }
 
 // Handlers is the registered handler set. Construct with New.
@@ -184,6 +200,17 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Get("/settings/keys/gpg/new", h.gpgKeysAddForm)
 			r.Post("/settings/keys/gpg", h.gpgKeysAdd)
 			r.Post("/settings/keys/gpg/{id}/delete", h.gpgKeysDelete)
+			// PRO06 — user-tier billing settings. The settings page
+			// itself is always reachable so a Free user can see what
+			// Pro offers; checkout/portal routes only register when
+			// Stripe is configured for this instance.
+			r.Get("/settings/billing", h.settingsBilling)
+			if h.d.BillingEnabled && h.d.Stripe != nil {
+				r.Post("/settings/billing/checkout", h.settingsBillingCheckout)
+				r.Post("/settings/billing/portal", h.settingsBillingPortal)
+				r.Get("/settings/billing/success", h.settingsBillingSuccess)
+				r.Get("/settings/billing/cancel", h.settingsBillingCancel)
+			}
 			r.Get("/settings/tokens", h.tokensList)
 			r.Post("/settings/tokens", h.tokensCreate)
 			r.Post("/settings/tokens/{id}/revoke", h.tokensRevoke)
