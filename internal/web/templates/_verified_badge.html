@@ -1,0 +1,39 @@
+{{/*
+  S51 verified-badge partial. Renders three states based on the
+  passed-in sigverify.View:
+
+    - Reason == "valid"          → green "Verified" pill
+    - Reason == "unsigned"       → render nothing (no badge)
+    - any other Reason           → yellow "Unverified" pill
+
+  Reason strings come from sigverify.Reason (which mirrors GitHub's
+  documented commit.verification.reason enum). The popover is a
+  <details> disclosure for accessibility — keyboard-openable without
+  a JS dependency.
+
+  Caller invokes as `{{ template "verified-badge" .Verification }}`
+  passing the View struct directly (NOT a map). The View's String()
+  is on .Reason so we compare against literal strings here.
+*/}}
+{{ define "verified-badge" -}}
+{{- if eq (printf "%s" .Reason) "unsigned" -}}{{/* render nothing */}}
+{{- else if .Verified -}}
+<details class="shithub-verified-badge shithub-verified-badge--verified">
+  <summary aria-label="Signature verification details">Verified</summary>
+  <div class="shithub-verified-popover">
+    <p>This commit was signed with a verified signature.</p>
+    <dl>
+      {{ if .SignerEmail }}<dt>Signer</dt><dd>{{ .SignerEmail }}</dd>{{ end }}
+      {{ if .VerifiedAt }}<dt>Verified at</dt><dd>{{ .VerifiedAt.Format "Jan 2, 2006, 3:04 PM" }}</dd>{{ end }}
+    </dl>
+  </div>
+</details>
+{{- else -}}
+<details class="shithub-verified-badge shithub-verified-badge--unverified">
+  <summary aria-label="Signature verification details">Unverified</summary>
+  <div class="shithub-verified-popover">
+    <p>{{ verifiedReasonMessage .Reason }}</p>
+  </div>
+</details>
+{{- end -}}
+{{- end }}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
+	"github.com/tenseleyFlow/shithub/internal/repos/sigverify"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -159,12 +160,13 @@ func (h *Handlers) tagsList(w http.ResponseWriter, r *http.Request) {
 	refs, _ := repogit.ListRefs(r.Context(), gitDir)
 
 	type tagRow struct {
-		Name       string
-		OID        string
-		ShortOID   string
-		Subject    string
-		AuthorName string
-		AuthorWhen time.Time
+		Name         string
+		OID          string
+		ShortOID     string
+		Subject      string
+		AuthorName   string
+		AuthorWhen   time.Time
+		Verification sigverify.View
 	}
 	rows := make([]tagRow, 0, len(refs.Tags))
 	for _, t := range refs.Tags {
@@ -182,6 +184,26 @@ func (h *Handlers) tagsList(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].AuthorWhen.After(rows[j].AuthorWhen)
 	})
+
+	// Batch-load tag-object verifications for the page. Cache misses
+	// fall through to UnsignedView; the badge partial renders nothing
+	// for unsigned, so unannotated/unsigned tags simply have no badge.
+	oids := make([]string, 0, len(rows))
+	for _, tr := range rows {
+		if tr.OID != "" {
+			oids = append(oids, tr.OID)
+		}
+	}
+	if len(oids) > 0 {
+		verifications, vErr := sigverify.LoadViewsForOIDs(r.Context(), h.d.Pool, row.ID, oids)
+		if vErr != nil {
+			h.d.Logger.WarnContext(r.Context(), "tagsList: load verifications", "error", vErr, "repo_id", row.ID)
+			verifications = map[string]sigverify.View{}
+		}
+		for i := range rows {
+			rows[i].Verification = sigverify.LookupView(verifications, rows[i].OID)
+		}
+	}
 
 	h.d.Render.RenderPage(w, r, "repo/tags", map[string]any{
 		"Title":     "Tags · " + row.Name,

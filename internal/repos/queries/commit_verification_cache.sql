@@ -44,7 +44,7 @@ SELECT repo_id, commit_oid, reason, verified,
        signer_user_id, signer_subkey_id, kind,
        signature_armored, payload, verified_at, invalidated_at
 FROM commit_verification_cache
-WHERE repo_id = $1 AND commit_oid = ANY($2::text[]);
+WHERE repo_id = sqlc.arg(repo_id) AND commit_oid = ANY(sqlc.arg(oids)::text[]);
 
 -- name: InvalidateVerificationsForSubkey :exec
 -- Stamps invalidated_at on every cache row whose signer_subkey_id

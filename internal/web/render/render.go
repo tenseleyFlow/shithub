@@ -359,6 +359,43 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 			}
 			return m, nil
 		},
+		// verifiedReasonMessage maps a sigverify.Reason string to a
+		// short user-facing explanation. Used by the _verified_badge
+		// partial's popover. Accepts the Reason as a string so the
+		// template doesn't need a type assertion.
+		"verifiedReasonMessage": verifiedReasonMessage,
+	}
+}
+
+// verifiedReasonMessage returns the popover body text for each
+// non-valid verification reason. "unsigned" never reaches the
+// popover (the badge isn't rendered at all in that case) so it's
+// omitted. The strings are user-facing copy; keep them short and
+// concrete.
+func verifiedReasonMessage(reason any) string {
+	r, ok := reason.(string)
+	if !ok {
+		// The template might pass a typed sigverify.Reason; Stringer
+		// would surface the underlying string. Try fmt-style fallback.
+		r = fmt.Sprintf("%s", reason)
+	}
+	switch r {
+	case "unknown_key":
+		return "This commit was signed but the public key isn't registered with shithub."
+	case "bad_email":
+		return "The commit signature doesn't match any of the registered user's emails."
+	case "unverified_email":
+		return "The commit signature matches an email the user hasn't verified."
+	case "malformed_signature":
+		return "The commit's signature couldn't be parsed."
+	case "invalid":
+		return "The commit's signature failed cryptographic verification."
+	case "expired_key":
+		return "The signing key was expired when this commit was made."
+	case "not_signing_key":
+		return "The key that signed this commit isn't authorized for signing."
+	default:
+		return "This commit's signature couldn't be verified."
 	}
 }
 
