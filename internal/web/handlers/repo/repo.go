@@ -25,6 +25,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -82,6 +83,12 @@ type Deps struct {
 	// have hook shims pointing at the right binary. Empty in test fixtures
 	// that don't exercise hooks.
 	ShithubdPath string
+	// BillingEnforce carries PRO07's per-feature enforcement flags.
+	// Branch-protection gating on personal private repos consults
+	// these to decide whether a user-kind would-deny should block the
+	// save (enforce=true) or log a report-only event and proceed
+	// (PRO05 default, enforce=false).
+	BillingEnforce config.EnforceConfig
 }
 
 // Handlers is the registered handler set. Construct via New.

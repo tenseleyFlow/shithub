@@ -31,6 +31,20 @@ const (
 	FeaturePrivateCollaboration     Feature = "private_collaboration_limit"
 	FeatureStorageQuota             Feature = "storage_quota"
 	FeatureActionsMinutesQuota      Feature = "actions_minutes_quota"
+	// PRO07 additions.
+	//
+	// FeatureProfilePinsBeyondFree gates raising the personal profile
+	// pin cap above the Free baseline. Free users get LimitProfilePinsFreeCap
+	// pins; Pro users get LimitProfilePinsProCap. PRO01 ratified this as
+	// a shithub-specific differentiator (gh does not gate it). Kinds:
+	// user only — orgs continue to share the visible Free cap.
+	FeatureProfilePinsBeyondFree Feature = "profile_pins_beyond_free"
+	// FeatureCodeOwnersReview is the placeholder hook for CODEOWNERS
+	// enforcement. Registered now so the gating call site can compile
+	// and the per-feature config knob exists; the underlying CODEOWNERS
+	// parser ships in a later sprint and only then does Allowed flip.
+	// PRO07 keeps the enforce path a no-op for both kinds. Kinds: user, org.
+	FeatureCodeOwnersReview Feature = "codeowners_review"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -51,9 +65,26 @@ type Limit string
 const (
 	FreePrivateCollaborationLimit int64 = 3
 
+	// FreeProfilePinsCap mirrors gh's visible profile pin cap. Ratified
+	// PRO01. Applies to Free users AND to all orgs — PRO07 leaves the
+	// org cap as a hard constant since pins are a user-tier differentiator.
+	FreeProfilePinsCap int64 = 6
+	// ProProfilePinsCap is "effectively unlimited" for product copy, but
+	// bounded for DB sanity per PRO01. A Pro user who pins 100 repos is
+	// the upper bound — beyond that the request errors at the cap.
+	ProProfilePinsCap int64 = 100
+
 	LimitPrivateCollaboration Limit = "private_collaboration_limit"
 	LimitStorageQuota         Limit = "storage_quota"
 	LimitActionsMinutesQuota  Limit = "actions_minutes_quota"
+	// PRO07: profile-pin cap. Two limit keys are exposed so callers can
+	// ask either "what's my current cap" (Set.Limit resolves to free or
+	// pro based on plan) or "what's the absolute Free/Pro number." The
+	// usual handler-side path queries Set.Limit(LimitProfilePinsFreeCap)
+	// for the entitled cap; tests and the upgrade banner copy use the
+	// Pro variant.
+	LimitProfilePinsFreeCap Limit = "profile_pins_free_cap"
+	LimitProfilePinsProCap  Limit = "profile_pins_pro_cap"
 )
 
 // Deprecated limit aliases. Same migration story as features.
@@ -81,6 +112,8 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeaturePrivateCollaboration:     {billing.SubjectKindOrg},
 	FeatureStorageQuota:             {billing.SubjectKindOrg}, // user pending SP08
 	FeatureActionsMinutesQuota:      {billing.SubjectKindOrg}, // user pending SP08
+	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
+	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
@@ -267,6 +300,20 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 		RequiredPlan: decision.RequiredPlan,
 		Reason:       decision.Reason,
 	}
+	// Profile pin caps are concrete on both sides of the gate: the Free
+	// cap and Pro cap are constants ratified by PRO01, so the value is
+	// always Defined regardless of the principal's plan. Handlers ask
+	// CanUse(FeatureProfilePinsBeyondFree) to pick which cap applies.
+	switch name {
+	case LimitProfilePinsFreeCap:
+		value.Defined = true
+		value.Value = FreeProfilePinsCap
+		return value, nil
+	case LimitProfilePinsProCap:
+		value.Defined = true
+		value.Value = ProProfilePinsCap
+		return value, nil
+	}
 	if !decision.Allowed {
 		return value, nil
 	}
@@ -396,6 +443,8 @@ func limitFeature(name Limit) (Feature, string, bool) {
 		return FeatureStorageQuota, "bytes", true
 	case LimitActionsMinutesQuota:
 		return FeatureActionsMinutesQuota, "minutes", true
+	case LimitProfilePinsFreeCap, LimitProfilePinsProCap:
+		return FeatureProfilePinsBeyondFree, "pins", true
 	default:
 		return "", "", false
 	}
