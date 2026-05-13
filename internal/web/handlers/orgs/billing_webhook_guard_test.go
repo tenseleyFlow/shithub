@@ -185,6 +185,84 @@ func TestBillingWebhookGuardRefusesTeamPriceOnUserSubject(t *testing.T) {
 	}
 }
 
+// TestBillingWebhookSubscriptionDeletedForUnknownSubIsNoOp locks PRO08
+// D5: when Stripe sends customer.subscription.deleted for a subscription
+// shithub has never seen (no metadata, no customer-id match, no
+// subscription-id match), the handler logs and returns 200 so Stripe
+// stops retrying. Other event types still 5xx to surface misconfig.
+func TestBillingWebhookSubscriptionDeletedForUnknownSubIsNoOp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+
+	// No metadata, no customer-id we've seen, no subscription-id we've
+	// seen. resolvePrincipalFromSubscription returns ErrPrincipalNotFound.
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_unknown",
+		"customer": "cus_unknown",
+		"status":   "canceled",
+		"items":    map[string]any{"data": []map[string]any{}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:   "evt_unknown_delete",
+				Type: stripeapi.EventType("customer.subscription.deleted"),
+				Data: &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+	resp := postBillingWebhook(t, mux, "evt_unknown_delete")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unknown-sub delete status=%d body=%s (expected 200 no-op)", resp.Code, resp.Body.String())
+	}
+	receipt, err := billingdb.New().GetWebhookEventReceipt(ctx, pool, "evt_unknown_delete")
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if !receipt.ProcessedAt.Valid {
+		t.Fatalf("receipt should be marked processed (no retries needed), got %+v", receipt)
+	}
+}
+
+// TestBillingWebhookSubscriptionUpdatedForUnknownSubReturnsError is
+// the contrast: subscription.updated for an unknown sub still 5xx's
+// (operator should hear about it).
+func TestBillingWebhookSubscriptionUpdatedForUnknownSubReturnsError(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_unknown_update",
+		"customer": "cus_unknown_update",
+		"status":   "active",
+		"items":    map[string]any{"data": []map[string]any{}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:   "evt_unknown_update",
+				Type: stripeapi.EventType("customer.subscription.updated"),
+				Data: &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+	resp := postBillingWebhook(t, mux, "evt_unknown_update")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("unknown-sub update status=%d body=%s (expected 5xx for operator visibility)", resp.Code, resp.Body.String())
+	}
+}
+
 // TestBillingWebhookDropsStaleEvent locks PRO08 D4: a Stripe event
 // with `created` older than the persisted last_event_at must NOT
 // regress state. Pre-PRO08 a reverse-ordered retry could re-activate
