@@ -58,6 +58,7 @@ var APICapabilities = []string{
 	"readme",
 	"topics",
 	"merge-upstream",
+	"gpg-keys",
 }
 
 type metaResponse struct {

@@ -41,9 +41,20 @@ Response shape (one entry):
     "name":  "Alice",
     "email": "alice@example.com",
     "date":  "2026-05-12T00:00:00Z"
+  },
+  "verification": {
+    "verified":    false,
+    "reason":      "unsigned",
+    "signature":   null,
+    "payload":     null,
+    "verified_at": null
   }
 }
 ```
+
+The `verification` object mirrors GitHub's documented shape and
+is always present. See [Signature verification](#signature-verification)
+below for the field semantics and the `reason` enum.
 
 Empty / uninitialised repos return `[]` rather than `404`.
 
@@ -82,3 +93,54 @@ that `git rev-parse` resolves. Unknown SHAs `404`.
 `files[].status` is git's letter code (`A` added, `M` modified,
 `D` deleted, `R` renamed, `C` copied, `T` type-changed). Renames
 and copies surface the original path on `old_path`.
+
+## Signature verification
+
+Every commit response carries a `verification` object. shithub
+runs the signature check server-side against the bytes git
+stored in the commit object; the result is cached per
+`(repo, commit_oid)` and surfaced here.
+
+```json
+{
+  "verified":    true,
+  "reason":      "valid",
+  "signature":   "-----BEGIN PGP SIGNATURE-----\n…",
+  "payload":     "tree abc…\nparent def…\n…",
+  "verified_at": "2026-05-12T04:00:00Z"
+}
+```
+
+| Field         | Type             | Notes                                                                          |
+|---------------|------------------|--------------------------------------------------------------------------------|
+| `verified`    | bool             | `true` only when `reason == "valid"`. Always `false` otherwise.                |
+| `reason`      | string           | One of the enum values below.                                                  |
+| `signature`   | string \| null   | The armored signature block as stored on the commit object.                    |
+| `payload`     | string \| null   | The bytes the signature was computed over (commit object minus `gpgsig`).      |
+| `verified_at` | string \| null   | RFC3339 timestamp of the cache row; `null` for unsigned / not-yet-stamped.     |
+
+### `reason` enum
+
+The values mirror gh's documented enum exactly:
+
+| Value                 | Meaning                                                                                                  |
+|-----------------------|----------------------------------------------------------------------------------------------------------|
+| `valid`               | Signature parsed, cryptographically valid, signing email matches a verified email on the key's account.  |
+| `unsigned`            | Commit object carried no signature header. Default for cache misses; clients render no badge.            |
+| `unknown_key`         | Signature parsed but no uploaded GPG key matches the signing subkey's fingerprint.                       |
+| `unverified_email`    | Signature is valid for an uploaded key, but the signing email isn't verified on that key's account.      |
+| `bad_email`           | Signature is valid for an uploaded key, but the signing email isn't on the key at all.                   |
+| `expired_key`         | Signature parsed but the key was expired at signing time.                                                |
+| `not_signing_key`     | The key referenced isn't a signing key (capability bits missing).                                        |
+| `malformed_signature` | The `gpgsig` header didn't parse as an OpenPGP signature block.                                          |
+| `invalid`             | Signature parsed but the cryptographic check failed.                                                     |
+
+### Cache freshness
+
+Verification rows are populated by an asynchronous backfill that
+runs whenever a user uploads a GPG key (and once-off at deploy
+time via `shithubd gpg-backfill-all`). Between key upload and
+backfill completion, affected commits report `unsigned` (the
+conservative default); the badge appears once the row is
+stamped. Revoking a key invalidates affected cache rows;
+clients see `unsigned` until another matching key is uploaded.

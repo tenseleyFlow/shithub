@@ -174,6 +174,33 @@ between minor releases.
   `repo:read`. Empty repos return `[]`; the single-commit GET
   accepts any unambiguous SHA prefix.
 - **Capability:** `commits` added to `/api/v1/meta`.
+- **GPG keys + commit signature verification (S51).** Full
+  vertical: upload OpenPGP public keys at
+  `Settings → SSH and GPG keys`; shithub parses the armored
+  block (RSA≥2048, ECC, multi-subkey, encryption-only all
+  accepted) and stores primary + subkey fingerprint index. A
+  background worker eagerly backfills verification rows for the
+  uploader's existing commits across every repo, and the
+  `shithubd gpg-backfill-all` admin subcommand performs the
+  once-off bulk walk on deploy. Signed commits + annotated tags
+  render a green **Verified** pill on the commit list,
+  single-commit, and tag list pages; the popover surfaces the
+  signer, key id, and verified-at timestamp. The `reason` enum
+  mirrors GitHub's documented set (`valid`, `unsigned`,
+  `unknown_key`, `bad_email`, `unverified_email`, `expired_key`,
+  `not_signing_key`, `malformed_signature`, `invalid`). REST
+  surface: `GET/POST/DELETE /api/v1/user/gpg_keys[/{id}]` with
+  the gh-exact JSON shape (split `can_encrypt_comms` /
+  `can_encrypt_storage`, both `public_key` and `raw_key`,
+  subkeys-as-nested-objects, `emails[].verified` cross-checked
+  against the user's verified-email set). Scopes: `user:read`
+  for GETs, `user:write` for mutations. Existing
+  `/api/v1/repos/{o}/{r}/commits[/{sha}]` responses now carry a
+  `verification` object with the same shape gh emits.
+  Migrations: `0066_user_gpg_keys.sql`,
+  `0067_user_gpg_subkeys.sql`,
+  `0068_commit_verification_cache.sql`.
+- **Capability:** `gpg-keys` added to `/api/v1/meta`.
 - **REST: repo contents (S50 §12).**
   `GET /api/v1/repos/{o}/{r}/contents/{path}[?ref=]` returns
   either a directory listing (dirs first, then files
