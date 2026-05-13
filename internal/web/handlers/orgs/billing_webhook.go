@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	stripeapi "github.com/stripe/stripe-go/v85"
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
@@ -121,6 +122,8 @@ func (h *Handlers) processStripeWebhook(ctx context.Context, event stripeapi.Eve
 		return h.applyStripeSubscriptionEvent(ctx, event)
 	case "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
 		return h.applyStripeInvoiceEvent(ctx, event)
+	case "charge.refunded":
+		return h.applyStripeChargeRefunded(ctx, event)
 	default:
 		return nil
 	}
@@ -444,6 +447,61 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 		}
 	}
 	h.touchLastEventAt(ctx, event, principalState.Principal)
+	return nil
+}
+
+// applyStripeChargeRefunded handles PRO08 D2: a Stripe `charge.refunded`
+// event flips the corresponding shithub invoice row to status='refunded'.
+// Stripe itself leaves invoice.status='paid' after a refund; shithub
+// maintains its own status for UI display.
+//
+// Refunds DO NOT automatically cancel the subscription. Operators
+// who want to revoke Pro access in addition to issuing a refund must
+// cancel the subscription via the Stripe Dashboard (which fires
+// customer.subscription.deleted and is handled separately).
+//
+// A refund for an invoice shithub has never seen (the original
+// invoice.payment_succeeded event never reached us, or it predates
+// the polymorphic invoices table) logs a warning and returns nil so
+// Stripe stops retrying — the operator must reconcile manually.
+func (h *Handlers) applyStripeChargeRefunded(ctx context.Context, event stripeapi.Event) error {
+	// The Stripe Go v85 Charge struct does not expose `invoice` as a
+	// typed field; parse the raw event payload directly for the
+	// invoice id (and customer id, used for fallback resolution).
+	var charge struct {
+		ID       string `json:"id"`
+		Invoice  string `json:"invoice"`
+		Customer string `json:"customer"`
+	}
+	if err := unmarshalStripeEventObject(event, &charge); err != nil {
+		return err
+	}
+	invoiceID := strings.TrimSpace(charge.Invoice)
+	if invoiceID == "" {
+		// Standalone refund (no invoice linkage) — nothing to mark.
+		h.d.Logger.InfoContext(ctx, "org billing: charge.refunded without invoice — skip",
+			"event_id", event.ID, "charge_id", strings.TrimSpace(charge.ID))
+		return nil
+	}
+	row, err := orgbilling.MarkInvoiceRefunded(ctx, orgbilling.Deps{Pool: h.d.Pool}, invoiceID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.d.Logger.WarnContext(ctx, "org billing: charge.refunded for unknown invoice — operator must reconcile",
+				"event_id", event.ID,
+				"stripe_invoice_id", invoiceID)
+			return nil
+		}
+		return err
+	}
+	// Stamp the receipt's subject from the persisted invoice row.
+	// The polymorphic invoices schema guarantees subject_kind +
+	// subject_id are NOT NULL on every row, so direct access is safe.
+	principal := orgbilling.Principal{
+		Kind: orgbilling.SubjectKind(row.SubjectKind),
+		ID:   row.SubjectID,
+	}
+	h.recordWebhookSubject(ctx, event.ID, principal)
+	h.touchLastEventAt(ctx, event, principal)
 	return nil
 }
 
