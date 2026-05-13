@@ -5,6 +5,7 @@ package orgs_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -260,6 +261,39 @@ func TestBillingWebhookSubscriptionUpdatedForUnknownSubReturnsError(t *testing.T
 	resp := postBillingWebhook(t, mux, "evt_unknown_update")
 	if resp.Code != http.StatusInternalServerError {
 		t.Fatalf("unknown-sub update status=%d body=%s (expected 5xx for operator visibility)", resp.Code, resp.Body.String())
+	}
+}
+
+// TestBillingWebhookRejectsBadSignature locks Agent A's untested
+// claim: a tampered/bad signature returns 400 and writes no row.
+// The real stripe-go signature check is exercised in production;
+// this test wires a fake VerifyWebhook that errors and asserts the
+// handler short-circuits cleanly.
+func TestBillingWebhookRejectsBadSignature(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	_ = insertOrgAvatarOrg(t, pool, ownerID, "acme")
+
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{}, errors.New("bad signature")
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+	resp := postBillingWebhook(t, mux, "evt_will_be_rejected")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("bad-sig status=%d body=%s want 400", resp.Code, resp.Body.String())
+	}
+	// No receipt row should exist — signature failure short-circuits
+	// before RecordWebhookEvent runs.
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM billing_webhook_events`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("bad-sig should not insert receipt row, got count=%d", count)
 	}
 }
 
