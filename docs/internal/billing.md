@@ -342,6 +342,9 @@ PAYMENTS SP08 starts hosted-cost metering:
   repository's current disk size, and reject pushes that would exceed
   the effective storage quota. Personal repositories are not gated by
   organization quotas.
+- Org-owned Actions artifact upload URL requests recalculate current
+  storage usage before issuing a presigned PUT URL and reject uploads
+  whose declared byte count would exceed the effective storage quota.
 - Quota enforcement must read local counters and may force a source
   recalculation before rejecting large writes; counters are repairable
   and should not be treated as an eventually-consistent sole authority

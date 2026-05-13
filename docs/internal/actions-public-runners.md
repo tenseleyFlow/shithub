@@ -56,6 +56,9 @@ Recommended rollout posture:
 - paid shared-runner minutes: org-owned workflow dispatch now recalculates the
   active monthly usage period and rejects new runs when the organization is at
   or over its effective Actions minutes quota;
+- paid storage: org-owned artifact upload URL requests recalculate current
+  storage usage and reject declared uploads that would exceed the effective
+  organization storage quota before issuing a presigned PUT URL;
 - unpaid or past-due orgs: keep paid-only Actions configuration read-only, but
   do not delete secrets, variables, or prior run history.
 

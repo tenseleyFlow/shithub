@@ -31,8 +31,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -790,6 +792,60 @@ func TestRunnerArtifactUploadReturnsSignedURL(t *testing.T) {
 	}
 }
 
+func TestRunnerArtifactUploadRejectsOrgStorageQuotaExceeded(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID, orgID := setupRunnerAPIOrgRepo(t, pool)
+	if _, err := billing.UpsertOrgQuotaOverride(ctx, billing.Deps{Pool: pool}, billing.QuotaOverrideInput{
+		OrgID:           orgID,
+		Kind:            billing.QuotaKindStorageBytes,
+		LimitValue:      100,
+		Note:            "runner artifact quota test",
+		CreatedByUserID: userID,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride: %v", err)
+	}
+	enqueueRunnerAPIRun(t, pool, logger, repoID, userID)
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()), storage.NewMemoryStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim struct {
+		Token string `json:"token"`
+		Job   struct {
+			ID    int64 `json:"id"`
+			RunID int64 `json:"run_id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/artifacts/upload", claim.Job.ID),
+		strings.NewReader(`{"name":"large.tgz","size_bytes":123}`))
+	req.Header.Set("Authorization", "Bearer "+claim.Token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusPaymentRequired {
+		t.Fatalf("artifact status: got %d, want 402; body=%s", rr.Code, rr.Body.String())
+	}
+	artifacts, err := actionsdb.New().ListArtifactsForRun(ctx, pool, claim.Job.RunID)
+	if err != nil {
+		t.Fatalf("ListArtifactsForRun: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("quota-rejected upload still inserted artifacts: %+v", artifacts)
+	}
+}
+
 func TestRunnerStepStatusEnqueuesFinalizeWorker(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
@@ -1257,6 +1313,37 @@ func setupRunnerAPIRepo(t *testing.T, pool *pgxpool.Pool) (repoID, userID int64)
 		t.Fatalf("CreateRepo: %v", err)
 	}
 	return repo.ID, user.ID
+}
+
+func setupRunnerAPIOrgRepo(t *testing.T, pool *pgxpool.Pool) (repoID, userID, orgID int64) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username:     "alice",
+		DisplayName:  "Alice",
+		PasswordHash: runnerAPIFixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	org, err := orgs.Create(ctx, orgs.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}, orgs.CreateParams{
+		Slug:            "acme",
+		DisplayName:     "Acme",
+		CreatedByUserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+	return repo.ID, user.ID, org.ID
 }
 
 func enqueueRunnerAPIRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64) int64 {
