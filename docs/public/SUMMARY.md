@@ -31,6 +31,7 @@
 - [Repositories](./api/repos.md)
 - [Repository follow-ups (README/topics/merge-upstream)](./api/repos-followups.md)
 - [Branches and tags](./api/branches.md)
+- [Rulesets](./api/rulesets.md)
 - [Repo collaborators](./api/collaborators.md)
 - [Commits](./api/commits.md)
 - [Contents](./api/contents.md)
