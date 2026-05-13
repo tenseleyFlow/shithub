@@ -196,6 +196,168 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	}
 }
 
+func TestRunnerHeartbeatRespectsRepoConcurrencyCap(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	q := actionsdb.New()
+	if _, err := q.UpsertActionsRepoPolicy(ctx, pool, actionsdb.UpsertActionsRepoPolicyParams{
+		RepoID:                repoID,
+		ActionsEnabled:        actionsdb.ActionsPolicyStateInherit,
+		MaxRepoConcurrentJobs: pgtype.Int4{Int32: 1, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpsertActionsRepoPolicy: %v", err)
+	}
+
+	firstRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "repo-cap-1")
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 2)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	firstClaim := claimRunnerHeartbeat(t, router, token, 2)
+	if firstClaim.Job.RunID != firstRunID {
+		t.Fatalf("first claim run_id=%d want %d", firstClaim.Job.RunID, firstRunID)
+	}
+
+	secondRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "repo-cap-2")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":2}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("capped heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, secondRunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("second run job should remain queued/unclaimed: %+v", jobs)
+	}
+	secondJob, err := q.GetWorkflowJobByID(ctx, pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if secondJob.RunnerID.Valid {
+		t.Fatalf("second run job should not have a runner: %+v", secondJob)
+	}
+
+	if _, err := q.UpdateWorkflowJobStatus(ctx, pool, actionsdb.UpdateWorkflowJobStatusParams{
+		ID:         firstClaim.Job.ID,
+		Status:     actionsdb.WorkflowJobStatusCompleted,
+		Conclusion: actionsdb.NullCheckConclusion{CheckConclusion: actionsdb.CheckConclusionSuccess, Valid: true},
+		CompletedAt: pgtype.Timestamptz{
+			Time:  time.Now(),
+			Valid: true,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateWorkflowJobStatus: %v", err)
+	}
+	secondClaim := claimRunnerHeartbeat(t, router, token, 2)
+	if secondClaim.Job.RunID != secondRunID {
+		t.Fatalf("second claim run_id=%d want %d", secondClaim.Job.RunID, secondRunID)
+	}
+}
+
+func TestRunnerHeartbeatRespectsOwnerConcurrencyCap(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	firstRepoID, userID := setupRunnerAPIRepo(t, pool)
+	secondRepo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerUserID:   pgtype.Int8{Int64: userID, Valid: true},
+		Name:          "second",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo second: %v", err)
+	}
+	q := actionsdb.New()
+	if _, err := q.UpsertActionsRepoPolicy(ctx, pool, actionsdb.UpsertActionsRepoPolicyParams{
+		RepoID:                 secondRepo.ID,
+		ActionsEnabled:         actionsdb.ActionsPolicyStateInherit,
+		MaxOwnerConcurrentJobs: pgtype.Int4{Int32: 1, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpsertActionsRepoPolicy: %v", err)
+	}
+
+	firstRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, firstRepoID, userID, "owner-cap-1")
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 2)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	firstClaim := claimRunnerHeartbeat(t, router, token, 2)
+	if firstClaim.Job.RunID != firstRunID {
+		t.Fatalf("first claim run_id=%d want %d", firstClaim.Job.RunID, firstRunID)
+	}
+
+	secondRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, secondRepo.ID, userID, "owner-cap-2")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":2}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("owner-capped heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, secondRunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("second owner job should remain queued/unclaimed: %+v", jobs)
+	}
+	secondJob, err := q.GetWorkflowJobByID(ctx, pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if secondJob.RunnerID.Valid {
+		t.Fatalf("second owner job should not have a runner: %+v", secondJob)
+	}
+}
+
+func TestRunnerHeartbeatSiteDisableOverridesRepoEnable(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	q := actionsdb.New()
+	if _, err := q.UpsertActionsRepoPolicy(ctx, pool, actionsdb.UpsertActionsRepoPolicyParams{
+		RepoID:         repoID,
+		ActionsEnabled: actionsdb.ActionsPolicyStateEnabled,
+	}); err != nil {
+		t.Fatalf("UpsertActionsRepoPolicy: %v", err)
+	}
+	runID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "site-disable-claim")
+	if _, err := pool.Exec(ctx, `UPDATE actions_site_policy SET actions_enabled = false WHERE id = true`); err != nil {
+		t.Fatalf("disable site policy: %v", err)
+	}
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("site-disabled heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("site-disabled job should remain queued: %+v", jobs)
+	}
+	job, err := q.GetWorkflowJobByID(ctx, pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID: %v", err)
+	}
+	if job.RunnerID.Valid {
+		t.Fatalf("site-disabled job should not have a runner: %+v", job)
+	}
+}
+
 func TestRunnerHeartbeatDoesNotClaimWhenDraining(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
@@ -1099,10 +1261,20 @@ func setupRunnerAPIRepo(t *testing.T, pool *pgxpool.Pool) (repoID, userID int64)
 
 func enqueueRunnerAPIRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64) int64 {
 	t.Helper()
-	return enqueueRunnerAPIEventRun(t, pool, logger, repoID, userID, trigger.EventPush, map[string]any{"ref": "refs/heads/trunk"})
+	return enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "runner-api-test:push")
+}
+
+func enqueueRunnerAPIRunWithTriggerID(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, triggerID string) int64 {
+	t.Helper()
+	return enqueueRunnerAPIEventRunWithTriggerID(t, pool, logger, repoID, userID, trigger.EventPush, map[string]any{"ref": "refs/heads/trunk"}, triggerID)
 }
 
 func enqueueRunnerAPIEventRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, event trigger.EventKind, payload map[string]any) int64 {
+	t.Helper()
+	return enqueueRunnerAPIEventRunWithTriggerID(t, pool, logger, repoID, userID, event, payload, "runner-api-test:"+string(event))
+}
+
+func enqueueRunnerAPIEventRunWithTriggerID(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, event trigger.EventKind, payload map[string]any, triggerID string) int64 {
 	t.Helper()
 	wf, diags, err := workflow.Parse([]byte(`name: ci
 on: push
@@ -1129,13 +1301,41 @@ jobs:
 		EventKind:      event,
 		EventPayload:   payload,
 		ActorUserID:    userID,
-		TriggerEventID: "runner-api-test:" + string(event),
+		TriggerEventID: triggerID,
 		Workflow:       wf,
 	})
 	if err != nil {
 		t.Fatalf("trigger.Enqueue: %v", err)
 	}
 	return res.RunID
+}
+
+type runnerHeartbeatClaim struct {
+	Token string `json:"token"`
+	Job   struct {
+		ID    int64 `json:"id"`
+		RunID int64 `json:"run_id"`
+	} `json:"job"`
+}
+
+func claimRunnerHeartbeat(t *testing.T, router http.Handler, token string, capacity int) runnerHeartbeatClaim {
+	t.Helper()
+	body := fmt.Sprintf(`{"labels":["ubuntu-latest","linux"],"capacity":%d}`, capacity)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim runnerHeartbeatClaim
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode heartbeat claim: %v", err)
+	}
+	if claim.Token == "" || claim.Job.ID == 0 || claim.Job.RunID == 0 {
+		t.Fatalf("incomplete heartbeat claim: %+v", claim)
+	}
+	return claim
 }
 
 func registerRunnerForTest(t *testing.T, pool *pgxpool.Pool, labels []string, capacity int32) (token string, runnerID int64) {
