@@ -47,7 +47,32 @@ func TestSettingsBranches_UserKindReportOnlyRequiredReviewersAllowsSave(t *testi
 	assertBranchProtectionRuleCount(t, f, f.privateRepo.ID, 1)
 }
 
-func TestSettingsBranches_UserKindEnforceFlipRequiredReviewersBlocks(t *testing.T) {
+func TestSettingsBranches_UserKindEnforceFlipRequiredReviewersBlocksSingle(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixtureWithEnforce(t, config.EnforceConfig{
+		UserRequiredReviewers: true,
+	})
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest("POST", "/alice/private-repo/settings/branches", url.Values{
+		"pattern":               {"trunk"},
+		"required_review_count": {"1"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != 303 {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	// PRO08 C3 + C4: count=1 + user kind → single-reviewer Pro copy.
+	if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=required-reviewers-upgrade-pro" {
+		t.Fatalf("expected single-reviewer Pro notice, got %q", got)
+	}
+	assertBranchProtectionRuleCount(t, f, f.privateRepo.ID, 0)
+}
+
+// TestSettingsBranches_UserKindEnforceFlipMultiReviewerBlocks locks
+// PRO08 C3's distinct copy variant when count > 1.
+func TestSettingsBranches_UserKindEnforceFlipMultiReviewerBlocks(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixtureWithEnforce(t, config.EnforceConfig{
 		UserRequiredReviewers: true,
@@ -63,8 +88,8 @@ func TestSettingsBranches_UserKindEnforceFlipRequiredReviewersBlocks(t *testing.
 	if resp.Code != 303 {
 		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
 	}
-	if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=required-reviewers-upgrade" {
-		t.Fatalf("expected upgrade notice, got %q", got)
+	if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=required-reviewers-multi-upgrade-pro" {
+		t.Fatalf("expected multi-reviewer Pro notice, got %q", got)
 	}
 	assertBranchProtectionRuleCount(t, f, f.privateRepo.ID, 0)
 }
@@ -85,10 +110,42 @@ func TestSettingsBranches_UserKindEnforceFlipAdvancedChecksBlocks(t *testing.T) 
 	if resp.Code != 303 {
 		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
 	}
-	if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=branch-protection-upgrade" {
-		t.Fatalf("expected upgrade notice, got %q", got)
+	// PRO08 C4: user-kind deny carries the Pro-flavored upgrade copy.
+	if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=branch-protection-upgrade-pro" {
+		t.Fatalf("expected Pro upgrade notice, got %q", got)
 	}
 	assertBranchProtectionRuleCount(t, f, f.privateRepo.ID, 0)
+}
+
+// TestSettingsBranches_UserKindEnforceFlipPreventForcePushBlocks locks
+// PRO08 C2: the rewired gate fires on prevent_force_push (NOT just
+// required_status_checks like PRO07 mis-wired it). prevent_deletion
+// and require_signed_commits behave identically; covered by table.
+func TestSettingsBranches_UserKindEnforceFlipPreventForcePushBlocks(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"prevent_force_push", "prevent_deletion", "require_signed_commits"} {
+		flag := flag
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixtureWithEnforce(t, config.EnforceConfig{
+				UserAdvancedBranchProtection: true,
+			})
+			mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+			resp := httptest.NewRecorder()
+			req := newFormRequest("POST", "/alice/private-repo/settings/branches", url.Values{
+				"pattern": {"trunk"},
+				flag:      {"on"},
+			})
+			mux.ServeHTTP(resp, req)
+			if resp.Code != 303 {
+				t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			if got := resp.Header().Get("Location"); got != "/alice/private-repo/settings/branches?notice=branch-protection-upgrade-pro" {
+				t.Fatalf("flag=%s redirect=%q, want Pro upgrade", flag, got)
+			}
+			assertBranchProtectionRuleCount(t, f, f.privateRepo.ID, 0)
+		})
+	}
 }
 
 // TestSettingsBranches_UserKindEnforceFlipDoesNotAffectPublicRepos
@@ -166,7 +223,9 @@ func TestSettingsBranches_OrgKindUnchangedByPRO07Flags(t *testing.T) {
 		if resp.Code != 303 {
 			t.Fatalf("enforce=%+v status=%d body=%s", enforce, resp.Code, resp.Body.String())
 		}
-		if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=required-reviewers-upgrade" {
+		// count=2 ⇒ multi; org-kind keeps the existing copy (no -pro
+		// suffix); PRO08 C3 added the multi- variant.
+		if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=required-reviewers-multi-upgrade" {
 			t.Errorf("enforce=%+v: org redirect=%q, want upgrade notice", enforce, got)
 		}
 		assertBranchProtectionRuleCount(t, f, repo.ID, 0)

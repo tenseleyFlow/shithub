@@ -36,7 +36,10 @@ func TestSettingsBranchesBlocksRequiredReviewersWithoutEntitlement(t *testing.T)
 	if resp.Code != http.StatusSeeOther {
 		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
 	}
-	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=required-reviewers-upgrade" {
+	// PRO08 C3: count=2 is multi-reviewer, so the deny carries the
+	// multi-reviewer-specific code. The single-reviewer code is only
+	// used when count==1.
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=required-reviewers-multi-upgrade" {
 		t.Fatalf("redirect location=%q", got)
 	}
 	assertBranchProtectionRuleCount(t, f, repo.ID, 0)
@@ -138,9 +141,10 @@ func TestSettingsBranchesAllowsDowngradedOrgToRemoveAdvancedSettings(t *testing.
 	orgID := f.insertOwnedOrg(t, "acme")
 	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
 	ruleID, err := f.handlers.rq.UpsertBranchProtectionRule(context.Background(), f.pool, reposdb.UpsertBranchProtectionRuleParams{
-		RepoID:          repo.ID,
-		Pattern:         "trunk",
-		PreventDeletion: true,
+		RepoID:               repo.ID,
+		Pattern:              "trunk",
+		PreventDeletion:      true,
+		AllowedPusherUserIds: []int64{},
 	})
 	if err != nil {
 		t.Fatalf("seed branch rule: %v", err)
