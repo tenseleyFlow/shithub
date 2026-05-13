@@ -28,7 +28,7 @@ import (
 const (
 	DefaultPath            = "/etc/shithubd-runner/config.toml"
 	EnvPrefix              = "SHITHUB_RUNNER_"
-	defaultImage           = "ghcr.io/shithub/runner-nix:1.0"
+	defaultImage           = "ghcr.io/tenseleyflow/shithub/runner-nix:1.0"
 	defaultNetwork         = "shithub-actions"
 	defaultDNSServer       = "172.30.0.1"
 	defaultSeccompProfile  = "/etc/shithubd-runner/seccomp.json"

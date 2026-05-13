@@ -65,7 +65,7 @@
         in
         {
           runnerImage = pkgs.dockerTools.buildLayeredImage {
-            name = "ghcr.io/shithub/runner-nix";
+            name = "ghcr.io/tenseleyflow/shithub/runner-nix";
             tag = "1.0";
             contents = [ imageRoot ];
             maxLayers = 80;

@@ -179,7 +179,10 @@ for raw in "${CIDR_PARTS[@]}"; do
 done
 (( ${#SSH_RULES[@]} > 0 )) || fatal "at least one non-public SSH CIDR is required"
 SSH_INBOUND_RULES="${SSH_RULES[*]}"
-OUTBOUND_RULES="protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,ports:all,address:0.0.0.0/0"
+# DigitalOcean firewall rules accept explicit TCP/UDP port ranges here, not
+# the human shorthand "all". Keep this broad at the cloud firewall layer; the
+# runner host's ipset firewall enforces the DNS allowlist for job containers.
+OUTBOUND_RULES="protocol:tcp,ports:1-65535,address:0.0.0.0/0 protocol:udp,ports:1-65535,address:0.0.0.0/0 protocol:icmp,address:0.0.0.0/0"
 
 require_tool doctl
 require_tool jq
