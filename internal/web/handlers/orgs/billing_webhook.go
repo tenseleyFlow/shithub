@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// PRO04 note: this file is now subject-agnostic — it routes Stripe
+// webhook events to either org or user billing state based on the
+// resolved Principal. The file still lives under `handlers/orgs/`
+// for wiring continuity; a follow-up sprint moves it to
+// `handlers/billing/` once the SP-only callers are gone.
+
 package orgs
 
 import (
@@ -13,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	stripeapi "github.com/stripe/stripe-go/v85"
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
@@ -89,21 +94,48 @@ func (h *Handlers) applyStripeCheckoutCompleted(ctx context.Context, event strip
 	if err := unmarshalStripeEventObject(event, &session); err != nil {
 		return err
 	}
-	orgID := stripeOrgIDFromMetadata(session.Metadata)
-	if orgID == 0 {
-		if id, err := strconv.ParseInt(strings.TrimSpace(session.ClientReferenceID), 10, 64); err == nil && id > 0 {
-			orgID = id
-		}
-	}
-	if orgID == 0 {
-		return errors.New("stripe checkout.session.completed missing shithub org metadata")
-	}
 	customerID := stripeCustomerID(session.Customer)
 	if customerID == "" {
 		return errors.New("stripe checkout.session.completed missing customer")
 	}
-	_, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, customerID)
+	principal, err := h.resolvePrincipalFromCheckout(ctx, &session, customerID)
+	if err != nil {
+		return err
+	}
+	_, err = orgbilling.SetStripeCustomerForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, customerID)
 	return err
+}
+
+// resolvePrincipalFromCheckout walks the resolution chain for a
+// checkout.session.completed event. Order matches the spec:
+//  1. metadata.shithub_subject_kind + shithub_subject_id (PRO04 path)
+//  2. metadata.shithub_org_id (legacy SP03 path)
+//  3. client_reference_id parsed as int (legacy SP03 path)
+//  4. customer-id lookup against both tables
+//
+// Any path that yields a Principal returns immediately; the
+// fall-through error covers events that can't be matched at all.
+func (h *Handlers) resolvePrincipalFromCheckout(ctx context.Context, session *stripeapi.CheckoutSession, customerID string) (orgbilling.Principal, error) {
+	if p, ok := stripePrincipalFromMetadata(session.Metadata); ok {
+		return p, nil
+	}
+	if orgID := stripeOrgIDFromMetadata(session.Metadata); orgID != 0 {
+		return orgbilling.PrincipalForOrg(orgID), nil
+	}
+	if id, err := strconv.ParseInt(strings.TrimSpace(session.ClientReferenceID), 10, 64); err == nil && id > 0 {
+		// Legacy client_reference_id is org-only by convention.
+		return orgbilling.PrincipalForOrg(id), nil
+	}
+	if customerID != "" {
+		state, err := orgbilling.ResolvePrincipalByStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, customerID)
+		if err == nil {
+			return state.Principal, nil
+		}
+		if !errors.Is(err, orgbilling.ErrPrincipalNotFound) {
+			return orgbilling.Principal{}, err
+		}
+	}
+	return orgbilling.Principal{}, errors.New("stripe checkout.session.completed missing shithub subject metadata")
 }
 
 func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event stripeapi.Event) error {
@@ -111,13 +143,21 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 	if err := unmarshalStripeEventObject(event, &sub); err != nil {
 		return err
 	}
-	orgID, err := h.resolveOrgIDFromSubscription(ctx, &sub)
+	principal, err := h.resolvePrincipalFromSubscription(ctx, &sub)
 	if err != nil {
+		return err
+	}
+	// Cross-kind price-id check: if the subscription's first item
+	// price doesn't match the expected price for the resolved kind,
+	// refuse to apply. A Pro price on an org subject (or Team on
+	// user) means metadata was misconfigured in the Stripe Dashboard;
+	// silently applying would corrupt the wrong table.
+	if err := h.guardPriceKindMatch(principal.Kind, &sub); err != nil {
 		return err
 	}
 	customerID := stripeCustomerID(sub.Customer)
 	if customerID != "" {
-		if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, customerID); err != nil {
+		if _, err := orgbilling.SetStripeCustomerForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, customerID); err != nil {
 			return err
 		}
 	}
@@ -126,14 +166,13 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		return err
 	}
 	if status == orgbilling.SubscriptionStatusCanceled || string(event.Type) == "customer.subscription.deleted" {
-		_, err := orgbilling.MarkCanceled(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, event.ID)
+		_, err := orgbilling.MarkCanceledForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, event.ID)
 		return err
 	}
 	itemID := stripeSubscriptionItemID(sub.Items)
 	periodStart, periodEnd := stripeSubscriptionPeriod(sub.Items)
-	_, err = orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.SubscriptionSnapshot{
-		OrgID:                    orgID,
-		Plan:                     orgbilling.PlanTeam,
+	_, err = orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.PrincipalSubscriptionSnapshot{
+		Principal:                principal,
 		Status:                   status,
 		StripeSubscriptionID:     strings.TrimSpace(sub.ID),
 		StripeSubscriptionItemID: itemID,
@@ -147,12 +186,79 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 	return err
 }
 
+// resolvePrincipalFromSubscription walks the same chain as the
+// checkout resolver but starts from a subscription object.
+func (h *Handlers) resolvePrincipalFromSubscription(ctx context.Context, sub *stripeapi.Subscription) (orgbilling.Principal, error) {
+	if p, ok := stripePrincipalFromMetadata(sub.Metadata); ok {
+		return p, nil
+	}
+	if orgID := stripeOrgIDFromMetadata(sub.Metadata); orgID != 0 {
+		return orgbilling.PrincipalForOrg(orgID), nil
+	}
+	if customerID := stripeCustomerID(sub.Customer); customerID != "" {
+		state, err := orgbilling.ResolvePrincipalByStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, customerID)
+		if err == nil {
+			return state.Principal, nil
+		}
+		if !errors.Is(err, orgbilling.ErrPrincipalNotFound) {
+			return orgbilling.Principal{}, err
+		}
+	}
+	if subID := strings.TrimSpace(sub.ID); subID != "" {
+		state, err := orgbilling.ResolvePrincipalByStripeSubscription(ctx, orgbilling.Deps{Pool: h.d.Pool}, subID)
+		if err == nil {
+			return state.Principal, nil
+		}
+		if !errors.Is(err, orgbilling.ErrPrincipalNotFound) {
+			return orgbilling.Principal{}, err
+		}
+	}
+	return orgbilling.Principal{}, errors.New("stripe subscription does not map to a shithub subject")
+}
+
+// guardPriceKindMatch refuses to apply a subscription when the
+// price-id on its first line item doesn't match the expected price
+// for the resolved subject kind. Catches dashboard-side
+// misconfiguration before it writes the wrong table.
+//
+// The check requires the handler to know which price-id is Pro and
+// which is Team — that wiring lands via BillingPriceIDs(); a
+// non-configured client (Pro disabled) skips the check rather than
+// rejecting org events. PRO-disabled instances never see Pro
+// events, so the org path is unaffected.
+func (h *Handlers) guardPriceKindMatch(kind orgbilling.SubjectKind, sub *stripeapi.Subscription) error {
+	if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 || sub.Items.Data[0] == nil || sub.Items.Data[0].Price == nil {
+		// No price on the event — nothing to validate. Subsequent
+		// apply logic surfaces the missing-data error if needed.
+		return nil
+	}
+	priceID := strings.TrimSpace(sub.Items.Data[0].Price.ID)
+	teamPrice, proPrice := h.d.BillingPriceIDs()
+	switch kind {
+	case orgbilling.SubjectKindOrg:
+		if teamPrice != "" && priceID != "" && priceID != teamPrice {
+			if priceID == proPrice {
+				return fmt.Errorf("stripe subscription: Pro price %q applied to org subject — metadata likely misconfigured", priceID)
+			}
+			return fmt.Errorf("stripe subscription: price %q does not match expected team price %q for org subject", priceID, teamPrice)
+		}
+	case orgbilling.SubjectKindUser:
+		if proPrice != "" && priceID != "" && priceID != proPrice {
+			if priceID == teamPrice {
+				return fmt.Errorf("stripe subscription: Team price %q applied to user subject — metadata likely misconfigured", priceID)
+			}
+			return fmt.Errorf("stripe subscription: price %q does not match expected pro price %q for user subject", priceID, proPrice)
+		}
+	}
+	return nil
+}
+
 func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.Event) error {
 	var inv stripeapi.Invoice
 	if err := unmarshalStripeEventObject(event, &inv); err != nil {
 		return err
 	}
-	orgID, state, err := h.resolveOrgStateFromInvoice(ctx, &inv)
+	principalState, err := h.resolvePrincipalStateFromInvoice(ctx, &inv)
 	if err != nil {
 		return err
 	}
@@ -160,8 +266,7 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 	if err != nil {
 		return err
 	}
-	if _, err := orgbilling.UpsertInvoice(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.InvoiceSnapshot{
-		OrgID:                orgID,
+	if _, err := orgbilling.UpsertInvoiceForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, orgbilling.InvoiceSnapshot{
 		StripeInvoiceID:      strings.TrimSpace(inv.ID),
 		StripeCustomerID:     stripeCustomerID(inv.Customer),
 		StripeSubscriptionID: stripeInvoiceSubscriptionID(&inv),
@@ -184,64 +289,67 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 	switch string(event.Type) {
 	case "invoice.payment_failed":
 		graceUntil := time.Now().UTC().Add(h.d.BillingGracePeriod)
-		_, err := orgbilling.MarkPastDue(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, graceUntil, event.ID)
+		_, err := orgbilling.MarkPastDueForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, graceUntil, event.ID)
 		return err
 	case "invoice.payment_succeeded":
-		if state.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
-			_, err := orgbilling.MarkPaymentSucceeded(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgID, event.ID)
+		if principalState.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
+			_, err := orgbilling.MarkPaymentSucceededForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, event.ID)
 			return err
 		}
 	}
 	return nil
 }
 
-func (h *Handlers) resolveOrgIDFromSubscription(ctx context.Context, sub *stripeapi.Subscription) (int64, error) {
-	if orgID := stripeOrgIDFromMetadata(sub.Metadata); orgID != 0 {
-		return orgID, nil
-	}
-	if customerID := stripeCustomerID(sub.Customer); customerID != "" {
-		state, err := orgbilling.GetOrgBillingStateByStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, customerID)
-		if err == nil {
-			return state.OrgID, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return 0, err
-		}
-	}
-	if subID := strings.TrimSpace(sub.ID); subID != "" {
-		state, err := orgbilling.GetOrgBillingStateByStripeSubscription(ctx, orgbilling.Deps{Pool: h.d.Pool}, subID)
-		if err == nil {
-			return state.OrgID, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return 0, err
-		}
-	}
-	return 0, errors.New("stripe subscription does not map to a shithub organization")
-}
-
-func (h *Handlers) resolveOrgStateFromInvoice(ctx context.Context, inv *stripeapi.Invoice) (int64, orgbilling.State, error) {
+// resolvePrincipalStateFromInvoice resolves Principal AND fetches
+// the current billing state in one shot — the apply branch needs
+// the SubscriptionStatus to decide whether to flip payment-
+// succeeded transitions. Mirrors the legacy
+// resolveOrgStateFromInvoice but returns a kind-tagged Principal.
+func (h *Handlers) resolvePrincipalStateFromInvoice(ctx context.Context, inv *stripeapi.Invoice) (orgbilling.PrincipalState, error) {
 	if customerID := stripeCustomerID(inv.Customer); customerID != "" {
-		state, err := orgbilling.GetOrgBillingStateByStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, customerID)
+		state, err := orgbilling.ResolvePrincipalByStripeCustomer(ctx, orgbilling.Deps{Pool: h.d.Pool}, customerID)
 		if err == nil {
-			return state.OrgID, state, nil
+			return state, nil
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return 0, orgbilling.State{}, err
+		if !errors.Is(err, orgbilling.ErrPrincipalNotFound) {
+			return orgbilling.PrincipalState{}, err
 		}
 	}
 	if subID := stripeInvoiceSubscriptionID(inv); subID != "" {
-		state, err := orgbilling.GetOrgBillingStateByStripeSubscription(ctx, orgbilling.Deps{Pool: h.d.Pool}, subID)
+		state, err := orgbilling.ResolvePrincipalByStripeSubscription(ctx, orgbilling.Deps{Pool: h.d.Pool}, subID)
 		if err == nil {
-			return state.OrgID, state, nil
+			return state, nil
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return 0, orgbilling.State{}, err
+		if !errors.Is(err, orgbilling.ErrPrincipalNotFound) {
+			return orgbilling.PrincipalState{}, err
 		}
 	}
-	return 0, orgbilling.State{}, errors.New("stripe invoice does not map to a shithub organization")
+	return orgbilling.PrincipalState{}, errors.New("stripe invoice does not map to a shithub subject")
 }
 
+// stripePrincipalFromMetadata reads the PRO04 subject metadata
+// keys. Returns ok=false when either key is missing or malformed —
+// the caller falls through to the legacy resolution chain.
+func stripePrincipalFromMetadata(metadata map[string]string) (orgbilling.Principal, bool) {
+	if len(metadata) == 0 {
+		return orgbilling.Principal{}, false
+	}
+	kind := orgbilling.SubjectKind(strings.TrimSpace(metadata[stripebilling.MetadataSubjectKind]))
+	if !kind.Valid() {
+		return orgbilling.Principal{}, false
+	}
+	rawID := strings.TrimSpace(metadata[stripebilling.MetadataSubjectID])
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		return orgbilling.Principal{}, false
+	}
+	return orgbilling.Principal{Kind: kind, ID: id}, true
+}
+
+// stripeOrgIDFromMetadata reads the legacy SP03 metadata key.
+// PRO04 keeps it for backward compatibility — existing org
+// subscriptions stamped before PRO04 deployed carry only this
+// key. Resolvers try the PRO04 keys first, fall back to this.
 func stripeOrgIDFromMetadata(metadata map[string]string) int64 {
 	raw := strings.TrimSpace(metadata[stripebilling.MetadataOrgID])
 	if raw == "" {
