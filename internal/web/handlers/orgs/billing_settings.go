@@ -3,11 +3,15 @@
 package orgs
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
@@ -31,6 +35,33 @@ type billingInvoiceView struct {
 	DueLabel         string
 	HostedInvoiceURL string
 	InvoicePDFURL    string
+}
+
+type billingSeatBreakdown struct {
+	ActiveMembers  int
+	BillableSeats  int64
+	PendingInvites int
+	SnapshotLabel  string
+}
+
+type billingAlert struct {
+	Class      string
+	Message    string
+	ActionText string
+	ActionHref string
+}
+
+type billingDebugView struct {
+	StripeCustomerID         string
+	StripeSubscriptionID     string
+	StripeSubscriptionItemID string
+	LastWebhookEventID       string
+	LastWebhookEventType     string
+	LastWebhookStatus        string
+	LastWebhookReceivedAt    string
+	LastWebhookProcessedAt   string
+	LastWebhookAttempts      int32
+	LastWebhookError         string
 }
 
 func (h *Handlers) settingsBilling(w http.ResponseWriter, r *http.Request) {
@@ -169,10 +200,19 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		h.d.Logger.WarnContext(r.Context(), "org billing: count members", "org_id", org.ID, "error", err)
 		memberCount = int(state.BillableSeats)
 	}
+	pendingInviteCount, err := orgbilling.CountPendingOrgInvitations(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: count pending invitations", "org_id", org.ID, "error", err)
+	}
 	invoices, err := orgbilling.ListInvoicesForOrg(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, 10)
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "org billing: list invoices", "org_id", org.ID, "error", err)
 		invoices = nil
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	debug := billingDebugView{}
+	if viewer.IsSiteAdmin {
+		debug = h.billingDebugView(r, state)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing", map[string]any{
 		"Title":                 org.Slug + " - billing and plans",
@@ -184,11 +224,15 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		"BillingEnabled":        h.d.BillingEnabled,
 		"Error":                 errMsg,
 		"Notice":                notice,
+		"BillingAlert":          billingAlertForState(state, org.Slug),
 		"Summary":               billingSummary(state, memberCount),
+		"Seats":                 billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
 		"CanStartCheckout":      h.billingConfigured(),
 		"CanManageSubscription": h.billingConfigured() && state.StripeCustomerID.Valid && strings.TrimSpace(state.StripeCustomerID.String) != "",
 		"GracePeriodLabel":      formatGracePeriod(h.d.BillingGracePeriod),
 		"Invoices":              billingInvoiceViews(invoices),
+		"IsSiteAdmin":           viewer.IsSiteAdmin,
+		"Debug":                 debug,
 	})
 }
 
@@ -243,6 +287,39 @@ func billingNotice(code string) string {
 	default:
 		return ""
 	}
+}
+
+func (h *Handlers) billingDebugView(r *http.Request, state orgbilling.State) billingDebugView {
+	debug := billingDebugView{
+		StripeCustomerID:         pgTextString(state.StripeCustomerID),
+		StripeSubscriptionID:     pgTextString(state.StripeSubscriptionID),
+		StripeSubscriptionItemID: pgTextString(state.StripeSubscriptionItemID),
+		LastWebhookEventID:       strings.TrimSpace(state.LastWebhookEventID),
+	}
+	if debug.LastWebhookEventID == "" {
+		return debug
+	}
+	receipt, err := orgbilling.GetWebhookEventReceipt(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, debug.LastWebhookEventID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			h.d.Logger.WarnContext(r.Context(), "org billing: load latest webhook receipt",
+				"event_id", debug.LastWebhookEventID, "error", err)
+		}
+		return debug
+	}
+	debug.LastWebhookEventType = receipt.EventType
+	debug.LastWebhookReceivedAt = formatOptionalTime(receipt.ReceivedAt)
+	debug.LastWebhookProcessedAt = formatOptionalTime(receipt.ProcessedAt)
+	debug.LastWebhookAttempts = receipt.ProcessingAttempts
+	debug.LastWebhookError = strings.TrimSpace(receipt.ProcessError)
+	if receipt.ProcessedAt.Valid {
+		debug.LastWebhookStatus = "processed"
+	} else if debug.LastWebhookError != "" {
+		debug.LastWebhookStatus = "failed"
+	} else {
+		debug.LastWebhookStatus = "pending"
+	}
+	return debug
 }
 
 func billingSummary(state orgbilling.State, memberCount int) []billingSummaryItem {
@@ -350,9 +427,54 @@ func billingPaymentSourceLabel(state orgbilling.State) string {
 
 func billingPaymentSourceDetail(state orgbilling.State) string {
 	if state.StripeCustomerID.Valid && strings.TrimSpace(state.StripeCustomerID.String) != "" {
-		return state.StripeCustomerID.String
+		return "Payment method and invoices are managed in Stripe Billing Portal."
 	}
 	return "Checkout creates a customer record the first time this organization upgrades."
+}
+
+func billingAlertForState(state orgbilling.State, orgSlug string) billingAlert {
+	path := orgBillingSettingsPath(orgSlug)
+	switch state.SubscriptionStatus {
+	case orgbilling.SubscriptionStatusPastDue:
+		if state.GraceUntil.Valid && time.Now().UTC().Before(state.GraceUntil.Time) {
+			return billingAlert{
+				Class:      "shithub-flash-notice",
+				Message:    "Payment failed. Team features remain available during the billing grace period, which ends " + state.GraceUntil.Time.Format("Jan 2, 2006") + ".",
+				ActionText: "Manage billing",
+				ActionHref: path,
+			}
+		}
+		return billingAlert{
+			Class:      "shithub-flash-error",
+			Message:    "Payment is past due. Team-only features are read-only until billing is brought back into good standing.",
+			ActionText: "Manage billing",
+			ActionHref: path,
+		}
+	case orgbilling.SubscriptionStatusCanceled:
+		return billingAlert{
+			Class:      "shithub-flash-notice",
+			Message:    "This organization is on Free after cancellation. Existing paid configuration is preserved, but Team-only features are read-only until reactivated.",
+			ActionText: "Upgrade to Team",
+			ActionHref: path + "#manage-plan",
+		}
+	case orgbilling.SubscriptionStatusIncomplete, orgbilling.SubscriptionStatusUnpaid, orgbilling.SubscriptionStatusPaused:
+		return billingAlert{
+			Class:      "shithub-flash-error",
+			Message:    "This subscription needs billing action before Team features are available.",
+			ActionText: "Manage billing",
+			ActionHref: path,
+		}
+	default:
+		if state.CancelAtPeriodEnd && state.CurrentPeriodEnd.Valid {
+			return billingAlert{
+				Class:      "shithub-flash-notice",
+				Message:    "Team is scheduled to cancel at the end of the current billing period on " + state.CurrentPeriodEnd.Time.Format("Jan 2, 2006") + ".",
+				ActionText: "Manage billing",
+				ActionHref: path,
+			}
+		}
+		return billingAlert{}
+	}
 }
 
 func billingInvoiceViews(invoices []billingdb.BillingInvoice) []billingInvoiceView {
@@ -423,6 +545,20 @@ func formatGracePeriod(d time.Duration) string {
 		return fmt.Sprintf("%d days", days)
 	}
 	return d.String()
+}
+
+func pgTextString(v pgtype.Text) string {
+	if !v.Valid {
+		return ""
+	}
+	return strings.TrimSpace(v.String)
+}
+
+func formatOptionalTime(v pgtype.Timestamptz) string {
+	if v.Valid && !v.Time.IsZero() {
+		return v.Time.UTC().Format("Jan 2, 2006 15:04 UTC")
+	}
+	return ""
 }
 
 func formatCurrencyAmount(currency string, cents int64) string {

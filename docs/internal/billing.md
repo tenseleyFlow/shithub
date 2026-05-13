@@ -204,6 +204,26 @@ PAYMENTS SP06 wires the first Team gates:
 - Org-level Actions secrets and variables API routes require
   organization owner or site-admin access before entitlement checks.
 
+PAYMENTS SP07 completes the first self-serve billing settings surface:
+
+- `GET /organizations/{org}/settings/billing` is owner-only and is
+  linked from organization settings when Stripe Billing is configured.
+- The page shows current local plan state, subscription status, payment
+  source summary, recent Stripe-synced invoice snapshots, and actionable
+  banners for past-due, grace-period, canceled, scheduled-cancel, and
+  billing-action-needed states.
+- Seat accounting is shown as three separate values: current active
+  members, billable seats from the latest local billing state, and
+  pending invitations. Pending invitations are explicitly not billed
+  until accepted.
+- Team organizations manage payment method, invoices, cancellation, and
+  downgrade through Stripe Billing Portal. shithub never collects card
+  data directly and downgrades continue to preserve paid configuration
+  as read-only data.
+- Normal organization owners do not see raw Stripe customer,
+  subscription, or subscription-item IDs. Site admins see a debug panel
+  with those IDs and the latest locally recorded webhook receipt state.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not

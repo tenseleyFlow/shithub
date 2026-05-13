@@ -137,6 +137,127 @@ func TestOrgBillingResultPagesRenderPostCheckoutState(t *testing.T) {
 	}
 }
 
+func TestOrgBillingSettingsRequiresOwner(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	memberID := insertOrgAvatarUser(t, pool, "member")
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: memberID, Username: "member"}, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("settings status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_owner_secret"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	if _, err := orgbilling.SyncSeatSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SeatSnapshot{
+		OrgID:         orgID,
+		ActiveMembers: 3,
+		BillableSeats: 3,
+		Source:        "test",
+	}); err != nil {
+		t.Fatalf("SyncSeatSnapshot: %v", err)
+	}
+	insertBillingPendingInvitation(t, pool, orgID, "pending@example.com", []byte{1, 2, 3})
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "SEATS=1/3/1;") {
+		t.Fatalf("settings did not render seat breakdown: %s", body)
+	}
+	if strings.Contains(body, "cus_owner_secret") {
+		t.Fatalf("owner billing page leaked Stripe customer id: %s", body)
+	}
+}
+
+func TestOrgBillingSettingsSiteAdminDebugShowsProviderState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	deps := orgbilling.Deps{Pool: pool}
+	if _, err := orgbilling.SetStripeCustomer(ctx, deps, orgID, "cus_debug"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, deps, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_debug",
+		StripeSubscriptionItemID: "si_debug",
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_debug",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	if _, _, err := orgbilling.RecordWebhookEvent(ctx, deps, orgbilling.WebhookEvent{
+		ProviderEventID: "evt_debug",
+		EventType:       "customer.subscription.updated",
+		APIVersion:      "2024-06-20",
+		Payload:         []byte(`{"id":"evt_debug"}`),
+	}); err != nil {
+		t.Fatalf("RecordWebhookEvent: %v", err)
+	}
+	if _, err := orgbilling.MarkWebhookEventProcessed(ctx, deps, "evt_debug"); err != nil {
+		t.Fatalf("MarkWebhookEventProcessed: %v", err)
+	}
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner", IsSiteAdmin: true}, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "DEBUG=cus_debug|sub_debug|si_debug|evt_debug|processed;") {
+		t.Fatalf("settings did not render site-admin debug state: %s", body)
+	}
+}
+
+func TestOrgBillingSettingsShowsPastDueAlert(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.MarkPastDue(ctx, orgbilling.Deps{Pool: pool}, orgID, time.Now().UTC().Add(24*time.Hour), "evt_failed"); err != nil {
+		t.Fatalf("MarkPastDue: %v", err)
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "ALERT=Payment failed.") {
+		t.Fatalf("settings did not render past-due alert: %s", body)
+	}
+}
+
 func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -461,10 +582,15 @@ func postBillingWebhook(t *testing.T, mux *chi.Mux, eventID string) *httptest.Re
 
 func newOrgBillingMux(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote stripebilling.Remote) *chi.Mux {
 	t.Helper()
+	return newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, remote)
+}
+
+func newOrgBillingMuxForUser(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, remote stripebilling.Remote) *chi.Mux {
+	t.Helper()
 	tmplFS := fstest.MapFS{
 		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/billing_result.html":   {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}SEATS={{ .Seats.ActiveMembers }}/{{ .Seats.BillableSeats }}/{{ .Seats.PendingInvites }};{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
 		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
@@ -491,11 +617,20 @@ func newOrgBillingMux(t *testing.T, pool *pgxpool.Pool, ownerID int64, remote st
 	mux := chi.NewRouter()
 	mux.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
 			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
 		})
 	})
 	h.MountCreate(mux)
 	h.MountBillingWebhook(mux)
 	return mux
+}
+
+func insertBillingPendingInvitation(t *testing.T, db *pgxpool.Pool, orgID int64, email string, token []byte) {
+	t.Helper()
+	if _, err := db.Exec(context.Background(), `
+		INSERT INTO org_invitations (org_id, target_email, role, token_hash, expires_at)
+		VALUES ($1, $2, 'member', $3, now() + interval '1 day')
+	`, orgID, email, token); err != nil {
+		t.Fatalf("insert pending billing invitation: %v", err)
+	}
 }
