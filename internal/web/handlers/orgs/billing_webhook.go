@@ -140,8 +140,14 @@ func (h *Handlers) applyStripeCheckoutCompleted(ctx context.Context, event strip
 		return err
 	}
 	h.recordWebhookSubject(ctx, event.ID, principal)
-	_, err = orgbilling.SetStripeCustomerForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, customerID)
-	return err
+	if stale, err := h.checkStaleEvent(ctx, event, principal); err != nil || stale {
+		return err
+	}
+	if _, err := orgbilling.SetStripeCustomerForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, customerID); err != nil {
+		return err
+	}
+	h.touchLastEventAt(ctx, event, principal)
+	return nil
 }
 
 // resolvePrincipalFromCheckout walks the resolution chain for a
@@ -186,6 +192,9 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		return err
 	}
 	h.recordWebhookSubject(ctx, event.ID, principal)
+	if stale, err := h.checkStaleEvent(ctx, event, principal); err != nil || stale {
+		return err
+	}
 	// PRO08 D3: if the principal already has a different Stripe
 	// subscription on file, refuse to overwrite it. A second sub
 	// for the same customer (e.g., an operator created one manually
@@ -218,12 +227,15 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		return err
 	}
 	if status == orgbilling.SubscriptionStatusCanceled || string(event.Type) == "customer.subscription.deleted" {
-		_, err := orgbilling.MarkCanceledForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, event.ID)
-		return err
+		if _, err := orgbilling.MarkCanceledForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principal, event.ID); err != nil {
+			return err
+		}
+		h.touchLastEventAt(ctx, event, principal)
+		return nil
 	}
 	itemID := stripeSubscriptionItemID(sub.Items)
 	periodStart, periodEnd := stripeSubscriptionPeriod(sub.Items)
-	_, err = orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.PrincipalSubscriptionSnapshot{
+	if _, err := orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.PrincipalSubscriptionSnapshot{
 		Principal:                principal,
 		Status:                   status,
 		StripeSubscriptionID:     strings.TrimSpace(sub.ID),
@@ -234,8 +246,11 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		TrialEnd:                 unixTime(sub.TrialEnd),
 		CanceledAt:               unixTime(sub.CanceledAt),
 		LastWebhookEventID:       event.ID,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	h.touchLastEventAt(ctx, event, principal)
+	return nil
 }
 
 // resolvePrincipalFromSubscription walks the same chain as the
@@ -375,6 +390,9 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 		return err
 	}
 	h.recordWebhookSubject(ctx, event.ID, principalState.Principal)
+	if stale, err := h.checkStaleEvent(ctx, event, principalState.Principal); err != nil || stale {
+		return err
+	}
 	status, err := stripeInvoiceStatus(inv.Status)
 	if err != nil {
 		return err
@@ -402,14 +420,17 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 	switch string(event.Type) {
 	case "invoice.payment_failed":
 		graceUntil := time.Now().UTC().Add(h.d.BillingGracePeriod)
-		_, err := orgbilling.MarkPastDueForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, graceUntil, event.ID)
-		return err
-	case "invoice.payment_succeeded":
-		if principalState.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
-			_, err := orgbilling.MarkPaymentSucceededForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, event.ID)
+		if _, err := orgbilling.MarkPastDueForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, graceUntil, event.ID); err != nil {
 			return err
 		}
+	case "invoice.payment_succeeded":
+		if principalState.SubscriptionStatus != orgbilling.SubscriptionStatusCanceled {
+			if _, err := orgbilling.MarkPaymentSucceededForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, event.ID); err != nil {
+				return err
+			}
+		}
 	}
+	h.touchLastEventAt(ctx, event, principalState.Principal)
 	return nil
 }
 
@@ -562,6 +583,59 @@ func unixTime(ts int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(ts, 0).UTC()
+}
+
+// checkStaleEvent compares the incoming Stripe event's `created`
+// timestamp to the principal's persisted last_event_at. Returns
+// stale=true when the event is older than the last applied event,
+// in which case the caller should return nil (the parent webhook
+// handler logs MarkProcessed and Stripe stops retrying). Returns
+// err only when the staleness query itself errored.
+//
+// PRO08 D4. Stripe doesn't guarantee delivery order across retries;
+// without this guard a stale subscription.updated[active] arriving
+// after a fresh subscription.updated[canceled] would re-activate the
+// principal.
+func (h *Handlers) checkStaleEvent(ctx context.Context, event stripeapi.Event, p orgbilling.Principal) (bool, error) {
+	if err := p.Validate(); err != nil {
+		return false, nil
+	}
+	eventAt := unixTime(event.Created)
+	if eventAt.IsZero() {
+		// No timestamp on event — can't make a staleness judgment.
+		return false, nil
+	}
+	stale, err := orgbilling.IsBillingEventStaleForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, p, eventAt)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "org billing: stale-event check failed",
+			"event_id", event.ID, "principal", p.String(), "error", err)
+		return false, nil
+	}
+	if stale {
+		h.d.Logger.InfoContext(ctx, "org billing: dropping stale Stripe event",
+			"event_id", event.ID,
+			"event_type", event.Type,
+			"event_created", eventAt,
+			"principal", p.String())
+	}
+	return stale, nil
+}
+
+// touchLastEventAt updates the principal's last_event_at after a
+// successful apply. Logs and continues on error — this is auxiliary
+// to the load-bearing state mutation.
+func (h *Handlers) touchLastEventAt(ctx context.Context, event stripeapi.Event, p orgbilling.Principal) {
+	if err := p.Validate(); err != nil {
+		return
+	}
+	eventAt := unixTime(event.Created)
+	if eventAt.IsZero() {
+		return
+	}
+	if err := orgbilling.TouchBillingLastEventAtForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, p, eventAt); err != nil {
+		h.d.Logger.WarnContext(ctx, "org billing: touch last_event_at failed",
+			"event_id", event.ID, "principal", p.String(), "error", err)
+	}
 }
 
 // recordWebhookSubject persists the resolved principal on the receipt
