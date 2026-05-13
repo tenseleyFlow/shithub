@@ -156,7 +156,10 @@ Present but still moving toward full enforcement:
 
 - SP08 adds durable organization usage counters, usage snapshots, and
   site-admin quota overrides for storage and Actions minutes.
-- Push/upload/run write paths still need hard-deny checks before quota
+- Org-owned Actions dispatch now hard-denies new runs when the current
+  monthly usage recalculation shows the organization is at or over its
+  effective Actions minutes quota.
+- Push/upload storage write paths still need hard-deny checks before quota
   rows should be advertised on public pricing pages.
 - Packages storage cannot be sold until the Packages sprint is active
   and quota enforcement exists.
@@ -323,6 +326,10 @@ PAYMENTS SP08 starts hosted-cost metering:
   recalculates repository/object/Actions usage for the current monthly
   period and records an audit snapshot unless the payload explicitly
   skips snapshotting.
+- Org-owned workflow dispatch recalculates current monthly usage before
+  enqueueing and rejects new runs when Actions minutes used is greater
+  than or equal to the effective quota. Personal repositories are not
+  gated by organization quotas.
 - Quota enforcement must read local counters and may force a source
   recalculation before rejecting large writes; counters are repairable
   and should not be treated as an eventually-consistent sole authority

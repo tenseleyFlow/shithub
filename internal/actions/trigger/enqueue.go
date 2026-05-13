@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -18,14 +19,18 @@ import (
 	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/checks"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
 // Deps wires the trigger pipeline against runtime infra.
 type Deps struct {
 	Pool   *pgxpool.Pool
 	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 // EnqueueParams is the input to Enqueue. The caller (trigger handler)
@@ -111,6 +116,8 @@ type Result struct {
 	Skipped bool
 }
 
+var ErrActionsMinutesQuotaExceeded = errors.New("trigger: actions minutes quota exceeded")
+
 // Enqueue persists a matched workflow as a queued run with all its
 // jobs + steps in one transaction, then creates one check_run per
 // job (idempotent via ExternalID) outside the tx so the run+jobs+
@@ -138,6 +145,9 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	}
 	if disabled {
 		return Result{Skipped: true}, nil
+	}
+	if err := enforceActionsMinutesQuota(ctx, deps, p.RepoID); err != nil {
+		return Result{}, err
 	}
 	concurrencyResolution, err := concurrency.Resolve(concurrency.ResolveInput{
 		Workflow:     p.Workflow,
@@ -347,6 +357,44 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		RunIndex:    run.RunIndex,
 		CheckRunIDs: checkRunIDs,
 	}, nil
+}
+
+func enforceActionsMinutesQuota(ctx context.Context, deps Deps, repoID int64) error {
+	repo, err := reposdb.New().GetRepoByID(ctx, deps.Pool, repoID)
+	if err != nil {
+		return fmt.Errorf("trigger: load repo for quota: %w", err)
+	}
+	if !repo.OwnerOrgID.Valid {
+		return nil
+	}
+	now := time.Now().UTC()
+	if deps.Now != nil {
+		now = deps.Now().UTC()
+	}
+	periodStart, periodEnd := orgbilling.MonthlyUsagePeriod(now)
+	counters, err := orgbilling.RecalculateOrgUsageCounters(ctx, orgbilling.Deps{Pool: deps.Pool}, repo.OwnerOrgID.Int64, periodStart, periodEnd)
+	if err != nil {
+		return fmt.Errorf("trigger: recalculate actions quota: %w", err)
+	}
+	set, err := entitlements.ForOrg(ctx, entitlements.Deps{Pool: deps.Pool, Now: func() time.Time { return now }}, repo.OwnerOrgID.Int64)
+	if err != nil {
+		return fmt.Errorf("trigger: actions quota entitlements: %w", err)
+	}
+	limit, err := set.Limit(entitlements.LimitOrgActionsMinutesQuota)
+	if err != nil {
+		return fmt.Errorf("trigger: actions quota limit: %w", err)
+	}
+	if !limit.Defined || limit.Unlimited || limit.Value <= 0 {
+		return nil
+	}
+	if counters.ActionsMinutesUsed >= limit.Value {
+		return fmt.Errorf("%w: org_id=%d used=%d limit=%d",
+			ErrActionsMinutesQuotaExceeded,
+			repo.OwnerOrgID.Int64,
+			counters.ActionsMinutesUsed,
+			limit.Value)
+	}
+	return nil
 }
 
 func validateParams(p *EnqueueParams) error {

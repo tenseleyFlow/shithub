@@ -53,8 +53,9 @@ Recommended rollout posture:
 - personal/public dogfood repos: allowed only under site policy and conservative
   caps;
 - organization-level Actions secrets/variables: already Team-gated;
-- paid shared-runner minutes: keep in controlled rollout until metering can
-  record usage and enforcement rejects over-quota dispatch consistently;
+- paid shared-runner minutes: org-owned workflow dispatch now recalculates the
+  active monthly usage period and rejects new runs when the organization is at
+  or over its effective Actions minutes quota;
 - unpaid or past-due orgs: keep paid-only Actions configuration read-only, but
   do not delete secrets, variables, or prior run history.
 
@@ -63,7 +64,7 @@ Recommended rollout posture:
 | ID | Severity | Status | Finding | Resolution |
 | --- | --- | --- | --- | --- |
 | S41J6-H1 | High | Fixed in S41j-6 | Site Actions disable was not a hard kill switch; explicit repo/org enablement could still evaluate true and queued jobs could be claimed. | Effective policy and runner claim SQL now return false whenever `actions_site_policy.actions_enabled=false`. Tests cover enqueue-time policy and claim-time dispatch. |
-| S41J6-M1 | Medium | In progress with compensating control | Actions minutes billing has usage accounting and numeric limits, but hard-deny dispatch enforcement is still landing in SP08. | Do not market broad paid shared-runner minutes yet. Use site/org/repo policy caps and runner capacity as the public-runner control until SP08 enforcement is complete. |
+| S41J6-M1 | Medium | Fixed in SP08 | Actions minutes billing had usage accounting and numeric limits, but no hard-deny dispatch enforcement. | Org-owned workflow enqueue now recalculates current monthly Actions usage and rejects new runs at or above the effective quota, including site-admin quota overrides. Keep site/org/repo policy caps and runner capacity conservative until production smoke passes. |
 | S41J6-M2 | Medium | Manual validation pending | The S41j-5 arbitrary-repo smoke must run on production after deploy. | Run the scratch plus second-repo checklist in `runbooks/actions-runner.md` before declaring broad availability. |
 
 No Critical findings are open in this packet.
@@ -106,7 +107,7 @@ Capacity limits:
 - `actor_trigger_limit_per_hour` bounds trigger spam by a single actor.
 
 These are policy controls, not billing meters. They protect the shared pool
-while Actions minute accounting is still future work.
+alongside the SP08 Actions minutes quota gate.
 
 ## Relationship To S41k
 
