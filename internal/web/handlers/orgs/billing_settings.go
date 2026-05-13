@@ -223,21 +223,27 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		debug = h.billingDebugView(r, state)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing", map[string]any{
-		"Title":                 org.Slug + " - billing and plans",
-		"CSRFToken":             middleware.CSRFTokenForRequest(r),
-		"Org":                   org,
-		"AvatarURL":             "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav":          "settings",
-		"OrgSettingsActive":     "billing",
-		"BillingEnabled":        h.d.BillingEnabled,
-		"Error":                 errMsg,
-		"Notice":                notice,
-		"BillingAlert":          billingAlertForState(state, org.Slug),
-		"Summary":               billingSummary(state, memberCount),
-		"Seats":                 billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
-		"PrivateCollaboration":  privateCollab,
-		"CanStartCheckout":      h.billingConfigured(),
-		"CanManageSubscription": h.billingConfigured() && state.StripeCustomerID.Valid && strings.TrimSpace(state.StripeCustomerID.String) != "",
+		"Title":                org.Slug + " - billing and plans",
+		"CSRFToken":            middleware.CSRFTokenForRequest(r),
+		"Org":                  org,
+		"AvatarURL":            "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":         "settings",
+		"OrgSettingsActive":    "billing",
+		"BillingEnabled":       h.d.BillingEnabled,
+		"Error":                errMsg,
+		"Notice":               notice,
+		"BillingAlert":         billingAlertForState(state, org.Slug),
+		"Summary":              billingSummary(state, memberCount),
+		"Seats":                billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
+		"PrivateCollaboration": privateCollab,
+		"CanStartCheckout":     h.billingConfigured(),
+		// Gate on StripeSubscriptionID, not StripeCustomerID. A
+		// customer record exists from the moment a Checkout Session
+		// is minted; the subscription id only lands after
+		// customer.subscription.created. Gating on the customer id
+		// surfaced "Manage or cancel" buttons for orgs that abandoned
+		// checkout without paying.
+		"CanManageSubscription": h.billingConfigured() && state.StripeSubscriptionID.Valid && strings.TrimSpace(state.StripeSubscriptionID.String) != "",
 		"GracePeriodLabel":      formatGracePeriod(h.d.BillingGracePeriod),
 		"Invoices":              billingInvoiceViews(invoices),
 		"IsSiteAdmin":           viewer.IsSiteAdmin,
