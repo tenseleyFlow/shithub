@@ -14,7 +14,7 @@
       A self-hostable git forge that aims to look and feel like GitHub.
       AGPL-licensed, written in Go, no AI training on your code, no
       Copilot. <a href="/signup">Sign up</a> to host code here, or
-      <a href="https://docs.shithub.sh/self-host/deploy.html">run
+      <a href="/tenseleyFlow/shithub/blob/trunk/docs/internal/deploy.md">run
       your own instance</a> from the source.
     </p>
   </section>
@@ -55,15 +55,17 @@
     <a class="shithub-landing-cta-primary" href="/signup">Create an account</a>
     <a class="shithub-landing-cta-secondary" href="/login">Sign in</a>
     {{ end }}
-    <a class="shithub-landing-cta-secondary" href="https://docs.shithub.sh/">Read the docs</a>
-    <a class="shithub-landing-cta-secondary" href="/shithub/shithub">Read the source</a>
+    <a class="shithub-landing-cta-secondary" href="/tenseleyFlow/shithub/tree/trunk/docs/public">Read the docs</a>
+    <a class="shithub-landing-cta-secondary" href="/tenseleyFlow/shithub">Read the source</a>
   </nav>
 
   <p class="shithub-landing-honest">
-    Newly launched. Some surfaces (SSH transport, Actions/CI, GraphQL,
-    packages, releases) are planned but not shipped yet. The
-    <a href="https://docs.shithub.sh/">docs</a> are honest about
-    what works and what's still in flight.
+    Newly launched. GraphQL, Packages, Pages, Projects, Releases, and
+    Gists aren't shipped yet, and Actions doesn't run the GitHub
+    marketplace — just <code>actions/checkout@v4</code> + <code>run:</code>
+    steps. The
+    <a href="/tenseleyFlow/shithub/tree/trunk/docs/public">docs</a>
+    track what's live.
   </p>
 
   <dl class="hello-meta">
