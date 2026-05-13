@@ -1889,6 +1889,22 @@ type CodeSearchPath struct {
 	Tsv     interface{}
 }
 
+type DeviceAuthorization struct {
+	ID              int64
+	DeviceCodeHash  []byte
+	UserCode        string
+	ClientID        string
+	Scopes          []string
+	UserID          pgtype.Int8
+	ApprovedAt      pgtype.Timestamptz
+	DeniedAt        pgtype.Timestamptz
+	IssuedTokenID   pgtype.Int8
+	IntervalSeconds int32
+	ExpiresAt       pgtype.Timestamptz
+	LastPolledAt    pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
 type DomainEvent struct {
 	ID          int64
 	ActorUserID pgtype.Int8
@@ -2529,6 +2545,41 @@ type UserEmail struct {
 	CreatedAt             pgtype.Timestamptz
 }
 
+type UserGpgKey struct {
+	ID                int64
+	UserID            int64
+	Name              string
+	Fingerprint       string
+	KeyID             string
+	Armored           string
+	CanSign           bool
+	CanEncryptComms   bool
+	CanEncryptStorage bool
+	CanCertify        bool
+	CanAuthenticate   bool
+	Uids              []string
+	Subkeys           []byte
+	PrimaryAlgo       string
+	CreatedAt         pgtype.Timestamptz
+	LastUsedAt        pgtype.Timestamptz
+	RevokedAt         pgtype.Timestamptz
+	ExpiresAt         pgtype.Timestamptz
+}
+
+type UserGpgSubkey struct {
+	ID                int64
+	GpgKeyID          int64
+	Fingerprint       string
+	KeyID             string
+	CanSign           bool
+	CanEncryptComms   bool
+	CanEncryptStorage bool
+	CanCertify        bool
+	ExpiresAt         pgtype.Timestamptz
+	RevokedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+}
+
 type UserNotificationPref struct {
 	UserID    int64
 	Key       string
@@ -2664,6 +2715,25 @@ type WorkflowArtifact struct {
 	ByteCount int64
 	ExpiresAt pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type WorkflowCach struct {
+	ID             int64
+	RepoID         int64
+	CacheKey       string
+	CacheVersion   string
+	GitRef         string
+	ObjectKey      string
+	SizeBytes      int64
+	LastAccessedAt pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
+type WorkflowDisabled struct {
+	RepoID           int64
+	WorkflowFile     string
+	DisabledByUserID pgtype.Int8
+	DisabledAt       pgtype.Timestamptz
 }
 
 type WorkflowJob struct {
