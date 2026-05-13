@@ -59,11 +59,12 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `auth.base_url` | string | `http://127.0.0.1:8080` | Used for absolute links in transactional emails. |
 | `auth.site_name` | string | `shithub` | Branding token for email subjects/bodies. |
 | `auth.email_from` | string | `shithub <noreply@shithub.local>` | Envelope From for outgoing email. |
-| `auth.email_backend` | string | `stdout` | One of `stdout | smtp | postmark`. |
+| `auth.email_backend` | string | `stdout` | One of `stdout | smtp | postmark | resend`. |
 | `auth.smtp.addr` | string | `127.0.0.1:1025` | Required when `email_backend=smtp`. |
 | `auth.smtp.username` | string | `""` | Optional SMTP auth username. |
 | `auth.smtp.password` | string | `""` | Optional SMTP auth password. Redacted by `config print`. |
 | `auth.postmark.server_token` | string | `""` | Required when `email_backend=postmark`. Redacted. |
+| `auth.resend.api_key` | string | `""` | Required when `email_backend=resend`. Redacted. |
 | `auth.argon2.memory_kib` | uint32 | `65536` | argon2id memory cost (KiB). |
 | `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
 | `auth.argon2.threads` | uint8 | `2` | argon2id parallelism. |
