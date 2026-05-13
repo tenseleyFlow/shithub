@@ -29,7 +29,7 @@ SELECT id, user_id, name, fingerprint, key_id, armored,
        uids, subkeys, primary_algo,
        created_at, last_used_at, revoked_at, expires_at
 FROM user_gpg_keys
-WHERE id = $1 AND user_id = $2
+WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
 `
 
 type GetUserGPGKeyParams struct {
@@ -39,7 +39,10 @@ type GetUserGPGKeyParams struct {
 
 // Scoped single-key lookup for REST GET-by-id. user_id filter prevents
 // cross-user reads (existence-leak-safe: returns no row if the id
-// belongs to another user).
+// belongs to another user). Excludes soft-deleted rows so the public
+// surface mirrors a hard delete from the consumer's perspective;
+// verification (which needs historical attribution) uses
+// GetUserGPGKeyForVerification which has no revoked filter.
 func (q *Queries) GetUserGPGKey(ctx context.Context, db DBTX, arg GetUserGPGKeyParams) (UserGpgKey, error) {
 	row := db.QueryRow(ctx, getUserGPGKey, arg.ID, arg.UserID)
 	var i UserGpgKey

@@ -278,6 +278,60 @@ If this wasn't you, sign in immediately, delete the key from
 	}, nil
 }
 
+// GPGKeyAddedMessage builds the new-GPG-key notification email. Sent
+// on successful key add — name/fingerprint/IP help the user spot a
+// compromise. Mirrors SSHKeyAddedMessage; the only visible difference
+// in the body is the wording ("GPG key" vs "SSH key") and the
+// settings link target.
+//
+// The display "name" comes from the user-supplied title field; when
+// the user omits it (gh allows blank), we fall back to a generic
+// "(no title)" label so the email body stays readable.
+func GPGKeyAddedMessage(b Branding, to, username, name, fingerprint, ip string) (Message, error) {
+	if strings.TrimSpace(name) == "" {
+		name = "(no title)"
+	}
+	const text = `Hi {{.Username}},
+
+A new GPG key was added to your {{.SiteName}} account.
+
+  Name: {{.Name}}
+  Fingerprint: {{.Fingerprint}}
+{{if .IP}}  IP: {{.IP}}
+{{end}}
+If this wasn't you, sign in immediately, delete the key from
+{{.BaseURL}}/settings/keys, and reset your password.`
+
+	const html = `<p>Hi <strong>{{.Username}}</strong>,</p>
+<p>A new GPG key was added to your {{.SiteName}} account.</p>
+<ul>
+  <li><strong>Name:</strong> {{.Name}}</li>
+  <li><strong>Fingerprint:</strong> <code>{{.Fingerprint}}</code></li>
+  {{if .IP}}<li><strong>IP:</strong> {{.IP}}</li>{{end}}
+</ul>
+<p>If this wasn't you, sign in immediately, delete the key from
+<a href="{{.BaseURL}}/settings/keys">your SSH and GPG keys settings</a>, and reset your password.</p>`
+
+	data := struct{ SiteName, BaseURL, Username, Name, Fingerprint, IP string }{
+		b.SiteName, b.BaseURL, username, name, fingerprint, ip,
+	}
+	txt, err := renderText(textTemplate.Must(textTemplate.New("gpg_added.txt").Parse(text)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	htmlBody, err := renderHTML(template.Must(template.New("gpg_added.html").Parse(html)), data)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{
+		From:    b.From,
+		To:      to,
+		Subject: fmt.Sprintf("New GPG key added to your %s account", b.SiteName),
+		Text:    txt,
+		HTML:    htmlBody,
+	}, nil
+}
+
 // NoticeMessage builds a 2FA / security state-change notice for kind. The
 // kind names match audit-log Action values where applicable.
 func NoticeMessage(b Branding, to, username, kind string) (Message, error) {

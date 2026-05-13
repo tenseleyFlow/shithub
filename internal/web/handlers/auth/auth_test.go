@@ -199,7 +199,9 @@ func authTemplatesFS() fs.FS {
 	tfaEnable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">SECRET={{.Secret}}</form>{{ end }}`
 	tfaDisable := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"></form>{{ end }}`
 	tfaRecovery := `{{ define "page" }}<form>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .RecoveryCodes }}CODES={{ range .RecoveryCodes }}{{.}};{{ end }}{{ end }}</form>{{ end }}`
-	keysTpl := `{{ define "page" }}<form>{{ with .AddError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">KEYS={{ range .Keys }}{{.ID}}:{{.FingerprintSha256}};{{ end }}</form>{{ end }}`
+	keysTpl := `{{ define "page" }}<form>{{ with .AddError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">KEYS={{ range .Keys }}{{.ID}}:{{.FingerprintSha256}};{{ end }}GPGKEYS={{ range .GPGKeys }}{{.ID}}:{{.Name}}:{{.KeyID}};{{ end }}</form>{{ end }}`
+	//nolint:gosec // G101 false positive: test fixture, not a hardcoded credential.
+	gpgAddTpl := `{{ define "page" }}<form action="/settings/keys/gpg" method=POST>{{ with .AddError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}"><input name=title value="{{.AddTitle}}"><textarea name=armored_key>{{.AddBlob}}</textarea></form>{{ end }}`
 	//nolint:gosec // G101 false positive: test fixture, not a hardcoded credential.
 	tokensTpl := `{{ define "page" }}<form>{{ with .CreateError }}<p class=error>{{.}}</p>{{ end }}<input name=csrf_token value="{{.CSRFToken}}">{{ if .JustCreatedRaw }}RAW={{.JustCreatedRaw}}{{ end }}TOKENS={{ range .Tokens }}{{.ID}}:{{.TokenPrefix}}{{ if .RevokedAt.Valid }}:revoked{{ end }};{{ end }}</form>{{ end }}`
 	profileTpl := `{{ define "page" }}<h1>Public profile</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form><input name=csrf_token value="{{.CSRFToken}}">DISPLAY={{.Form.DisplayName}};BIO={{.Form.Bio}};LOCATION={{.Form.Location}};WEBSITE={{.Form.Website}};COMPANY={{.Form.Company}};PRONOUNS={{.Form.Pronouns}};</form>{{ if .HasAvatar }}<form action="/settings/profile/avatar/remove" method=POST><input name=csrf_token value="{{.CSRFToken}}"><button>Remove</button></form>{{ end }}{{ end }}`
@@ -226,6 +228,7 @@ func authTemplatesFS() fs.FS {
 		"settings/2fa_disable.html":   {Data: []byte(tfaDisable)},
 		"settings/2fa_recovery.html":  {Data: []byte(tfaRecovery)},
 		"settings/keys.html":          {Data: []byte(keysTpl)},
+		"settings/keys_gpg_add.html":  {Data: []byte(gpgAddTpl)},
 		"settings/tokens.html":        {Data: []byte(tokensTpl)},
 		"settings/profile.html":       {Data: []byte(profileTpl)},
 		"settings/account.html":       {Data: []byte(accountTpl)},
