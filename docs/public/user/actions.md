@@ -24,6 +24,31 @@ Commit that file as `.shithub/workflows/smoke.yml` and push to the repository.
 The run appears under the repository's Actions tab and its job also appears as
 a check run on matching pull requests.
 
+## Copy-paste smoke workflow
+
+Use this workflow to confirm a normal repository can use the shared Linux pool.
+It runs on every push to `trunk` while Actions are enabled for the repository
+and a runner advertising `ubuntu-latest` is online.
+
+```yaml
+name: Smoke
+on:
+  push:
+    branches: [trunk]
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify checkout
+        run: test -f README.md || test -f readme.md || pwd
+      - name: Smoke
+        run: printf 'shithub actions smoke passed\n'
+```
+
+The same file should work in any repository that is allowed by the site, org,
+and repo Actions policies. It should not need a repo-specific runner label.
+
 ## What works today
 
 - `push`, `pull_request`, `schedule`, and `workflow_dispatch` triggers

@@ -215,6 +215,13 @@ Expected state:
 Repeat with `exit 1`; the check should complete with conclusion
 `failure`.
 
+Before declaring a shared pool available to arbitrary repositories, run the
+[arbitrary repository smoke](./actions-runner.md#arbitrary-repository-smoke)
+checklist against scratch and at least one additional repository. The single
+repo check above proves the runner process works; the arbitrary-repo smoke
+proves label routing, checkout scoping, archived logs, check runs, and negative
+queue/secret cases across normal repositories.
+
 Sandbox smoke checks:
 
 ```yaml

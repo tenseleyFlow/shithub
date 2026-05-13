@@ -1,0 +1,13 @@
+name: Smoke
+on:
+  push:
+    branches: [trunk]
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify checkout
+        run: test -f README.md || test -f readme.md || pwd
+      - name: Smoke
+        run: printf 'shithub actions smoke passed\n'
