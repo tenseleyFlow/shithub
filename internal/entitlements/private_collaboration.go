@@ -40,6 +40,24 @@ type PrivateCollaborationCheck struct {
 	Reason       Reason
 }
 
+type PrivateCollaborationLimitError struct {
+	Check PrivateCollaborationCheck
+}
+
+func (e *PrivateCollaborationLimitError) Error() string {
+	if e == nil {
+		return ErrPrivateCollaborationLimitExceeded.Error()
+	}
+	if msg := e.Check.Message(); msg != "" {
+		return msg
+	}
+	return ErrPrivateCollaborationLimitExceeded.Error()
+}
+
+func (e *PrivateCollaborationLimitError) Unwrap() error {
+	return ErrPrivateCollaborationLimitExceeded
+}
+
 func PrivateCollaborationUsageForOrg(ctx context.Context, deps Deps, orgID int64) (PrivateCollaborationUsage, error) {
 	usage, _, err := privateCollaborationUsageWithIDs(ctx, deps, orgID)
 	return usage, err
@@ -198,7 +216,7 @@ func (c PrivateCollaborationCheck) Err() error {
 	if c.Allowed {
 		return nil
 	}
-	return ErrPrivateCollaborationLimitExceeded
+	return &PrivateCollaborationLimitError{Check: c}
 }
 
 func (c PrivateCollaborationCheck) Message() string {

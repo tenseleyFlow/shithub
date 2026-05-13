@@ -15,6 +15,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	policydb "github.com/tenseleyFlow/shithub/internal/auth/policy/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -164,6 +165,16 @@ func (h *Handlers) collaboratorPut(w http.ResponseWriter, r *http.Request) {
 	role, err := parseCollabRole(body.Role)
 	if err != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	check, err := entitlements.CheckDirectPrivateCollaborator(r.Context(), entitlements.Deps{Pool: h.d.Pool}, repo.ID, user.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: private collaborator entitlement check", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "collaborator entitlement check failed")
+		return
+	}
+	if err := check.Err(); err != nil {
+		writeAPIError(w, http.StatusPaymentRequired, err.Error())
 		return
 	}
 	if err := policydb.New().UpsertCollabRole(r.Context(), h.d.Pool, policydb.UpsertCollabRoleParams{

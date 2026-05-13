@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -95,6 +96,20 @@ func Invite(ctx context.Context, deps Deps, p InviteParams) (InviteResult, error
 		return InviteResult{}, ErrInvitationDuplicate
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return InviteResult{}, err
+	}
+	if role == orgsdb.OrgRoleOwner {
+		var check entitlements.PrivateCollaborationCheck
+		if targetUserID.Valid {
+			check, err = entitlements.CheckOrgOwnerPrivateCollaboration(ctx, entitlements.Deps{Pool: deps.Pool}, p.OrgID, targetUserID.Int64)
+		} else {
+			check, err = entitlements.CheckPrivateInvitationSlot(ctx, entitlements.Deps{Pool: deps.Pool}, p.OrgID)
+		}
+		if err != nil {
+			return InviteResult{}, err
+		}
+		if err := check.Err(); err != nil {
+			return InviteResult{}, err
+		}
 	}
 
 	tokEnc, tokHash, err := token.New()
@@ -184,6 +199,15 @@ func AcceptInvitation(ctx context.Context, deps Deps, inv orgsdb.OrgInvitation, 
 		}
 		if !ok {
 			return ErrUnauthorizedAcceptor
+		}
+	}
+	if inv.Role == orgsdb.OrgRoleOwner {
+		check, err := entitlements.CheckOrgOwnerPrivateCollaboration(ctx, entitlements.Deps{Pool: deps.Pool}, inv.OrgID, acceptorUserID)
+		if err != nil {
+			return err
+		}
+		if err := check.Err(); err != nil {
+			return err
 		}
 	}
 

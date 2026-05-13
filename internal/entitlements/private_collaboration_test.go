@@ -4,6 +4,7 @@ package entitlements_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestPrivateCollaborationExpansionEnforcesFreeLimitAndTeamUnlimited(t *testi
 	if err != nil {
 		t.Fatalf("blocked expansion: %v", err)
 	}
-	if check.Allowed || check.WouldUse != 4 || check.Err() != entitlements.ErrPrivateCollaborationLimitExceeded {
+	if check.Allowed || check.WouldUse != 4 || !errors.Is(check.Err(), entitlements.ErrPrivateCollaborationLimitExceeded) {
 		t.Fatalf("three-user free expansion check = %+v, want blocked", check)
 	}
 	if !strings.Contains(check.Message(), "up to 3 private collaborators") {

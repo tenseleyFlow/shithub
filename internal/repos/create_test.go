@@ -20,6 +20,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/repos"
@@ -81,6 +82,19 @@ func setupCreateEnv(t *testing.T) (*pgxpool.Pool, repos.Deps, int64, string, str
 	return pool, deps, user.ID, user.Username, root
 }
 
+func mustCreateRepoUser(t *testing.T, db usersdb.DBTX, username string) usersdb.User {
+	t.Helper()
+	user, err := usersdb.New().CreateUser(context.Background(), db, usersdb.CreateUserParams{
+		Username:     username,
+		DisplayName:  username,
+		PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser %s: %v", username, err)
+	}
+	return user
+}
+
 func TestCreate_EmptyRepo(t *testing.T) {
 	t.Parallel()
 	_, deps, uid, uname, root := setupCreateEnv(t)
@@ -113,6 +127,35 @@ func TestCreate_EmptyRepo(t *testing.T) {
 	out, _ = gitCmd("-C", res.DiskPath, "rev-list", "--all", "--count").CombinedOutput()
 	if got := strings.TrimSpace(string(out)); got != "0" {
 		t.Fatalf("rev-list count = %q, want 0", got)
+	}
+}
+
+func TestCreate_PrivateOrgRepoRespectsCollaborationLimit(t *testing.T) {
+	t.Parallel()
+	pool, deps, uid, _, _ := setupCreateEnv(t)
+	ctx := context.Background()
+	org, err := orgs.Create(ctx, orgs.Deps{Pool: pool}, orgs.CreateParams{
+		Slug:            "acme",
+		CreatedByUserID: uid,
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	for _, name := range []string{"owner2", "owner3", "owner4"} {
+		user := mustCreateRepoUser(t, pool, name)
+		if _, err := pool.Exec(ctx, `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')`, org.ID, user.ID); err != nil {
+			t.Fatalf("insert owner: %v", err)
+		}
+	}
+	_, err = repos.Create(ctx, deps, repos.Params{
+		OwnerOrgID:  org.ID,
+		OwnerSlug:   string(org.Slug),
+		ActorUserID: uid,
+		Name:        "secret",
+		Visibility:  "private",
+	})
+	if !errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+		t.Fatalf("Create private org repo err=%v, want private collaboration limit", err)
 	}
 }
 

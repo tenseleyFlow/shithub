@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/git/hooks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/issues"
@@ -146,6 +147,15 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 		}
 	default:
 		return Result{}, errors.New("repos: owner is XOR — set OwnerUserID OR OwnerOrgID, not both")
+	}
+	if p.OwnerOrgID != 0 && p.Visibility == "private" {
+		check, err := entitlements.CheckPrivateRepositoryCreation(ctx, entitlements.Deps{Pool: deps.Pool}, p.OwnerOrgID)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := check.Err(); err != nil {
+			return Result{}, err
+		}
 	}
 
 	// Rate-limit per actor (NOT per owner) so a user can't bypass the

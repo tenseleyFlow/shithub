@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 )
 
@@ -25,6 +26,15 @@ func AddMember(ctx context.Context, deps Deps, orgID, userID, invitedByUserID in
 	r, err := parseRole(role)
 	if err != nil {
 		return err
+	}
+	if r == orgsdb.OrgRoleOwner {
+		check, err := entitlements.CheckOrgOwnerPrivateCollaboration(ctx, entitlements.Deps{Pool: deps.Pool}, orgID, userID)
+		if err != nil {
+			return err
+		}
+		if err := check.Err(); err != nil {
+			return err
+		}
 	}
 	tx, err := deps.Pool.Begin(ctx)
 	if err != nil {
@@ -81,6 +91,15 @@ func ChangeRole(ctx context.Context, deps Deps, orgID, userID int64, role string
 		}
 		if count <= 1 {
 			return ErrLastOwner
+		}
+	}
+	if current.Role != orgsdb.OrgRoleOwner && r == orgsdb.OrgRoleOwner {
+		check, err := entitlements.CheckOrgOwnerPrivateCollaboration(ctx, entitlements.Deps{Pool: deps.Pool}, orgID, userID)
+		if err != nil {
+			return err
+		}
+		if err := check.Err(); err != nil {
+			return err
 		}
 	}
 	return q.ChangeOrgMemberRole(ctx, deps.Pool, orgsdb.ChangeOrgMemberRoleParams{

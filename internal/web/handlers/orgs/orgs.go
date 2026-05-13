@@ -42,6 +42,7 @@ import (
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -412,8 +413,18 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		"HasQuery":        query != "",
 		"IsOwner":         isOwner,
 		"CanManagePeople": isOwner,
+		"Notice":          peopleNoticeMessage(r.URL.Query().Get("notice")),
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
+	}
+}
+
+func peopleNoticeMessage(code string) string {
+	switch code {
+	case "private-collab-upgrade":
+		return "Free organizations can have up to 3 private collaborators. Upgrade to Team to add more private collaborators."
+	default:
+		return ""
 	}
 }
 
@@ -478,6 +489,10 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 	if _, err := orgs.Invite(r.Context(), h.deps(), p); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "orgs: invite failed",
 			"org", org.Slug, "target", target, "error", err)
+		if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+			http.Redirect(w, r, "/"+org.Slug+"/people?notice=private-collab-upgrade", http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/"+org.Slug+"/people", http.StatusSeeOther)
 }
@@ -530,6 +545,10 @@ func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action f
 	if err := action(org.ID, uid); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "orgs: member mutation",
 			"org", org.Slug, "user_id", uid, "error", err)
+		if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+			http.Redirect(w, r, "/"+org.Slug+"/people?notice=private-collab-upgrade", http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/"+org.Slug+"/people", http.StatusSeeOther)
 }
@@ -591,6 +610,10 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 		if err := orgs.AcceptInvitation(r.Context(), h.deps(), inv, viewer.ID); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "orgs: accept invitation",
 				"id", inv.ID, "error", err)
+			if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+				h.d.Render.HTTPError(w, r, http.StatusPaymentRequired, "")
+				return
+			}
 			h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
 			return
 		}

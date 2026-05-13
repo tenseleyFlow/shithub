@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
@@ -34,6 +35,15 @@ func SetVisibility(ctx context.Context, deps Deps, actorUserID, repoID int64, ne
 	}
 	if string(repo.Visibility) == newVisibility {
 		return nil // idempotent no-op
+	}
+	if repo.OwnerOrgID.Valid && newVisibility == "private" {
+		check, err := entitlements.CheckRepoPrivateVisibility(ctx, entitlements.Deps{Pool: deps.Pool}, repo.OwnerOrgID.Int64, repo.ID)
+		if err != nil {
+			return err
+		}
+		if err := check.Err(); err != nil {
+			return err
+		}
 	}
 
 	if err := rq.SetRepoVisibility(ctx, deps.Pool, reposdb.SetRepoVisibilityParams{
