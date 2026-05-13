@@ -73,6 +73,48 @@ func TestTeamExpansionRespectsPrivateCollaborationLimit(t *testing.T) {
 	}
 }
 
+func TestOwnerInvitationsRespectPrivateCollaborationLimitAtSendAndAccept(t *testing.T) {
+	pool, deps, alice := setup(t)
+	ctx := context.Background()
+	org, err := orgs.Create(ctx, deps, orgs.CreateParams{Slug: "acme", CreatedByUserID: alice})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	repo := mustOrgRepo(t, pool, org.ID, "secret", "private")
+	insertDirectCollab(t, pool, repo.ID, mustUser(t, pool, "bob"))
+	insertDirectCollab(t, pool, repo.ID, mustUser(t, pool, "carol"))
+
+	dave := mustUser(t, pool, "dave")
+	if _, err := orgs.Invite(ctx, deps, orgs.InviteParams{
+		OrgID:           org.ID,
+		InvitedByUserID: alice,
+		TargetUsername:  "dave",
+		Role:            "owner",
+	}); !errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+		t.Fatalf("Invite owner err=%v, want private collaboration limit", err)
+	}
+
+	if _, err := pool.Exec(ctx, `DELETE FROM repo_collaborators WHERE repo_id = $1 AND user_id = $2`, repo.ID, dave); err != nil {
+		t.Fatalf("cleanup accidental dave collab: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM repo_collaborators WHERE repo_id = $1 AND user_id = (SELECT id FROM users WHERE username = 'carol')`, repo.ID); err != nil {
+		t.Fatalf("remove carol collab: %v", err)
+	}
+	res, err := orgs.Invite(ctx, deps, orgs.InviteParams{
+		OrgID:           org.ID,
+		InvitedByUserID: alice,
+		TargetUsername:  "dave",
+		Role:            "owner",
+	})
+	if err != nil {
+		t.Fatalf("Invite owner under limit: %v", err)
+	}
+	insertDirectCollab(t, pool, repo.ID, mustUser(t, pool, "erin"))
+	if err := orgs.AcceptInvitation(ctx, deps, res.Invitation, dave); !errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
+		t.Fatalf("AcceptInvitation err=%v, want private collaboration limit", err)
+	}
+}
+
 func mustOrgRepo(t *testing.T, db reposdb.DBTX, orgID int64, name, visibility string) reposdb.Repo {
 	t.Helper()
 	repo, err := reposdb.New().CreateRepo(context.Background(), db, reposdb.CreateRepoParams{

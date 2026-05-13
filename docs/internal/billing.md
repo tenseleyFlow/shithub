@@ -69,6 +69,7 @@ Rules for paid-org copy:
 | Public org repositories | Included | Included | Contact sales |
 | Basic private org repositories | Included | Included | Contact sales |
 | Org members and invitations | Included | Billed by active member | Contact sales |
+| Effective private org collaborators | Up to 3 | Unlimited while active/in grace | Contact sales |
 | Visible teams | Included | Included | Contact sales |
 | Secret teams | Upgrade | Included | Contact sales |
 | Basic branch protection | Included | Included | Contact sales |
@@ -224,6 +225,28 @@ PAYMENTS SP07 completes the first self-serve billing settings surface:
   subscription, or subscription-item IDs. Site admins see a debug panel
   with those IDs and the latest locally recorded webhook receipt state.
 
+PAYMENTS SP06a adds the first private-collaboration limit:
+
+- Free organizations may have up to 3 unique humans with effective
+  access to at least one private organization repository.
+- Team organizations with active, trialing, or in-grace subscriptions
+  have unlimited private collaborators.
+- The effective private-collaborator set counts org owners, direct
+  collaborators on private org repos, and team members who inherit a
+  private repo grant through direct team membership or one-level parent
+  team inheritance. Plain org members do not count unless they gain
+  private repo access through one of those paths.
+- Public repository collaboration never counts toward the limit.
+- Downgrades preserve existing access even when the org is already over
+  the Free limit, but writes that add a new effective private
+  collaborator are blocked until the org upgrades or removes access.
+- Creating/importing a private org repository and changing an org repo
+  from public to private are blocked on Free when the resulting private
+  collaborator set would exceed the limit.
+- Cleanup writes remain available: removing org members, team members,
+  direct collaborators, team repo grants, and gated configuration must
+  not require Team.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -283,9 +306,6 @@ organization upgrades again.
 
 ## Open questions for implementation
 
-- Whether Free should limit private org collaborators before usage
-  metering exists, or whether the first paid gates are advanced controls
-  only.
 - Exact Free and Team quota numbers for Actions and storage. These must
   come from real host-cost estimates before SP08.
 

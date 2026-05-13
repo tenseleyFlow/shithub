@@ -73,6 +73,11 @@
                   <td>{{ .Seats.PendingInvites }}</td>
                   <td>Open invitations are shown separately and are not billed until accepted.</td>
                 </tr>
+                <tr>
+                  <td>Private collaborators</td>
+                  <td>{{ .PrivateCollaboration.Count }} / {{ .PrivateCollaboration.LimitLabel }}</td>
+                  <td>{{ .PrivateCollaboration.Detail }}</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -158,6 +163,12 @@
                   <td>Visible teams</td>
                   <td>Included</td>
                   <td>Included</td>
+                  <td>Contact sales</td>
+                </tr>
+                <tr>
+                  <td>Private org collaborators</td>
+                  <td>Up to 3 effective collaborators</td>
+                  <td>Unlimited while active</td>
                   <td>Contact sales</td>
                 </tr>
                 <tr>
