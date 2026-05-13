@@ -186,6 +186,19 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		return err
 	}
 	h.recordWebhookSubject(ctx, event.ID, principal)
+	// PRO08 D3: if the principal already has a different Stripe
+	// subscription on file, refuse to overwrite it. A second sub
+	// for the same customer (e.g., an operator created one manually
+	// in the Stripe Dashboard) silently overwriting the first would
+	// orphan the original — Stripe keeps billing both, shithub
+	// tracks only the latest. Loud-fail so retries surface to the
+	// operator. Skip the check on subscription.deleted: that path
+	// reads the current sub id and clears state by design.
+	if string(event.Type) != "customer.subscription.deleted" {
+		if err := h.guardSubscriptionOverwrite(ctx, principal, &sub); err != nil {
+			return err
+		}
+	}
 	// Cross-kind price-id check: if the subscription's first item
 	// price doesn't match the expected price for the resolved kind,
 	// refuse to apply. A Pro price on an org subject (or Team on
@@ -265,6 +278,50 @@ func (h *Handlers) resolvePrincipalFromSubscription(ctx context.Context, sub *st
 // non-configured client (Pro disabled) skips the check rather than
 // rejecting org events. PRO-disabled instances never see Pro
 // events, so the org path is unaffected.
+// guardSubscriptionOverwrite refuses to apply a subscription event
+// when the principal already has a DIFFERENT subscription on file.
+// Stripe can hold multiple subscriptions per customer; pointing the
+// shithub side-state row at a second sub would orphan the first
+// (Stripe keeps invoicing both; shithub tracks only the latest).
+//
+// The guard reads the current state for the resolved principal. If
+// the persisted StripeSubscriptionID is empty or matches the
+// incoming sub.ID, allow. Otherwise refuse — the operator must
+// reconcile in the Stripe Dashboard before shithub flips.
+//
+// PRO08 D3.
+func (h *Handlers) guardSubscriptionOverwrite(ctx context.Context, p orgbilling.Principal, sub *stripeapi.Subscription) error {
+	if sub == nil {
+		return nil
+	}
+	incoming := strings.TrimSpace(sub.ID)
+	if incoming == "" {
+		return nil
+	}
+	deps := orgbilling.Deps{Pool: h.d.Pool}
+	switch p.Kind {
+	case orgbilling.SubjectKindOrg:
+		state, err := orgbilling.GetOrgBillingState(ctx, deps, p.ID)
+		if err != nil {
+			return err
+		}
+		current := strings.TrimSpace(state.StripeSubscriptionID.String)
+		if state.StripeSubscriptionID.Valid && current != "" && current != incoming {
+			return fmt.Errorf("stripe subscription: org %d already bound to subscription %q; refusing to overwrite with %q", p.ID, current, incoming)
+		}
+	case orgbilling.SubjectKindUser:
+		state, err := orgbilling.GetUserBillingState(ctx, deps, p.ID)
+		if err != nil {
+			return err
+		}
+		current := strings.TrimSpace(state.StripeSubscriptionID.String)
+		if state.StripeSubscriptionID.Valid && current != "" && current != incoming {
+			return fmt.Errorf("stripe subscription: user %d already bound to subscription %q; refusing to overwrite with %q", p.ID, current, incoming)
+		}
+	}
+	return nil
+}
+
 func (h *Handlers) guardPriceKindMatch(kind orgbilling.SubjectKind, sub *stripeapi.Subscription) error {
 	teamPrice, proPrice := h.d.BillingPriceIDs()
 	// PRO08 A1: when ANY price is configured we MUST be able to
