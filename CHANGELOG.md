@@ -201,6 +201,21 @@ between minor releases.
   `0069_user_gpg_subkeys.sql`,
   `0070_commit_verification_cache.sql`.
 - **Capability:** `gpg-keys` added to `/api/v1/meta`.
+- **REST: rulesets (S50 §9).** Three read-only endpoints
+  synthesizing GitHub's modern rulesets shape from shithub's
+  existing `branch_protection_rules` rows:
+  `GET /api/v1/repos/{o}/{r}/rulesets` (list),
+  `GET /api/v1/repos/{o}/{r}/rulesets/{id}` (single),
+  `GET /api/v1/repos/{o}/{r}/rules/branches/{branch}` (rules
+  applying to a branch — every matching pattern, not just the
+  longest-match the pre-receive enforcer uses). One protection
+  row maps to one ruleset; each configured field projects as a
+  typed rule (`pull_request`, `non_fast_forward`, `deletion`,
+  `required_signatures`, `required_status_checks`). Scope:
+  `repo:read`. Cross-repo lookups 404. Mutating rulesets via
+  REST is a future surface — for now use the web UI at
+  `Settings → Branches`.
+- **Capability:** `rulesets` added to `/api/v1/meta`.
 - **REST: repo contents (S50 §12).**
   `GET /api/v1/repos/{o}/{r}/contents/{path}[?ref=]` returns
   either a directory listing (dirs first, then files
