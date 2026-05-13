@@ -84,12 +84,21 @@ Returns 204 when no matching job is claimable. Returns 200 with
 `token`, `expires_at`, and `job` when a job is claimed. Capacity is
 enforced server-side by counting current `workflow_jobs.status =
 'running'` rows for the runner while holding a row lock on the runner.
+Claiming also enforces the effective Actions policy for the repository:
+disabled repos, approval-pending runs, per-repo concurrent job caps, and
+per-owner/org concurrent job caps are not dispatchable. Approval simply
+sets `workflow_runs.approved_by_user_id`; the next heartbeat can claim the
+same queued jobs, so no duplicate run is created.
 The job payload includes `checkout_url`, `checkout_token`, resolved
 `secrets`, and `mask_values`; repo secrets shadow org secrets with the
 same name. The server also stores an encrypted claim-time copy of the mask
 values on `workflow_job_secret_masks` so later log uploads are scrubbed
 against the secrets that were actually handed to the runner, even if an
 operator rotates or deletes a secret mid-job.
+
+Pull request runs receive no org or repo secrets in v1, even after a
+maintainer approves dispatch. This is intentionally stricter than the
+approval gate until environments/protected deployment secrets exist.
 
 `POST /api/v1/jobs/{id}/logs`
 

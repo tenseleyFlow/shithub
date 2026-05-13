@@ -12,7 +12,7 @@ without churning under them.
 
 ## SQL schema
 
-Actions migrations currently span 0042–0051, 0053, 0057, and 0060.
+Actions migrations currently span 0042–0051, 0053, 0057, 0060, and 0064–0066.
 Migration 0052 belongs to the repo source-remotes feature, 0054
 belongs to push event protocol tracking, 0055 belongs to the social
 feed, 0056 belongs to user profile contribution settings, 0058 belongs
@@ -33,6 +33,7 @@ to repo name reuse, and 0059 belongs to GitHub org imports.
 | 0053  | `runner_jwt_used`           | Single-use replay gate for runner job JWTs                    |
 | 0057  | `workflow_job_secret_masks` | Encrypted claim-time log mask snapshots per job               |
 | 0060  | Actions retention indexes   | Narrow cleanup indexes for terminal steps/runs                |
+| 0066  | `actions_*_policies`, `workflow_run_approvals` | Enablement, runner-pool caps, and approval decisions |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -77,6 +78,14 @@ later schema diff:
   claim time, preventing a rotated or deleted secret from disappearing
   from server-side masking while the old value is still in a runner's
   job payload.
+- **`actions_site_policy`, `actions_org_policies`,
+  `actions_repo_policies`** — inherited Actions enablement and abuse
+  caps. Runner claim and trigger enqueue both read the effective policy:
+  repo override, then org override, then site default.
+- **`workflow_run_approvals`** — one approval-decision row for every run
+  whose `workflow_runs.need_approval` flag is set. Approval records the
+  maintainer and lets runner heartbeats claim the existing queued jobs;
+  rejection completes the run with `action_required`.
 
 The `version` and `run_index` patterns are the two pieces I'd point
 out to a future maintainer first. Both are cheap to add now and
