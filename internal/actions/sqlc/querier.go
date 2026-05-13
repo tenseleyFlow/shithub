@@ -16,6 +16,7 @@ type Querier interface {
 	ApproveWorkflowRun(ctx context.Context, db DBTX, arg ApproveWorkflowRunParams) (ApproveWorkflowRunRow, error)
 	CancelOpenWorkflowStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]WorkflowStep, error)
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
+	ClearRunnerDraining(ctx context.Context, db DBTX, id int64) (ClearRunnerDrainingRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
 	CountQueuedWorkflowRunsForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountRecentWorkflowRunsForActor(ctx context.Context, db DBTX, arg CountRecentWorkflowRunsForActorParams) (int64, error)
@@ -69,8 +70,8 @@ type Querier interface {
 	GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)
 	GetRepoVariable(ctx context.Context, db DBTX, arg GetRepoVariableParams) (GetRepoVariableRow, error)
-	GetRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
-	GetRunnerByName(ctx context.Context, db DBTX, name string) (WorkflowRunner, error)
+	GetRunnerByID(ctx context.Context, db DBTX, id int64) (GetRunnerByIDRow, error)
+	GetRunnerByName(ctx context.Context, db DBTX, name string) (GetRunnerByNameRow, error)
 	GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (GetRunnerByTokenHashRow, error)
 	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
 	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
@@ -81,11 +82,11 @@ type Querier interface {
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowRunForRepoByIndex(ctx context.Context, db DBTX, arg GetWorkflowRunForRepoByIndexParams) (GetWorkflowRunForRepoByIndexRow, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
-	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (WorkflowRunner, error)
+	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (HeartbeatRunnerRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertArtifact(ctx context.Context, db DBTX, arg InsertArtifactParams) (WorkflowArtifact, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
-	InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (WorkflowRunner, error)
+	InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (InsertRunnerRow, error)
 	InsertRunnerToken(ctx context.Context, db DBTX, arg InsertRunnerTokenParams) (RunnerToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Called by the future runner-side upload handler when an
@@ -136,7 +137,7 @@ type Querier interface {
 	ListWorkflowCachesForRepo(ctx context.Context, db DBTX, arg ListWorkflowCachesForRepoParams) ([]WorkflowCache, error)
 	ListWorkflowRunWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListWorkflowRunWorkflowsForRepoRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
-	LockRunnerByID(ctx context.Context, db DBTX, id int64) (WorkflowRunner, error)
+	LockRunnerByID(ctx context.Context, db DBTX, id int64) (LockRunnerByIDRow, error)
 	// Companion to EnqueueWorkflowRun for the conflict path: when an
 	// INSERT ... ON CONFLICT DO NOTHING returns no rows, the trigger
 	// handler uses this to find the existing row so it can surface a
@@ -144,6 +145,7 @@ type Querier interface {
 	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	MarkRunnerJWTUsed(ctx context.Context, db DBTX, arg MarkRunnerJWTUsedParams) (RunnerJwtUsed, error)
+	MarkStaleRunnersOffline(ctx context.Context, db DBTX, lastHeartbeatAt pgtype.Timestamptz) ([]MarkStaleRunnersOfflineRow, error)
 	MarkWorkflowJobsRejected(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	MarkWorkflowRunRejected(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	MarkWorkflowRunRunning(ctx context.Context, db DBTX, id int64) error
@@ -157,6 +159,8 @@ type Querier interface {
 	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
+	RevokeRunner(ctx context.Context, db DBTX, arg RevokeRunnerParams) (RevokeRunnerRow, error)
+	SetRunnerDraining(ctx context.Context, db DBTX, arg SetRunnerDrainingParams) (SetRunnerDrainingRow, error)
 	StartWorkflowRun(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	TouchRunnerHeartbeat(ctx context.Context, db DBTX, arg TouchRunnerHeartbeatParams) error
 	// Bumps last_accessed_at on cache hit. Called by the future
