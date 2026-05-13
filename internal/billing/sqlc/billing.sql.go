@@ -545,6 +545,57 @@ func (q *Queries) CountPendingOrgInvitations(ctx context.Context, db DBTX, orgID
 	return column_1, err
 }
 
+const createOrgUsageSnapshot = `-- name: CreateOrgUsageSnapshot :one
+INSERT INTO org_usage_snapshots (
+    org_id,
+    source,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end
+)
+SELECT
+    org_id,
+    $1::text,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end
+FROM org_usage_counters
+WHERE org_id = $2::bigint
+RETURNING id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at
+`
+
+type CreateOrgUsageSnapshotParams struct {
+	Source string
+	OrgID  int64
+}
+
+func (q *Queries) CreateOrgUsageSnapshot(ctx context.Context, db DBTX, arg CreateOrgUsageSnapshotParams) (OrgUsageSnapshot, error) {
+	row := db.QueryRow(ctx, createOrgUsageSnapshot, arg.Source, arg.OrgID)
+	var i OrgUsageSnapshot
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Source,
+		&i.RepoStorageBytes,
+		&i.ObjectStorageBytes,
+		&i.ActionsLogBytes,
+		&i.ActionsArtifactBytes,
+		&i.ActionsMinutesUsed,
+		&i.ActionsPeriodStart,
+		&i.ActionsPeriodEnd,
+		&i.CapturedAt,
+	)
+	return i, err
+}
+
 const createSeatSnapshot = `-- name: CreateSeatSnapshot :one
 
 WITH snapshot AS (
@@ -672,6 +723,25 @@ func (q *Queries) CreateWebhookEventReceipt(ctx context.Context, db DBTX, arg Cr
 	return i, err
 }
 
+const deleteOrgQuotaOverride = `-- name: DeleteOrgQuotaOverride :execrows
+DELETE FROM org_quota_overrides
+WHERE org_id = $1
+  AND kind = $2
+`
+
+type DeleteOrgQuotaOverrideParams struct {
+	OrgID int64
+	Kind  OrgQuotaKind
+}
+
+func (q *Queries) DeleteOrgQuotaOverride(ctx context.Context, db DBTX, arg DeleteOrgQuotaOverrideParams) (int64, error) {
+	result, err := db.Exec(ctx, deleteOrgQuotaOverride, arg.OrgID, arg.Kind)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getOrgBillingState = `-- name: GetOrgBillingState :one
 
 
@@ -778,6 +848,58 @@ func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+	)
+	return i, err
+}
+
+const getOrgQuotaOverride = `-- name: GetOrgQuotaOverride :one
+SELECT org_id, kind, limit_value, unlimited, note, created_by_user_id, created_at, updated_at FROM org_quota_overrides
+WHERE org_id = $1
+  AND kind = $2
+`
+
+type GetOrgQuotaOverrideParams struct {
+	OrgID int64
+	Kind  OrgQuotaKind
+}
+
+func (q *Queries) GetOrgQuotaOverride(ctx context.Context, db DBTX, arg GetOrgQuotaOverrideParams) (OrgQuotaOverride, error) {
+	row := db.QueryRow(ctx, getOrgQuotaOverride, arg.OrgID, arg.Kind)
+	var i OrgQuotaOverride
+	err := row.Scan(
+		&i.OrgID,
+		&i.Kind,
+		&i.LimitValue,
+		&i.Unlimited,
+		&i.Note,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrgUsageCounters = `-- name: GetOrgUsageCounters :one
+
+SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at FROM org_usage_counters WHERE org_id = $1
+`
+
+// ─── org_usage_counters ────────────────────────────────────────────
+func (q *Queries) GetOrgUsageCounters(ctx context.Context, db DBTX, orgID int64) (OrgUsageCounter, error) {
+	row := db.QueryRow(ctx, getOrgUsageCounters, orgID)
+	var i OrgUsageCounter
+	err := row.Scan(
+		&i.OrgID,
+		&i.RepoStorageBytes,
+		&i.ObjectStorageBytes,
+		&i.ActionsLogBytes,
+		&i.ActionsArtifactBytes,
+		&i.ActionsMinutesUsed,
+		&i.ActionsPeriodStart,
+		&i.ActionsPeriodEnd,
+		&i.CalculatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -1131,6 +1253,87 @@ func (q *Queries) ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListI
 			&i.SubjectKind,
 			&i.SubjectID,
 			&i.RefundedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgQuotaOverrides = `-- name: ListOrgQuotaOverrides :many
+
+SELECT org_id, kind, limit_value, unlimited, note, created_by_user_id, created_at, updated_at FROM org_quota_overrides
+WHERE org_id = $1
+ORDER BY kind ASC
+`
+
+// ─── org_quota_overrides ───────────────────────────────────────────
+func (q *Queries) ListOrgQuotaOverrides(ctx context.Context, db DBTX, orgID int64) ([]OrgQuotaOverride, error) {
+	rows, err := db.Query(ctx, listOrgQuotaOverrides, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrgQuotaOverride{}
+	for rows.Next() {
+		var i OrgQuotaOverride
+		if err := rows.Scan(
+			&i.OrgID,
+			&i.Kind,
+			&i.LimitValue,
+			&i.Unlimited,
+			&i.Note,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgUsageSnapshots = `-- name: ListOrgUsageSnapshots :many
+SELECT id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at FROM org_usage_snapshots
+WHERE org_id = $1
+ORDER BY captured_at DESC, id DESC
+LIMIT $2
+`
+
+type ListOrgUsageSnapshotsParams struct {
+	OrgID int64
+	Limit int32
+}
+
+func (q *Queries) ListOrgUsageSnapshots(ctx context.Context, db DBTX, arg ListOrgUsageSnapshotsParams) ([]OrgUsageSnapshot, error) {
+	rows, err := db.Query(ctx, listOrgUsageSnapshots, arg.OrgID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrgUsageSnapshot{}
+	for rows.Next() {
+		var i OrgUsageSnapshot
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Source,
+			&i.RepoStorageBytes,
+			&i.ObjectStorageBytes,
+			&i.ActionsLogBytes,
+			&i.ActionsArtifactBytes,
+			&i.ActionsMinutesUsed,
+			&i.ActionsPeriodStart,
+			&i.ActionsPeriodEnd,
+			&i.CapturedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1739,6 +1942,123 @@ func (q *Queries) MarkWebhookEventProcessed(ctx context.Context, db DBTX, provid
 	return i, err
 }
 
+const recalculateOrgUsageCounters = `-- name: RecalculateOrgUsageCounters :one
+WITH repo_usage AS (
+    SELECT COALESCE(sum(disk_used_bytes), 0)::bigint AS repo_storage_bytes
+    FROM repos
+    WHERE owner_org_id = $1::bigint
+      AND deleted_at IS NULL
+),
+action_usage AS (
+    SELECT
+        COALESCE(sum(s.log_byte_count), 0)::bigint AS actions_log_bytes
+    FROM workflow_runs r
+    JOIN repos repo ON repo.id = r.repo_id
+    JOIN workflow_jobs j ON j.run_id = r.id
+    JOIN workflow_steps s ON s.job_id = j.id
+    WHERE repo.owner_org_id = $1::bigint
+),
+actions_minutes AS (
+    SELECT COALESCE(sum(
+        CASE
+            WHEN j.status IN ('completed', 'cancelled')
+             AND j.started_at IS NOT NULL
+             AND j.completed_at IS NOT NULL
+             AND j.completed_at >= $2::timestamptz
+             AND j.completed_at < $3::timestamptz
+            THEN CEIL(EXTRACT(EPOCH FROM (j.completed_at - j.started_at)) / 60.0)::bigint
+            ELSE 0
+        END
+    ), 0)::bigint AS actions_minutes_used
+    FROM workflow_jobs j
+    JOIN workflow_runs r ON r.id = j.run_id
+    JOIN repos repo ON repo.id = r.repo_id
+    WHERE repo.owner_org_id = $1::bigint
+),
+artifact_usage AS (
+    SELECT COALESCE(sum(a.byte_count), 0)::bigint AS actions_artifact_bytes
+    FROM workflow_artifacts a
+    JOIN workflow_runs r ON r.id = a.run_id
+    JOIN repos repo ON repo.id = r.repo_id
+    WHERE repo.owner_org_id = $1::bigint
+),
+upserted AS (
+    INSERT INTO org_usage_counters (
+        org_id,
+        repo_storage_bytes,
+        object_storage_bytes,
+        actions_log_bytes,
+        actions_artifact_bytes,
+        actions_minutes_used,
+        actions_period_start,
+        actions_period_end,
+        calculated_at
+    )
+    SELECT
+        $1::bigint,
+        repo_usage.repo_storage_bytes,
+        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes,
+        action_usage.actions_log_bytes,
+        artifact_usage.actions_artifact_bytes,
+        actions_minutes.actions_minutes_used,
+        $2::timestamptz,
+        $3::timestamptz,
+        now()
+    FROM repo_usage, action_usage, actions_minutes, artifact_usage
+    ON CONFLICT (org_id) DO UPDATE
+       SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
+           object_storage_bytes = EXCLUDED.object_storage_bytes,
+           actions_log_bytes = EXCLUDED.actions_log_bytes,
+           actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
+           actions_minutes_used = EXCLUDED.actions_minutes_used,
+           actions_period_start = EXCLUDED.actions_period_start,
+           actions_period_end = EXCLUDED.actions_period_end,
+           calculated_at = EXCLUDED.calculated_at,
+           updated_at = now()
+    RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at
+)
+SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at FROM upserted
+`
+
+type RecalculateOrgUsageCountersParams struct {
+	OrgID              int64
+	ActionsPeriodStart pgtype.Timestamptz
+	ActionsPeriodEnd   pgtype.Timestamptz
+}
+
+type RecalculateOrgUsageCountersRow struct {
+	OrgID                int64
+	RepoStorageBytes     int64
+	ObjectStorageBytes   int64
+	ActionsLogBytes      int64
+	ActionsArtifactBytes int64
+	ActionsMinutesUsed   int64
+	ActionsPeriodStart   pgtype.Timestamptz
+	ActionsPeriodEnd     pgtype.Timestamptz
+	CalculatedAt         pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) RecalculateOrgUsageCounters(ctx context.Context, db DBTX, arg RecalculateOrgUsageCountersParams) (RecalculateOrgUsageCountersRow, error) {
+	row := db.QueryRow(ctx, recalculateOrgUsageCounters, arg.OrgID, arg.ActionsPeriodStart, arg.ActionsPeriodEnd)
+	var i RecalculateOrgUsageCountersRow
+	err := row.Scan(
+		&i.OrgID,
+		&i.RepoStorageBytes,
+		&i.ObjectStorageBytes,
+		&i.ActionsLogBytes,
+		&i.ActionsArtifactBytes,
+		&i.ActionsMinutesUsed,
+		&i.ActionsPeriodStart,
+		&i.ActionsPeriodEnd,
+		&i.CalculatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const setStripeCustomer = `-- name: SetStripeCustomer :one
 INSERT INTO org_billing_states (org_id, provider, stripe_customer_id)
 VALUES ($1, 'stripe', $2)
@@ -2190,6 +2510,141 @@ func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg Upse
 		&i.SubjectKind,
 		&i.SubjectID,
 		&i.RefundedAt,
+	)
+	return i, err
+}
+
+const upsertOrgQuotaOverride = `-- name: UpsertOrgQuotaOverride :one
+INSERT INTO org_quota_overrides (
+    org_id,
+    kind,
+    limit_value,
+    unlimited,
+    note,
+    created_by_user_id
+)
+VALUES (
+    $1::bigint,
+    $2::org_quota_kind,
+    $3::bigint,
+    $4::boolean,
+    $5::text,
+    $6::bigint
+)
+ON CONFLICT (org_id, kind) DO UPDATE
+   SET limit_value = EXCLUDED.limit_value,
+       unlimited = EXCLUDED.unlimited,
+       note = EXCLUDED.note,
+       created_by_user_id = EXCLUDED.created_by_user_id,
+       updated_at = now()
+RETURNING org_id, kind, limit_value, unlimited, note, created_by_user_id, created_at, updated_at
+`
+
+type UpsertOrgQuotaOverrideParams struct {
+	OrgID           int64
+	Kind            OrgQuotaKind
+	LimitValue      pgtype.Int8
+	Unlimited       bool
+	Note            string
+	CreatedByUserID pgtype.Int8
+}
+
+func (q *Queries) UpsertOrgQuotaOverride(ctx context.Context, db DBTX, arg UpsertOrgQuotaOverrideParams) (OrgQuotaOverride, error) {
+	row := db.QueryRow(ctx, upsertOrgQuotaOverride,
+		arg.OrgID,
+		arg.Kind,
+		arg.LimitValue,
+		arg.Unlimited,
+		arg.Note,
+		arg.CreatedByUserID,
+	)
+	var i OrgQuotaOverride
+	err := row.Scan(
+		&i.OrgID,
+		&i.Kind,
+		&i.LimitValue,
+		&i.Unlimited,
+		&i.Note,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertOrgUsageCounters = `-- name: UpsertOrgUsageCounters :one
+INSERT INTO org_usage_counters (
+    org_id,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end,
+    calculated_at
+)
+VALUES (
+    $1::bigint,
+    $2::bigint,
+    $3::bigint,
+    $4::bigint,
+    $5::bigint,
+    $6::bigint,
+    $7::timestamptz,
+    $8::timestamptz,
+    COALESCE($9::timestamptz, now())
+)
+ON CONFLICT (org_id) DO UPDATE
+   SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
+       object_storage_bytes = EXCLUDED.object_storage_bytes,
+       actions_log_bytes = EXCLUDED.actions_log_bytes,
+       actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
+       actions_minutes_used = EXCLUDED.actions_minutes_used,
+       actions_period_start = EXCLUDED.actions_period_start,
+       actions_period_end = EXCLUDED.actions_period_end,
+       calculated_at = EXCLUDED.calculated_at,
+       updated_at = now()
+RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at
+`
+
+type UpsertOrgUsageCountersParams struct {
+	OrgID                int64
+	RepoStorageBytes     int64
+	ObjectStorageBytes   int64
+	ActionsLogBytes      int64
+	ActionsArtifactBytes int64
+	ActionsMinutesUsed   int64
+	ActionsPeriodStart   pgtype.Timestamptz
+	ActionsPeriodEnd     pgtype.Timestamptz
+	CalculatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertOrgUsageCounters(ctx context.Context, db DBTX, arg UpsertOrgUsageCountersParams) (OrgUsageCounter, error) {
+	row := db.QueryRow(ctx, upsertOrgUsageCounters,
+		arg.OrgID,
+		arg.RepoStorageBytes,
+		arg.ObjectStorageBytes,
+		arg.ActionsLogBytes,
+		arg.ActionsArtifactBytes,
+		arg.ActionsMinutesUsed,
+		arg.ActionsPeriodStart,
+		arg.ActionsPeriodEnd,
+		arg.CalculatedAt,
+	)
+	var i OrgUsageCounter
+	err := row.Scan(
+		&i.OrgID,
+		&i.RepoStorageBytes,
+		&i.ObjectStorageBytes,
+		&i.ActionsLogBytes,
+		&i.ActionsArtifactBytes,
+		&i.ActionsMinutesUsed,
+		&i.ActionsPeriodStart,
+		&i.ActionsPeriodEnd,
+		&i.CalculatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

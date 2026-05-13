@@ -150,12 +150,12 @@ Already present and safe to gate:
 - PR review and reviewer-request substrate.
 - Org/repo Actions secrets and variables schema.
 
-Present but missing enforcement or metering:
+Present but still moving toward full enforcement:
 
-- Storage quota type exists, but quota persistence and enforcement are
-  incomplete.
-- Actions minutes, artifacts, and object usage need accounting before
-  paid limits can be promised.
+- SP08 adds durable organization usage counters, usage snapshots, and
+  site-admin quota overrides for storage and Actions minutes.
+- Push/upload/run write paths still need hard-deny checks before quota
+  rows should be advertised on public pricing pages.
 - Packages storage cannot be sold until the Packages sprint is active
   and quota enforcement exists.
 
@@ -299,6 +299,29 @@ PAYMENTS SP06a adds the first private-collaboration limit:
   direct collaborators, team repo grants, and gated configuration must
   not require Team.
 
+PAYMENTS SP08 starts hosted-cost metering:
+
+- Free organizations have a 500 MiB storage quota and 2,000 Actions
+  minutes per calendar month.
+- Team organizations in good standing have a 2 GiB storage quota and
+  3,000 Actions minutes per calendar month.
+- Storage usage is tracked as bare repository bytes plus tracked object
+  bytes. The first recalculation source uses `repos.disk_used_bytes`,
+  finalized Actions step log bytes, and Actions artifact byte counts;
+  other object surfaces must be added as their storage metadata becomes
+  durable.
+- Actions minutes are counted from completed or canceled workflow job
+  runtime, rounded up to the next whole minute, within the current
+  monthly usage period.
+- `org_usage_counters` stores the current projection,
+  `org_usage_snapshots` records audit snapshots, and
+  `org_quota_overrides` lets site admins temporarily override a quota
+  for support cases.
+- Quota enforcement must read local counters and may force a source
+  recalculation before rejecting large writes; counters are repairable
+  and should not be treated as an eventually-consistent sole authority
+  for hard-deny decisions.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -358,8 +381,9 @@ organization upgrades again.
 
 ## Open questions for implementation
 
-- Exact Free and Team quota numbers for Actions and storage. These must
-  come from real host-cost estimates before SP08.
+- Whether the v1 storage quota should eventually split repository bytes
+  from Actions/artifact bytes in the UI. The first SP08 implementation
+  tracks both separately but enforces a combined storage quota.
 
 ## Source references
 

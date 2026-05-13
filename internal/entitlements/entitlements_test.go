@@ -178,8 +178,39 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Limit storage: %v", err)
 	}
-	if !storage.Allowed || storage.Defined || storage.Unit != "bytes" {
-		t.Fatalf("storage limit = %+v, want allowed but deferred concrete quota", storage)
+	if !storage.Allowed || !storage.Defined || storage.Value != entitlements.TeamOrgStorageQuotaBytes || storage.Unit != "bytes" {
+		t.Fatalf("storage limit = %+v, want Team concrete quota", storage)
+	}
+	minutes, err := set.Limit(entitlements.LimitOrgActionsMinutesQuota)
+	if err != nil {
+		t.Fatalf("Limit actions minutes: %v", err)
+	}
+	if !minutes.Allowed || !minutes.Defined || minutes.Value != entitlements.TeamOrgActionsMinutesQuota || minutes.Unit != "minutes" {
+		t.Fatalf("actions minutes limit = %+v, want Team concrete quota", minutes)
+	}
+}
+
+func TestUsageLimitsExposeFreeQuotas(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool, orgID := setupEntitlementOrg(t)
+	set, err := entitlements.ForOrg(ctx, entitlements.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("ForOrg: %v", err)
+	}
+	storage, err := set.Limit(entitlements.LimitOrgStorageQuota)
+	if err != nil {
+		t.Fatalf("Limit storage: %v", err)
+	}
+	if !storage.Allowed || !storage.Defined || storage.Value != entitlements.FreeOrgStorageQuotaBytes || storage.RequiredPlan != billing.PlanTeam {
+		t.Fatalf("free storage limit = %+v", storage)
+	}
+	minutes, err := set.Limit(entitlements.LimitOrgActionsMinutesQuota)
+	if err != nil {
+		t.Fatalf("Limit actions minutes: %v", err)
+	}
+	if !minutes.Allowed || !minutes.Defined || minutes.Value != entitlements.FreeOrgActionsMinutesQuota || minutes.RequiredPlan != billing.PlanTeam {
+		t.Fatalf("free actions minutes limit = %+v", minutes)
 	}
 }
 

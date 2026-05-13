@@ -765,3 +765,194 @@ WITH state AS (
     RETURNING users.id
 )
 SELECT * FROM state;
+
+-- ─── org_usage_counters ────────────────────────────────────────────
+
+-- name: GetOrgUsageCounters :one
+SELECT * FROM org_usage_counters WHERE org_id = $1;
+
+-- name: UpsertOrgUsageCounters :one
+INSERT INTO org_usage_counters (
+    org_id,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end,
+    calculated_at
+)
+VALUES (
+    sqlc.arg(org_id)::bigint,
+    sqlc.arg(repo_storage_bytes)::bigint,
+    sqlc.arg(object_storage_bytes)::bigint,
+    sqlc.arg(actions_log_bytes)::bigint,
+    sqlc.arg(actions_artifact_bytes)::bigint,
+    sqlc.arg(actions_minutes_used)::bigint,
+    sqlc.arg(actions_period_start)::timestamptz,
+    sqlc.arg(actions_period_end)::timestamptz,
+    COALESCE(sqlc.narg(calculated_at)::timestamptz, now())
+)
+ON CONFLICT (org_id) DO UPDATE
+   SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
+       object_storage_bytes = EXCLUDED.object_storage_bytes,
+       actions_log_bytes = EXCLUDED.actions_log_bytes,
+       actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
+       actions_minutes_used = EXCLUDED.actions_minutes_used,
+       actions_period_start = EXCLUDED.actions_period_start,
+       actions_period_end = EXCLUDED.actions_period_end,
+       calculated_at = EXCLUDED.calculated_at,
+       updated_at = now()
+RETURNING *;
+
+-- name: RecalculateOrgUsageCounters :one
+WITH repo_usage AS (
+    SELECT COALESCE(sum(disk_used_bytes), 0)::bigint AS repo_storage_bytes
+    FROM repos
+    WHERE owner_org_id = sqlc.arg(org_id)::bigint
+      AND deleted_at IS NULL
+),
+action_usage AS (
+    SELECT
+        COALESCE(sum(s.log_byte_count), 0)::bigint AS actions_log_bytes
+    FROM workflow_runs r
+    JOIN repos repo ON repo.id = r.repo_id
+    JOIN workflow_jobs j ON j.run_id = r.id
+    JOIN workflow_steps s ON s.job_id = j.id
+    WHERE repo.owner_org_id = sqlc.arg(org_id)::bigint
+),
+actions_minutes AS (
+    SELECT COALESCE(sum(
+        CASE
+            WHEN j.status IN ('completed', 'cancelled')
+             AND j.started_at IS NOT NULL
+             AND j.completed_at IS NOT NULL
+             AND j.completed_at >= sqlc.arg(actions_period_start)::timestamptz
+             AND j.completed_at < sqlc.arg(actions_period_end)::timestamptz
+            THEN CEIL(EXTRACT(EPOCH FROM (j.completed_at - j.started_at)) / 60.0)::bigint
+            ELSE 0
+        END
+    ), 0)::bigint AS actions_minutes_used
+    FROM workflow_jobs j
+    JOIN workflow_runs r ON r.id = j.run_id
+    JOIN repos repo ON repo.id = r.repo_id
+    WHERE repo.owner_org_id = sqlc.arg(org_id)::bigint
+),
+artifact_usage AS (
+    SELECT COALESCE(sum(a.byte_count), 0)::bigint AS actions_artifact_bytes
+    FROM workflow_artifacts a
+    JOIN workflow_runs r ON r.id = a.run_id
+    JOIN repos repo ON repo.id = r.repo_id
+    WHERE repo.owner_org_id = sqlc.arg(org_id)::bigint
+),
+upserted AS (
+    INSERT INTO org_usage_counters (
+        org_id,
+        repo_storage_bytes,
+        object_storage_bytes,
+        actions_log_bytes,
+        actions_artifact_bytes,
+        actions_minutes_used,
+        actions_period_start,
+        actions_period_end,
+        calculated_at
+    )
+    SELECT
+        sqlc.arg(org_id)::bigint,
+        repo_usage.repo_storage_bytes,
+        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes,
+        action_usage.actions_log_bytes,
+        artifact_usage.actions_artifact_bytes,
+        actions_minutes.actions_minutes_used,
+        sqlc.arg(actions_period_start)::timestamptz,
+        sqlc.arg(actions_period_end)::timestamptz,
+        now()
+    FROM repo_usage, action_usage, actions_minutes, artifact_usage
+    ON CONFLICT (org_id) DO UPDATE
+       SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
+           object_storage_bytes = EXCLUDED.object_storage_bytes,
+           actions_log_bytes = EXCLUDED.actions_log_bytes,
+           actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
+           actions_minutes_used = EXCLUDED.actions_minutes_used,
+           actions_period_start = EXCLUDED.actions_period_start,
+           actions_period_end = EXCLUDED.actions_period_end,
+           calculated_at = EXCLUDED.calculated_at,
+           updated_at = now()
+    RETURNING *
+)
+SELECT * FROM upserted;
+
+-- name: CreateOrgUsageSnapshot :one
+INSERT INTO org_usage_snapshots (
+    org_id,
+    source,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end
+)
+SELECT
+    org_id,
+    sqlc.arg(source)::text,
+    repo_storage_bytes,
+    object_storage_bytes,
+    actions_log_bytes,
+    actions_artifact_bytes,
+    actions_minutes_used,
+    actions_period_start,
+    actions_period_end
+FROM org_usage_counters
+WHERE org_id = sqlc.arg(org_id)::bigint
+RETURNING *;
+
+-- name: ListOrgUsageSnapshots :many
+SELECT * FROM org_usage_snapshots
+WHERE org_id = $1
+ORDER BY captured_at DESC, id DESC
+LIMIT $2;
+
+-- ─── org_quota_overrides ───────────────────────────────────────────
+
+-- name: ListOrgQuotaOverrides :many
+SELECT * FROM org_quota_overrides
+WHERE org_id = $1
+ORDER BY kind ASC;
+
+-- name: GetOrgQuotaOverride :one
+SELECT * FROM org_quota_overrides
+WHERE org_id = $1
+  AND kind = $2;
+
+-- name: UpsertOrgQuotaOverride :one
+INSERT INTO org_quota_overrides (
+    org_id,
+    kind,
+    limit_value,
+    unlimited,
+    note,
+    created_by_user_id
+)
+VALUES (
+    sqlc.arg(org_id)::bigint,
+    sqlc.arg(kind)::org_quota_kind,
+    sqlc.narg(limit_value)::bigint,
+    sqlc.arg(unlimited)::boolean,
+    sqlc.arg(note)::text,
+    sqlc.narg(created_by_user_id)::bigint
+)
+ON CONFLICT (org_id, kind) DO UPDATE
+   SET limit_value = EXCLUDED.limit_value,
+       unlimited = EXCLUDED.unlimited,
+       note = EXCLUDED.note,
+       created_by_user_id = EXCLUDED.created_by_user_id,
+       updated_at = now()
+RETURNING *;
+
+-- name: DeleteOrgQuotaOverride :execrows
+DELETE FROM org_quota_overrides
+WHERE org_id = $1
+  AND kind = $2;

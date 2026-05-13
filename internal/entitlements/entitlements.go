@@ -64,6 +64,10 @@ type Limit string
 
 const (
 	FreePrivateCollaborationLimit int64 = 3
+	FreeOrgStorageQuotaBytes      int64 = 500 * 1024 * 1024
+	TeamOrgStorageQuotaBytes      int64 = 2 * 1024 * 1024 * 1024
+	FreeOrgActionsMinutesQuota    int64 = 2000
+	TeamOrgActionsMinutesQuota    int64 = 3000
 
 	// FreeProfilePinsCap mirrors gh's visible profile pin cap. Ratified
 	// PRO01. Applies to Free users AND to all orgs — PRO07 leaves the
@@ -291,6 +295,9 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 			Reason: ReasonUnknownFeature,
 		}, ErrUnknownLimit
 	}
+	if s.Principal.IsOrg() && (name == LimitOrgStorageQuota || name == LimitOrgActionsMinutesQuota) {
+		return s.usageLimit(name, feature, unit), nil
+	}
 	decision := s.CanUse(feature)
 	value := LimitValue{
 		Name:         name,
@@ -326,11 +333,41 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 			value.Value = FreePrivateCollaborationLimit
 		}
 	case LimitOrgStorageQuota, LimitOrgActionsMinutesQuota:
-		// SP08 owns usage accounting and concrete quota numbers. Until
-		// then, expose entitlement state without pretending metering is enforced.
-		value.Defined = false
+		value = s.usageLimit(name, feature, unit)
 	}
 	return value, nil
+}
+
+func (s Set) usageLimit(name Limit, feature Feature, unit string) LimitValue {
+	value := LimitValue{
+		Name:         name,
+		Feature:      feature,
+		Allowed:      true,
+		Defined:      true,
+		Unit:         unit,
+		RequiredPlan: billing.PlanTeam,
+		Reason:       ReasonNone,
+	}
+	if s.State.Plan == billing.PlanEnterprise {
+		value.Allowed = false
+		value.Defined = false
+		value.Reason = ReasonEnterpriseContactSales
+		return value
+	}
+	teamActive := activeTeamBilling(s.now, s.State)
+	switch name {
+	case LimitOrgStorageQuota:
+		value.Value = FreeOrgStorageQuotaBytes
+		if teamActive {
+			value.Value = TeamOrgStorageQuotaBytes
+		}
+	case LimitOrgActionsMinutesQuota:
+		value.Value = FreeOrgActionsMinutesQuota
+		if teamActive {
+			value.Value = TeamOrgActionsMinutesQuota
+		}
+	}
+	return value
 }
 
 // KnownFeature reports whether `feature` is in the registry. Used
@@ -510,25 +547,29 @@ func decideOrgFeature(now time.Time, state billing.State, feature Feature) Decis
 		decision.Reason = ReasonEnterpriseContactSales
 		return decision
 	case billing.PlanTeam:
-		switch state.SubscriptionStatus {
-		case billing.SubscriptionStatusActive,
-			billing.SubscriptionStatusTrialing:
+		if activeTeamBilling(now, state) {
 			decision.Allowed = true
 			decision.Reason = ReasonNone
 			return decision
-		case billing.SubscriptionStatusPastDue:
-			if state.GraceUntil.Valid && !now.After(state.GraceUntil.Time) {
-				decision.Allowed = true
-				decision.Reason = ReasonNone
-				return decision
-			}
-			decision.Reason = ReasonBillingActionNeeded
-			return decision
-		default:
-			decision.Reason = ReasonBillingActionNeeded
-			return decision
 		}
+		decision.Reason = ReasonBillingActionNeeded
+		return decision
 	default:
 		return decision
+	}
+}
+
+func activeTeamBilling(now time.Time, state billing.State) bool {
+	if state.Plan != billing.PlanTeam {
+		return false
+	}
+	switch state.SubscriptionStatus {
+	case billing.SubscriptionStatusActive,
+		billing.SubscriptionStatusTrialing:
+		return true
+	case billing.SubscriptionStatusPastDue:
+		return state.GraceUntil.Valid && !now.After(state.GraceUntil.Time)
+	default:
+		return false
 	}
 }
