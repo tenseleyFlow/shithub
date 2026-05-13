@@ -68,6 +68,19 @@ type Deps struct {
 	StripeSuccessURL      string
 	StripeCancelURL       string
 	StripePortalReturnURL string
+	// PRO04: price IDs surface to the webhook handler for cross-kind
+	// misroute guarding. Wiring populates these from the same config
+	// that constructs the Stripe client; either may be empty when the
+	// operator has enabled only one tier.
+	StripeTeamPriceID string
+	StripeProPriceID  string
+}
+
+// BillingPriceIDs returns the configured (team, pro) Stripe price
+// IDs. The webhook handler uses these to refuse cross-kind
+// misroutes (Pro price on an org subject or Team on a user).
+func (d Deps) BillingPriceIDs() (team, pro string) {
+	return d.StripeTeamPriceID, d.StripeProPriceID
 }
 
 // Handlers groups the org surface handlers.
