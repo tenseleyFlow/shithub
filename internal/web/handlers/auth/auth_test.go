@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
@@ -76,6 +77,10 @@ func newTestServer(t *testing.T, requireVerify bool) (*httptest.Server, *capture
 type authTestOptions struct {
 	RequireVerify     bool
 	OrgBillingEnabled bool
+	// BillingEnabled toggles the user-tier billing routes (PRO06).
+	// When true, Stripe (if non-nil) provides the Remote backend.
+	BillingEnabled bool
+	Stripe         stripebilling.Remote
 }
 
 // newTestServerWithPool is identical to newTestServer but also exposes
@@ -136,6 +141,13 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 		SecretBox:                box,
 		ObjectStore:              storage.NewMemoryStore(),
 		OrgBillingEnabled:        opts.OrgBillingEnabled,
+		BillingEnabled:           opts.BillingEnabled,
+		BillingGracePeriod:       14 * 24 * time.Hour,
+		Stripe:                   opts.Stripe,
+		StripeSuccessURL:         "http://test.invalid/settings/billing/success",
+		StripeCancelURL:          "http://test.invalid/settings/billing/cancel",
+		StripePortalReturnURL:    "http://test.invalid/settings/billing",
+		BaseURL:                  "http://test.invalid",
 	})
 	if err != nil {
 		t.Fatalf("authh.New: %v", err)
@@ -214,35 +226,39 @@ func authTemplatesFS() fs.FS {
 	organizationsTpl := `{{ define "page" }}<h1>Organizations</h1>USER={{.Username}};ORGS={{ range .Organizations }}{{.Slug}}:{{.RoleLabel}}:manage={{.CanManage}}:compare={{.CompareHref}};{{ end }}{{ end }}`
 	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
 	dangerTpl := `{{ define "page" }}<h1>Delete</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<form action="/settings/danger" method=POST><input name=csrf_token value="{{.CSRFToken}}">USER={{.Username}};GRACE={{.GraceWindowDays}};</form>{{ end }}`
+	billingTpl := `{{ define "page" }}<h1>Billing</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Notice }}<p class=notice>{{.}}</p>{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{.Message}}{{ end }}{{ end }}<form action="/settings/billing/checkout" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHECKOUT={{ .CanStartCheckout }};MANAGE={{ .CanManageSubscription }};</form><form action="/settings/billing/portal" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>{{ range .Summary }}SUMMARY={{.Label}}|{{.Value}};{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }};{{ end }}{{ range .Invoices }}INVOICE={{.Number}};{{ end }}{{ end }}`
+	billingResultTpl := `{{ define "page" }}RESULT={{.Result}};HEADING={{.Heading}};USER={{.Username}};BILLING={{.BillingPath}};<input name=csrf_token value="{{.CSRFToken}}">{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
-		"_layout.html":                {Data: []byte(layout)},
-		"hello.html":                  {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"auth/signup.html":            {Data: []byte(signup)},
-		"auth/login.html":             {Data: []byte(login)},
-		"auth/reset_request.html":     {Data: []byte(resetReq)},
-		"auth/reset_confirm.html":     {Data: []byte(resetConf)},
-		"auth/verify_resend.html":     {Data: []byte(verifyResend)},
-		"auth/2fa_challenge.html":     {Data: []byte(tfaChallenge)},
-		"settings/2fa_enable.html":    {Data: []byte(tfaEnable)},
-		"settings/2fa_disable.html":   {Data: []byte(tfaDisable)},
-		"settings/2fa_recovery.html":  {Data: []byte(tfaRecovery)},
-		"settings/keys.html":          {Data: []byte(keysTpl)},
-		"settings/keys_gpg_add.html":  {Data: []byte(gpgAddTpl)},
-		"settings/tokens.html":        {Data: []byte(tokensTpl)},
-		"settings/profile.html":       {Data: []byte(profileTpl)},
-		"settings/account.html":       {Data: []byte(accountTpl)},
-		"settings/password.html":      {Data: []byte(pwTpl)},
-		"settings/appearance.html":    {Data: []byte(apprTpl)},
-		"settings/emails.html":        {Data: []byte(emailsTpl)},
-		"settings/notifications.html": {Data: []byte(notifTpl)},
-		"settings/organizations.html": {Data: []byte(organizationsTpl)},
-		"settings/sessions.html":      {Data: []byte(sessTpl)},
-		"settings/danger.html":        {Data: []byte(dangerTpl)},
-		"errors/404.html":             {Data: []byte(errorPage)},
-		"errors/403.html":             {Data: []byte(errorPage)},
-		"errors/429.html":             {Data: []byte(errorPage)},
-		"errors/500.html":             {Data: []byte(errorPage)},
+		"_layout.html":                 {Data: []byte(layout)},
+		"hello.html":                   {Data: []byte(`{{ define "page" }}home{{ end }}`)},
+		"auth/signup.html":             {Data: []byte(signup)},
+		"auth/login.html":              {Data: []byte(login)},
+		"auth/reset_request.html":      {Data: []byte(resetReq)},
+		"auth/reset_confirm.html":      {Data: []byte(resetConf)},
+		"auth/verify_resend.html":      {Data: []byte(verifyResend)},
+		"auth/2fa_challenge.html":      {Data: []byte(tfaChallenge)},
+		"settings/2fa_enable.html":     {Data: []byte(tfaEnable)},
+		"settings/2fa_disable.html":    {Data: []byte(tfaDisable)},
+		"settings/2fa_recovery.html":   {Data: []byte(tfaRecovery)},
+		"settings/keys.html":           {Data: []byte(keysTpl)},
+		"settings/keys_gpg_add.html":   {Data: []byte(gpgAddTpl)},
+		"settings/tokens.html":         {Data: []byte(tokensTpl)},
+		"settings/profile.html":        {Data: []byte(profileTpl)},
+		"settings/account.html":        {Data: []byte(accountTpl)},
+		"settings/password.html":       {Data: []byte(pwTpl)},
+		"settings/appearance.html":     {Data: []byte(apprTpl)},
+		"settings/emails.html":         {Data: []byte(emailsTpl)},
+		"settings/notifications.html":  {Data: []byte(notifTpl)},
+		"settings/organizations.html":  {Data: []byte(organizationsTpl)},
+		"settings/sessions.html":       {Data: []byte(sessTpl)},
+		"settings/danger.html":         {Data: []byte(dangerTpl)},
+		"settings/billing.html":        {Data: []byte(billingTpl)},
+		"settings/billing_result.html": {Data: []byte(billingResultTpl)},
+		"errors/404.html":              {Data: []byte(errorPage)},
+		"errors/403.html":              {Data: []byte(errorPage)},
+		"errors/429.html":              {Data: []byte(errorPage)},
+		"errors/500.html":              {Data: []byte(errorPage)},
 	}
 }
 
