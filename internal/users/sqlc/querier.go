@@ -85,7 +85,10 @@ type Querier interface {
 	GetUserEmailByVerificationHash(ctx context.Context, db DBTX, verificationTokenHash []byte) (UserEmail, error)
 	// Scoped single-key lookup for REST GET-by-id. user_id filter prevents
 	// cross-user reads (existence-leak-safe: returns no row if the id
-	// belongs to another user).
+	// belongs to another user). Excludes soft-deleted rows so the public
+	// surface mirrors a hard delete from the consumer's perspective;
+	// verification (which needs historical attribution) uses
+	// GetUserGPGKeyForVerification which has no revoked filter.
 	GetUserGPGKey(ctx context.Context, db DBTX, arg GetUserGPGKeyParams) (UserGpgKey, error)
 	// Uniqueness probe used by the add path to surface a friendly
 	// "this key is already registered" error before the unique index
