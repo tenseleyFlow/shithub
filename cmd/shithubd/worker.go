@@ -257,6 +257,11 @@ func pickNotifEmailSender(cfg config.Config) (email.Sender, error) {
 			ServerToken: cfg.Auth.Postmark.ServerToken,
 			From:        cfg.Auth.EmailFrom,
 		}, nil
+	case "resend":
+		return &email.ResendSender{
+			APIKey: cfg.Auth.Resend.APIKey,
+			From:   cfg.Auth.EmailFrom,
+		}, nil
 	default:
 		return nil, errors.New("worker: unknown email_backend")
 	}

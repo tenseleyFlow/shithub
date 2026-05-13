@@ -181,9 +181,10 @@ type AuthConfig struct {
 	BaseURL                  string         `toml:"base_url"` // e.g. https://shithub.example
 	SiteName                 string         `toml:"site_name"`
 	EmailFrom                string         `toml:"email_from"`
-	EmailBackend             string         `toml:"email_backend"` // stdout | smtp | postmark
+	EmailBackend             string         `toml:"email_backend"` // stdout | smtp | postmark | resend
 	SMTP                     SMTPConfig     `toml:"smtp"`
 	Postmark                 PostmarkConfig `toml:"postmark"`
+	Resend                   ResendConfig   `toml:"resend"`
 	Argon2                   Argon2Config   `toml:"argon2"`
 	TOTPKeyB64               string         `toml:"totp_key_b64"` // base64 32-byte AEAD key for at-rest TOTP secrets
 	SSH                      SSHAuthConfig  `toml:"ssh"`
@@ -205,6 +206,11 @@ type SMTPConfig struct {
 	Addr     string `toml:"addr"` // host:port
 	Username string `toml:"username"`
 	Password string `toml:"password"`
+}
+
+// ResendConfig holds Resend transactional API settings.
+type ResendConfig struct {
+	APIKey string `toml:"api_key"`
 }
 
 // PostmarkConfig holds Postmark transactional API settings.
@@ -376,15 +382,18 @@ func Validate(c *Config) error {
 		return err
 	}
 	switch c.Auth.EmailBackend {
-	case "stdout", "smtp", "postmark":
+	case "stdout", "smtp", "postmark", "resend":
 	default:
-		return fmt.Errorf("config: auth.email_backend: must be stdout|smtp|postmark, got %q", c.Auth.EmailBackend)
+		return fmt.Errorf("config: auth.email_backend: must be stdout|smtp|postmark|resend, got %q", c.Auth.EmailBackend)
 	}
 	if c.Auth.EmailBackend == "smtp" && c.Auth.SMTP.Addr == "" {
 		return errors.New("config: auth.smtp.addr is required when email_backend=smtp")
 	}
 	if c.Auth.EmailBackend == "postmark" && c.Auth.Postmark.ServerToken == "" {
 		return errors.New("config: auth.postmark.server_token is required when email_backend=postmark")
+	}
+	if c.Auth.EmailBackend == "resend" && c.Auth.Resend.APIKey == "" {
+		return errors.New("config: auth.resend.api_key is required when email_backend=resend")
 	}
 	if c.Auth.BaseURL == "" {
 		return errors.New("config: auth.base_url is required (used in email links)")

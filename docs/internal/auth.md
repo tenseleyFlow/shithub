@@ -8,7 +8,7 @@ S05 brings the first real domain surface to shithub: email/password signup, emai
 - argon2id password hashing with PHC string encoding.
 - Strict username whitelist + reserved-name list.
 - Common-password rejection from an embedded SecLists 10k corpus.
-- Email Sender abstraction with stdout (dev), SMTP (MailHog/local), and Postmark (prod) backends.
+- Email Sender abstraction with stdout (dev), SMTP (MailHog/local), Postmark, and Resend backends.
 - Counter-based rate-limiting backed by Postgres (no Redis dep).
 - Auth handlers: signup, login, logout, password reset (request + confirm), email verification, verification resend.
 - Constant-time login: missing usernames still trigger an argon2 hash against a pre-computed dummy.
@@ -78,17 +78,18 @@ To refresh: replace `internal/passwords/common_passwords.txt` with a newer SecLi
 
 ## Email service
 
-`internal/auth/email` defines the `Sender` interface. Three implementations:
+`internal/auth/email` defines the `Sender` interface. Four implementations:
 
 - `StdoutSender` — writes a human-readable dump to a writer. Default in dev when no SMTP is configured. Convenient for tests.
 - `SMTPSender` — plain SMTP for MailHog locally. Authenticated and TLS-upgrade variants supported.
-- `PostmarkSender` — Postmark transactional API. Production default.
+- `PostmarkSender` — Postmark transactional API.
+- `ResendSender` — Resend transactional API (https://resend.com). Comparable feature set to Postmark; preferred where onboarding speed matters (no human approval queue).
 
 `messages.go` hosts the `VerifyMessage` and `ResetMessage` builders. Both produce HTML + plaintext bodies — every transactional email shithub sends works in plain-text-only clients. Templates are inlined (short, rarely change); when they grow, promote to `templates/email/*.{html,txt}`.
 
 ### Wiring
 
-`auth.email_backend` chooses the implementation: `stdout | smtp | postmark`. The `smtp` backend additionally requires `auth.smtp.addr`; `postmark` requires `auth.postmark.server_token`. Validation enforces these.
+`auth.email_backend` chooses the implementation: `stdout | smtp | postmark | resend`. The `smtp` backend additionally requires `auth.smtp.addr`; `postmark` requires `auth.postmark.server_token`; `resend` requires `auth.resend.api_key`. Validation enforces these.
 
 ```sh
 # Dev: capture mail in MailHog
@@ -179,11 +180,12 @@ All auth settings flow through `internal/infra/config` (see `docs/internal/confi
 | `auth.base_url` | string | `http://127.0.0.1:8080` | Used for absolute links in emails. |
 | `auth.site_name` | string | `shithub` | Branding token for email subjects/bodies. |
 | `auth.email_from` | string | `shithub <noreply@shithub.local>` | Envelope From for outgoing email. |
-| `auth.email_backend` | string | `stdout` | `stdout | smtp | postmark`. |
+| `auth.email_backend` | string | `stdout` | `stdout | smtp | postmark | resend`. |
 | `auth.smtp.addr` | string | `127.0.0.1:1025` | Required when `email_backend=smtp`. |
 | `auth.smtp.username` | string | `""` | Optional. |
 | `auth.smtp.password` | string | `""` | Optional. Redacted by `config print`. |
 | `auth.postmark.server_token` | string | `""` | Required when `email_backend=postmark`. Redacted. |
+| `auth.resend.api_key` | string | `""` | Required when `email_backend=resend`. Redacted. |
 | `auth.argon2.memory_kib` | uint32 | `65536` | argon2id memory cost (KiB). |
 | `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
 | `auth.argon2.threads` | uint8 | `2` | argon2id lanes. |
