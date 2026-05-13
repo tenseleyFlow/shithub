@@ -185,6 +185,133 @@ func TestBillingWebhookGuardRefusesTeamPriceOnUserSubject(t *testing.T) {
 	}
 }
 
+// TestBillingWebhookGuardRefusesSecondSubscriptionForSameCustomer locks
+// PRO08 D3: when the principal already has a Stripe subscription on
+// file, a webhook event referencing a DIFFERENT subscription must be
+// refused. Pre-PRO08 it silently overwrote, orphaning the first sub.
+func TestBillingWebhookGuardRefusesSecondSubscriptionForSameCustomer(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+
+	// Seed the org with an existing subscription via direct apply.
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                orgID,
+		Plan:                 orgbilling.PlanTeam,
+		Status:               orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID: "sub_FIRST",
+		LastWebhookEventID:   "evt_seed",
+	}); err != nil {
+		t.Fatalf("seed first sub: %v", err)
+	}
+
+	// Webhook now arrives for a SECOND subscription on the same org.
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_SECOND",
+		"customer": "cus_overlap",
+		"status":   "active",
+		"metadata": map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_second",
+			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
+			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
+			"price":                map[string]string{"id": testTeamPriceID},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:   "evt_second_sub",
+				Type: stripeapi.EventType("customer.subscription.updated"),
+				Data: &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMuxWithPrices(t, pool, ownerID, fake, testTeamPriceID, testProPriceID)
+	resp := postBillingWebhook(t, mux, "evt_second_sub")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (refuse + Stripe retry), got %d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.StripeSubscriptionID.String != "sub_FIRST" {
+		t.Fatalf("original sub overwritten: got %q want sub_FIRST", state.StripeSubscriptionID.String)
+	}
+	receipt, err := billingdb.New().GetWebhookEventReceipt(ctx, pool, "evt_second_sub")
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if !strings.Contains(receipt.ProcessError, "already bound to subscription") {
+		t.Errorf("expected overwrite-refusal error, got %q", receipt.ProcessError)
+	}
+}
+
+// TestBillingWebhookGuardAllowsSameSubscriptionUpdate confirms the
+// guard doesn't false-positive on the common case: subscription.updated
+// for the SAME subscription id (e.g., status flip from active →
+// past_due).
+func TestBillingWebhookGuardAllowsSameSubscriptionUpdate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                orgID,
+		Plan:                 orgbilling.PlanTeam,
+		Status:               orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID: "sub_same",
+		LastWebhookEventID:   "evt_seed_same",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_same",
+		"customer": "cus_same",
+		"status":   "past_due",
+		"metadata": map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_same",
+			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
+			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
+			"price":                map[string]string{"id": testTeamPriceID},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:   "evt_same_sub",
+				Type: stripeapi.EventType("customer.subscription.updated"),
+				Data: &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMuxWithPrices(t, pool, ownerID, fake, testTeamPriceID, testProPriceID)
+	resp := postBillingWebhook(t, mux, "evt_same_sub")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("same-sub status flip should succeed, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if state.SubscriptionStatus != orgbilling.SubscriptionStatusPastDue {
+		t.Fatalf("expected past_due, got %s", state.SubscriptionStatus)
+	}
+}
+
 // TestBillingWebhookGuardAllowsCorrectKindPriceMatch is the happy-path
 // sanity check: the right price for the right kind passes the guard.
 func TestBillingWebhookGuardAllowsCorrectKindPriceMatch(t *testing.T) {
