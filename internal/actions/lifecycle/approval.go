@@ -49,31 +49,7 @@ func ApproveRun(ctx context.Context, deps Deps, runID, actorUserID int64) (Appro
 }
 
 func workflowRunFromApprovalRow(row actionsdb.ApproveWorkflowRunRow) actionsdb.WorkflowRun {
-	return actionsdb.WorkflowRun{
-		ID:               row.ID,
-		RepoID:           row.RepoID,
-		RunIndex:         row.RunIndex,
-		WorkflowFile:     row.WorkflowFile,
-		WorkflowName:     row.WorkflowName,
-		HeadSha:          row.HeadSha,
-		HeadRef:          row.HeadRef,
-		Event:            row.Event,
-		EventPayload:     row.EventPayload,
-		ActorUserID:      row.ActorUserID,
-		ParentRunID:      row.ParentRunID,
-		ConcurrencyGroup: row.ConcurrencyGroup,
-		Status:           row.Status,
-		Conclusion:       row.Conclusion,
-		Pinned:           row.Pinned,
-		NeedApproval:     row.NeedApproval,
-		ApprovedByUserID: row.ApprovedByUserID,
-		StartedAt:        row.StartedAt,
-		CompletedAt:      row.CompletedAt,
-		Version:          row.Version,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
-		TriggerEventID:   row.TriggerEventID,
-	}
+	return actionsdb.WorkflowRun(row)
 }
 
 // RejectRun turns a pending-approval run into a completed/action_required run

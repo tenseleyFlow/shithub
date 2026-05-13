@@ -162,12 +162,12 @@ func repoActionsPolicyFormFromRequest(r *http.Request) (repoActionsPolicyForm, e
 	switch form.ActionsEnabled {
 	case "inherit", "enabled", "disabled":
 	default:
-		return repoActionsPolicyForm{}, errors.New("Invalid Actions enablement setting.")
+		return repoActionsPolicyForm{}, errors.New("invalid Actions enablement setting")
 	}
 	switch form.RequirePRApproval {
 	case "inherit", "true", "false":
 	default:
-		return repoActionsPolicyForm{}, errors.New("Invalid pull request approval setting.")
+		return repoActionsPolicyForm{}, errors.New("invalid pull request approval setting")
 	}
 	for label, value := range map[string]string{
 		"queued run cap":           form.MaxRepoQueuedRuns,
@@ -176,7 +176,7 @@ func repoActionsPolicyFormFromRequest(r *http.Request) (repoActionsPolicyForm, e
 		"actor hourly trigger cap": form.ActorTriggerLimitPerHour,
 	} {
 		if err := validateOptionalNonnegativeInt(value); err != nil {
-			return repoActionsPolicyForm{}, fmt.Errorf("Invalid %s.", label)
+			return repoActionsPolicyForm{}, fmt.Errorf("invalid %s", label)
 		}
 	}
 	return form, nil
