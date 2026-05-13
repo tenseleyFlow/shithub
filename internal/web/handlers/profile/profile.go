@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/avatars"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -50,6 +51,12 @@ type Deps struct {
 	ObjectStore storage.ObjectStore
 	Limiter     *throttle.Limiter
 	Audit       *audit.Recorder
+	// BillingEnforce carries PRO07's per-feature enforcement flags.
+	// Zero value (all false) keeps profile-pin gating in report-only mode:
+	// Free users over the cap continue to hit a generic 400, the would-deny
+	// is logged for the soak. When UserProfilePinsBeyondFree flips true
+	// the same overflow returns 402 with an upgrade banner.
+	BillingEnforce config.EnforceConfig
 }
 
 // Handlers is the registered profile handler set.
