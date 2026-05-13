@@ -1,0 +1,183 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Billing and plans</h1>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ with .BillingAlert }}{{ if .Message }}
+    <p class="shithub-flash {{ .Class }}" role="status">
+      {{ .Message }}
+      {{ if .ActionHref }}<a href="{{ .ActionHref }}">{{ .ActionText }}</a>{{ end }}
+    </p>
+    {{ end }}{{ end }}
+
+    <section class="shithub-settings-section" aria-labelledby="user-billing-summary-heading">
+      <h2 id="user-billing-summary-heading" class="sr-only">Billing summary</h2>
+      <div class="shithub-org-billing-summary">
+        {{ range .Summary }}
+        <section class="Box shithub-org-billing-card">
+          <div class="Box-header">
+            <h3 class="Box-title">{{ .Label }}</h3>
+          </div>
+          <div class="Box-body">
+            <p class="shithub-org-billing-card-value">{{ .Value }}</p>
+            {{ with .Detail }}<p class="shithub-org-billing-card-detail">{{ . }}</p>{{ end }}
+          </div>
+        </section>
+        {{ end }}
+      </div>
+    </section>
+
+    <section id="manage-plan" class="shithub-settings-section" aria-labelledby="user-billing-manage-heading">
+      <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+        <h2 id="user-billing-manage-heading" class="Subhead-heading">Manage plan</h2>
+      </div>
+      <div class="shithub-org-settings-box">
+        <div class="shithub-org-settings-row">
+          <div>
+            <strong>Pro plan</strong>
+            <p>A single-seat paid plan that unlocks Pro-only features for your personal account. You can downgrade to Free at any time from the Stripe billing portal.</p>
+          </div>
+          {{ if .CanManageSubscription }}
+          <form method="POST" action="/settings/billing/portal">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <button type="submit" class="shithub-button">Manage or cancel</button>
+          </form>
+          {{ else if .CanStartCheckout }}
+          <form method="POST" action="/settings/billing/checkout">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-primary">Upgrade to Pro</button>
+          </form>
+          {{ else }}
+          <span class="shithub-empty-note">Billing is not configured on this instance.</span>
+          {{ end }}
+        </div>
+        {{ if .CanManageSubscription }}
+        <div class="shithub-org-settings-row">
+          <div>
+            <strong>Downgrade to Free</strong>
+            <p>Use Stripe Billing Portal to cancel or schedule cancellation. shithub preserves your Pro configuration and makes Pro-only features read-only after downgrade.</p>
+          </div>
+          <form method="POST" action="/settings/billing/portal">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-danger">Open billing portal</button>
+          </form>
+        </div>
+        {{ end }}
+        <div class="shithub-org-settings-row">
+          <div>
+            <strong>Payment failures</strong>
+            <p>Past-due subscriptions enter a grace period before paid entitlements are cut off.</p>
+          </div>
+          <span>{{ .GracePeriodLabel }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare-plans" class="shithub-settings-section" aria-labelledby="user-billing-compare-heading">
+      <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+        <h2 id="user-billing-compare-heading" class="Subhead-heading">Compare plans</h2>
+      </div>
+      <div class="Box shithub-billing-plan-compare shithub-org-billing-compare">
+        <div class="Box-body">
+          <table class="shithub-org-billing-table">
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col">Free</th>
+                <th scope="col">Pro</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Public and private repositories</td>
+                <td>Included</td>
+                <td>Included</td>
+              </tr>
+              <tr>
+                <td>Advanced branch protection on private repos</td>
+                <td>Upgrade</td>
+                <td>Included</td>
+              </tr>
+              <tr>
+                <td>Required reviewers on private repos</td>
+                <td>Upgrade</td>
+                <td>Included</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="shithub-settings-section" aria-labelledby="user-billing-invoices-heading">
+      <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+        <h2 id="user-billing-invoices-heading" class="Subhead-heading">Recent invoices</h2>
+      </div>
+      {{ if .Invoices }}
+      <div class="Box">
+        <div class="Box-body p-0">
+          <table class="shithub-org-billing-table">
+            <thead>
+              <tr>
+                <th scope="col">Invoice</th>
+                <th scope="col">Status</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Period</th>
+                <th scope="col">Due</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Invoices }}
+              <tr>
+                <td>{{ .Number }}</td>
+                <td><span class="shithub-org-billing-status is-{{ .StatusClass }}">{{ .StatusLabel }}</span></td>
+                <td>{{ .AmountLabel }}</td>
+                <td>{{ .PeriodLabel }}</td>
+                <td>{{ .DueLabel }}</td>
+                <td class="shithub-org-billing-links">
+                  {{ if .HostedInvoiceURL }}<a href="{{ .HostedInvoiceURL }}" target="_blank" rel="noreferrer">Open</a>{{ end }}
+                  {{ if .InvoicePDFURL }}<a href="{{ .InvoicePDFURL }}" target="_blank" rel="noreferrer">PDF</a>{{ end }}
+                </td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {{ else }}
+      <p class="shithub-empty-note">No invoices have been recorded for your account yet.</p>
+      {{ end }}
+    </section>
+
+    {{ if .IsSiteAdmin }}
+    <section class="shithub-settings-section" aria-labelledby="user-billing-debug-heading">
+      <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+        <h2 id="user-billing-debug-heading" class="Subhead-heading">Site admin billing debug</h2>
+      </div>
+      <div class="Box">
+        <div class="Box-body p-0">
+          <table class="shithub-org-billing-table">
+            <tbody>
+              <tr><th scope="row">Stripe customer</th><td>{{ if .Debug.StripeCustomerID }}{{ .Debug.StripeCustomerID }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Stripe subscription</th><td>{{ if .Debug.StripeSubscriptionID }}{{ .Debug.StripeSubscriptionID }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Stripe subscription item</th><td>{{ if .Debug.StripeSubscriptionItemID }}{{ .Debug.StripeSubscriptionItemID }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Last webhook event</th><td>{{ if .Debug.LastWebhookEventID }}{{ .Debug.LastWebhookEventID }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Webhook type</th><td>{{ if .Debug.LastWebhookEventType }}{{ .Debug.LastWebhookEventType }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Webhook status</th><td>{{ if .Debug.LastWebhookStatus }}{{ .Debug.LastWebhookStatus }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Webhook received</th><td>{{ if .Debug.LastWebhookReceivedAt }}{{ .Debug.LastWebhookReceivedAt }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Webhook processed</th><td>{{ if .Debug.LastWebhookProcessedAt }}{{ .Debug.LastWebhookProcessedAt }}{{ else }}&mdash;{{ end }}</td></tr>
+              <tr><th scope="row">Webhook attempts</th><td>{{ .Debug.LastWebhookAttempts }}</td></tr>
+              <tr><th scope="row">Webhook error</th><td>{{ if .Debug.LastWebhookError }}{{ .Debug.LastWebhookError }}{{ else }}&mdash;{{ end }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    {{ end }}
+  </div>
+</div>
+{{- end }}

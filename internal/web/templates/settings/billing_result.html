@@ -1,0 +1,22 @@
+{{ define "page" -}}
+<section class="shithub-billing-result">
+  <div class="shithub-billing-result-card">
+    <p class="shithub-org-plan-kicker">{{ if eq .Result "success" }}Payment setup{{ else }}Pro checkout{{ end }}</p>
+    <h1>{{ .Heading }}</h1>
+    <p>{{ .Message }}</p>
+
+    <div class="shithub-billing-result-actions">
+      {{ if eq .Result "success" }}
+      <a href="{{ .BillingPath }}" class="shithub-button shithub-button-primary">View billing and plans</a>
+      <a href="/{{ .Username }}" class="shithub-button">Go to your profile</a>
+      {{ else }}
+      <form method="POST" action="/settings/billing/checkout">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button shithub-button-primary">Continue with Pro</button>
+      </form>
+      <a href="{{ .BillingPath }}" class="shithub-button">Keep Free for now</a>
+      {{ end }}
+    </div>
+  </div>
+</section>
+{{- end }}
