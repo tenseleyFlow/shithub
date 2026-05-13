@@ -535,4 +535,3 @@ func TestBillingWebhookGuardAllowsCorrectKindPriceMatch(t *testing.T) {
 		t.Fatalf("happy-path should apply Team plan, got %s", state.Plan)
 	}
 }
-

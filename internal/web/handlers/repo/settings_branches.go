@@ -229,7 +229,9 @@ type branchProtectionInputs struct {
 // flags (prevent_force_push, prevent_deletion, require_signed_commits).
 // The corrected predicate fires on ANY advanced input:
 // {prevent_force_push, prevent_deletion, require_signed_commits,
-//  required_status_check_names, dismiss_stale_status_checks_on_push}.
+//
+//	required_status_check_names, dismiss_stale_status_checks_on_push}.
+//
 // FeatureRequiredReviewers stays on required_review_count + dismissStale.
 //
 // PRO05 extended gating to personal private repos in report-only
