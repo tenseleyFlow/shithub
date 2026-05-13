@@ -1691,6 +1691,27 @@ func (q *Queries) SetWebhookEventSubject(ctx context.Context, db DBTX, arg SetWe
 	return err
 }
 
+const tryAcquireWebhookEventLock = `-- name: TryAcquireWebhookEventLock :one
+SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS acquired
+`
+
+// PRO08 A3: transaction-scoped advisory lock keyed on the hash of
+// the provider_event_id. Two concurrent webhook deliveries for the
+// same event_id race past CreateWebhookEventReceipt before either has
+// marked it processed; without serialization, both proceed to apply
+// and double-mutate state. This lock makes the apply path mutually
+// exclusive per event. Returns true when acquired; false means
+// another worker holds it — caller should let Stripe retry.
+//
+// pg_try_advisory_xact_lock takes a bigint; hashtext returns int4
+// which sign-extends safely. The lock auto-releases at txn end.
+func (q *Queries) TryAcquireWebhookEventLock(ctx context.Context, db DBTX, hashtext string) (bool, error) {
+	row := db.QueryRow(ctx, tryAcquireWebhookEventLock, hashtext)
+	var acquired bool
+	err := row.Scan(&acquired)
+	return acquired, err
+}
+
 const upsertInvoice = `-- name: UpsertInvoice :one
 
 INSERT INTO billing_invoices (

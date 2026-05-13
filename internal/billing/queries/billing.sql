@@ -457,6 +457,19 @@ UPDATE billing_webhook_events
  WHERE provider = 'stripe'
    AND provider_event_id = sqlc.arg(provider_event_id)::text;
 
+-- name: TryAcquireWebhookEventLock :one
+-- PRO08 A3: transaction-scoped advisory lock keyed on the hash of
+-- the provider_event_id. Two concurrent webhook deliveries for the
+-- same event_id race past CreateWebhookEventReceipt before either has
+-- marked it processed; without serialization, both proceed to apply
+-- and double-mutate state. This lock makes the apply path mutually
+-- exclusive per event. Returns true when acquired; false means
+-- another worker holds it — caller should let Stripe retry.
+--
+-- pg_try_advisory_xact_lock takes a bigint; hashtext returns int4
+-- which sign-extends safely. The lock auto-releases at txn end.
+SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS acquired;
+
 -- name: ListFailedWebhookEvents :many
 -- Operator query for "events we received but failed to process."
 -- A row is "failed" when it has a non-empty process_error OR when
