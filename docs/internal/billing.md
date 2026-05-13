@@ -319,6 +319,10 @@ PAYMENTS SP08 starts hosted-cost metering:
   `org_usage_snapshots` records audit snapshots, and
   `org_quota_overrides` lets site admins temporarily override a quota
   for support cases.
+- `org:usage_recalc` is the repair worker for one organization. It
+  recalculates repository/object/Actions usage for the current monthly
+  period and records an audit snapshot unless the payload explicitly
+  skips snapshotting.
 - Quota enforcement must read local counters and may force a source
   recalculation before rejecting large writes; counters are repairable
   and should not be treated as an eventually-consistent sole authority
