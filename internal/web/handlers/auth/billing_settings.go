@@ -207,17 +207,23 @@ func (h *Handlers) renderUserSettingsBilling(w http.ResponseWriter, r *http.Requ
 		debug = h.userBillingDebugView(r, state)
 	}
 	_ = h.d.Render.RenderPage(w, r, "settings/billing", map[string]any{
-		"Title":                 "Billing and plans",
-		"SettingsActive":        "billing",
-		"CSRFToken":             middleware.CSRFTokenForRequest(r),
-		"Username":              username,
-		"BillingEnabled":        h.d.BillingEnabled,
-		"Error":                 errMsg,
-		"Notice":                notice,
-		"BillingAlert":          userBillingAlertForState(state),
-		"Summary":               userBillingSummary(state),
-		"CanStartCheckout":      h.billingConfiguredForUser(),
-		"CanManageSubscription": h.billingConfiguredForUser() && state.StripeCustomerID.Valid && strings.TrimSpace(state.StripeCustomerID.String) != "",
+		"Title":            "Billing and plans",
+		"SettingsActive":   "billing",
+		"CSRFToken":        middleware.CSRFTokenForRequest(r),
+		"Username":         username,
+		"BillingEnabled":   h.d.BillingEnabled,
+		"Error":            errMsg,
+		"Notice":           notice,
+		"BillingAlert":     userBillingAlertForState(state),
+		"Summary":          userBillingSummary(state),
+		"CanStartCheckout": h.billingConfiguredForUser(),
+		// Gate on StripeSubscriptionID, not StripeCustomerID. A
+		// customer record is created when the Checkout Session is
+		// minted (before payment); a subscription id only appears
+		// after customer.subscription.created lands. Gating on the
+		// customer id surfaced "Manage or cancel" buttons for users
+		// who abandoned checkout without paying.
+		"CanManageSubscription": h.billingConfiguredForUser() && state.StripeSubscriptionID.Valid && strings.TrimSpace(state.StripeSubscriptionID.String) != "",
 		"GracePeriodLabel":      userFormatGracePeriod(h.d.BillingGracePeriod),
 		"Invoices":              userBillingInvoiceViews(invoices),
 		"IsSiteAdmin":           viewer.IsSiteAdmin,
