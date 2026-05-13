@@ -21,11 +21,20 @@ type apiCommitAuthor struct {
 }
 
 type apiCommit struct {
-	SHA      string          `json:"sha"`
-	ShortSHA string          `json:"short_sha"`
-	Subject  string          `json:"subject"`
-	Body     string          `json:"body"`
-	Author   apiCommitAuthor `json:"author"`
+	SHA          string                `json:"sha"`
+	ShortSHA     string                `json:"short_sha"`
+	Subject      string                `json:"subject"`
+	Body         string                `json:"body"`
+	Author       apiCommitAuthor       `json:"author"`
+	Verification apiCommitVerification `json:"verification"`
+}
+
+type apiCommitVerification struct {
+	Verified   bool    `json:"verified"`
+	Reason     string  `json:"reason"`
+	Signature  *string `json:"signature"`
+	Payload    *string `json:"payload"`
+	VerifiedAt *string `json:"verified_at"`
 }
 
 type apiCommitFile struct {
@@ -201,5 +210,60 @@ func TestCommits_RequiresReadScope(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCommits_VerificationDefaultsUnsigned ensures every commit's
+// JSON carries the verification object even when no cache row
+// exists. gh emits `{verified: false, reason: "unsigned", signature:
+// null, payload: null, verified_at: null}` for commits with no
+// signature; we match that exactly.
+func TestCommits_VerificationDefaultsUnsigned(t *testing.T) {
+	router, token, headSHA := commitsEnv(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/commits", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rr.Code, rr.Body.String())
+	}
+	var listed []apiCommit
+	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("len: got %d, want 1", len(listed))
+	}
+	if listed[0].SHA != headSHA {
+		t.Errorf("sha: got %q, want %q", listed[0].SHA, headSHA)
+	}
+	if listed[0].Verification.Reason != "unsigned" {
+		t.Errorf("reason: got %q, want unsigned", listed[0].Verification.Reason)
+	}
+	if listed[0].Verification.Verified {
+		t.Error("expected Verified=false on an unsigned commit")
+	}
+	if listed[0].Verification.Signature != nil {
+		t.Error("expected Signature=null on an unsigned commit")
+	}
+	if listed[0].Verification.Payload != nil {
+		t.Error("expected Payload=null on an unsigned commit")
+	}
+
+	// Single-commit GET surfaces the same object shape.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/commits/"+headSHA, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+	var single apiCommit
+	if err := json.Unmarshal(rr.Body.Bytes(), &single); err != nil {
+		t.Fatalf("decode get: %v", err)
+	}
+	if single.Verification.Reason != "unsigned" {
+		t.Errorf("get reason: got %q, want unsigned", single.Verification.Reason)
 	}
 }

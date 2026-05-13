@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
+	"github.com/tenseleyFlow/shithub/internal/repos/sigverify"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -41,11 +43,49 @@ type commitAuthor struct {
 }
 
 type commitListItem struct {
-	SHA      string       `json:"sha"`
-	ShortSHA string       `json:"short_sha"`
-	Subject  string       `json:"subject"`
-	Author   commitAuthor `json:"author"`
-	Body     string       `json:"body,omitempty"`
+	SHA          string               `json:"sha"`
+	ShortSHA     string               `json:"short_sha"`
+	Subject      string               `json:"subject"`
+	Author       commitAuthor         `json:"author"`
+	Body         string               `json:"body,omitempty"`
+	Verification verificationResponse `json:"verification"`
+}
+
+// verificationResponse mirrors gh's documented commit verification
+// object. Empty/never-verified commits emit the same shape gh uses
+// for unsigned commits:
+//
+//	{verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null}
+//
+// `payload` is the bytes the signature was computed over (commit
+// object body minus the gpgsig header). Surfaced as a string in gh's
+// JSON; we follow suit. nil bytes → JSON null via the pointer trick.
+type verificationResponse struct {
+	Verified   bool    `json:"verified"`
+	Reason     string  `json:"reason"`
+	Signature  *string `json:"signature"`
+	Payload    *string `json:"payload"`
+	VerifiedAt *string `json:"verified_at"`
+}
+
+func presentVerification(v sigverify.View) verificationResponse {
+	resp := verificationResponse{
+		Verified: v.Verified,
+		Reason:   string(v.Reason),
+	}
+	if v.Signature != "" {
+		s := v.Signature
+		resp.Signature = &s
+	}
+	if len(v.Payload) > 0 {
+		s := string(v.Payload)
+		resp.Payload = &s
+	}
+	if v.VerifiedAt != nil {
+		s := v.VerifiedAt.UTC().Format(time.RFC3339)
+		resp.VerifiedAt = &s
+	}
+	return resp
 }
 
 type commitFile struct {
@@ -72,7 +112,7 @@ type commitStats struct {
 	Total     int `json:"total"`
 }
 
-func presentCommit(c git.Commit) commitListItem {
+func presentCommit(c git.Commit, v sigverify.View) commitListItem {
 	return commitListItem{
 		SHA:      c.OID,
 		ShortSHA: c.ShortOID,
@@ -83,6 +123,7 @@ func presentCommit(c git.Commit) commitListItem {
 			Email: c.AuthorEmail,
 			Date:  c.AuthorWhen.UTC().Format(time.RFC3339),
 		},
+		Verification: presentVerification(v),
 	}
 }
 
@@ -134,9 +175,23 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []commitListItem{})
 		return
 	}
+
+	// Batch-load verification cache rows for the page's OIDs. Failure
+	// here is non-fatal — we fall back to UnsignedView per row so the
+	// payload still renders, just without verification metadata.
+	oids := make([]string, len(commits))
+	for i, c := range commits {
+		oids[i] = c.OID
+	}
+	verifications, err := sigverify.LoadViewsForOIDs(r.Context(), h.d.Pool, repo.ID, oids)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "api: load verifications", "error", err, "repo_id", repo.ID)
+		verifications = map[string]sigverify.View{}
+	}
+
 	out := make([]commitListItem, 0, len(commits))
 	for _, c := range commits {
-		out = append(out, presentCommit(c))
+		out = append(out, presentCommit(c, sigverify.LookupView(verifications, c.OID)))
 	}
 	// We don't have a cheap O(1) total count from `git log` without a
 	// second walk, so emit `next`/`prev` only when a follow-on page
@@ -174,8 +229,14 @@ func (h *Handlers) commitGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
 		return
 	}
+	view, vErr := sigverify.LoadView(r.Context(), h.d.Pool, repo.ID, cd.OID)
+	if vErr != nil && !errors.Is(vErr, pgx.ErrNoRows) {
+		h.d.Logger.WarnContext(r.Context(), "api: load verification", "error", vErr, "repo_id", repo.ID, "oid", cd.OID)
+		view = sigverify.UnsignedView()
+	}
+
 	out := commitDetail{
-		commitListItem: presentCommit(cd.Commit),
+		commitListItem: presentCommit(cd.Commit, view),
 		Committer: commitAuthor{
 			Name:  cd.CommitterName,
 			Email: cd.CommitterEmail,
