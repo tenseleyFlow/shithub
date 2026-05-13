@@ -5,6 +5,7 @@ package gpgkey
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -315,6 +316,47 @@ func TestParse_NameControlChars(t *testing.T) {
 	_, err := Parse("bad\x00name", armored)
 	if !errors.Is(err, ErrNameControl) {
 		t.Errorf("err: got %v, want ErrNameControl", err)
+	}
+}
+
+// ─── regression baseline: real gpg-produced fixtures ──────────────
+//
+// Exercises codec compatibility with output from `gpg (GnuPG)` 2.5+.
+// See testdata/README.md for the generation recipe.
+
+func TestParse_RealGPGFixtures(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		algo string
+	}{
+		{"ed25519", "testdata/ed25519.asc", "ed25519"},
+		{"rsa4096", "testdata/rsa4096.asc", "rsa4096"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			blob, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Fatalf("ReadFile %s: %v", tc.path, err)
+			}
+			got, err := Parse("", string(blob))
+			if err != nil {
+				t.Fatalf("Parse %s: %v", tc.path, err)
+			}
+			if got.PrimaryAlgo != tc.algo {
+				t.Errorf("PrimaryAlgo: got %q, want %q", got.PrimaryAlgo, tc.algo)
+			}
+			if !got.CanSign && !got.CanCertify {
+				t.Errorf("expected sign or certify on real gpg primary; got both false")
+			}
+			if len(got.UIDs) == 0 {
+				t.Error("expected at least one UID")
+			}
+			if len(got.Fingerprint) != 40 || !isHex(got.Fingerprint) {
+				t.Errorf("Fingerprint malformed: %q", got.Fingerprint)
+			}
+		})
 	}
 }
 
