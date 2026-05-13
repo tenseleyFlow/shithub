@@ -103,10 +103,40 @@ WITH candidate AS (
     SELECT j.id
     FROM workflow_jobs j
     JOIN workflow_runs r ON r.id = j.run_id
+    JOIN repos repo ON repo.id = r.repo_id
+    LEFT JOIN actions_site_policy sp ON sp.id = true
+    LEFT JOIN actions_org_policies op ON op.org_id = repo.owner_org_id
+    LEFT JOIN actions_repo_policies rp ON rp.repo_id = r.repo_id
     WHERE j.status = 'queued'
       AND r.status IN ('queued', 'running')
+      AND (r.need_approval = false OR r.approved_by_user_id IS NOT NULL)
       AND j.cancel_requested = false
       AND j.runner_id IS NULL
+      AND CASE
+          WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true
+          WHEN COALESCE(rp.actions_enabled, 'inherit'::actions_policy_state) = 'disabled' THEN false
+          WHEN COALESCE(op.actions_enabled, 'inherit'::actions_policy_state) = 'enabled' THEN true
+          WHEN COALESCE(op.actions_enabled, 'inherit'::actions_policy_state) = 'disabled' THEN false
+          ELSE COALESCE(sp.actions_enabled, true)
+      END
+      AND (
+          SELECT COUNT(*)::integer
+          FROM workflow_jobs running_job
+          JOIN workflow_runs running_run ON running_run.id = running_job.run_id
+          WHERE running_job.status = 'running'
+            AND running_run.repo_id = r.repo_id
+      ) < COALESCE(rp.max_repo_concurrent_jobs, op.max_repo_concurrent_jobs, sp.max_repo_concurrent_jobs, 20)
+      AND (
+          SELECT COUNT(*)::integer
+          FROM workflow_jobs running_job
+          JOIN workflow_runs running_run ON running_run.id = running_job.run_id
+          JOIN repos running_repo ON running_repo.id = running_run.repo_id
+          WHERE running_job.status = 'running'
+            AND (
+                (repo.owner_user_id IS NOT NULL AND running_repo.owner_user_id = repo.owner_user_id)
+                OR (repo.owner_org_id IS NOT NULL AND running_repo.owner_org_id = repo.owner_org_id)
+            )
+      ) < COALESCE(rp.max_owner_concurrent_jobs, op.max_owner_concurrent_jobs, sp.max_owner_concurrent_jobs, 100)
       AND (j.runs_on = '' OR j.runs_on = ANY(sqlc.arg(labels)::text[]))
       AND NOT EXISTS (
           SELECT 1
