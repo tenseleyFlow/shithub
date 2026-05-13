@@ -1743,3 +1743,145 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 	)
 	return i, err
 }
+
+const upsertInvoiceForSubject = `-- name: UpsertInvoiceForSubject :one
+INSERT INTO billing_invoices (
+    subject_kind,
+    subject_id,
+    provider,
+    stripe_invoice_id,
+    stripe_customer_id,
+    stripe_subscription_id,
+    status,
+    number,
+    currency,
+    amount_due_cents,
+    amount_paid_cents,
+    amount_remaining_cents,
+    hosted_invoice_url,
+    invoice_pdf_url,
+    period_start,
+    period_end,
+    due_at,
+    paid_at,
+    voided_at
+)
+VALUES (
+    $1::billing_subject_kind,
+    $2::bigint,
+    'stripe',
+    $3::text,
+    $4::text,
+    $5::text,
+    $6::billing_invoice_status,
+    $7::text,
+    $8::text,
+    $9::bigint,
+    $10::bigint,
+    $11::bigint,
+    $12::text,
+    $13::text,
+    $14::timestamptz,
+    $15::timestamptz,
+    $16::timestamptz,
+    $17::timestamptz,
+    $18::timestamptz
+)
+ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
+   SET subject_kind = EXCLUDED.subject_kind,
+       subject_id = EXCLUDED.subject_id,
+       stripe_customer_id = EXCLUDED.stripe_customer_id,
+       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+       status = EXCLUDED.status,
+       number = EXCLUDED.number,
+       currency = EXCLUDED.currency,
+       amount_due_cents = EXCLUDED.amount_due_cents,
+       amount_paid_cents = EXCLUDED.amount_paid_cents,
+       amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       hosted_invoice_url = EXCLUDED.hosted_invoice_url,
+       invoice_pdf_url = EXCLUDED.invoice_pdf_url,
+       period_start = EXCLUDED.period_start,
+       period_end = EXCLUDED.period_end,
+       due_at = EXCLUDED.due_at,
+       paid_at = EXCLUDED.paid_at,
+       voided_at = EXCLUDED.voided_at,
+       updated_at = now()
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id
+`
+
+type UpsertInvoiceForSubjectParams struct {
+	SubjectKind          BillingSubjectKind
+	SubjectID            int64
+	StripeInvoiceID      string
+	StripeCustomerID     string
+	StripeSubscriptionID pgtype.Text
+	Status               BillingInvoiceStatus
+	Number               string
+	Currency             string
+	AmountDueCents       int64
+	AmountPaidCents      int64
+	AmountRemainingCents int64
+	HostedInvoiceUrl     string
+	InvoicePdfUrl        string
+	PeriodStart          pgtype.Timestamptz
+	PeriodEnd            pgtype.Timestamptz
+	DueAt                pgtype.Timestamptz
+	PaidAt               pgtype.Timestamptz
+	VoidedAt             pgtype.Timestamptz
+}
+
+// PRO04 polymorphic invoice upsert. Writes (subject_kind,
+// subject_id) directly; org_id stays NULL for user-kind rows (per
+// the 0074 migration's nullable change). The existing
+// UpsertInvoice query stays as the org-kind path during the
+// transitional deploy — both can coexist because the UNIQUE
+// (provider, stripe_invoice_id) prevents duplicate rows.
+func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg UpsertInvoiceForSubjectParams) (BillingInvoice, error) {
+	row := db.QueryRow(ctx, upsertInvoiceForSubject,
+		arg.SubjectKind,
+		arg.SubjectID,
+		arg.StripeInvoiceID,
+		arg.StripeCustomerID,
+		arg.StripeSubscriptionID,
+		arg.Status,
+		arg.Number,
+		arg.Currency,
+		arg.AmountDueCents,
+		arg.AmountPaidCents,
+		arg.AmountRemainingCents,
+		arg.HostedInvoiceUrl,
+		arg.InvoicePdfUrl,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.DueAt,
+		arg.PaidAt,
+		arg.VoidedAt,
+	)
+	var i BillingInvoice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Provider,
+		&i.StripeInvoiceID,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.Status,
+		&i.Number,
+		&i.Currency,
+		&i.AmountDueCents,
+		&i.AmountPaidCents,
+		&i.AmountRemainingCents,
+		&i.HostedInvoiceUrl,
+		&i.InvoicePdfUrl,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.DueAt,
+		&i.PaidAt,
+		&i.VoidedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubjectKind,
+		&i.SubjectID,
+	)
+	return i, err
+}

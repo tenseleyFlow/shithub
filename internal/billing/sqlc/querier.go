@@ -62,6 +62,13 @@ type Querier interface {
 	// to the polymorphic shape, a follow-up migration drops `org_id` and
 	// this query loses the legacy column from its INSERT list.
 	UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceParams) (BillingInvoice, error)
+	// PRO04 polymorphic invoice upsert. Writes (subject_kind,
+	// subject_id) directly; org_id stays NULL for user-kind rows (per
+	// the 0074 migration's nullable change). The existing
+	// UpsertInvoice query stays as the org-kind path during the
+	// transitional deploy — both can coexist because the UNIQUE
+	// (provider, stripe_invoice_id) prevents duplicate rows.
+	UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg UpsertInvoiceForSubjectParams) (BillingInvoice, error)
 }
 
 var _ Querier = (*Queries)(nil)

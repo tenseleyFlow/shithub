@@ -333,6 +333,76 @@ WHERE subject_kind = sqlc.arg(subject_kind)::billing_subject_kind
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(lim)::integer;
 
+-- name: UpsertInvoiceForSubject :one
+-- PRO04 polymorphic invoice upsert. Writes (subject_kind,
+-- subject_id) directly; org_id stays NULL for user-kind rows (per
+-- the 0074 migration's nullable change). The existing
+-- UpsertInvoice query stays as the org-kind path during the
+-- transitional deploy — both can coexist because the UNIQUE
+-- (provider, stripe_invoice_id) prevents duplicate rows.
+INSERT INTO billing_invoices (
+    subject_kind,
+    subject_id,
+    provider,
+    stripe_invoice_id,
+    stripe_customer_id,
+    stripe_subscription_id,
+    status,
+    number,
+    currency,
+    amount_due_cents,
+    amount_paid_cents,
+    amount_remaining_cents,
+    hosted_invoice_url,
+    invoice_pdf_url,
+    period_start,
+    period_end,
+    due_at,
+    paid_at,
+    voided_at
+)
+VALUES (
+    sqlc.arg(subject_kind)::billing_subject_kind,
+    sqlc.arg(subject_id)::bigint,
+    'stripe',
+    sqlc.arg(stripe_invoice_id)::text,
+    sqlc.arg(stripe_customer_id)::text,
+    sqlc.narg(stripe_subscription_id)::text,
+    sqlc.arg(status)::billing_invoice_status,
+    sqlc.arg(number)::text,
+    sqlc.arg(currency)::text,
+    sqlc.arg(amount_due_cents)::bigint,
+    sqlc.arg(amount_paid_cents)::bigint,
+    sqlc.arg(amount_remaining_cents)::bigint,
+    sqlc.arg(hosted_invoice_url)::text,
+    sqlc.arg(invoice_pdf_url)::text,
+    sqlc.narg(period_start)::timestamptz,
+    sqlc.narg(period_end)::timestamptz,
+    sqlc.narg(due_at)::timestamptz,
+    sqlc.narg(paid_at)::timestamptz,
+    sqlc.narg(voided_at)::timestamptz
+)
+ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
+   SET subject_kind = EXCLUDED.subject_kind,
+       subject_id = EXCLUDED.subject_id,
+       stripe_customer_id = EXCLUDED.stripe_customer_id,
+       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+       status = EXCLUDED.status,
+       number = EXCLUDED.number,
+       currency = EXCLUDED.currency,
+       amount_due_cents = EXCLUDED.amount_due_cents,
+       amount_paid_cents = EXCLUDED.amount_paid_cents,
+       amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       hosted_invoice_url = EXCLUDED.hosted_invoice_url,
+       invoice_pdf_url = EXCLUDED.invoice_pdf_url,
+       period_start = EXCLUDED.period_start,
+       period_end = EXCLUDED.period_end,
+       due_at = EXCLUDED.due_at,
+       paid_at = EXCLUDED.paid_at,
+       voided_at = EXCLUDED.voided_at,
+       updated_at = now()
+RETURNING *;
+
 -- ─── billing_webhook_events ────────────────────────────────────────
 
 -- name: CreateWebhookEventReceipt :one
