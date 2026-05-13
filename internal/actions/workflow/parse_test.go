@@ -71,6 +71,42 @@ func TestParse_CheckoutOnly(t *testing.T) {
 	}
 }
 
+func TestParse_ArbitraryRepoSmoke(t *testing.T) {
+	t.Parallel()
+	w, diags, err := workflow.Parse(readFixture(t, "arbitrary-repo-smoke"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+	if w.Name != "Smoke" {
+		t.Fatalf("Name = %q, want Smoke", w.Name)
+	}
+	if w.On.Push == nil || len(w.On.Push.Branches) != 1 || w.On.Push.Branches[0] != "trunk" {
+		t.Fatalf("push branches = %+v", w.On.Push)
+	}
+	if len(w.Jobs) != 1 {
+		t.Fatalf("len(Jobs) = %d", len(w.Jobs))
+	}
+	job := w.Jobs[0]
+	if job.Key != "green" || job.RunsOn != "ubuntu-latest" {
+		t.Fatalf("job = %+v", job)
+	}
+	if len(job.Steps) != 3 {
+		t.Fatalf("steps = %+v", job.Steps)
+	}
+	if job.Steps[0].Uses != "actions/checkout@v4" {
+		t.Fatalf("checkout step = %+v", job.Steps[0])
+	}
+	if job.Steps[1].Name != "Verify checkout" || !strings.Contains(job.Steps[1].Run, "README.md") {
+		t.Fatalf("verify step = %+v", job.Steps[1])
+	}
+	if job.Steps[2].Name != "Smoke" || !strings.Contains(job.Steps[2].Run, "shithub actions smoke passed") {
+		t.Fatalf("smoke step = %+v", job.Steps[2])
+	}
+}
+
 func TestParse_MultiJob(t *testing.T) {
 	t.Parallel()
 	w, diags, err := workflow.Parse(readFixture(t, "multi-job"))

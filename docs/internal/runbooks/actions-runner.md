@@ -10,7 +10,7 @@ For host provisioning and the systemd/Ansible path, see
 
 Prereqs:
 
-- Database migrations are current through `0057_workflow_job_secret_masks.sql`.
+- Database migrations are current through `0067_runner_pool_ops.sql`.
 - `SHITHUB_TOTP_KEY` or `auth.totp_key_b64` is set on the web process.
 - Object storage is configured if testing artifact upload.
 - Docker or Podman is installed on the runner host.
@@ -174,6 +174,97 @@ Environment variables use the `SHITHUB_RUNNER_` prefix, for example
 `SHITHUB_RUNNER_TOKEN` or `SHITHUB_RUNNER_SERVER__BASE_URL`.
 Use `--expires-in` only for tokens that your automation rotates before expiry;
 the runner presents its registration token on every heartbeat.
+
+## Arbitrary Repository Smoke
+
+Use this checklist after provisioning a shared runner pool or changing runner
+labels. The purpose is to prove that ordinary repositories can use the pool
+without repo-specific labels.
+
+Pick at least two repositories:
+
+- `mfwolffe/scratch`, the historical dogfood repo;
+- one additional public repository;
+- one private repository if one is available for the operator account.
+
+In each repository, commit this file as `.shithub/workflows/smoke.yml` on
+`trunk`:
+
+```yaml
+name: Smoke
+on:
+  push:
+    branches: [trunk]
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify checkout
+        run: test -f README.md || test -f readme.md || pwd
+      - name: Smoke
+        run: printf 'shithub actions smoke passed\n'
+```
+
+Expected results for each repo:
+
+- the repo heading shows a green check after the push;
+- the Actions run page shows `Triggered via push` on `refs/heads/trunk`;
+- the `green` job is completed with conclusion `success`;
+- the checkout step logs the scoped repository URL for that repo;
+- the smoke step log contains `shithub actions smoke passed`;
+- the check run attached to the commit agrees with the workflow run state;
+- the downloaded or raw archived step log matches the in-page step log.
+
+Confirm the pool is shared:
+
+```sh
+shithubd admin runner list --output json
+shithubd admin runner queue --output json
+```
+
+The same online runner labels should satisfy both repositories. The smoke
+workflow must use `runs-on: ubuntu-latest`; do not add per-repo labels for this
+test.
+
+Unsupported-label negative test:
+
+```yaml
+name: Unsupported runner label
+on:
+  workflow_dispatch:
+jobs:
+  nope:
+    runs-on: windows-latest
+    steps:
+      - run: echo should-not-run
+```
+
+Trigger it manually. The run should stay queued and the run page should say
+`Waiting for runner with labels: windows-latest`. `shithubd admin runner queue
+--output json` should show one queued `windows-latest` job with zero matching
+runners. Cancel the run after confirming the diagnostic.
+
+Untrusted-PR secret negative test:
+
+1. Add a repo secret named `S41J_SECRET_SMOKE` with any non-production value.
+2. Open an untrusted pull request whose workflow prints whether that secret is
+   present.
+3. Before approval, confirm the claimed job contains no injected secrets and
+   logs do not contain the secret value.
+4. Only after explicit approval should the run be allowed through the trusted
+   secret path.
+
+Runner-outage negative test:
+
+1. Drain every shared runner with `shithubd admin runner drain --id <id>`.
+2. Push the smoke workflow to a test repo.
+3. Confirm the run stays queued with the requested `ubuntu-latest` label visible.
+4. Undrain one runner and confirm the same queued job is claimed and completes.
+
+This smoke is considered passing only when scratch and the second repository
+both complete from the same shared label set and the negative cases produce
+clear queued/secret-denied behavior.
 
 The Ansible runner role creates the `shithub-actions` bridge, runs the
 allowlist resolver at `172.30.0.1`, and installs firewall rules that
