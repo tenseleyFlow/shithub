@@ -283,7 +283,9 @@ PAYMENTS SP07 completes the first self-serve billing settings surface:
   as read-only data.
 - Normal organization owners do not see raw Stripe customer,
   subscription, or subscription-item IDs. Site admins see a debug panel
-  with those IDs and the latest locally recorded webhook receipt state.
+  with those IDs, the latest locally recorded webhook receipt state,
+  and support controls for saving or clearing storage and Actions
+  minutes quota overrides.
 
 PAYMENTS SP06a adds the first private-collaboration limit:
 
@@ -345,6 +347,11 @@ PAYMENTS SP08 starts hosted-cost metering:
 - Org-owned Actions artifact upload URL requests recalculate current
   storage usage before issuing a presigned PUT URL and reject uploads
   whose declared byte count would exceed the effective storage quota.
+- Site admins can save or clear temporary storage and Actions minutes
+  quota overrides from the billing settings debug panel even when they
+  are not organization owners. Overrides are attributed to the actor and
+  take effect in entitlement limit calculations immediately. Stripe
+  checkout and portal actions remain owner-only.
 - Quota enforcement must read local counters and may force a source
   recalculation before rejecting large writes; counters are repairable
   and should not be treated as an eventually-consistent sole authority

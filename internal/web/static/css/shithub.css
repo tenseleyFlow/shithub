@@ -4263,6 +4263,53 @@ button.shithub-contrib-setting-item:hover {
   background: rgba(218, 54, 51, 0.16);
   color: var(--danger-fg);
 }
+.shithub-org-billing-quota-forms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+.shithub-org-billing-quota-form {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) minmax(9rem, 12rem) minmax(7rem, auto) minmax(11rem, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.75rem;
+  border: 1px solid var(--border-muted, var(--border-default));
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-org-billing-quota-form-heading,
+.shithub-org-billing-quota-form label {
+  display: grid;
+  gap: 0.25rem;
+}
+.shithub-org-billing-quota-form label {
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shithub-org-billing-quota-form-heading small {
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+}
+.shithub-org-billing-quota-form input[type="text"] {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+}
+.shithub-org-billing-quota-form .shithub-org-settings-checkbox {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  min-height: 2rem;
+}
+.shithub-org-billing-quota-form .shithub-org-settings-checkbox input {
+  margin: 0;
+}
+.shithub-org-billing-quota-delete {
+  align-self: end;
+}
 .shithub-org-import-create {
   display: grid;
   gap: 0.75rem;
@@ -5326,6 +5373,13 @@ button.shithub-contrib-setting-item:hover {
   }
   .shithub-org-repo-spark {
     display: none;
+  }
+  .shithub-org-billing-quota-forms,
+  .shithub-org-billing-quota-form {
+    grid-template-columns: 1fr;
+  }
+  .shithub-org-billing-quota-delete {
+    align-self: stretch;
   }
 }
 @media (max-width: 640px) {

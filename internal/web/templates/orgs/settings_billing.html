@@ -135,7 +135,9 @@
               <strong>Team plan</strong>
               <p>$4 per active organization member per month. Public and private repositories stay available; Team unlocks paid organization controls.</p>
             </div>
-            {{ if .CanManageSubscription }}
+            {{ if not .CanUseBillingControls }}
+            <span class="shithub-empty-note">Only organization owners can manage customer billing.</span>
+            {{ else if .CanManageSubscription }}
             <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/portal">
               <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
               <button type="submit" class="shithub-button">Manage or cancel</button>
@@ -328,6 +330,42 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="Box-body border-top">
+            <h3 class="f4 mb-2">Quota overrides</h3>
+            <p class="shithub-empty-note mt-0 mb-3">Temporary support overrides apply before plan limits and are visible to site admins only.</p>
+            <div class="shithub-org-billing-quota-forms">
+              {{ range .Debug.QuotaOverrideForms }}
+              <form class="shithub-org-billing-quota-form" method="POST" action="/organizations/{{ $.Org.Slug }}/billing/quota-overrides">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="kind" value="{{ .KindValue }}">
+                <div class="shithub-org-billing-quota-form-heading">
+                  <strong>{{ .KindLabel }}</strong>
+                  <small>{{ .Help }}</small>
+                </div>
+                <label>
+                  Limit ({{ .UnitLabel }})
+                  <input type="text" name="limit_value" value="{{ .LimitValue }}" inputmode="numeric" autocomplete="off">
+                </label>
+                <label class="shithub-org-settings-checkbox">
+                  <input type="checkbox" name="unlimited" value="1" {{ if .Unlimited }}checked{{ end }}>
+                  <span>Unlimited</span>
+                </label>
+                <label>
+                  Note
+                  <input type="text" name="note" value="{{ .Note }}" autocomplete="off" placeholder="Support reason">
+                </label>
+                <div class="shithub-org-billing-quota-actions">
+                  <button type="submit" class="shithub-button shithub-button-primary">Save override</button>
+                </div>
+              </form>
+              <form class="shithub-org-billing-quota-delete" method="POST" action="/organizations/{{ $.Org.Slug }}/billing/quota-overrides/delete">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="kind" value="{{ .KindValue }}">
+                <button type="submit" class="shithub-button">Clear {{ .KindLabel }}</button>
+              </form>
+              {{ end }}
+            </div>
           </div>
         </div>
       </section>

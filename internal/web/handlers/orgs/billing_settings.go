@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	orgdomain "github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -84,6 +86,16 @@ type billingQuotaOverrideView struct {
 	UpdatedAt string
 }
 
+type billingQuotaOverrideForm struct {
+	KindValue  string
+	KindLabel  string
+	LimitValue string
+	Unlimited  bool
+	Note       string
+	UnitLabel  string
+	Help       string
+}
+
 type billingDebugView struct {
 	StripeCustomerID         string
 	StripeSubscriptionID     string
@@ -96,10 +108,11 @@ type billingDebugView struct {
 	LastWebhookAttempts      int32
 	LastWebhookError         string
 	QuotaOverrides           []billingQuotaOverrideView
+	QuotaOverrideForms       []billingQuotaOverrideForm
 }
 
 func (h *Handlers) settingsBilling(w http.ResponseWriter, r *http.Request) {
-	org, ok := h.loadOrgSettingsOwner(w, r)
+	org, _, ok := h.loadOrgBillingSettingsViewer(w, r)
 	if !ok {
 		return
 	}
@@ -182,6 +195,72 @@ func (h *Handlers) billingPortal(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, session.URL, http.StatusSeeOther)
 }
 
+func (h *Handlers) billingQuotaOverrideSave(w http.ResponseWriter, r *http.Request) {
+	org, viewer, ok := h.loadOrgBillingSettingsViewer(w, r)
+	if !ok {
+		return
+	}
+	if !viewer.IsSiteAdmin {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	kind, ok := parseBillingQuotaKind(r.PostFormValue("kind"))
+	if !ok {
+		h.renderSettingsBilling(w, r, org, "Choose a supported quota override.", "")
+		return
+	}
+	unlimited := r.PostFormValue("unlimited") != ""
+	limit, err := parseBillingQuotaLimit(r.PostFormValue("limit_value"), unlimited)
+	if err != nil {
+		h.renderSettingsBilling(w, r, org, "Quota override limit must be a non-negative integer, or mark the quota as unlimited.", "")
+		return
+	}
+	_, err = orgbilling.UpsertOrgQuotaOverride(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgbilling.QuotaOverrideInput{
+		OrgID:           org.ID,
+		Kind:            kind,
+		LimitValue:      limit,
+		Unlimited:       unlimited,
+		Note:            r.PostFormValue("note"),
+		CreatedByUserID: viewer.ID,
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: save quota override", "org_id", org.ID, "kind", kind, "error", err)
+		h.renderSettingsBilling(w, r, org, "Could not save quota override right now.", "")
+		return
+	}
+	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=quota-override-saved", http.StatusSeeOther)
+}
+
+func (h *Handlers) billingQuotaOverrideDelete(w http.ResponseWriter, r *http.Request) {
+	org, viewer, ok := h.loadOrgBillingSettingsViewer(w, r)
+	if !ok {
+		return
+	}
+	if !viewer.IsSiteAdmin {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	kind, ok := parseBillingQuotaKind(r.PostFormValue("kind"))
+	if !ok {
+		h.renderSettingsBilling(w, r, org, "Choose a supported quota override.", "")
+		return
+	}
+	if _, err := orgbilling.DeleteOrgQuotaOverride(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, kind); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: delete quota override", "org_id", org.ID, "kind", kind, "error", err)
+		h.renderSettingsBilling(w, r, org, "Could not clear quota override right now.", "")
+		return
+	}
+	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=quota-override-cleared", http.StatusSeeOther)
+}
+
 func (h *Handlers) billingSuccess(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.loadOrgSettingsOwner(w, r)
 	if !ok {
@@ -222,6 +301,31 @@ func (h *Handlers) renderBillingResult(w http.ResponseWriter, r *http.Request, o
 	})
 }
 
+func (h *Handlers) loadOrgBillingSettingsViewer(w http.ResponseWriter, r *http.Request) (orgsdb.Org, middleware.CurrentUser, bool) {
+	org, ok := h.orgFromSlug(w, r)
+	if !ok {
+		return orgsdb.Org{}, middleware.CurrentUser{}, false
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+		return orgsdb.Org{}, middleware.CurrentUser{}, false
+	}
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return orgsdb.Org{}, middleware.CurrentUser{}, false
+	}
+	if viewer.IsSiteAdmin {
+		return org, viewer, true
+	}
+	owner, _ := orgdomain.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+	if !owner {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return orgsdb.Org{}, middleware.CurrentUser{}, false
+	}
+	return org, viewer, true
+}
+
 func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
 	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
@@ -246,33 +350,38 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		invoices = nil
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
+	canManageBilling := false
+	if !viewer.IsAnonymous() {
+		canManageBilling, _ = orgdomain.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+	}
 	debug := billingDebugView{}
 	if viewer.IsSiteAdmin {
 		debug = h.billingDebugView(r, org.ID, state)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing", map[string]any{
-		"Title":                org.Slug + " - billing and plans",
-		"CSRFToken":            middleware.CSRFTokenForRequest(r),
-		"Org":                  org,
-		"AvatarURL":            "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav":         "settings",
-		"OrgSettingsActive":    "billing",
-		"BillingEnabled":       h.d.BillingEnabled,
-		"Error":                errMsg,
-		"Notice":               notice,
-		"BillingAlert":         billingAlertForState(state, org.Slug),
-		"Summary":              billingSummary(state, memberCount),
-		"Seats":                billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
-		"PrivateCollaboration": privateCollab,
-		"Usage":                usage,
-		"CanStartCheckout":     h.billingConfigured(),
+		"Title":                 org.Slug + " - billing and plans",
+		"CSRFToken":             middleware.CSRFTokenForRequest(r),
+		"Org":                   org,
+		"AvatarURL":             "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":          "settings",
+		"OrgSettingsActive":     "billing",
+		"BillingEnabled":        h.d.BillingEnabled,
+		"Error":                 errMsg,
+		"Notice":                notice,
+		"BillingAlert":          billingAlertForState(state, org.Slug),
+		"Summary":               billingSummary(state, memberCount),
+		"Seats":                 billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
+		"PrivateCollaboration":  privateCollab,
+		"Usage":                 usage,
+		"CanUseBillingControls": canManageBilling,
+		"CanStartCheckout":      canManageBilling && h.billingConfigured(),
 		// Gate on StripeSubscriptionID, not StripeCustomerID. A
 		// customer record exists from the moment a Checkout Session
 		// is minted; the subscription id only lands after
 		// customer.subscription.created. Gating on the customer id
 		// surfaced "Manage or cancel" buttons for orgs that abandoned
 		// checkout without paying.
-		"CanManageSubscription": h.billingConfigured() && state.StripeSubscriptionID.Valid && strings.TrimSpace(state.StripeSubscriptionID.String) != "",
+		"CanManageSubscription": canManageBilling && h.billingConfigured() && state.StripeSubscriptionID.Valid && strings.TrimSpace(state.StripeSubscriptionID.String) != "",
 		"GracePeriodLabel":      formatGracePeriod(h.d.BillingGracePeriod),
 		"Invoices":              billingInvoiceViews(invoices),
 		"IsSiteAdmin":           viewer.IsSiteAdmin,
@@ -497,6 +606,10 @@ func billingNotice(code string) string {
 		return "Organization created and GitHub import started. Continue with Team checkout to unlock paid features."
 	case "team-checkout-failed":
 		return "Organization created, but checkout could not be started. Try Continue with Team again."
+	case "quota-override-saved":
+		return "Quota override saved."
+	case "quota-override-cleared":
+		return "Quota override cleared."
 	default:
 		return ""
 	}
@@ -515,6 +628,7 @@ func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilli
 	} else {
 		debug.QuotaOverrides = billingQuotaOverrideViews(overrides)
 	}
+	debug.QuotaOverrideForms = billingQuotaOverrideForms(overrides)
 	if debug.LastWebhookEventID == "" {
 		return debug
 	}
@@ -540,6 +654,32 @@ func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilli
 		debug.LastWebhookStatus = "pending"
 	}
 	return debug
+}
+
+func parseBillingQuotaKind(raw string) (orgbilling.QuotaKind, bool) {
+	switch orgbilling.QuotaKind(strings.TrimSpace(raw)) {
+	case orgbilling.QuotaKindStorageBytes:
+		return orgbilling.QuotaKindStorageBytes, true
+	case orgbilling.QuotaKindActionsMinutes:
+		return orgbilling.QuotaKindActionsMinutes, true
+	default:
+		return "", false
+	}
+}
+
+func parseBillingQuotaLimit(raw string, unlimited bool) (int64, error) {
+	if unlimited {
+		return 0, nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, orgbilling.ErrInvalidQuotaOverride
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 0 {
+		return 0, orgbilling.ErrInvalidQuotaOverride
+	}
+	return v, nil
 }
 
 func billingQuotaOverrideViews(overrides []orgbilling.QuotaOverride) []billingQuotaOverrideView {
@@ -570,6 +710,39 @@ func billingQuotaOverrideViews(overrides []orgbilling.QuotaOverride) []billingQu
 		})
 	}
 	return items
+}
+
+func billingQuotaOverrideForms(overrides []orgbilling.QuotaOverride) []billingQuotaOverrideForm {
+	current := make(map[orgbilling.QuotaKind]orgbilling.QuotaOverride, len(overrides))
+	for _, override := range overrides {
+		current[override.Kind] = override
+	}
+	forms := []billingQuotaOverrideForm{
+		{
+			KindValue: string(orgbilling.QuotaKindStorageBytes),
+			KindLabel: "Storage",
+			UnitLabel: "bytes",
+			Help:      "Total repository and object storage accepted before hosted-cost writes are blocked.",
+		},
+		{
+			KindValue: string(orgbilling.QuotaKindActionsMinutes),
+			KindLabel: "Actions minutes",
+			UnitLabel: "minutes",
+			Help:      "Monthly Actions runner minutes accepted before org jobs stop dispatching.",
+		},
+	}
+	for i := range forms {
+		override, ok := current[orgbilling.QuotaKind(forms[i].KindValue)]
+		if !ok {
+			continue
+		}
+		if override.LimitValue.Valid {
+			forms[i].LimitValue = strconv.FormatInt(override.LimitValue.Int64, 10)
+		}
+		forms[i].Unlimited = override.Unlimited
+		forms[i].Note = strings.TrimSpace(override.Note)
+	}
+	return forms
 }
 
 func billingSummary(state orgbilling.State, memberCount int) []billingSummaryItem {

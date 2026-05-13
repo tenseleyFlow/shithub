@@ -286,6 +286,102 @@ func TestOrgBillingSettingsAppliesQuotaOverrides(t *testing.T) {
 	}
 }
 
+func TestOrgBillingSiteAdminCanManageQuotaOverrides(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	adminID := insertOrgAvatarUser(t, pool, "admin")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: adminID, Username: "admin", IsSiteAdmin: true}, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/quota-overrides", url.Values{
+		"kind":        {"storage_bytes"},
+		"limit_value": {"1073741824"},
+		"note":        {"support migration"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("save status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/organizations/acme/settings/billing?notice=quota-override-saved" {
+		t.Fatalf("save redirect=%q", got)
+	}
+	override, err := orgbilling.GetOrgQuotaOverride(ctx, orgbilling.Deps{Pool: pool}, orgID, orgbilling.QuotaKindStorageBytes)
+	if err != nil {
+		t.Fatalf("GetOrgQuotaOverride: %v", err)
+	}
+	if override.Unlimited || !override.LimitValue.Valid || override.LimitValue.Int64 != 1073741824 || override.Note != "support migration" {
+		t.Fatalf("unexpected override: %+v", override)
+	}
+	if !override.CreatedByUserID.Valid || override.CreatedByUserID.Int64 != adminID {
+		t.Fatalf("created_by_user_id=%+v, want %d", override.CreatedByUserID, adminID)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/quota-overrides", url.Values{
+		"kind":      {"actions_minutes"},
+		"unlimited": {"1"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("unlimited save status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	actionsOverride, err := orgbilling.GetOrgQuotaOverride(ctx, orgbilling.Deps{Pool: pool}, orgID, orgbilling.QuotaKindActionsMinutes)
+	if err != nil {
+		t.Fatalf("GetOrgQuotaOverride actions: %v", err)
+	}
+	if !actionsOverride.Unlimited || actionsOverride.LimitValue.Valid {
+		t.Fatalf("unexpected unlimited override: %+v", actionsOverride)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/quota-overrides/delete", url.Values{
+		"kind": {"storage_bytes"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("delete status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/organizations/acme/settings/billing?notice=quota-override-cleared" {
+		t.Fatalf("delete redirect=%q", got)
+	}
+	overrides, err := orgbilling.ListOrgQuotaOverrides(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("ListOrgQuotaOverrides: %v", err)
+	}
+	if len(overrides) != 1 || overrides[0].Kind != orgbilling.QuotaKindActionsMinutes {
+		t.Fatalf("unexpected remaining overrides: %+v", overrides)
+	}
+}
+
+func TestOrgBillingQuotaOverridesRequireSiteAdmin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/quota-overrides", url.Values{
+		"kind":        {"storage_bytes"},
+		"limit_value": {"1"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("save status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	overrides, err := orgbilling.ListOrgQuotaOverrides(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("ListOrgQuotaOverrides: %v", err)
+	}
+	if len(overrides) != 0 {
+		t.Fatalf("non-admin created overrides: %+v", overrides)
+	}
+}
+
 func TestOrgBillingSettingsSiteAdminDebugShowsProviderState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
