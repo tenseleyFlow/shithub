@@ -14,6 +14,7 @@ type Querier interface {
 	ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error)
 	ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (ClearBillingLockRow, error)
 	CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error)
+	CountPendingOrgInvitations(ctx context.Context, db DBTX, orgID int64) (int32, error)
 	// ─── billing_seat_snapshots ────────────────────────────────────────
 	CreateSeatSnapshot(ctx context.Context, db DBTX, arg CreateSeatSnapshotParams) (CreateSeatSnapshotRow, error)
 	// ─── billing_webhook_events ────────────────────────────────────────

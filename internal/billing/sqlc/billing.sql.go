@@ -255,6 +255,23 @@ func (q *Queries) CountBillableOrgMembers(ctx context.Context, db DBTX, orgID in
 	return column_1, err
 }
 
+const countPendingOrgInvitations = `-- name: CountPendingOrgInvitations :one
+SELECT count(*)::integer
+FROM org_invitations
+WHERE org_id = $1
+  AND accepted_at IS NULL
+  AND declined_at IS NULL
+  AND canceled_at IS NULL
+  AND expires_at > now()
+`
+
+func (q *Queries) CountPendingOrgInvitations(ctx context.Context, db DBTX, orgID int64) (int32, error) {
+	row := db.QueryRow(ctx, countPendingOrgInvitations, orgID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSeatSnapshot = `-- name: CreateSeatSnapshot :one
 
 WITH snapshot AS (
