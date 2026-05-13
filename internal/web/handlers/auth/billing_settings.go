@@ -530,6 +530,8 @@ func userBillingInvoiceStatusLabel(status userbilling.InvoiceStatus) string {
 		return "Void"
 	case userbilling.InvoiceStatusUncollectible:
 		return "Uncollectible"
+	case userbilling.InvoiceStatusRefunded:
+		return "Refunded"
 	default:
 		return "Draft"
 	}
@@ -544,6 +546,8 @@ func userBillingPeriodLabel(inv billingdb.BillingInvoice) string {
 
 func userBillingDueLabel(inv billingdb.BillingInvoice) string {
 	switch {
+	case inv.RefundedAt.Valid:
+		return "Refunded " + inv.RefundedAt.Time.Format("Jan 2, 2006")
 	case inv.PaidAt.Valid:
 		return "Paid " + inv.PaidAt.Time.Format("Jan 2, 2006")
 	case inv.VoidedAt.Valid:
