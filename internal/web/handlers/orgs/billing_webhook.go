@@ -189,6 +189,19 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 	}
 	principal, err := h.resolvePrincipalFromSubscription(ctx, &sub)
 	if err != nil {
+		// PRO08 D5: customer.subscription.deleted for a sub that's
+		// not in our DB (no metadata match, no customer-id match, no
+		// subscription-id match) — log + 200 no-op so Stripe stops
+		// retrying. Loud-failure here only triggers infinite retries
+		// against state we'll never own. Other event types still
+		// surface the error so the operator notices misconfiguration.
+		if string(event.Type) == "customer.subscription.deleted" {
+			h.d.Logger.InfoContext(ctx, "org billing: subscription.deleted for unknown subject — no-op",
+				"event_id", event.ID,
+				"stripe_subscription_id", strings.TrimSpace(sub.ID),
+				"error", err)
+			return nil
+		}
 		return err
 	}
 	h.recordWebhookSubject(ctx, event.ID, principal)
