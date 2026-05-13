@@ -37,6 +37,9 @@ const (
 	ActionRepoDelete     Action = "repo:delete"
 	ActionRepoTransfer   Action = "repo:transfer"
 	ActionRepoVisibility Action = "repo:visibility"
+
+	ActionActionsRun     Action = "actions:run"
+	ActionActionsApprove Action = "actions:approve"
 )
 
 // Issue-level actions. (Issue resources arrive in S18; S15 just ships
@@ -79,6 +82,7 @@ var AllActions = []Action{
 	ActionRepoRead, ActionRepoWrite, ActionRepoAdmin,
 	ActionRepoSettingsGeneral, ActionRepoSettingsCollaborators, ActionRepoSettingsBranches, ActionRepoSettingsActions,
 	ActionRepoArchive, ActionRepoDelete, ActionRepoTransfer, ActionRepoVisibility,
+	ActionActionsRun, ActionActionsApprove,
 	ActionIssueRead, ActionIssueCreate, ActionIssueComment, ActionIssueClose, ActionIssueLabel, ActionIssueAssign,
 	ActionPullRead, ActionPullCreate, ActionPullMerge, ActionPullReview, ActionPullClose,
 	ActionStarCreate, ActionForkCreate,

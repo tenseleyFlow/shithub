@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
 	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
+	actionspolicy "github.com/tenseleyFlow/shithub/internal/actions/policy"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
@@ -153,6 +154,17 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 	actorID := viewer.ID // 0 if anonymous, but RequireUser is in front of this route
 
 	payload := actionsevent.WorkflowDispatch(inputs)
+	decision, err := actionspolicy.EvaluateTrigger(r.Context(), actionspolicy.Deps{Pool: h.d.Pool}, actionspolicy.TriggerRequest{
+		Repo:        row,
+		EventKind:   string(trigger.EventWorkflowDispatch),
+		ActorUserID: actorID,
+	})
+	if err != nil || !decision.Allow {
+		h.d.Logger.WarnContext(r.Context(), "actions dispatch: blocked by actions policy",
+			"repo_id", row.ID, "workflow_file", file, "reason", decision.Reason, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "Actions are not allowed to run for this repository.")
+		return
+	}
 	if _, err := trigger.Enqueue(r.Context(), trigger.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, trigger.EnqueueParams{
 		RepoID:         row.ID,
 		WorkflowFile:   file,

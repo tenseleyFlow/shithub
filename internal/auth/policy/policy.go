@@ -424,7 +424,7 @@ func minRoleFor(action Action) Role {
 		return RoleTriage
 
 	// Write tier — code push, branch create, PR open/comment.
-	case ActionRepoWrite, ActionPullCreate, ActionPullReview, ActionPullClose:
+	case ActionRepoWrite, ActionActionsRun, ActionPullCreate, ActionPullReview, ActionPullClose:
 		return RoleWrite
 
 	// Issue participation on private repos requires read access. Public
@@ -433,7 +433,7 @@ func minRoleFor(action Action) Role {
 		return RoleRead
 
 	// Maintain tier — most settings except dangerous ones.
-	case ActionRepoSettingsGeneral, ActionRepoSettingsBranches:
+	case ActionRepoSettingsGeneral, ActionRepoSettingsBranches, ActionActionsApprove:
 		return RoleMaintain
 
 	// Admin tier — destructive and ownership-changing actions.
