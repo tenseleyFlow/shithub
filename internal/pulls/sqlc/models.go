@@ -63,6 +63,7 @@ const (
 	BillingInvoiceStatusPaid          BillingInvoiceStatus = "paid"
 	BillingInvoiceStatusVoid          BillingInvoiceStatus = "void"
 	BillingInvoiceStatusUncollectible BillingInvoiceStatus = "uncollectible"
+	BillingInvoiceStatusRefunded      BillingInvoiceStatus = "refunded"
 )
 
 func (e *BillingInvoiceStatus) Scan(src interface{}) error {
@@ -1969,6 +1970,7 @@ type BillingInvoice struct {
 	UpdatedAt            pgtype.Timestamptz
 	SubjectKind          BillingSubjectKind
 	SubjectID            int64
+	RefundedAt           pgtype.Timestamptz
 }
 
 type BillingSeatSnapshot struct {
@@ -2318,6 +2320,7 @@ type OrgBillingState struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 type OrgGithubImport struct {
@@ -2738,6 +2741,7 @@ type UserBillingState struct {
 	LastWebhookEventID       string
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+	LastEventAt              pgtype.Timestamptz
 }
 
 type UserEmail struct {
