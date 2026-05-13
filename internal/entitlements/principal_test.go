@@ -37,6 +37,7 @@ func TestAppliesToCrossKindFeatures(t *testing.T) {
 	crossKind := []entitlements.Feature{
 		entitlements.FeatureAdvancedBranchProtection,
 		entitlements.FeatureRequiredReviewers,
+		entitlements.FeatureCodeOwnersReview,
 	}
 	for _, f := range crossKind {
 		if !entitlements.FeatureAppliesToKind(f, billing.SubjectKindOrg) {
@@ -44,6 +45,24 @@ func TestAppliesToCrossKindFeatures(t *testing.T) {
 		}
 		if !entitlements.FeatureAppliesToKind(f, billing.SubjectKindUser) {
 			t.Errorf("%s should apply to user kind", f)
+		}
+	}
+}
+
+// TestAppliesToUserOnlyFeatures locks the PRO07-introduced user-only
+// features. FeatureProfilePinsBeyondFree must not be queryable for
+// org kind — orgs share the visible Free cap (PRO01 ratification).
+func TestAppliesToUserOnlyFeatures(t *testing.T) {
+	t.Parallel()
+	userOnly := []entitlements.Feature{
+		entitlements.FeatureProfilePinsBeyondFree,
+	}
+	for _, f := range userOnly {
+		if !entitlements.FeatureAppliesToKind(f, billing.SubjectKindUser) {
+			t.Errorf("%s should apply to user kind", f)
+		}
+		if entitlements.FeatureAppliesToKind(f, billing.SubjectKindOrg) {
+			t.Errorf("%s should NOT apply to org kind", f)
 		}
 	}
 }
