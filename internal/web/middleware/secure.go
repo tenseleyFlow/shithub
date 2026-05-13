@@ -24,6 +24,13 @@ func DefaultSecureHeaders() SecureHeadersConfig {
 		// Permit Primer CSS's inline style attributes (it uses them
 		// liberally) and our own first-party scripts. S35 evaluates moving
 		// to nonces / strict-dynamic.
+		//
+		// form-action allows Stripe's hosted Checkout and Customer billing
+		// portal hosts so the POST→303→Stripe redirect chain isn't blocked
+		// by browsers that enforce form-action across redirects (Safari,
+		// recent Chromium). Without those entries Safari aborts the
+		// redirect from /settings/billing/checkout to checkout.stripe.com
+		// with no visible error.
 		CSP: "default-src 'self'; " +
 			"img-src 'self' data: https:; " +
 			"style-src 'self' 'unsafe-inline'; " +
@@ -31,7 +38,7 @@ func DefaultSecureHeaders() SecureHeadersConfig {
 			"font-src 'self' data:; " +
 			"connect-src 'self'; " +
 			"frame-ancestors 'none'; " +
-			"form-action 'self'; " +
+			"form-action 'self' https://checkout.stripe.com https://billing.stripe.com; " +
 			"base-uri 'self'; " +
 			"object-src 'none'",
 		HSTS:            "max-age=31536000; includeSubDomains",
