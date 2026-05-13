@@ -390,6 +390,115 @@ func TestRepoActionRunRendersCancelControlsForWritersOnly(t *testing.T) {
 	}
 }
 
+func TestRepoActionRunApprovalControlsAndDecisions(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:       31,
+		WorkflowFile:   ".shithub/workflows/pr.yml",
+		WorkflowName:   "PR",
+		HeadRef:        "refs/heads/contrib",
+		Event:          actionsdb.WorkflowRunEventPullRequest,
+		Status:         actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:    f.stranger.ID,
+		CreatedOffset:  -5 * time.Minute,
+		NeedApproval:   true,
+		ApprovalReason: "Pull request workflow requires maintainer approval before runner dispatch.",
+	}, now)
+	f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:    runID,
+		JobIndex: 0,
+		JobKey:   "build",
+		JobName:  "Build",
+		RunsOn:   "ubuntu-latest",
+		Status:   actionsdb.WorkflowJobStatusQueued,
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/31", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("owner status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"RUN=PR:#31:pull_request:bob:pending;",
+		"APPROVE=/alice/public-repo/actions/runs/31/approve;",
+		"REJECT=/alice/public-repo/actions/runs/31/reject;",
+		"APPROVAL_PENDING=Pull request workflow requires maintainer approval before runner dispatch.;",
+		"WAIT=Waiting for maintainer approval;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("approval body missing %q in %s", want, body)
+		}
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/31", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stranger status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "APPROVE=") || strings.Contains(resp.Body.String(), "REJECT=") {
+		t.Fatalf("approval controls leaked to stranger: %s", resp.Body.String())
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/runs/31/approve", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("approve status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	run, err := actionsdb.New().GetWorkflowRunByID(context.Background(), f.pool, runID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if !run.ApprovedByUserID.Valid || run.ApprovedByUserID.Int64 != f.owner.ID {
+		t.Fatalf("approved_by not recorded: %+v", run)
+	}
+
+	rejectRunID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:     32,
+		WorkflowFile: ".shithub/workflows/pr.yml",
+		WorkflowName: "PR",
+		HeadRef:      "refs/heads/contrib",
+		Event:        actionsdb.WorkflowRunEventPullRequest,
+		Status:       actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:  f.stranger.ID,
+		NeedApproval: true,
+	}, now)
+	jobID := f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:    rejectRunID,
+		JobIndex: 0,
+		JobKey:   "build",
+		JobName:  "Build",
+		Status:   actionsdb.WorkflowJobStatusQueued,
+	})
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/runs/32/reject", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("reject status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	run, err = actionsdb.New().GetWorkflowRunByID(context.Background(), f.pool, rejectRunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID rejected: %v", err)
+	}
+	if run.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!run.Conclusion.Valid || run.Conclusion.CheckConclusion != actionsdb.CheckConclusionActionRequired {
+		t.Fatalf("rejected run: %+v", run)
+	}
+	job, err := actionsdb.New().GetWorkflowJobByID(context.Background(), f.pool, jobID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID rejected: %v", err)
+	}
+	if job.Status != actionsdb.WorkflowJobStatusCancelled ||
+		!job.Conclusion.Valid || job.Conclusion.CheckConclusion != actionsdb.CheckConclusionActionRequired {
+		t.Fatalf("rejected job: %+v", job)
+	}
+}
+
 func TestRepoActionRunCancelCancelsQueuedRun(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -799,6 +908,8 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", f.handlers.repoActionRunRerun)
+	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/approve", f.handlers.repoActionRunApprove)
+	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/reject", f.handlers.repoActionRunReject)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/cancel", f.handlers.repoActionJobCancel)
 	mux.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", f.handlers.repoActionsDispatch)
 	mux.Get("/{owner}/{repo}/actions", f.handlers.repoTabActions)
@@ -891,20 +1002,22 @@ func (f *repoFixture) seedWorkflowFile(t *testing.T, name, body string) string {
 }
 
 type workflowRunFixture struct {
-	RunIndex      int64
-	WorkflowFile  string
-	WorkflowName  string
-	HeadSHA       string
-	HeadRef       string
-	Event         actionsdb.WorkflowRunEvent
-	EventPayload  string
-	Status        actionsdb.WorkflowRunStatus
-	Conclusion    actionsdb.CheckConclusion
-	ActorUserID   int64
-	CreatedOffset time.Duration
-	StartedOffset time.Duration
-	DoneOffset    time.Duration
-	RepoID        int64
+	RunIndex       int64
+	WorkflowFile   string
+	WorkflowName   string
+	HeadSHA        string
+	HeadRef        string
+	Event          actionsdb.WorkflowRunEvent
+	EventPayload   string
+	Status         actionsdb.WorkflowRunStatus
+	Conclusion     actionsdb.CheckConclusion
+	ActorUserID    int64
+	CreatedOffset  time.Duration
+	StartedOffset  time.Duration
+	DoneOffset     time.Duration
+	RepoID         int64
+	NeedApproval   bool
+	ApprovalReason string
 }
 
 func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, base time.Time) int64 {
@@ -940,11 +1053,11 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 		INSERT INTO workflow_runs (
 			repo_id, run_index, workflow_file, workflow_name,
 			head_sha, head_ref, event, event_payload, actor_user_id,
-			status, conclusion, started_at, completed_at, created_at, updated_at
+			status, conclusion, need_approval, started_at, completed_at, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8::jsonb, $9,
-			$10, $11, $12, $13, $14, $15
+			$10, $11, $12, $13, $14, $15, $16
 		)
 		RETURNING id`,
 		repoID,
@@ -958,6 +1071,7 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 		fx.ActorUserID,
 		fx.Status,
 		conclusion,
+		fx.NeedApproval,
 		startedAt,
 		completedAt,
 		createdAt,
@@ -965,6 +1079,18 @@ func (f *repoFixture) insertWorkflowRun(t *testing.T, fx workflowRunFixture, bas
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert workflow run %d: %v", fx.RunIndex, err)
+	}
+	if fx.NeedApproval {
+		reason := fx.ApprovalReason
+		if reason == "" {
+			reason = "approval required"
+		}
+		if _, err := actionsdb.New().InsertWorkflowRunApproval(context.Background(), f.pool, actionsdb.InsertWorkflowRunApprovalParams{
+			RunID:           id,
+			RequestedReason: reason,
+		}); err != nil {
+			t.Fatalf("insert workflow approval %d: %v", fx.RunIndex, err)
+		}
 	}
 	return id
 }

@@ -257,7 +257,7 @@ func (h *Handlers) claimRunnerJob(
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
-	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID)
+	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID, job.Event)
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
 	}
@@ -1016,11 +1016,14 @@ type secretResolutionDB interface {
 }
 
 func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map[string]string, error) {
-	return h.resolveVisibleSecretsFromDB(ctx, h.d.Pool, repoID)
+	return h.resolveVisibleSecretsFromDB(ctx, h.d.Pool, repoID, "")
 }
 
-func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64) (map[string]string, error) {
+func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64, event actionsdb.WorkflowRunEvent) (map[string]string, error) {
 	if h.d.SecretBox == nil {
+		return nil, nil
+	}
+	if event == actionsdb.WorkflowRunEventPullRequest {
 		return nil, nil
 	}
 	repo, err := reposdb.New().GetRepoByID(ctx, db, repoID)

@@ -1,0 +1,64 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Actions settings</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Actions policy</h2>
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/actions" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Actions</span>
+          <select name="actions_enabled">
+            <option value="inherit"{{ if eq .Policy.ActionsEnabled "inherit" }} selected{{ end }}>Use inherited policy</option>
+            <option value="enabled"{{ if eq .Policy.ActionsEnabled "enabled" }} selected{{ end }}>Enabled</option>
+            <option value="disabled"{{ if eq .Policy.ActionsEnabled "disabled" }} selected{{ end }}>Disabled</option>
+          </select>
+        </label>
+        <label>
+          <span>Pull request approval</span>
+          <select name="require_pr_approval">
+            <option value="inherit"{{ if eq .Policy.RequirePRApproval "inherit" }} selected{{ end }}>Use inherited policy</option>
+            <option value="true"{{ if eq .Policy.RequirePRApproval "true" }} selected{{ end }}>Require maintainer approval</option>
+            <option value="false"{{ if eq .Policy.RequirePRApproval "false" }} selected{{ end }}>Do not require approval</option>
+          </select>
+        </label>
+        <label>
+          <span>Queued runs per repository</span>
+          <input type="number" name="max_repo_queued_runs" min="0" step="1" value="{{ .Policy.MaxRepoQueuedRuns }}" placeholder="{{ .Policy.EffectiveMaxRepoQueuedRuns }}">
+        </label>
+        <label>
+          <span>Concurrent jobs per repository</span>
+          <input type="number" name="max_repo_concurrent_jobs" min="0" step="1" value="{{ .Policy.MaxRepoConcurrentJobs }}" placeholder="{{ .Policy.EffectiveMaxRepoConcurrent }}">
+        </label>
+        <label>
+          <span>Concurrent jobs per owner</span>
+          <input type="number" name="max_owner_concurrent_jobs" min="0" step="1" value="{{ .Policy.MaxOwnerConcurrentJobs }}" placeholder="{{ .Policy.EffectiveMaxOwnerConcurrent }}">
+        </label>
+        <label>
+          <span>Triggers per actor per hour</span>
+          <input type="number" name="actor_trigger_limit_per_hour" min="0" step="1" value="{{ .Policy.ActorTriggerLimitPerHour }}" placeholder="{{ .Policy.EffectiveActorHourlyLimit }}">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Save policy</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Effective policy</h2>
+      <table class="shithub-branches-table">
+        <tbody>
+          <tr><th>Actions</th><td>{{ if .Policy.EffectiveActionsEnabled }}enabled{{ else }}disabled{{ end }}</td></tr>
+          <tr><th>Pull request approval</th><td>{{ if .Policy.EffectiveRequirePRApproval }}required{{ else }}not required{{ end }}</td></tr>
+          <tr><th>Queued runs per repository</th><td>{{ .Policy.EffectiveMaxRepoQueuedRuns }}</td></tr>
+          <tr><th>Concurrent jobs per repository</th><td>{{ .Policy.EffectiveMaxRepoConcurrent }}</td></tr>
+          <tr><th>Concurrent jobs per owner</th><td>{{ .Policy.EffectiveMaxOwnerConcurrent }}</td></tr>
+          <tr><th>Triggers per actor per hour</th><td>{{ .Policy.EffectiveActorHourlyLimit }}</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</div>
+{{- end }}

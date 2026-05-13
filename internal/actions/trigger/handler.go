@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	actionspolicy "github.com/tenseleyFlow/shithub/internal/actions/policy"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -140,6 +141,20 @@ func Handler(deps JobDeps) worker.Handler {
 			if !Match(w, ev) {
 				continue
 			}
+			decision, err := actionspolicy.EvaluateTrigger(ctx, actionspolicy.Deps{Pool: deps.Pool}, actionspolicy.TriggerRequest{
+				Repo:        repo,
+				EventKind:   string(p.EventKind),
+				ActorUserID: p.ActorUserID,
+				Now:         time.Now(),
+			})
+			if err != nil || !decision.Allow {
+				if isExpectedPolicySkip(err) || !decision.Allow {
+					deps.Logger.InfoContext(ctx, "trigger: workflow skipped by actions policy",
+						"repo_id", p.RepoID, "path", f.Path, "event", p.EventKind, "reason", decision.Reason, "error", err)
+					continue
+				}
+				return fmt.Errorf("trigger: evaluate actions policy: %w", err)
+			}
 			if _, err := Enqueue(ctx, deps.Deps, EnqueueParams{
 				RepoID:         p.RepoID,
 				WorkflowFile:   f.Path,
@@ -150,6 +165,8 @@ func Handler(deps JobDeps) worker.Handler {
 				ActorUserID:    p.ActorUserID,
 				TriggerEventID: p.TriggerEventID,
 				Workflow:       w,
+				NeedApproval:   decision.NeedApproval,
+				ApprovalReason: decision.ApprovalReason,
 			}); err != nil {
 				deps.Logger.WarnContext(ctx, "trigger: enqueue failed",
 					"repo_id", p.RepoID, "path", f.Path, "trigger_event_id", p.TriggerEventID, "error", err)
@@ -161,6 +178,15 @@ func Handler(deps JobDeps) worker.Handler {
 		}
 		return nil
 	}
+}
+
+func isExpectedPolicySkip(err error) bool {
+	return errors.Is(err, actionspolicy.ErrActionsDisabled) ||
+		errors.Is(err, actionspolicy.ErrRepoQueuedCap) ||
+		errors.Is(err, actionspolicy.ErrActorRateLimit) ||
+		errors.Is(err, actionspolicy.ErrActorRequired) ||
+		errors.Is(err, actionspolicy.ErrActorNotFound) ||
+		errors.Is(err, actionspolicy.ErrUnauthorized)
 }
 
 // eventFromPayload assembles the typed Event consumed by Match from

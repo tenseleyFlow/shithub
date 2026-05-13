@@ -124,6 +124,7 @@ SET status = 'running',
     version = version + 1,
     updated_at = now()
 WHERE id = $1 AND status = 'queued'
+  AND (need_approval = false OR approved_by_user_id IS NOT NULL)
 RETURNING id, repo_id, run_index, workflow_file, workflow_name,
           head_sha, head_ref, event, event_payload,
           actor_user_id, parent_run_id, concurrency_group,

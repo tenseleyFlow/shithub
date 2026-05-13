@@ -16,6 +16,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -128,12 +129,9 @@ func resolveGitDirForPR(ctx context.Context, pool *pgxpool.Pool, rfs *storage.Re
 // enqueuePRActionsTrigger fans out a workflow:trigger job for a PR
 // state transition (action ∈ {"opened", "synchronize"} for v1).
 //
-// Collaborator gate (S41b spec §"Pitfalls"): "default for v1: trigger
-// on PR only when the PR is from a collaborator." We take a
-// conservative approach — actor must be the repo's owning user.
-// Org-member triggers and explicit-collaborator triggers are parked
-// behind a TODO; expanding requires a richer policy lookup that the
-// worker context doesn't easily reach today.
+// Trust gate: the trigger handler evaluates the PR author through
+// internal/auth/policy. Trusted same-repo collaborators run immediately;
+// untrusted PRs are queued in an approval-required state when policy allows.
 func enqueuePRActionsTrigger(ctx context.Context, deps PRJobsDeps, prID int64, action string) error {
 	pr, err := pullsdb.New().GetPullRequestByIssueID(ctx, deps.Pool, prID)
 	if err != nil {
@@ -148,20 +146,17 @@ func enqueuePRActionsTrigger(ctx context.Context, deps PRJobsDeps, prID int64, a
 		return fmt.Errorf("load repo: %w", err)
 	}
 
-	// Collaborator gate. v1: actor must be the repo's owner-user.
-	// External-PR + org-member triggers parked.
-	if !repo.OwnerUserID.Valid || !issue.AuthorUserID.Valid ||
-		repo.OwnerUserID.Int64 != issue.AuthorUserID.Int64 {
-		deps.Logger.InfoContext(ctx, "pr: skipping workflow:trigger (non-collaborator PR)",
+	if !issue.AuthorUserID.Valid {
+		deps.Logger.InfoContext(ctx, "pr: skipping workflow:trigger (missing author)",
 			"pr_id", prID, "action", action)
 		return nil
 	}
 
-	owner, err := usersdb.New().GetUserByID(ctx, deps.Pool, repo.OwnerUserID.Int64)
+	ownerLogin, err := resolvePRActionsOwnerLogin(ctx, deps.Pool, repo)
 	if err != nil {
 		return fmt.Errorf("load owner: %w", err)
 	}
-	gitDir, err := deps.RepoFS.RepoPath(owner.Username, repo.Name)
+	gitDir, err := deps.RepoFS.RepoPath(ownerLogin, repo.Name)
 	if err != nil {
 		return fmt.Errorf("repo path: %w", err)
 	}
@@ -177,7 +172,10 @@ func enqueuePRActionsTrigger(ctx context.Context, deps PRJobsDeps, prID int64, a
 		changed = nil
 	}
 
-	authorLogin := owner.Username
+	authorLogin := ""
+	if u, err := usersdb.New().GetUserByID(ctx, deps.Pool, issue.AuthorUserID.Int64); err == nil {
+		authorLogin = u.Username
+	}
 	payload := actionsevent.PullRequest(
 		action, issue.Number, issue.Title,
 		actionsevent.PRRef{Ref: pr.HeadRef, SHA: pr.HeadOid},
@@ -202,4 +200,22 @@ func enqueuePRActionsTrigger(ctx context.Context, deps PRJobsDeps, prID int64, a
 		return fmt.Errorf("enqueue: %w", err)
 	}
 	return nil
+}
+
+func resolvePRActionsOwnerLogin(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo) (string, error) {
+	if repo.OwnerUserID.Valid {
+		u, err := usersdb.New().GetUserByID(ctx, pool, repo.OwnerUserID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return u.Username, nil
+	}
+	if repo.OwnerOrgID.Valid {
+		o, err := orgsdb.New().GetOrgByID(ctx, pool, repo.OwnerOrgID.Int64)
+		if err != nil {
+			return "", err
+		}
+		return o.Slug, nil
+	}
+	return "", errors.New("repo has neither owner_user_id nor owner_org_id")
 }

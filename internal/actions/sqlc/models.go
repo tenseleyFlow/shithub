@@ -12,6 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ActionsPolicyState string
+
+const (
+	ActionsPolicyStateInherit  ActionsPolicyState = "inherit"
+	ActionsPolicyStateEnabled  ActionsPolicyState = "enabled"
+	ActionsPolicyStateDisabled ActionsPolicyState = "disabled"
+)
+
+func (e *ActionsPolicyState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ActionsPolicyState(s)
+	case string:
+		*e = ActionsPolicyState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ActionsPolicyState: %T", src)
+	}
+	return nil
+}
+
+type NullActionsPolicyState struct {
+	ActionsPolicyState ActionsPolicyState
+	Valid              bool // Valid is true if ActionsPolicyState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullActionsPolicyState) Scan(value interface{}) error {
+	if value == nil {
+		ns.ActionsPolicyState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ActionsPolicyState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullActionsPolicyState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ActionsPolicyState), nil
+}
+
 type BillingInvoiceStatus string
 
 const (
@@ -1750,6 +1793,45 @@ func (ns NullWorkflowStepStatus) Value() (driver.Value, error) {
 	return string(ns.WorkflowStepStatus), nil
 }
 
+type ActionsOrgPolicy struct {
+	OrgID                    int64
+	ActionsEnabled           ActionsPolicyState
+	RequirePrApproval        pgtype.Bool
+	MaxRepoQueuedRuns        pgtype.Int4
+	MaxRepoConcurrentJobs    pgtype.Int4
+	MaxOwnerConcurrentJobs   pgtype.Int4
+	ActorTriggerLimitPerHour pgtype.Int4
+	UpdatedByUserID          pgtype.Int8
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+type ActionsRepoPolicy struct {
+	RepoID                   int64
+	ActionsEnabled           ActionsPolicyState
+	RequirePrApproval        pgtype.Bool
+	MaxRepoQueuedRuns        pgtype.Int4
+	MaxRepoConcurrentJobs    pgtype.Int4
+	MaxOwnerConcurrentJobs   pgtype.Int4
+	ActorTriggerLimitPerHour pgtype.Int4
+	UpdatedByUserID          pgtype.Int8
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+type ActionsSitePolicy struct {
+	ID                       bool
+	ActionsEnabled           bool
+	RequirePrApproval        bool
+	MaxRepoQueuedRuns        int32
+	MaxRepoConcurrentJobs    int32
+	MaxOwnerConcurrentJobs   int32
+	ActorTriggerLimitPerHour int32
+	UpdatedByUserID          pgtype.Int8
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
 type ActionsVariable struct {
 	ID              int64
 	RepoID          pgtype.Int8
@@ -2755,6 +2837,18 @@ type WorkflowRun struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	TriggerEventID   string
+}
+
+type WorkflowRunApproval struct {
+	RunID            int64
+	RequestedReason  string
+	RequestedAt      pgtype.Timestamptz
+	ApprovedByUserID pgtype.Int8
+	ApprovedAt       pgtype.Timestamptz
+	RejectedByUserID pgtype.Int8
+	RejectedAt       pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 }
 
 type WorkflowRunner struct {

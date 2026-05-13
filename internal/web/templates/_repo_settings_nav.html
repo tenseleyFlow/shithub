@@ -21,6 +21,9 @@
       <li{{ if eq .SettingsActive "webhooks" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/webhooks">Webhooks</a>
       </li>
+      <li{{ if eq .SettingsActive "actions" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/actions">Actions</a>
+      </li>
       <li{{ if eq .SettingsActive "actions-secrets" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">Actions secrets</a>
       </li>

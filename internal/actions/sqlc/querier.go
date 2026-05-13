@@ -13,10 +13,15 @@ import (
 type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
+	ApproveWorkflowRun(ctx context.Context, db DBTX, arg ApproveWorkflowRunParams) (ApproveWorkflowRunRow, error)
 	CancelOpenWorkflowStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]WorkflowStep, error)
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)
+	CountQueuedWorkflowRunsForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
+	CountRecentWorkflowRunsForActor(ctx context.Context, db DBTX, arg CountRecentWorkflowRunsForActorParams) (int64, error)
 	CountRunningJobsForRunner(ctx context.Context, db DBTX, runnerID int64) (int32, error)
+	CountRunningWorkflowJobsForOwner(ctx context.Context, db DBTX, repoID int64) (int64, error)
+	CountRunningWorkflowJobsForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountWorkflowCachesForRepo(ctx context.Context, db DBTX, arg CountWorkflowCachesForRepoParams) (int64, error)
 	CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error)
 	DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error)
@@ -55,7 +60,10 @@ type Querier interface {
 	// in migration 0051; both must agree for postgres to infer the
 	// target.
 	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
+	GetActionsRepoPolicy(ctx context.Context, db DBTX, repoID int64) (ActionsRepoPolicy, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	GetEffectiveActionsPolicyForRepo(ctx context.Context, db DBTX, id int64) (GetEffectiveActionsPolicyForRepoRow, error)
 	GetFirstStepForJob(ctx context.Context, db DBTX, jobID int64) (WorkflowStep, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error)
@@ -69,6 +77,7 @@ type Querier interface {
 	GetWorkflowCacheByID(ctx context.Context, db DBTX, id int64) (WorkflowCache, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowJobSecretMask(ctx context.Context, db DBTX, jobID int64) (WorkflowJobSecretMask, error)
+	GetWorkflowRunApproval(ctx context.Context, db DBTX, runID int64) (WorkflowRunApproval, error)
 	GetWorkflowRunByID(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	GetWorkflowRunForRepoByIndex(ctx context.Context, db DBTX, arg GetWorkflowRunForRepoByIndexParams) (GetWorkflowRunForRepoByIndexRow, error)
 	GetWorkflowStepByID(ctx context.Context, db DBTX, id int64) (WorkflowStep, error)
@@ -88,6 +97,8 @@ type Querier interface {
 	InsertWorkflowJob(ctx context.Context, db DBTX, arg InsertWorkflowJobParams) (WorkflowJob, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowRun(ctx context.Context, db DBTX, arg InsertWorkflowRunParams) (WorkflowRun, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertWorkflowRunApproval(ctx context.Context, db DBTX, arg InsertWorkflowRunApprovalParams) (WorkflowRunApproval, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertWorkflowStep(ctx context.Context, db DBTX, arg InsertWorkflowStepParams) (WorkflowStep, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -133,6 +144,8 @@ type Querier interface {
 	LookupWorkflowRunByTriggerEvent(ctx context.Context, db DBTX, arg LookupWorkflowRunByTriggerEventParams) (WorkflowRun, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	MarkRunnerJWTUsed(ctx context.Context, db DBTX, arg MarkRunnerJWTUsedParams) (RunnerJwtUsed, error)
+	MarkWorkflowJobsRejected(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
+	MarkWorkflowRunRejected(ctx context.Context, db DBTX, id int64) (WorkflowRun, error)
 	MarkWorkflowRunRunning(ctx context.Context, db DBTX, id int64) error
 	// Atomic next-index emitter: take the max + 1 for this repo. Pairs
 	// with the (repo_id, run_index) UNIQUE so concurrent inserts that
@@ -140,6 +153,7 @@ type Querier interface {
 	// Cast to bigint so sqlc generates int64 (the column type) rather
 	// than int32 (the type the +1 literal would default to).
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
+	RejectWorkflowRunApproval(ctx context.Context, db DBTX, arg RejectWorkflowRunApprovalParams) (WorkflowRunApproval, error)
 	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
@@ -152,6 +166,7 @@ type Querier interface {
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
 	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)
+	UpsertActionsRepoPolicy(ctx context.Context, db DBTX, arg UpsertActionsRepoPolicyParams) (ActionsRepoPolicy, error)
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
 	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
