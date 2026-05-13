@@ -12,6 +12,24 @@ between minor releases.
 
 ### Added
 
+- **Personal Pro tier feature gates (PRO07).** Pro v1 lights up four
+  user-tier paygates ratified in PRO01: required reviewers on private
+  personal repos, multi-reviewer thresholds, advanced branch
+  protection (prevent force-push / deletion / require signed commits),
+  and profile pins above the Free cap of 6 (Pro raises this to 100).
+  Each gate is enforced via a per-feature operator flag in
+  `billing.enforce.*` so launches are reversible without a code
+  rollback. PRO07 ships dark (all flags default false) and operators
+  flip each feature on after the 7-day report-only telemetry soak.
+  Pro user accounts retain existing required-reviewer rules and pin
+  configuration through cancellation; the gate refuses to create new
+  gated state on Free but never deletes prior data. Added the
+  `FeatureProfilePinsBeyondFree` (user-only) and
+  `FeatureCodeOwnersReview` (placeholder; no-op enforce until the
+  CODEOWNERS parser ships) entitlement constants, plus the
+  `LimitProfilePinsFreeCap` / `LimitProfilePinsProCap` limit
+  constants. Migration `0076_profile_pins_pro_cap` raises the
+  `profile_pins.position` check constraint from `1..6` to `1..100`.
 - **REST API contract (S50 §0).** `GET /api/v1/meta` returns the
   server's version stamp and a list of feature capability strings
   for client-side feature detection. Every `/api/v1/*` response

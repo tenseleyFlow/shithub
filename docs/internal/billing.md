@@ -87,6 +87,58 @@ Rules for paid-org copy:
 | Data residency/compliance | Deferred | Deferred | Later Enterprise feature |
 | Billing support | Basic instance support | Billing support after runbook exists | Contact sales |
 
+## Pro v1 user-tier matrix (PRO07)
+
+Pro is the user-tier paid plan (single seat, $4/month). PRO01 ratified
+the v1 feature set; PRO07 wires the enforcement matrix. CODEOWNERS is a
+registered placeholder with a no-op enforce path until the parser ships.
+
+| Capability | Free | Pro |
+| --- | --- | --- |
+| Public/private personal repos | Included | Included |
+| Required reviewers on private personal repos | Upgrade | Included |
+| Multi-reviewer (>1 approvals) on private personal repos | Upgrade | Included |
+| Advanced branch protection on private personal repos | Upgrade | Included |
+| CODEOWNERS review | Deferred | Deferred |
+| Profile pins | 6 | 100 |
+
+Multi-reviewer is **not** a separate feature constant — the numeric
+threshold lives in the deny payload of `FeatureRequiredReviewers`.
+
+### Per-feature enforcement flags
+
+PRO05 plumbed user-kind report-only logging through every gating site.
+PRO07 lights up the gates one feature at a time via
+`billing.enforce.*` in the operator's config. Defaults are all false
+(report-only). Each flag is a one-way deploy that operators can roll
+back without code changes.
+
+| Config key | Gate site | Default |
+| --- | --- | --- |
+| `billing.enforce.user_required_reviewers` | `internal/web/handlers/repo/settings_branches.go` | false |
+| `billing.enforce.user_advanced_branch_protection` | `internal/web/handlers/repo/settings_branches.go` | false |
+| `billing.enforce.user_profile_pins_beyond_free` | `internal/web/handlers/profile/pins.go` | false |
+
+Rollout discipline:
+
+1. Deploy with all flags false. Run the report-only telemetry query
+   for 7 days. Confirm zero unexpected user-kind would-denies.
+2. Flip one feature flag in staging. Soak 7 days.
+3. Flip the same feature flag in production.
+4. Repeat per feature.
+
+PRO07's pitfall doc explicitly forbids enforcing a feature without an
+unenforce path. New gating sites land with their own flag; do not
+share flags across features.
+
+### Downgrade preservation
+
+`users.plan = 'free'` after cancellation grandfather's existing gated
+state — required-reviewer rules, profile pins above 6, advanced flags
+on existing rules. The gate refuses to **create** new gated state on
+Free, but never deletes prior configuration. This is the same
+contract as the org-tier downgrade.
+
 ## Current capability audit
 
 Already present and safe to gate:
