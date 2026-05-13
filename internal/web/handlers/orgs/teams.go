@@ -196,6 +196,27 @@ func teamsNoticeMessage(code string) string {
 	}
 }
 
+func (h *Handlers) secretTeamWriteNotice(ctx context.Context, orgID int64, team orgsdb.Team) (string, error) {
+	if team.Privacy != orgsdb.TeamPrivacySecret {
+		return "", nil
+	}
+	decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, orgID, entitlements.FeatureOrgSecretTeams)
+	if err != nil {
+		return "", err
+	}
+	if decision.Allowed {
+		return "", nil
+	}
+	switch decision.Reason {
+	case entitlements.ReasonBillingActionNeeded:
+		return "secret-teams-billing", nil
+	case entitlements.ReasonEnterpriseContactSales:
+		return "secret-teams-enterprise", nil
+	default:
+		return "secret-teams-upgrade", nil
+	}
+}
+
 // teamView renders /{org}/teams/{teamSlug}. Members + repo access.
 // Secret teams 404 for non-members + non-owners.
 func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
@@ -224,30 +245,47 @@ func (h *Handlers) teamView(w http.ResponseWriter, r *http.Request) {
 	memberCandidates := h.teamMemberCandidates(r.Context(), org.ID, team.ID)
 	repoCandidates := h.teamRepoCandidates(r.Context(), org.ID, team.ID)
 	isOwner := false
+	canExpandTeam := false
+	secretTeamWritesDisabledMessage := ""
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+		canExpandTeam = isOwner
+		if isOwner {
+			noticeCode, nerr := h.secretTeamWriteNotice(r.Context(), org.ID, team)
+			if nerr != nil {
+				h.d.Logger.WarnContext(r.Context(), "teams: secret-team entitlement check", "org_id", org.ID, "team_id", team.ID, "error", nerr)
+				canExpandTeam = false
+				secretTeamWritesDisabledMessage = "Secret team changes are temporarily unavailable."
+			} else if noticeCode != "" {
+				canExpandTeam = false
+				secretTeamWritesDisabledMessage = teamsNoticeMessage(noticeCode)
+			}
+		}
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	if err := h.d.Render.RenderPage(w, r, "orgs/team_view", map[string]any{
-		"Title":            string(org.Slug) + "/" + string(team.Slug),
-		"CSRFToken":        middleware.CSRFTokenForRequest(r),
-		"Org":              org,
-		"AvatarURL":        "/avatars/" + url.PathEscape(string(org.Slug)),
-		"ActiveOrgNav":     "teams",
-		"Team":             team,
-		"TeamDisplayName":  teamDisplayName(team),
-		"TeamPath":         h.teamPath(org, team),
-		"TeamPrivacy":      string(team.Privacy),
-		"TeamIsSecret":     team.Privacy == orgsdb.TeamPrivacySecret,
-		"ChildTeams":       childItems,
-		"Members":          members,
-		"MemberCandidates": memberCandidates,
-		"Repos":            repos,
-		"RepoCandidates":   repoCandidates,
-		"RepoCount":        navCounts.RepoCount,
-		"MemberCount":      navCounts.MemberCount,
-		"TeamCount":        navCounts.TeamCount,
-		"IsOwner":          isOwner,
+		"Title":                           string(org.Slug) + "/" + string(team.Slug),
+		"CSRFToken":                       middleware.CSRFTokenForRequest(r),
+		"Org":                             org,
+		"AvatarURL":                       "/avatars/" + url.PathEscape(string(org.Slug)),
+		"ActiveOrgNav":                    "teams",
+		"Team":                            team,
+		"TeamDisplayName":                 teamDisplayName(team),
+		"TeamPath":                        h.teamPath(org, team),
+		"TeamPrivacy":                     string(team.Privacy),
+		"TeamIsSecret":                    team.Privacy == orgsdb.TeamPrivacySecret,
+		"ChildTeams":                      childItems,
+		"Members":                         members,
+		"MemberCandidates":                memberCandidates,
+		"Repos":                           repos,
+		"RepoCandidates":                  repoCandidates,
+		"RepoCount":                       navCounts.RepoCount,
+		"MemberCount":                     navCounts.MemberCount,
+		"TeamCount":                       navCounts.TeamCount,
+		"IsOwner":                         isOwner,
+		"CanExpandTeam":                   canExpandTeam,
+		"SecretTeamWritesDisabledMessage": secretTeamWritesDisabledMessage,
+		"Notice":                          teamsNoticeMessage(r.URL.Query().Get("notice")),
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/team_view", "error", err)
 	}
@@ -286,6 +324,16 @@ func (h *Handlers) teamMemberAddRemove(w http.ResponseWriter, r *http.Request) {
 	case "remove":
 		_ = orgs.RemoveTeamMember(r.Context(), h.deps(), team.ID, uid)
 	default:
+		noticeCode, err := h.secretTeamWriteNotice(r.Context(), org.ID, team)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "teams: secret-team entitlement check", "org_id", org.ID, "team_id", team.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if noticeCode != "" {
+			http.Redirect(w, r, h.teamPath(org, team)+"?notice="+noticeCode, http.StatusSeeOther)
+			return
+		}
 		role := r.PostFormValue("role")
 		_ = orgs.AddTeamMember(r.Context(), h.deps(), team.ID, uid, viewer.ID, role)
 	}
@@ -323,6 +371,16 @@ func (h *Handlers) teamRepoGrant(w http.ResponseWriter, r *http.Request) {
 	if r.PostFormValue("action") == "remove" {
 		_ = orgs.RevokeTeamRepoAccess(r.Context(), h.deps(), team.ID, repoID)
 	} else {
+		noticeCode, err := h.secretTeamWriteNotice(r.Context(), org.ID, team)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "teams: secret-team entitlement check", "org_id", org.ID, "team_id", team.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if noticeCode != "" {
+			http.Redirect(w, r, h.teamPath(org, team)+"?notice="+noticeCode, http.StatusSeeOther)
+			return
+		}
 		_ = orgs.GrantTeamRepoAccess(r.Context(), h.deps(), team.ID, repoID, viewer.ID,
 			r.PostFormValue("role"))
 	}

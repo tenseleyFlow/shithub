@@ -13,10 +13,12 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	orgsh "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
@@ -117,6 +119,93 @@ func TestTeamCreateBlocksSecretTeamsWithoutEntitlement(t *testing.T) {
 	}
 }
 
+func TestSecretTeamAddMemberRequiresEntitlementButRemoveAllowed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	memberID := insertOrgAvatarUser(t, pool, "member")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := pool.Exec(ctx, `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'member')`, orgID, memberID); err != nil {
+		t.Fatalf("insert org member: %v", err)
+	}
+	teamID := insertTeamForTest(t, pool, orgID, "security", "Security", "secret")
+
+	form := url.Values{"user_id": {strconv.FormatInt(memberID, 10)}, "role": {"member"}}
+	body, status, location := performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/members", form)
+	if status != http.StatusSeeOther {
+		t.Fatalf("free add status=%d body=%s", status, body)
+	}
+	if location != "/acme/teams/security?notice=secret-teams-upgrade" {
+		t.Fatalf("free add redirect=%q", location)
+	}
+	assertTeamMemberCount(t, pool, teamID, 0)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'member')`, teamID, memberID); err != nil {
+		t.Fatalf("seed team member: %v", err)
+	}
+	assertTeamMemberCount(t, pool, teamID, 1)
+
+	remove := url.Values{
+		"user_id": {strconv.FormatInt(memberID, 10)},
+		"action":  {"remove"},
+	}
+	body, status, _ = performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/members", remove)
+	if status != http.StatusSeeOther {
+		t.Fatalf("remove status=%d body=%s", status, body)
+	}
+	assertTeamMemberCount(t, pool, teamID, 0)
+
+	activateTeamPlanForTest(t, pool, orgID)
+	body, status, _ = performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/members", form)
+	if status != http.StatusSeeOther {
+		t.Fatalf("team add status=%d body=%s", status, body)
+	}
+	assertTeamMemberCount(t, pool, teamID, 1)
+}
+
+func TestSecretTeamRepoGrantRequiresEntitlementButRevokeAllowed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	teamID := insertTeamForTest(t, pool, orgID, "security", "Security", "secret")
+	repoID := insertTeamRepoForTest(t, pool, orgID, "private-repo")
+
+	form := url.Values{"repo_id": {strconv.FormatInt(repoID, 10)}, "role": {"write"}}
+	body, status, location := performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/repos", form)
+	if status != http.StatusSeeOther {
+		t.Fatalf("free grant status=%d body=%s", status, body)
+	}
+	if location != "/acme/teams/security?notice=secret-teams-upgrade" {
+		t.Fatalf("free grant redirect=%q", location)
+	}
+	assertTeamRepoGrantCount(t, pool, teamID, 0)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO team_repo_access (team_id, repo_id, role) VALUES ($1, $2, 'write')`, teamID, repoID); err != nil {
+		t.Fatalf("seed team repo access: %v", err)
+	}
+	assertTeamRepoGrantCount(t, pool, teamID, 1)
+
+	remove := url.Values{
+		"repo_id": {strconv.FormatInt(repoID, 10)},
+		"action":  {"remove"},
+	}
+	body, status, _ = performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/repos", remove)
+	if status != http.StatusSeeOther {
+		t.Fatalf("revoke status=%d body=%s", status, body)
+	}
+	assertTeamRepoGrantCount(t, pool, teamID, 0)
+
+	activateTeamPlanForTest(t, pool, orgID)
+	body, status, _ = performTeamsRequest(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"}, http.MethodPost, "/acme/teams/security/repos", form)
+	if status != http.StatusSeeOther {
+		t.Fatalf("team grant status=%d body=%s", status, body)
+	}
+	assertTeamRepoGrantCount(t, pool, teamID, 1)
+}
+
 func performTeamsListRequest(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, target string) (string, int, string) {
 	return performTeamsRequest(t, pool, viewer, http.MethodGet, target, nil)
 }
@@ -177,4 +266,58 @@ func insertTeamForTest(t *testing.T, db orgsdb.DBTX, orgID int64, slug, displayN
 		t.Fatalf("insert team: %v", err)
 	}
 	return id
+}
+
+func insertTeamRepoForTest(t *testing.T, db orgsdb.DBTX, orgID int64, name string) int64 {
+	t.Helper()
+	var id int64
+	if err := db.QueryRow(context.Background(),
+		`INSERT INTO repos (owner_org_id, name, visibility, default_branch)
+		 VALUES ($1, $2, 'private', 'trunk')
+		 RETURNING id`,
+		orgID, name,
+	).Scan(&id); err != nil {
+		t.Fatalf("insert repo: %v", err)
+	}
+	return id
+}
+
+func activateTeamPlanForTest(t *testing.T, pool *pgxpool.Pool, orgID int64) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	_, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_teams_" + strconv.FormatInt(orgID, 10),
+		StripeSubscriptionItemID: "si_teams_" + strconv.FormatInt(orgID, 10),
+		CurrentPeriodStart:       now,
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_teams_" + strconv.FormatInt(orgID, 10),
+	})
+	if err != nil {
+		t.Fatalf("activate team plan: %v", err)
+	}
+}
+
+func assertTeamMemberCount(t *testing.T, db orgsdb.DBTX, teamID int64, want int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(context.Background(), `SELECT count(*) FROM team_members WHERE team_id = $1`, teamID).Scan(&count); err != nil {
+		t.Fatalf("count team members: %v", err)
+	}
+	if count != want {
+		t.Fatalf("team member count=%d, want %d", count, want)
+	}
+}
+
+func assertTeamRepoGrantCount(t *testing.T, db orgsdb.DBTX, teamID int64, want int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(context.Background(), `SELECT count(*) FROM team_repo_access WHERE team_id = $1`, teamID).Scan(&count); err != nil {
+		t.Fatalf("count team repo grants: %v", err)
+	}
+	if count != want {
+		t.Fatalf("team repo grant count=%d, want %d", count, want)
+	}
 }

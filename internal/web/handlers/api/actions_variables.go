@@ -13,6 +13,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/variables"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -175,6 +176,9 @@ func (h *Handlers) actionsVariablesListOrg(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	if !h.requireAPIOrgOwner(w, r, org) {
+		return
+	}
 	rows, err := h.variablesDeps().List(r.Context(), variables.OrgScope(org.ID))
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: list org variables", "error", err)
@@ -193,6 +197,9 @@ func (h *Handlers) actionsVariablesGetOrg(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireAPIOrgOwner(w, r, org) {
+		return
+	}
 	v, err := h.variablesDeps().Get(r.Context(), variables.OrgScope(org.ID), chi.URLParam(r, "name"))
 	if err != nil {
 		writeVariablesError(w, err)
@@ -204,6 +211,12 @@ func (h *Handlers) actionsVariablesGetOrg(w http.ResponseWriter, r *http.Request
 func (h *Handlers) actionsVariablesCreateOrg(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
+		return
+	}
+	if !h.requireOrgFeature(w, r, org, entitlements.FeatureOrgActionsVariables, "Organization Actions variables") {
 		return
 	}
 	var body variableCreateRequest
@@ -229,6 +242,12 @@ func (h *Handlers) actionsVariablesUpdateOrg(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	if !h.requireAPIOrgOwner(w, r, org) {
+		return
+	}
+	if !h.requireOrgFeature(w, r, org, entitlements.FeatureOrgActionsVariables, "Organization Actions variables") {
+		return
+	}
 	var body variableUpdateRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32*1024)).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -250,6 +269,9 @@ func (h *Handlers) actionsVariablesUpdateOrg(w http.ResponseWriter, r *http.Requ
 func (h *Handlers) actionsVariablesDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrg(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	if !h.requireAPIOrgOwner(w, r, org) {
 		return
 	}
 	if err := h.variablesDeps().Delete(r.Context(), variables.OrgScope(org.ID), chi.URLParam(r, "name")); err != nil {
