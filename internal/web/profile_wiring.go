@@ -58,12 +58,13 @@ func buildProfileHandlers(
 		}
 	}
 	return profileh.New(profileh.Deps{
-		Logger:      logger,
-		Render:      rr,
-		Pool:        pool,
-		RepoFS:      repoFS,
-		ObjectStore: objectStore,
-		Limiter:     throttle.NewLimiter(),
-		Audit:       audit.NewRecorder(),
+		Logger:         logger,
+		Render:         rr,
+		Pool:           pool,
+		RepoFS:         repoFS,
+		ObjectStore:    objectStore,
+		Limiter:        throttle.NewLimiter(),
+		Audit:          audit.NewRecorder(),
+		BillingEnforce: cfg.Billing.Enforce,
 	})
 }
