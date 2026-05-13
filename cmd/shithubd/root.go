@@ -36,4 +36,5 @@ func init() {
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(adminCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(gpgBackfillAllCmd)
 }
