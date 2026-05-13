@@ -133,6 +133,19 @@ Emergency controls:
   `shithub-actions-runner` in DigitalOcean, then rotate or revoke the
   affected runner tokens before allowing replacement hosts to connect.
 
+The site-level disable path is a hard kill switch and overrides repo/org
+Actions policy. Until a site-admin UI exists, use:
+
+```sql
+UPDATE actions_site_policy
+   SET actions_enabled = false,
+       updated_at = now()
+ WHERE id = true;
+```
+
+The public shared-runner rollout criteria live in
+[`actions-public-runners.md`](../actions-public-runners.md).
+
 Equivalent config file:
 
 ```toml

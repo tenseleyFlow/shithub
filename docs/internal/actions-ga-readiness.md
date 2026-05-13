@@ -4,6 +4,11 @@ This is the S41h-5 pre-GA packet for shithub Actions. It records what is ready,
 what remains intentionally deferred, and why shithub's full project CI is not
 yet moved from GitHub Actions to shithub Actions.
 
+For shared-pool public runner rollout, see
+[`actions-public-runners.md`](./actions-public-runners.md). S41h covers whether
+shithub can dogfood its own CI; S41j covers whether normal repositories can use
+the production runner pool safely.
+
 ## Current decision
 
 Do not move `.github/workflows/ci.yml` to `.shithub/workflows/ci.yml` in S41h.
