@@ -328,8 +328,11 @@ func ListInvoicesForOrg(ctx context.Context, deps Deps, orgID int64, limit int32
 		limit = 10
 	}
 	return billingdb.New().ListInvoicesForOrg(ctx, deps.Pool, billingdb.ListInvoicesForOrgParams{
-		OrgID: orgID,
-		Limit: limit,
+		// SubjectID equals OrgID by the billing_invoices_org_id_matches_subject
+		// CHECK constraint added in migration 0074. The polymorphic shape lets
+		// PRO04+ callers reuse this query without a fork.
+		SubjectID: orgID,
+		Limit:     limit,
 	})
 }
 

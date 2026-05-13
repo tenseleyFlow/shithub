@@ -12,7 +12,12 @@ import (
 
 type Querier interface {
 	ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error)
+	// Mirrors ApplySubscriptionSnapshot for orgs minus the seat columns
+	// and with `user_plan` as the plan enum. The same CTE pattern keeps
+	// users.plan and user_billing_states.plan atomic.
+	ApplyUserSubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplyUserSubscriptionSnapshotParams) (ApplyUserSubscriptionSnapshotRow, error)
 	ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (ClearBillingLockRow, error)
+	ClearUserBillingLock(ctx context.Context, db DBTX, userID int64) (ClearUserBillingLockRow, error)
 	CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error)
 	CountPendingOrgInvitations(ctx context.Context, db DBTX, orgID int64) (int32, error)
 	// ─── billing_seat_snapshots ────────────────────────────────────────
@@ -24,16 +29,38 @@ type Querier interface {
 	GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) (OrgBillingState, error)
 	GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error)
 	GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error)
+	// ─── user_billing_states (PRO03) ──────────────────────────────────
+	GetUserBillingState(ctx context.Context, db DBTX, userID int64) (UserBillingState, error)
+	GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error)
+	GetUserBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (UserBillingState, error)
 	GetWebhookEventReceipt(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
+	// PRO03: filters on the polymorphic subject columns so the index
+	// billing_invoices_subject_created_idx services this query. The
+	// legacy `org_id` column is kept populated by UpsertInvoice for the
+	// transitional window; this query no longer reads it.
 	ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoicesForOrgParams) ([]BillingInvoice, error)
+	// Polymorphic invoice listing for PRO04+ callers. The org-flavored
+	// ListInvoicesForOrg above is the same query with subject_kind
+	// hard-coded; this surface lets a user-side caller pass kind='user'
+	// without forking the helper.
+	ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListInvoicesForSubjectParams) ([]BillingInvoice, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
 	MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParams) (OrgBillingState, error)
 	MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error)
+	MarkUserCanceled(ctx context.Context, db DBTX, arg MarkUserCanceledParams) (MarkUserCanceledRow, error)
+	MarkUserPastDue(ctx context.Context, db DBTX, arg MarkUserPastDueParams) (UserBillingState, error)
+	MarkUserPaymentSucceeded(ctx context.Context, db DBTX, arg MarkUserPaymentSucceededParams) (MarkUserPaymentSucceededRow, error)
 	MarkWebhookEventFailed(ctx context.Context, db DBTX, arg MarkWebhookEventFailedParams) (BillingWebhookEvent, error)
 	MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
 	SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeCustomerParams) (OrgBillingState, error)
+	SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUserStripeCustomerParams) (UserBillingState, error)
 	// ─── billing_invoices ──────────────────────────────────────────────
+	// PRO03: writes both legacy `org_id` and polymorphic
+	// `(subject_kind, subject_id)`. Callers continue to bind org_id only;
+	// the subject columns are derived. After PRO04 migrates all callers
+	// to the polymorphic shape, a follow-up migration drops `org_id` and
+	// this query loses the legacy column from its INSERT list.
 	UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceParams) (BillingInvoice, error)
 }
 
