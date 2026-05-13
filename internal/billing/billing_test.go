@@ -185,6 +185,13 @@ func TestRecordWebhookEventIsIdempotent(t *testing.T) {
 	if _, err := billing.MarkWebhookEventProcessed(ctx, deps, event.ProviderEventID); err != nil {
 		t.Fatalf("MarkWebhookEventProcessed: %v", err)
 	}
+	receipt, err := billing.GetWebhookEventReceipt(ctx, deps, event.ProviderEventID)
+	if err != nil {
+		t.Fatalf("GetWebhookEventReceipt: %v", err)
+	}
+	if receipt.ProviderEventID != event.ProviderEventID || !receipt.ProcessedAt.Valid {
+		t.Fatalf("unexpected receipt lookup: %+v", receipt)
+	}
 	dup, created, err = billing.RecordWebhookEvent(ctx, deps, event)
 	if err != nil {
 		t.Fatalf("RecordWebhookEvent after processed: %v", err)
@@ -230,6 +237,21 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("billable members: got %d, want 1", count)
+	}
+
+	if _, err := deps.Pool.Exec(ctx, `
+		INSERT INTO org_invitations (org_id, target_email, role, token_hash, expires_at)
+		VALUES ($1, 'pending@example.com', 'member', '\x010203', now() + interval '1 day'),
+		       ($1, 'expired@example.com', 'member', '\x040506', now() - interval '1 day')
+	`, org.ID); err != nil {
+		t.Fatalf("insert invitations: %v", err)
+	}
+	pending, err := billing.CountPendingOrgInvitations(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("CountPendingOrgInvitations: %v", err)
+	}
+	if pending != 1 {
+		t.Fatalf("pending invitations: got %d, want 1", pending)
 	}
 }
 

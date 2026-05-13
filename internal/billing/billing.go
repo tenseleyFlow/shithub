@@ -263,6 +263,17 @@ func MarkWebhookEventFailed(ctx context.Context, deps Deps, providerEventID, pro
 	})
 }
 
+func GetWebhookEventReceipt(ctx context.Context, deps Deps, providerEventID string) (billingdb.BillingWebhookEvent, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingWebhookEvent{}, err
+	}
+	providerEventID = strings.TrimSpace(providerEventID)
+	if providerEventID == "" {
+		return billingdb.BillingWebhookEvent{}, ErrWebhookEventID
+	}
+	return billingdb.New().GetWebhookEventReceipt(ctx, deps.Pool, providerEventID)
+}
+
 func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billingdb.BillingInvoice, error) {
 	if err := validateDeps(deps); err != nil {
 		return billingdb.BillingInvoice{}, err
@@ -357,6 +368,20 @@ func CountBillableOrgMembers(ctx context.Context, deps Deps, orgID int64) (int, 
 		return 0, ErrOrgIDRequired
 	}
 	n, err := billingdb.New().CountBillableOrgMembers(ctx, deps.Pool, orgID)
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+func CountPendingOrgInvitations(ctx context.Context, deps Deps, orgID int64) (int, error) {
+	if err := validateDeps(deps); err != nil {
+		return 0, err
+	}
+	if orgID == 0 {
+		return 0, ErrOrgIDRequired
+	}
+	n, err := billingdb.New().CountPendingOrgInvitations(ctx, deps.Pool, orgID)
 	if err != nil {
 		return 0, err
 	}
