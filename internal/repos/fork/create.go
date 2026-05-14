@@ -17,9 +17,16 @@ import (
 
 // CreateParams describes a fork-create request.
 type CreateParams struct {
-	SourceRepoID  int64
-	ActorUserID   int64
-	TargetOwnerID int64 // user id; org id support lands with S31
+	SourceRepoID int64
+	ActorUserID  int64
+	// TargetOwnerKind is "user" or "org". Empty defaults to "user"
+	// for back-compat with the pre-picker call sites.
+	TargetOwnerKind string
+	// TargetOwnerID is the id of the user or org the fork lands
+	// under. Authorization (viewer is allowed to create repos
+	// under this owner) is the caller's responsibility — the
+	// orchestrator just maps the kind+id to the right INSERT.
+	TargetOwnerID int64
 	// TargetName is optional. Empty defaults to the source repo's
 	// name; non-empty must pass the same name validator as repo
 	// create (the lookup against the existing rows surfaces a
@@ -74,10 +81,27 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	if targetName == "" {
 		targetName = source.Name
 	}
-	// Same-owner-name shortcut: if the target owner == source owner
-	// AND the name didn't change, this is a no-op fork onto itself.
-	// Users CAN fork their own repos but must rename.
-	if source.OwnerUserID.Valid && source.OwnerUserID.Int64 == p.TargetOwnerID && targetName == source.Name {
+
+	// Normalize kind. Empty defaults to "user" — keeps pre-picker
+	// callers (`TargetOwnerID` populated, no kind) working.
+	targetKind := p.TargetOwnerKind
+	if targetKind == "" {
+		targetKind = "user"
+	}
+	if targetKind != "user" && targetKind != "org" {
+		return CreateResult{}, fmt.Errorf("fork: invalid TargetOwnerKind %q", targetKind)
+	}
+
+	// Same-owner-name shortcut: a fork that points back at its own
+	// owner with the same name is a no-op. Detect for both user-
+	// and org-owned sources; the form requires a rename in both
+	// cases.
+	switch {
+	case targetKind == "user" && source.OwnerUserID.Valid &&
+		source.OwnerUserID.Int64 == p.TargetOwnerID && targetName == source.Name:
+		return CreateResult{}, ErrSelfForkSameName
+	case targetKind == "org" && source.OwnerOrgID.Valid &&
+		source.OwnerOrgID.Int64 == p.TargetOwnerID && targetName == source.Name:
 		return CreateResult{}, ErrSelfForkSameName
 	}
 
@@ -87,10 +111,19 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	}
 
 	// Check name availability against the target owner.
-	exists, err := rq.ExistsRepoForOwnerUser(ctx, deps.Pool, reposdb.ExistsRepoForOwnerUserParams{
-		OwnerUserID: pgtype.Int8{Int64: p.TargetOwnerID, Valid: true},
-		Name:        targetName,
-	})
+	var exists bool
+	switch targetKind {
+	case "user":
+		exists, err = rq.ExistsRepoForOwnerUser(ctx, deps.Pool, reposdb.ExistsRepoForOwnerUserParams{
+			OwnerUserID: pgtype.Int8{Int64: p.TargetOwnerID, Valid: true},
+			Name:        targetName,
+		})
+	case "org":
+		exists, err = rq.ExistsRepoForOwnerOrg(ctx, deps.Pool, reposdb.ExistsRepoForOwnerOrgParams{
+			OwnerOrgID: pgtype.Int8{Int64: p.TargetOwnerID, Valid: true},
+			Name:       targetName,
+		})
+	}
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("fork: name check: %w", err)
 	}
@@ -98,14 +131,20 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		return CreateResult{}, ErrTargetNameTaken
 	}
 
-	row, err := rq.CreateForkRepo(ctx, deps.Pool, reposdb.CreateForkRepoParams{
-		OwnerUserID:   pgtype.Int8{Int64: p.TargetOwnerID, Valid: true},
+	insertParams := reposdb.CreateForkRepoParams{
 		Name:          targetName,
 		Description:   source.Description,
 		Visibility:    reposdb.RepoVisibility(visibility),
 		DefaultBranch: source.DefaultBranch,
 		ForkOfRepoID:  pgtype.Int8{Int64: source.ID, Valid: true},
-	})
+	}
+	switch targetKind {
+	case "user":
+		insertParams.OwnerUserID = pgtype.Int8{Int64: p.TargetOwnerID, Valid: true}
+	case "org":
+		insertParams.OwnerOrgID = pgtype.Int8{Int64: p.TargetOwnerID, Valid: true}
+	}
+	row, err := rq.CreateForkRepo(ctx, deps.Pool, insertParams)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("fork: insert row: %w", err)
 	}
