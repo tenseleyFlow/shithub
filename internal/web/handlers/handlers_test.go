@@ -49,11 +49,21 @@ func TestHandlers(t *testing.T) {
 			wantHeader:  map[string]string{"Content-Type": "text/html; charset=utf-8"},
 		},
 		{
-			name:        "robots",
-			path:        "/robots.txt",
-			wantStatus:  http.StatusOK,
-			wantBodyAny: []string{"User-agent: *", "Allow: /", "Disallow: /admin", "Sitemap: http://example.com/sitemap.xml"},
-			wantHeader:  map[string]string{"Content-Type": "text/plain; charset=utf-8"},
+			name:       "robots",
+			path:       "/robots.txt",
+			wantStatus: http.StatusOK,
+			wantBodyAny: []string{
+				"User-agent: *",
+				"Allow: /",
+				"Disallow: /admin",
+				"Sitemap: http://example.com/sitemap.xml",
+				// Expensive read endpoints we don't want bots
+				// crawling — see seo.go for rationale.
+				"Disallow: /*/commits/",
+				"Disallow: /*/tree/",
+				"Disallow: /*/blob/",
+			},
+			wantHeader: map[string]string{"Content-Type": "text/plain; charset=utf-8"},
 		},
 		{
 			name:        "sitemap",
