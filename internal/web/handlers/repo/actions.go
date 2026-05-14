@@ -5,7 +5,10 @@ package repo
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"net/url"
@@ -161,6 +164,7 @@ type actionsRunDetailView struct {
 	FailureCount     int
 	Jobs             []actionsJobDetailView
 	Stages           []actionsJobStageView
+	Graph            actionsRunGraphView
 }
 
 type actionsJobDetailView struct {
@@ -206,6 +210,54 @@ type actionsStepDetailView struct {
 type actionsJobStageView struct {
 	Index int
 	Jobs  []actionsJobDetailView
+}
+
+type actionsRunGraphView struct {
+	CanvasWidth  int                       `json:"canvasWidth"`
+	CanvasHeight int                       `json:"canvasHeight"`
+	NodeWidth    int                       `json:"nodeWidth"`
+	NodeHeight   int                       `json:"nodeHeight"`
+	Nodes        []actionsRunGraphNodeView `json:"nodes"`
+	Edges        []actionsRunGraphEdgeView `json:"edges"`
+}
+
+type actionsRunGraphNodeView struct {
+	ID                 string                    `json:"id"`
+	JobIndex           int32                     `json:"jobIndex"`
+	JobKey             string                    `json:"jobKey"`
+	Name               string                    `json:"name"`
+	RunsOn             string                    `json:"runsOn,omitempty"`
+	Needs              []string                  `json:"needs,omitempty"`
+	NeedsText          string                    `json:"needsText,omitempty"`
+	StateText          string                    `json:"stateText"`
+	StateClass         string                    `json:"stateClass"`
+	StateIcon          string                    `json:"stateIcon"`
+	Duration           string                    `json:"duration"`
+	Anchor             string                    `json:"anchor"`
+	X                  int                       `json:"x"`
+	Y                  int                       `json:"y"`
+	Width              int                       `json:"width"`
+	Height             int                       `json:"height"`
+	StepCount          int                       `json:"stepCount"`
+	CompletedStepCount int                       `json:"completedStepCount"`
+	FailureCount       int                       `json:"failureCount"`
+	Steps              []actionsRunGraphStepView `json:"steps,omitempty"`
+}
+
+type actionsRunGraphStepView struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Detail     string `json:"detail,omitempty"`
+	StateText  string `json:"stateText"`
+	StateClass string `json:"stateClass"`
+	Duration   string `json:"duration"`
+	LogHref    string `json:"logHref"`
+}
+
+type actionsRunGraphEdgeView struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Path string `json:"path"`
 }
 
 type actionsStepLogView struct {
@@ -1070,7 +1122,9 @@ func (h *Handlers) repoActionRun(w http.ResponseWriter, r *http.Request) {
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = view.Title + " #" + strconv.FormatInt(view.RunIndex, 10) + " · " + row.Name
 	data["Run"] = view
+	data["RunGraphJSON"] = actionsRunGraphJSON(view.Graph)
 	data["UseHTMX"] = true
+	data["UseActionsGraphJS"] = true
 	if err := h.d.Render.RenderPage(w, r, "repo/action_run", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo action run render", "run_index", runIndex, "error", err)
 	}
@@ -1267,6 +1321,7 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 		view.Jobs = append(view.Jobs, jobView)
 	}
 	view.Stages = actionsJobStages(view.Jobs)
+	view.Graph = actionsRunGraph(view.Jobs)
 	return view, nil
 }
 
@@ -1415,6 +1470,132 @@ func actionsJobStages(jobs []actionsJobDetailView) []actionsJobStageView {
 		stages[job.Depth].Jobs = append(stages[job.Depth].Jobs, job)
 	}
 	return stages
+}
+
+const (
+	actionsRunGraphNodeWidth  = 240
+	actionsRunGraphNodeHeight = 76
+	actionsRunGraphColumnGap  = 96
+	actionsRunGraphRowGap     = 28
+	actionsRunGraphMarginX    = 32
+	actionsRunGraphMarginY    = 32
+)
+
+func actionsRunGraph(jobs []actionsJobDetailView) actionsRunGraphView {
+	graph := actionsRunGraphView{
+		NodeWidth:  actionsRunGraphNodeWidth,
+		NodeHeight: actionsRunGraphNodeHeight,
+		Nodes:      []actionsRunGraphNodeView{},
+		Edges:      []actionsRunGraphEdgeView{},
+	}
+	if len(jobs) == 0 {
+		graph.CanvasWidth = actionsRunGraphMarginX * 2
+		graph.CanvasHeight = actionsRunGraphMarginY * 2
+		return graph
+	}
+
+	stages := actionsJobStages(jobs)
+	maxRows := 1
+	for _, stage := range stages {
+		if len(stage.Jobs) > maxRows {
+			maxRows = len(stage.Jobs)
+		}
+	}
+	graph.CanvasWidth = actionsRunGraphMarginX*2 + len(stages)*actionsRunGraphNodeWidth
+	if len(stages) > 1 {
+		graph.CanvasWidth += (len(stages) - 1) * actionsRunGraphColumnGap
+	}
+	graph.CanvasHeight = actionsRunGraphMarginY*2 + maxRows*actionsRunGraphNodeHeight
+	if maxRows > 1 {
+		graph.CanvasHeight += (maxRows - 1) * actionsRunGraphRowGap
+	}
+
+	nodesByJobKey := make(map[string]actionsRunGraphNodeView, len(jobs))
+	for _, stage := range stages {
+		for rowIndex, job := range stage.Jobs {
+			node := actionsRunGraphNode(job, stage.Index, rowIndex)
+			graph.Nodes = append(graph.Nodes, node)
+			nodesByJobKey[job.JobKey] = node
+		}
+	}
+	for _, node := range graph.Nodes {
+		for _, need := range node.Needs {
+			from, ok := nodesByJobKey[need]
+			if !ok {
+				continue
+			}
+			graph.Edges = append(graph.Edges, actionsRunGraphEdge(from, node))
+		}
+	}
+	return graph
+}
+
+func actionsRunGraphNode(job actionsJobDetailView, stageIndex, rowIndex int) actionsRunGraphNodeView {
+	node := actionsRunGraphNodeView{
+		ID:         "job-" + strconv.FormatInt(int64(job.JobIndex), 10),
+		JobIndex:   job.JobIndex,
+		JobKey:     job.JobKey,
+		Name:       job.Name,
+		RunsOn:     job.RunsOn,
+		Needs:      append([]string(nil), job.Needs...),
+		NeedsText:  job.NeedsText,
+		StateText:  job.StateText,
+		StateClass: job.StateClass,
+		StateIcon:  job.StateIcon,
+		Duration:   job.Duration,
+		Anchor:     job.Anchor,
+		X:          actionsRunGraphMarginX + stageIndex*(actionsRunGraphNodeWidth+actionsRunGraphColumnGap),
+		Y:          actionsRunGraphMarginY + rowIndex*(actionsRunGraphNodeHeight+actionsRunGraphRowGap),
+		Width:      actionsRunGraphNodeWidth,
+		Height:     actionsRunGraphNodeHeight,
+		StepCount:  len(job.Steps),
+		Steps:      make([]actionsRunGraphStepView, 0, len(job.Steps)),
+	}
+	for _, step := range job.Steps {
+		if step.IsTerminal {
+			node.CompletedStepCount++
+		}
+		if step.StateClass == "failure" {
+			node.FailureCount++
+		}
+		node.Steps = append(node.Steps, actionsRunGraphStepView{
+			Name:       step.Name,
+			Kind:       step.Kind,
+			Detail:     step.Detail,
+			StateText:  step.StateText,
+			StateClass: step.StateClass,
+			Duration:   step.Duration,
+			LogHref:    step.LogHref,
+		})
+	}
+	return node
+}
+
+func actionsRunGraphEdge(from, to actionsRunGraphNodeView) actionsRunGraphEdgeView {
+	x1 := from.X + from.Width
+	y1 := from.Y + from.Height/2
+	x2 := to.X
+	y2 := to.Y + to.Height/2
+	controlGap := 48
+	if x2 > x1 {
+		controlGap = (x2 - x1) / 2
+		if controlGap < 48 {
+			controlGap = 48
+		}
+	}
+	return actionsRunGraphEdgeView{
+		From: from.ID,
+		To:   to.ID,
+		Path: fmt.Sprintf("M%d %d C%d %d %d %d %d %d", x1, y1, x1+controlGap, y1, x2-controlGap, y2, x2, y2),
+	}
+}
+
+func actionsRunGraphJSON(graph actionsRunGraphView) template.JS {
+	raw, err := json.Marshal(graph)
+	if err != nil {
+		return template.JS(`{"canvasWidth":0,"canvasHeight":0,"nodeWidth":0,"nodeHeight":0,"nodes":[],"edges":[]}`) //nolint:gosec // constant fallback
+	}
+	return template.JS(raw) //nolint:gosec // json.Marshal escapes script-breaking characters
 }
 
 func workflowJobState(status actionsdb.WorkflowJobStatus, conclusion actionsdb.NullCheckConclusion) (string, string, string) {

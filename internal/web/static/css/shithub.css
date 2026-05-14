@@ -6443,6 +6443,234 @@ button.shithub-repo-action {
   margin: 0.25rem 0 0;
   color: var(--fg-muted);
 }
+.shithub-actions-graph-shell {
+  position: relative;
+  overflow: hidden;
+  min-height: 22rem;
+  background: var(--canvas-inset);
+}
+.shithub-actions-graph-toolbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-height: 3rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--canvas-default) 92%, transparent);
+}
+.shithub-actions-graph-icon-button {
+  width: 2rem;
+  padding-right: 0;
+  padding-left: 0;
+}
+.shithub-actions-graph-viewport {
+  position: relative;
+  overflow: auto;
+  min-height: 22rem;
+  background:
+    linear-gradient(var(--border-muted) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-muted) 1px, transparent 1px),
+    var(--canvas-inset);
+  background-size: 40px 40px;
+  cursor: grab;
+  touch-action: pan-y;
+}
+.shithub-actions-graph-viewport.is-panning {
+  cursor: grabbing;
+}
+.shithub-actions-graph-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.shithub-actions-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.shithub-actions-graph-edge {
+  fill: none;
+  stroke: var(--border-muted);
+  stroke-width: 2;
+}
+.shithub-actions-graph-node {
+  position: absolute;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--border-default);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font: inherit;
+  text-align: left;
+  box-shadow: var(--shadow-small, 0 1px 2px rgba(31, 35, 40, 0.08));
+  cursor: pointer;
+}
+.shithub-actions-graph-node:hover,
+.shithub-actions-graph-node.is-selected {
+  border-color: var(--accent-emphasis);
+  background: var(--canvas-subtle);
+}
+.shithub-actions-graph-node:focus-visible {
+  outline: 2px solid var(--accent-emphasis);
+  outline-offset: 2px;
+}
+.shithub-actions-graph-node-success {
+  border-left-color: var(--success-emphasis);
+}
+.shithub-actions-graph-node-failure {
+  border-left-color: var(--danger-fg);
+}
+.shithub-actions-graph-node-running,
+.shithub-actions-graph-node-pending {
+  border-left-color: #bf8700;
+}
+.shithub-actions-graph-node-neutral {
+  border-left-color: var(--fg-muted);
+}
+.shithub-actions-graph-node-text {
+  min-width: 0;
+}
+.shithub-actions-graph-node-text strong,
+.shithub-actions-graph-node-text small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-actions-graph-node-text small {
+  margin-top: 0.2rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.shithub-actions-graph-popover {
+  position: absolute;
+  top: 4rem;
+  right: 1rem;
+  z-index: 6;
+  width: min(22rem, calc(100% - 2rem));
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  box-shadow: var(--shadow-large, 0 16px 32px rgba(1, 4, 9, 0.35));
+}
+.shithub-actions-graph-popover[hidden] {
+  display: none;
+}
+.shithub-actions-graph-popover header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--border-default);
+  cursor: grab;
+}
+.shithub-actions-graph-popover header:active {
+  cursor: grabbing;
+}
+.shithub-actions-graph-popover header > div {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.shithub-actions-graph-popover header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-actions-graph-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.shithub-actions-graph-close:hover {
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+}
+.shithub-actions-graph-popover-body {
+  padding: 0.8rem;
+}
+.shithub-actions-graph-popover-meta {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 0.8rem;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+}
+.shithub-actions-graph-popover-body ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shithub-actions-graph-popover-body li {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-actions-graph-popover-body li a {
+  overflow: hidden;
+  color: var(--fg-default);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shithub-actions-graph-popover-body li small {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.shithub-actions-graph-empty-steps {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+}
+.shithub-actions-graph-shell.is-focused {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--canvas-default);
+}
+.shithub-actions-graph-shell.is-focused .shithub-actions-graph-viewport {
+  min-height: 0;
+}
+.shithub-actions-graph-shell.is-focused .shithub-actions-graph-popover {
+  position: fixed;
+}
+.shithub-actions-graph-body-locked {
+  overflow: hidden;
+}
 .shithub-actions-workflow-graph {
   position: relative;
   overflow-x: auto;

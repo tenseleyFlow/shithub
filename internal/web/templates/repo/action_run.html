@@ -104,22 +104,62 @@
           </div>
         </header>
         {{ if .Run.Jobs }}
-          <div class="shithub-actions-workflow-graph" aria-label="Workflow job graph">
-            <div class="shithub-actions-workflow-stages">
-              {{ range .Run.Stages }}
-                <div class="shithub-actions-workflow-stage">
-                  {{ range .Jobs }}
-                    <a href="#{{ .Anchor }}" class="shithub-actions-job-card">
-                      <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
-                      <strong>{{ .Name }}</strong>
-                      <span>{{ .Duration }}</span>
-                      {{ if .NeedsText }}<small>needs {{ .NeedsText }}</small>{{ end }}
-                    </a>
-                  {{ end }}
-                </div>
-              {{ end }}
+          <div class="shithub-actions-graph-shell" data-actions-graph-shell>
+            <script type="application/json" data-actions-graph>{{ jsField . "RunGraphJSON" }}</script>
+            <div class="shithub-actions-graph-toolbar" role="toolbar" aria-label="Workflow graph controls">
+              <button type="button" class="shithub-button shithub-button-small" data-actions-graph-fit>{{ octicon "screen-full" }} Fit</button>
+              <button type="button" class="shithub-button shithub-button-small shithub-actions-graph-icon-button" data-actions-graph-zoom-out aria-label="Zoom out">{{ octicon "dash" }}</button>
+              <button type="button" class="shithub-button shithub-button-small shithub-actions-graph-icon-button" data-actions-graph-zoom-in aria-label="Zoom in">{{ octicon "plus" }}</button>
+              <button type="button" class="shithub-button shithub-button-small" data-actions-graph-reset>Reset</button>
+              <button type="button" class="shithub-button shithub-button-small" data-actions-graph-focus aria-pressed="false">{{ octicon "screen-full" }} Focus</button>
             </div>
+            <div class="shithub-actions-graph-viewport" tabindex="0" data-actions-graph-viewport aria-label="Interactive workflow job graph">
+              <div class="shithub-actions-graph-canvas" data-actions-graph-canvas style="width: {{ .Run.Graph.CanvasWidth }}px; height: {{ .Run.Graph.CanvasHeight }}px;">
+                <svg class="shithub-actions-graph-edges" width="{{ .Run.Graph.CanvasWidth }}" height="{{ .Run.Graph.CanvasHeight }}" viewBox="0 0 {{ .Run.Graph.CanvasWidth }} {{ .Run.Graph.CanvasHeight }}" aria-hidden="true">
+                  {{ range .Run.Graph.Edges }}
+                    <path class="shithub-actions-graph-edge" data-edge-from="{{ .From }}" data-edge-to="{{ .To }}" d="{{ .Path }}"></path>
+                  {{ end }}
+                </svg>
+                {{ range .Run.Graph.Nodes }}
+                  <button type="button" class="shithub-actions-graph-node shithub-actions-graph-node-{{ .StateClass }}" data-actions-graph-node data-job-id="{{ .ID }}" style="left: {{ .X }}px; top: {{ .Y }}px; width: {{ .Width }}px; height: {{ .Height }}px;" aria-label="{{ .Name }}: {{ .StateText }}">
+                    <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+                    <span class="shithub-actions-graph-node-text">
+                      <strong>{{ .Name }}</strong>
+                      <small>{{ .StateText }} · {{ .Duration }}</small>
+                    </span>
+                  </button>
+                {{ end }}
+              </div>
+            </div>
+            <aside class="shithub-actions-graph-popover" data-actions-graph-popover role="dialog" aria-modal="false" aria-labelledby="actions-graph-popover-title" hidden>
+              <header data-actions-graph-popover-handle>
+                <div>
+                  <span class="shithub-actions-graph-popover-state" data-actions-graph-popover-state></span>
+                  <strong id="actions-graph-popover-title" data-actions-graph-popover-title>Job details</strong>
+                </div>
+                <button type="button" class="shithub-actions-graph-close" data-actions-graph-popover-close aria-label="Close job details">{{ octicon "x" }}</button>
+              </header>
+              <div class="shithub-actions-graph-popover-body" data-actions-graph-popover-body></div>
+            </aside>
           </div>
+          <noscript>
+            <div class="shithub-actions-workflow-graph" aria-label="Workflow job graph">
+              <div class="shithub-actions-workflow-stages">
+                {{ range .Run.Stages }}
+                  <div class="shithub-actions-workflow-stage">
+                    {{ range .Jobs }}
+                      <a href="#{{ .Anchor }}" class="shithub-actions-job-card">
+                        <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
+                        <strong>{{ .Name }}</strong>
+                        <span>{{ .Duration }}</span>
+                        {{ if .NeedsText }}<small>needs {{ .NeedsText }}</small>{{ end }}
+                      </a>
+                    {{ end }}
+                  </div>
+                {{ end }}
+              </div>
+            </div>
+          </noscript>
         {{ else }}
           <div class="shithub-actions-empty shithub-actions-empty-compact">
             <h2>No jobs</h2>
