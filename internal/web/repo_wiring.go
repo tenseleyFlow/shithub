@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
