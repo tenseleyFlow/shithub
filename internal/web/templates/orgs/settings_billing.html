@@ -84,6 +84,47 @@
         </div>
       </section>
 
+      <section class="shithub-org-settings-section" aria-labelledby="org-billing-usage-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="org-billing-usage-heading" class="Subhead-heading">Usage</h2>
+          {{ if .Usage.PeriodLabel }}<div class="Subhead-description">{{ .Usage.PeriodLabel }}{{ if .Usage.CalculatedLabel }} · Calculated {{ .Usage.CalculatedLabel }}{{ end }}</div>{{ end }}
+        </div>
+        {{ with .Usage.Alert }}{{ if .Message }}
+        <p class="shithub-flash {{ .Class }}" role="status">{{ .Message }}</p>
+        {{ end }}{{ end }}
+        <div class="Box">
+          <div class="Box-body p-0">
+            <table class="shithub-org-billing-table shithub-org-billing-usage-table">
+              <thead>
+                <tr>
+                  <th scope="col">Quota</th>
+                  <th scope="col">Used</th>
+                  <th scope="col">Limit</th>
+                  <th scope="col">Usage</th>
+                  <th scope="col">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Usage.Rows }}
+                <tr>
+                  <td>{{ .Label }}</td>
+                  <td>{{ .UsedLabel }}</td>
+                  <td>{{ .LimitLabel }}</td>
+                  <td>
+                    <div class="shithub-org-billing-progress-cell">
+                      <progress class="shithub-org-billing-progress {{ .StatusClass }}" max="100" value="{{ .PercentValue }}">{{ .PercentLabel }}</progress>
+                      <span>{{ .PercentLabel }}</span>
+                    </div>
+                  </td>
+                  <td>{{ .Detail }}</td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="manage-plan" class="shithub-org-settings-section" aria-labelledby="org-billing-manage-heading">
         <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
           <h2 id="org-billing-manage-heading" class="Subhead-heading">Manage plan</h2>
@@ -94,7 +135,9 @@
               <strong>Team plan</strong>
               <p>$4 per active organization member per month. Public and private repositories stay available; Team unlocks paid organization controls.</p>
             </div>
-            {{ if .CanManageSubscription }}
+            {{ if not .CanUseBillingControls }}
+            <span class="shithub-empty-note">Only organization owners can manage customer billing.</span>
+            {{ else if .CanManageSubscription }}
             <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/portal">
               <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
               <button type="submit" class="shithub-button">Manage or cancel</button>
@@ -169,6 +212,18 @@
                   <td>Private org collaborators</td>
                   <td>Up to 3 effective collaborators</td>
                   <td>Unlimited while active</td>
+                  <td>Contact sales</td>
+                </tr>
+                <tr>
+                  <td>Storage quota</td>
+                  <td>500 MiB</td>
+                  <td>2 GiB</td>
+                  <td>Contact sales</td>
+                </tr>
+                <tr>
+                  <td>Actions minutes per month</td>
+                  <td>2,000 minutes</td>
+                  <td>3,000 minutes</td>
                   <td>Contact sales</td>
                 </tr>
                 <tr>
@@ -261,8 +316,56 @@
                 <tr><th scope="row">Webhook processed</th><td>{{ if .Debug.LastWebhookProcessedAt }}{{ .Debug.LastWebhookProcessedAt }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Webhook attempts</th><td>{{ .Debug.LastWebhookAttempts }}</td></tr>
                 <tr><th scope="row">Webhook error</th><td>{{ if .Debug.LastWebhookError }}{{ .Debug.LastWebhookError }}{{ else }}—{{ end }}</td></tr>
+                <tr>
+                  <th scope="row">Quota overrides</th>
+                  <td>
+                    {{ if .Debug.QuotaOverrides }}
+                    {{ range .Debug.QuotaOverrides }}
+                    <div><strong>{{ .Kind }}:</strong> {{ .Limit }}{{ if .Note }} · {{ .Note }}{{ end }}{{ if .UpdatedAt }} · updated {{ .UpdatedAt }}{{ end }}</div>
+                    {{ end }}
+                    {{ else }}
+                    —
+                    {{ end }}
+                  </td>
+                </tr>
               </tbody>
             </table>
+          </div>
+          <div class="Box-body border-top">
+            <h3 class="f4 mb-2">Quota overrides</h3>
+            <p class="shithub-empty-note mt-0 mb-3">Temporary support overrides apply before plan limits and are visible to site admins only.</p>
+            <div class="shithub-org-billing-quota-forms">
+              {{ range .Debug.QuotaOverrideForms }}
+              <form class="shithub-org-billing-quota-form" method="POST" action="/organizations/{{ $.Org.Slug }}/billing/quota-overrides">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="kind" value="{{ .KindValue }}">
+                <div class="shithub-org-billing-quota-form-heading">
+                  <strong>{{ .KindLabel }}</strong>
+                  <small>{{ .Help }}</small>
+                </div>
+                <label>
+                  Limit ({{ .UnitLabel }})
+                  <input type="text" name="limit_value" value="{{ .LimitValue }}" inputmode="numeric" autocomplete="off">
+                </label>
+                <label class="shithub-org-settings-checkbox">
+                  <input type="checkbox" name="unlimited" value="1" {{ if .Unlimited }}checked{{ end }}>
+                  <span>Unlimited</span>
+                </label>
+                <label>
+                  Note
+                  <input type="text" name="note" value="{{ .Note }}" autocomplete="off" placeholder="Support reason">
+                </label>
+                <div class="shithub-org-billing-quota-actions">
+                  <button type="submit" class="shithub-button shithub-button-primary">Save override</button>
+                </div>
+              </form>
+              <form class="shithub-org-billing-quota-delete" method="POST" action="/organizations/{{ $.Org.Slug }}/billing/quota-overrides/delete">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="kind" value="{{ .KindValue }}">
+                <button type="submit" class="shithub-button">Clear {{ .KindLabel }}</button>
+              </form>
+              {{ end }}
+            </div>
           </div>
         </div>
       </section>

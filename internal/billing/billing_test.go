@@ -340,6 +340,126 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	}
 }
 
+func TestOrgUsageCountersAndQuotaOverrides(t *testing.T) {
+	pool, deps, org := setup(t)
+	ctx := context.Background()
+
+	start, end := billing.MonthlyUsagePeriod(time.Date(2026, time.May, 13, 12, 0, 0, 0, time.UTC))
+	initial, err := billing.GetOrgUsageCounters(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("GetOrgUsageCounters: %v", err)
+	}
+	if initial.RepoStorageBytes != 0 || initial.ActionsMinutesUsed != 0 {
+		t.Fatalf("new org usage not zeroed: %+v", initial)
+	}
+
+	row, err := billing.UpsertOrgUsageCounters(ctx, deps, billing.UsageCounterSnapshot{
+		OrgID:                org.ID,
+		RepoStorageBytes:     1024,
+		ObjectStorageBytes:   2048,
+		ActionsLogBytes:      512,
+		ActionsArtifactBytes: 1536,
+		ActionsMinutesUsed:   17,
+		ActionsPeriodStart:   start,
+		ActionsPeriodEnd:     end,
+	})
+	if err != nil {
+		t.Fatalf("UpsertOrgUsageCounters: %v", err)
+	}
+	if row.RepoStorageBytes != 1024 || row.ObjectStorageBytes != 2048 || row.ActionsMinutesUsed != 17 {
+		t.Fatalf("unexpected usage row: %+v", row)
+	}
+	snap, err := billing.CreateOrgUsageSnapshot(ctx, deps, org.ID, "test")
+	if err != nil {
+		t.Fatalf("CreateOrgUsageSnapshot: %v", err)
+	}
+	if snap.Source != "test" || snap.ActionsMinutesUsed != 17 {
+		t.Fatalf("unexpected usage snapshot: %+v", snap)
+	}
+
+	override, err := billing.UpsertOrgQuotaOverride(ctx, deps, billing.QuotaOverrideInput{
+		OrgID:      org.ID,
+		Kind:       billing.QuotaKindStorageBytes,
+		LimitValue: 42_000,
+		Note:       "support case",
+	})
+	if err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride: %v", err)
+	}
+	if override.Kind != billing.QuotaKindStorageBytes || !override.LimitValue.Valid || override.LimitValue.Int64 != 42_000 || override.Unlimited {
+		t.Fatalf("unexpected quota override: %+v", override)
+	}
+	overrides, err := billing.ListOrgQuotaOverrides(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("ListOrgQuotaOverrides: %v", err)
+	}
+	if len(overrides) != 1 || overrides[0].Kind != billing.QuotaKindStorageBytes {
+		t.Fatalf("overrides=%+v", overrides)
+	}
+	if deleted, err := billing.DeleteOrgQuotaOverride(ctx, deps, org.ID, billing.QuotaKindStorageBytes); err != nil || deleted != 1 {
+		t.Fatalf("DeleteOrgQuotaOverride deleted=%d err=%v", deleted, err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO repos (owner_org_id, name, visibility, disk_used_bytes)
+		VALUES ($1, 'metered-repo', 'public', 4096)
+	`, org.ID); err != nil {
+		t.Fatalf("insert repo: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		WITH repo AS (
+			SELECT id FROM repos WHERE owner_org_id = $1 AND name = 'metered-repo'
+		), runner AS (
+			INSERT INTO workflow_runners (name, labels, status)
+			VALUES ('metered-runner', ARRAY['self-hosted'], 'idle')
+			RETURNING id
+		), run AS (
+			INSERT INTO workflow_runs (
+				repo_id, run_index, workflow_file, head_sha, event,
+				status, conclusion, started_at, completed_at
+			)
+			SELECT repo.id, 1, '.shithub/workflows/ci.yml', 'abcdef1', 'push',
+			       'completed', 'success', $2::timestamptz, $2::timestamptz + interval '5 minutes 30 seconds'
+			FROM repo
+			RETURNING id
+		), job AS (
+			INSERT INTO workflow_jobs (
+				run_id, job_index, job_key, runner_id, status,
+				conclusion, started_at, completed_at
+			)
+			SELECT run.id, 0, 'build', runner.id, 'completed',
+			       'success', $2::timestamptz, $2::timestamptz + interval '5 minutes 30 seconds'
+			FROM run, runner
+			RETURNING id, run_id
+		), step AS (
+			INSERT INTO workflow_steps (
+				job_id, step_index, run_command, status, conclusion,
+				log_byte_count, started_at, completed_at
+			)
+			SELECT job.id, 0, 'make test', 'completed', 'success',
+			       1234, $2::timestamptz, $2::timestamptz + interval '5 minutes 30 seconds'
+			FROM job
+			RETURNING id
+		)
+		INSERT INTO workflow_artifacts (run_id, name, object_key, byte_count)
+		SELECT job.run_id, 'dist', 'actions/runs/1/artifacts/dist', 3456
+		FROM job
+	`, org.ID, start.Add(12*time.Hour)); err != nil {
+		t.Fatalf("insert workflow usage: %v", err)
+	}
+	recalc, err := billing.RecalculateOrgUsageCounters(ctx, deps, org.ID, start, end)
+	if err != nil {
+		t.Fatalf("RecalculateOrgUsageCounters: %v", err)
+	}
+	if recalc.RepoStorageBytes != 4096 ||
+		recalc.ActionsLogBytes != 1234 ||
+		recalc.ActionsArtifactBytes != 3456 ||
+		recalc.ObjectStorageBytes != 4690 ||
+		recalc.ActionsMinutesUsed != 6 {
+		t.Fatalf("unexpected recalculated usage: %+v", recalc)
+	}
+}
+
 func TestStripeLookupsAndInvoiceSnapshot(t *testing.T) {
 	_, deps, org := setup(t)
 	ctx := context.Background()

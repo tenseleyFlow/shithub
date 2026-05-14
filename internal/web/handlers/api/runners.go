@@ -31,6 +31,8 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	actionstelemetry "github.com/tenseleyFlow/shithub/internal/actions/telemetry"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -1036,6 +1038,9 @@ func (h *Handlers) runnerJobArtifactUpload(w http.ResponseWriter, r *http.Reques
 		writeAPIError(w, http.StatusBadRequest, "size_bytes must be non-negative")
 		return
 	}
+	if !h.enforceArtifactStorageQuota(w, r, auth.Claims.RepoID, body.SizeBytes) {
+		return
+	}
 	objectKey := fmt.Sprintf("actions/runs/%d/artifacts/%s", auth.Claims.RunID, body.Name)
 	artifact, err := actionsdb.New().InsertArtifact(r.Context(), h.d.Pool, actionsdb.InsertArtifactParams{
 		RunID:     auth.Claims.RunID,
@@ -1060,6 +1065,50 @@ func (h *Handlers) runnerJobArtifactUpload(w http.ResponseWriter, r *http.Reques
 		"artifact_id": artifact.ID,
 		"upload_url":  uploadURL,
 	})
+}
+
+func (h *Handlers) enforceArtifactStorageQuota(w http.ResponseWriter, r *http.Request, repoID, sizeBytes int64) bool {
+	if sizeBytes <= 0 {
+		return true
+	}
+	repo, err := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, repoID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner artifact quota repo lookup failed",
+			"repo_id", repoID, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "artifact storage quota check failed")
+		return false
+	}
+	if !repo.OwnerOrgID.Valid {
+		return true
+	}
+
+	now := time.Now().UTC()
+	periodStart, periodEnd := orgbilling.MonthlyUsagePeriod(now)
+	counters, err := orgbilling.RecalculateOrgUsageCounters(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, repo.OwnerOrgID.Int64, periodStart, periodEnd)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner artifact quota usage recalc failed",
+			"repo_id", repoID, "org_id", repo.OwnerOrgID.Int64, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "artifact storage quota check failed")
+		return false
+	}
+	check, err := entitlements.CheckOrgStorageQuota(
+		r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		repo.OwnerOrgID.Int64,
+		counters.RepoStorageBytes+counters.ObjectStorageBytes,
+		sizeBytes,
+	)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "runner artifact quota check failed",
+			"repo_id", repoID, "org_id", repo.OwnerOrgID.Int64, "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "artifact storage quota check failed")
+		return false
+	}
+	if !check.Allowed {
+		writeAPIError(w, check.HTTPStatus(), check.Message())
+		return false
+	}
+	return true
 }
 
 func validArtifactName(name string) bool {

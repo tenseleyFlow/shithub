@@ -711,6 +711,48 @@ func (ns NullOrgPlan) Value() (driver.Value, error) {
 	return string(ns.OrgPlan), nil
 }
 
+type OrgQuotaKind string
+
+const (
+	OrgQuotaKindStorageBytes   OrgQuotaKind = "storage_bytes"
+	OrgQuotaKindActionsMinutes OrgQuotaKind = "actions_minutes"
+)
+
+func (e *OrgQuotaKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrgQuotaKind(s)
+	case string:
+		*e = OrgQuotaKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrgQuotaKind: %T", src)
+	}
+	return nil
+}
+
+type NullOrgQuotaKind struct {
+	OrgQuotaKind OrgQuotaKind
+	Valid        bool // Valid is true if OrgQuotaKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrgQuotaKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrgQuotaKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrgQuotaKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrgQuotaKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrgQuotaKind), nil
+}
+
 type OrgRole string
 
 const (
@@ -2385,6 +2427,45 @@ type OrgMember struct {
 	Role            OrgRole
 	InvitedByUserID pgtype.Int8
 	JoinedAt        pgtype.Timestamptz
+}
+
+type OrgQuotaOverride struct {
+	OrgID           int64
+	Kind            OrgQuotaKind
+	LimitValue      pgtype.Int8
+	Unlimited       bool
+	Note            string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type OrgUsageCounter struct {
+	OrgID                int64
+	RepoStorageBytes     int64
+	ObjectStorageBytes   int64
+	ActionsLogBytes      int64
+	ActionsArtifactBytes int64
+	ActionsMinutesUsed   int64
+	ActionsPeriodStart   pgtype.Timestamptz
+	ActionsPeriodEnd     pgtype.Timestamptz
+	CalculatedAt         pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type OrgUsageSnapshot struct {
+	ID                   int64
+	OrgID                int64
+	Source               string
+	RepoStorageBytes     int64
+	ObjectStorageBytes   int64
+	ActionsLogBytes      int64
+	ActionsArtifactBytes int64
+	ActionsMinutesUsed   int64
+	ActionsPeriodStart   pgtype.Timestamptz
+	ActionsPeriodEnd     pgtype.Timestamptz
+	CapturedAt           pgtype.Timestamptz
 }
 
 type PasswordReset struct {

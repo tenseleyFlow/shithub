@@ -20,15 +20,20 @@ type Querier interface {
 	ClearUserBillingLock(ctx context.Context, db DBTX, userID int64) (ClearUserBillingLockRow, error)
 	CountBillableOrgMembers(ctx context.Context, db DBTX, orgID int64) (int32, error)
 	CountPendingOrgInvitations(ctx context.Context, db DBTX, orgID int64) (int32, error)
+	CreateOrgUsageSnapshot(ctx context.Context, db DBTX, arg CreateOrgUsageSnapshotParams) (OrgUsageSnapshot, error)
 	// ─── billing_seat_snapshots ────────────────────────────────────────
 	CreateSeatSnapshot(ctx context.Context, db DBTX, arg CreateSeatSnapshotParams) (CreateSeatSnapshotRow, error)
 	// ─── billing_webhook_events ────────────────────────────────────────
 	CreateWebhookEventReceipt(ctx context.Context, db DBTX, arg CreateWebhookEventReceiptParams) (BillingWebhookEvent, error)
+	DeleteOrgQuotaOverride(ctx context.Context, db DBTX, arg DeleteOrgQuotaOverrideParams) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── org_billing_states ────────────────────────────────────────────
 	GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) (OrgBillingState, error)
 	GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (OrgBillingState, error)
 	GetOrgBillingStateByStripeSubscription(ctx context.Context, db DBTX, stripeSubscriptionID pgtype.Text) (OrgBillingState, error)
+	GetOrgQuotaOverride(ctx context.Context, db DBTX, arg GetOrgQuotaOverrideParams) (OrgQuotaOverride, error)
+	// ─── org_usage_counters ────────────────────────────────────────────
+	GetOrgUsageCounters(ctx context.Context, db DBTX, orgID int64) (OrgUsageCounter, error)
 	// ─── user_billing_states (PRO03) ──────────────────────────────────
 	GetUserBillingState(ctx context.Context, db DBTX, userID int64) (UserBillingState, error)
 	GetUserBillingStateByStripeCustomer(ctx context.Context, db DBTX, stripeCustomerID pgtype.Text) (UserBillingState, error)
@@ -49,6 +54,7 @@ type Querier interface {
 	// one processing attempt. Rows that are merely new and untouched
 	// (attempts=0, processed_at NULL, no error) are excluded.
 	ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error)
+	ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error)
 	// PRO03: filters on the polymorphic subject columns so the index
 	// billing_invoices_subject_created_idx services this query. The
 	// legacy `org_id` column is kept populated by UpsertInvoice for the
@@ -59,6 +65,9 @@ type Querier interface {
 	// hard-coded; this surface lets a user-side caller pass kind='user'
 	// without forking the helper.
 	ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListInvoicesForSubjectParams) ([]BillingInvoice, error)
+	// ─── org_quota_overrides ───────────────────────────────────────────
+	ListOrgQuotaOverrides(ctx context.Context, db DBTX, orgID int64) ([]OrgQuotaOverride, error)
+	ListOrgUsageSnapshots(ctx context.Context, db DBTX, arg ListOrgUsageSnapshotsParams) ([]OrgUsageSnapshot, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
 	// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
@@ -77,6 +86,7 @@ type Querier interface {
 	MarkUserPaymentSucceeded(ctx context.Context, db DBTX, arg MarkUserPaymentSucceededParams) (MarkUserPaymentSucceededRow, error)
 	MarkWebhookEventFailed(ctx context.Context, db DBTX, arg MarkWebhookEventFailedParams) (BillingWebhookEvent, error)
 	MarkWebhookEventProcessed(ctx context.Context, db DBTX, providerEventID string) (BillingWebhookEvent, error)
+	RecalculateOrgUsageCounters(ctx context.Context, db DBTX, arg RecalculateOrgUsageCountersParams) (RecalculateOrgUsageCountersRow, error)
 	SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeCustomerParams) (OrgBillingState, error)
 	SetUserStripeCustomer(ctx context.Context, db DBTX, arg SetUserStripeCustomerParams) (UserBillingState, error)
 	// Records the resolved subject on the receipt row after a successful
@@ -116,6 +126,8 @@ type Querier interface {
 	// transitional deploy — both can coexist because the UNIQUE
 	// (provider, stripe_invoice_id) prevents duplicate rows.
 	UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg UpsertInvoiceForSubjectParams) (BillingInvoice, error)
+	UpsertOrgQuotaOverride(ctx context.Context, db DBTX, arg UpsertOrgQuotaOverrideParams) (OrgQuotaOverride, error)
+	UpsertOrgUsageCounters(ctx context.Context, db DBTX, arg UpsertOrgUsageCountersParams) (OrgUsageCounter, error)
 }
 
 var _ Querier = (*Queries)(nil)

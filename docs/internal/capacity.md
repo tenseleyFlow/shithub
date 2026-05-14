@@ -77,6 +77,27 @@ hits. These are operator triggers — monitoring rules in
 | Web-host disk > 70%                                | Audit largest repos; clean archived. |
 | pgxpool exhaustion errors                          | Raise `db.max_conns`; investigate connection leaks. |
 
+## Hosted quota envelope
+
+PAYMENTS SP08 gives hosted organizations hard numbers that can be
+adjusted after production cost data exists:
+
+| Plan | Storage quota | Actions minutes/month |
+|------|---------------|-----------------------|
+| Free | 500 MiB       | 2,000                 |
+| Team | 2 GiB         | 3,000                 |
+
+Storage is a combined organization budget across bare repositories and
+tracked object storage. The first implementation can recalculate from
+`repos.disk_used_bytes`, finalized Actions step log byte counts, and
+Actions artifact byte counts. Avatar/attachment/package accounting
+must be added as those surfaces gain durable object-size metadata.
+
+Actions minutes are counted from workflow job runtime, rounded up to
+the next whole minute, in the current calendar-month period. Quota
+counters are repairable projections; hard write gates should recalc
+from source of truth before denying work that is close to a limit.
+
 ## Notes from the S39 run
 
 To be filled in after the first end-to-end load run on staging:

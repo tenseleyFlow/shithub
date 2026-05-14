@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -72,7 +74,8 @@ var hookPreReceiveCmd = &cobra.Command{
 			return err
 		}
 
-		if err := preReceiveCheck(ctx, hook); err != nil {
+		repo, err := preReceiveCheck(ctx, hook)
+		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
 		}
@@ -83,8 +86,12 @@ var hookPreReceiveCmd = &cobra.Command{
 		// per-ref accept/reject still applies — pre-receive nonzero
 		// rejects all refs in the push, which matches our intent for
 		// "any rule says no, the whole push stops").
-		gitDir, err := repoGitDir(ctx, hook)
+		rfs, gitDir, err := hookRepoFSAndGitDir(hook)
 		if err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
+			return err
+		}
+		if err := enforcePreReceiveStorageQuota(ctx, hook, repo, rfs, gitDir, refs); err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
 		}
@@ -202,25 +209,30 @@ var (
 	errHookDeleted    = errHookGate{"repo deleted"}
 	errHookMissing    = errHookGate{"missing context"}
 	errHookPermDenied = errHookGate{"permission denied"}
+	errHookStorage    = errHookGate{"storage quota exceeded"}
 )
 
-// repoGitDir resolves the bare-repo on-disk path for the hook's repo.
-// Used by the protection enforcer's IsAncestor check. Hook env carries
-// SHITHUB_REPO_FULL_NAME ("owner/name") so we don't need a DB hit.
-func repoGitDir(ctx context.Context, h *hookCtx) (string, error) {
+// hookRepoFSAndGitDir resolves the bare-repo path for the hook's repo.
+// Hook env carries SHITHUB_REPO_FULL_NAME ("owner/name") so we don't
+// need another owner lookup.
+func hookRepoFSAndGitDir(h *hookCtx) (*storage.RepoFS, string, error) {
 	owner, name, ok := strings.Cut(h.repoFull, "/")
 	if !ok {
-		return "", fmt.Errorf("repoGitDir: bad repo full name %q", h.repoFull)
+		return nil, "", fmt.Errorf("repoGitDir: bad repo full name %q", h.repoFull)
 	}
 	root, err := filepath.Abs(h.cfg.Storage.ReposRoot)
 	if err != nil {
-		return "", fmt.Errorf("repoGitDir: abs: %w", err)
+		return nil, "", fmt.Errorf("repoGitDir: abs: %w", err)
 	}
 	rfs, err := storage.NewRepoFS(root)
 	if err != nil {
-		return "", fmt.Errorf("repoGitDir: fs: %w", err)
+		return nil, "", fmt.Errorf("repoGitDir: fs: %w", err)
 	}
-	return rfs.RepoPath(owner, name)
+	gitDir, err := rfs.RepoPath(owner, name)
+	if err != nil {
+		return nil, "", err
+	}
+	return rfs, gitDir, nil
 }
 
 func friendlyHookErr(err error) string {
@@ -233,6 +245,8 @@ func friendlyHookErr(err error) string {
 		return "shithub: this repository has been deleted."
 	case errors.Is(err, errHookPermDenied):
 		return "shithub: you do not have write access to this repository."
+	case errors.Is(err, errHookStorage):
+		return "shithub: this organization is over its storage quota; pushes are disabled until storage is reduced or the quota is raised."
 	case errors.Is(err, errHookMissing):
 		return "shithub: server error: hook context missing. Contact the operator."
 	default:
@@ -240,38 +254,89 @@ func friendlyHookErr(err error) string {
 	}
 }
 
-func preReceiveCheck(ctx context.Context, h *hookCtx) error {
+func preReceiveCheck(ctx context.Context, h *hookCtx) (reposdb.Repo, error) {
 	if h.userID == 0 || h.repoID == 0 {
-		return errHookMissing
+		return reposdb.Repo{}, errHookMissing
 	}
 	uq := usersdb.New()
 	user, err := uq.GetUserByID(ctx, h.pool, h.userID)
 	if err != nil {
-		return fmt.Errorf("user lookup: %w", err)
+		return reposdb.Repo{}, fmt.Errorf("user lookup: %w", err)
 	}
 
 	rq := reposdb.New()
 	repo, err := rq.GetRepoByID(ctx, h.pool, h.repoID)
 	if err != nil {
-		return fmt.Errorf("repo lookup: %w", err)
+		return reposdb.Repo{}, fmt.Errorf("repo lookup: %w", err)
 	}
 
 	actor := policy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, false)
 	repoRef := policy.NewRepoRefFromRepo(repo)
 	decision := policy.Can(ctx, policy.Deps{Pool: h.pool}, actor, policy.ActionRepoWrite, repoRef)
 	if decision.Allow {
-		return nil
+		return repo, nil
 	}
 	switch decision.Code {
 	case policy.DenyRepoDeleted:
-		return errHookDeleted
+		return reposdb.Repo{}, errHookDeleted
 	case policy.DenyActorSuspended:
-		return errHookSuspended
+		return reposdb.Repo{}, errHookSuspended
 	case policy.DenyArchived:
-		return errHookArchived
+		return reposdb.Repo{}, errHookArchived
 	default:
-		return errHookPermDenied
+		return reposdb.Repo{}, errHookPermDenied
 	}
+}
+
+func enforcePreReceiveStorageQuota(ctx context.Context, h *hookCtx, repo reposdb.Repo, rfs *storage.RepoFS, gitDir string, refs []refUpdate) error {
+	if !repo.OwnerOrgID.Valid {
+		return nil
+	}
+	if !pushMayAddReachableObjects(refs) {
+		return nil
+	}
+	actualRepoBytes, err := rfs.DiskUsageBytes(ctx, gitDir)
+	if err != nil {
+		return fmt.Errorf("storage quota: repo disk usage: %w", err)
+	}
+	periodStart, periodEnd := billing.MonthlyUsagePeriod(time.Now().UTC())
+	counters, err := billing.RecalculateOrgUsageCounters(ctx, billing.Deps{Pool: h.pool}, repo.OwnerOrgID.Int64, periodStart, periodEnd)
+	if err != nil {
+		return fmt.Errorf("storage quota: recalculate usage: %w", err)
+	}
+	usedBytes := counters.RepoStorageBytes + counters.ObjectStorageBytes - repo.DiskUsedBytes + actualRepoBytes
+	if usedBytes < 0 {
+		usedBytes = 0
+	}
+	check, err := entitlements.CheckOrgStorageQuota(ctx, entitlements.Deps{Pool: h.pool}, repo.OwnerOrgID.Int64, usedBytes, 0)
+	if err != nil {
+		return fmt.Errorf("storage quota: entitlement: %w", err)
+	}
+	if !check.Allowed {
+		return fmt.Errorf("%w: %s", errHookStorage, check.Message())
+	}
+	return nil
+}
+
+func pushMayAddReachableObjects(refs []refUpdate) bool {
+	for _, rf := range refs {
+		if !isZeroObjectID(rf.after) {
+			return true
+		}
+	}
+	return false
+}
+
+func isZeroObjectID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 func postReceiveEnqueue(ctx context.Context, h *hookCtx, refs []refUpdate) error {

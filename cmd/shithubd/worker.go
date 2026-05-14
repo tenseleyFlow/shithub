@@ -149,6 +149,12 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindOrgBillingSeatSync, jobs.OrgBillingSeatSync(jobs.OrgBillingSeatSyncDeps{
 			Pool: pool, Logger: logger, Stripe: stripeRemote,
 		}))
+		p.Register(worker.KindOrgUsageReconcile, jobs.OrgUsageReconcile(jobs.OrgUsageReconcileDeps{
+			Pool: pool, Logger: logger,
+		}))
+		p.Register(worker.KindOrgUsageRecalc, jobs.OrgUsageRecalc(jobs.OrgUsageRecalcDeps{
+			Pool: pool, Logger: logger,
+		}))
 
 		p.Register(worker.KindGPGBackfill, jobs.GPGBackfill(jobs.GPGBackfillDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger,

@@ -64,6 +64,10 @@ type Limit string
 
 const (
 	FreePrivateCollaborationLimit int64 = 3
+	FreeOrgStorageQuotaBytes      int64 = 500 * 1024 * 1024
+	TeamOrgStorageQuotaBytes      int64 = 2 * 1024 * 1024 * 1024
+	FreeOrgActionsMinutesQuota    int64 = 2000
+	TeamOrgActionsMinutesQuota    int64 = 3000
 
 	// FreeProfilePinsCap mirrors gh's visible profile pin cap. Ratified
 	// PRO01. Applies to Free users AND to all orgs — PRO07 leaves the
@@ -164,6 +168,7 @@ type LimitValue struct {
 	Allowed      bool
 	Defined      bool
 	Unlimited    bool
+	Overridden   bool
 	Value        int64
 	Unit         string
 	RequiredPlan billing.Plan
@@ -187,11 +192,12 @@ type Loader struct {
 // continue to read them without modification. User-kind sets
 // populate `UserState` and leave `State` zero.
 type Set struct {
-	OrgID     int64             // populated for org kind only (deprecated; prefer Principal.ID)
-	Principal billing.Principal // PRO05: canonical routing key
-	State     billing.State     // org-kind billing state (zero for user kind)
-	UserState billing.UserState // user-kind billing state (zero for org kind)
-	now       time.Time
+	OrgID          int64             // populated for org kind only (deprecated; prefer Principal.ID)
+	Principal      billing.Principal // PRO05: canonical routing key
+	State          billing.State     // org-kind billing state (zero for user kind)
+	UserState      billing.UserState // user-kind billing state (zero for org kind)
+	now            time.Time
+	quotaOverrides map[billing.QuotaKind]billing.QuotaOverride
 }
 
 var (
@@ -240,7 +246,15 @@ func (l Loader) ForPrincipal(ctx context.Context, p billing.Principal) (Set, err
 		if err != nil {
 			return Set{}, err
 		}
-		return Set{OrgID: p.ID, Principal: p, State: state, now: now}, nil
+		overrides, err := billing.ListOrgQuotaOverrides(ctx, bd, p.ID)
+		if err != nil {
+			return Set{}, err
+		}
+		quotaOverrides := make(map[billing.QuotaKind]billing.QuotaOverride, len(overrides))
+		for _, override := range overrides {
+			quotaOverrides[override.Kind] = override
+		}
+		return Set{OrgID: p.ID, Principal: p, State: state, now: now, quotaOverrides: quotaOverrides}, nil
 	case billing.SubjectKindUser:
 		state, err := billing.GetUserBillingState(ctx, bd, p.ID)
 		if err != nil {
@@ -291,6 +305,9 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 			Reason: ReasonUnknownFeature,
 		}, ErrUnknownLimit
 	}
+	if s.Principal.IsOrg() && (name == LimitOrgStorageQuota || name == LimitOrgActionsMinutesQuota) {
+		return s.usageLimit(name, feature, unit), nil
+	}
 	decision := s.CanUse(feature)
 	value := LimitValue{
 		Name:         name,
@@ -326,11 +343,73 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 			value.Value = FreePrivateCollaborationLimit
 		}
 	case LimitOrgStorageQuota, LimitOrgActionsMinutesQuota:
-		// SP08 owns usage accounting and concrete quota numbers. Until
-		// then, expose entitlement state without pretending metering is enforced.
-		value.Defined = false
+		value = s.usageLimit(name, feature, unit)
 	}
 	return value, nil
+}
+
+func (s Set) usageLimit(name Limit, feature Feature, unit string) LimitValue {
+	value := LimitValue{
+		Name:         name,
+		Feature:      feature,
+		Allowed:      true,
+		Defined:      true,
+		Unit:         unit,
+		RequiredPlan: billing.PlanTeam,
+		Reason:       ReasonNone,
+	}
+	if s.State.Plan == billing.PlanEnterprise {
+		value.Allowed = false
+		value.Defined = false
+		value.Reason = ReasonEnterpriseContactSales
+		return value
+	}
+	teamActive := activeTeamBilling(s.now, s.State)
+	switch name {
+	case LimitOrgStorageQuota:
+		value.Value = FreeOrgStorageQuotaBytes
+		if teamActive {
+			value.Value = TeamOrgStorageQuotaBytes
+		}
+	case LimitOrgActionsMinutesQuota:
+		value.Value = FreeOrgActionsMinutesQuota
+		if teamActive {
+			value.Value = TeamOrgActionsMinutesQuota
+		}
+	}
+	if override, ok := s.quotaOverrideForLimit(name); ok {
+		value.Allowed = true
+		value.Defined = true
+		value.Overridden = true
+		value.Reason = ReasonNone
+		if override.Unlimited {
+			value.Unlimited = true
+			value.Value = 0
+			return value
+		}
+		value.Unlimited = false
+		if override.LimitValue.Valid {
+			value.Value = override.LimitValue.Int64
+		}
+	}
+	return value
+}
+
+func (s Set) quotaOverrideForLimit(name Limit) (billing.QuotaOverride, bool) {
+	if len(s.quotaOverrides) == 0 {
+		return billing.QuotaOverride{}, false
+	}
+	var kind billing.QuotaKind
+	switch name {
+	case LimitOrgStorageQuota:
+		kind = billing.QuotaKindStorageBytes
+	case LimitOrgActionsMinutesQuota:
+		kind = billing.QuotaKindActionsMinutes
+	default:
+		return billing.QuotaOverride{}, false
+	}
+	override, ok := s.quotaOverrides[kind]
+	return override, ok
 }
 
 // KnownFeature reports whether `feature` is in the registry. Used
@@ -510,25 +589,29 @@ func decideOrgFeature(now time.Time, state billing.State, feature Feature) Decis
 		decision.Reason = ReasonEnterpriseContactSales
 		return decision
 	case billing.PlanTeam:
-		switch state.SubscriptionStatus {
-		case billing.SubscriptionStatusActive,
-			billing.SubscriptionStatusTrialing:
+		if activeTeamBilling(now, state) {
 			decision.Allowed = true
 			decision.Reason = ReasonNone
 			return decision
-		case billing.SubscriptionStatusPastDue:
-			if state.GraceUntil.Valid && !now.After(state.GraceUntil.Time) {
-				decision.Allowed = true
-				decision.Reason = ReasonNone
-				return decision
-			}
-			decision.Reason = ReasonBillingActionNeeded
-			return decision
-		default:
-			decision.Reason = ReasonBillingActionNeeded
-			return decision
 		}
+		decision.Reason = ReasonBillingActionNeeded
+		return decision
 	default:
 		return decision
+	}
+}
+
+func activeTeamBilling(now time.Time, state billing.State) bool {
+	if state.Plan != billing.PlanTeam {
+		return false
+	}
+	switch state.SubscriptionStatus {
+	case billing.SubscriptionStatusActive,
+		billing.SubscriptionStatusTrialing:
+		return true
+	case billing.SubscriptionStatusPastDue:
+		return state.GraceUntil.Valid && !now.After(state.GraceUntil.Time)
+	default:
+		return false
 	}
 }

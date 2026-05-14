@@ -66,5 +66,5 @@ the URL into logs.
 | `403 Forbidden` on push                              | Token lacks `repo` write scope.           |
 | `401 Unauthorized` immediately                       | Wrong username, expired token, or the token was revoked. |
 | `protected branch hook declined`                     | Branch protection requires PR + reviews — push to a feature branch instead. |
-| `pre-receive hook declined: repo over quota`        | Repo size cap hit; see your operator.     |
+| `organization is over its storage quota`             | Org storage quota hit; reduce storage or manage billing. |
 | `error: failed to push some refs … updates were rejected` | Standard git non-fast-forward — pull/rebase first. |

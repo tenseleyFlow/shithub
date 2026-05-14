@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -18,6 +19,9 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -32,6 +36,7 @@ type enqFx struct {
 	deps   trigger.Deps
 	repoID int64
 	userID int64
+	orgID  int64
 }
 
 func setupEnq(t *testing.T) enqFx {
@@ -58,6 +63,43 @@ func setupEnq(t *testing.T) enqFx {
 		deps:   trigger.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
 		repoID: repo.ID,
 		userID: user.ID,
+	}
+}
+
+func setupOrgEnq(t *testing.T) enqFx {
+	t.Helper()
+	pool := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	user, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "alice", DisplayName: "Alice", PasswordHash: enqFixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	org, err := orgs.Create(ctx, orgs.Deps{
+		Pool:   pool,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, orgs.CreateParams{
+		Slug: "acme", DisplayName: "Acme Inc", CreatedByUserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+	return enqFx{
+		pool:   pool,
+		deps:   trigger.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		repoID: repo.ID,
+		userID: user.ID,
+		orgID:  org.ID,
 	}
 }
 
@@ -147,6 +189,116 @@ func TestEnqueue_HappyPath(t *testing.T) {
 		"workflow_run": 1,
 		"workflow_job": 1,
 	})
+}
+
+func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	seedCompletedActionsMinutes(t, f, now, entitlements.FreeOrgActionsMinutesQuota)
+
+	_, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:quota-exhausted",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if !errors.Is(err, trigger.ErrActionsMinutesQuotaExceeded) {
+		t.Fatalf("Enqueue err=%v, want ErrActionsMinutesQuotaExceeded", err)
+	}
+	var count int64
+	if scanErr := f.pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repo_id = $1 AND workflow_file = '.shithub/workflows/ci.yml'`, f.repoID).Scan(&count); scanErr != nil {
+		t.Fatalf("count workflow_runs: %v", scanErr)
+	}
+	if count != 0 {
+		t.Fatalf("workflow_runs count = %d, want 0", count)
+	}
+}
+
+func TestEnqueue_AllowsOrgActionsWithMinutesOverride(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	seedCompletedActionsMinutes(t, f, now, entitlements.FreeOrgActionsMinutesQuota)
+	if _, err := billing.UpsertOrgQuotaOverride(ctx, billing.Deps{Pool: f.pool}, billing.QuotaOverrideInput{
+		OrgID:           f.orgID,
+		Kind:            billing.QuotaKindActionsMinutes,
+		Unlimited:       true,
+		CreatedByUserID: f.userID,
+	}); err != nil {
+		t.Fatalf("UpsertOrgQuotaOverride: %v", err)
+	}
+
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:quota-override",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if res.RunID == 0 || res.Skipped {
+		t.Fatalf("expected enqueued run, got %+v", res)
+	}
+}
+
+func seedCompletedActionsMinutes(t *testing.T, f enqFx, completedAt time.Time, minutes int64) {
+	t.Helper()
+	ctx := context.Background()
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/seed.yml",
+		HeadSHA:        strings.Repeat("f", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:quota-seed",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("seed Enqueue: %v", err)
+	}
+	q := actionsdb.New()
+	jobs, err := q.ListJobsForRun(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun seed: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("seed jobs = %d, want 1", len(jobs))
+	}
+	startedAt := completedAt.Add(-time.Duration(minutes) * time.Minute)
+	if _, err := q.UpdateWorkflowJobStatus(ctx, f.pool, actionsdb.UpdateWorkflowJobStatusParams{
+		ID:     jobs[0].ID,
+		Status: actionsdb.WorkflowJobStatusCompleted,
+		Conclusion: actionsdb.NullCheckConclusion{
+			CheckConclusion: actionsdb.CheckConclusionSuccess,
+			Valid:           true,
+		},
+		StartedAt:   pgtype.Timestamptz{Time: startedAt, Valid: true},
+		CompletedAt: pgtype.Timestamptz{Time: completedAt, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateWorkflowJobStatus seed: %v", err)
+	}
+	if _, err := q.CompleteWorkflowRun(ctx, f.pool, actionsdb.CompleteWorkflowRunParams{
+		ID:         res.RunID,
+		Conclusion: actionsdb.CheckConclusionSuccess,
+	}); err != nil {
+		t.Fatalf("CompleteWorkflowRun seed: %v", err)
+	}
 }
 
 func TestListQueuedWorkflowJobRunsOnGroupsByRequestedLabel(t *testing.T) {

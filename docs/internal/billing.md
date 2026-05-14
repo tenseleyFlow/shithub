@@ -50,9 +50,11 @@ Rules for paid-org copy:
 - Do not promise SAML, SCIM, LDAP, managed users, audit exports, data
   residency, compliance attestations, contracts, or custom support
   until the matching implementation sprint ships.
-- Do not advertise Packages, Pages, Wikis, Projects, Actions minutes,
-  or storage quotas until those surfaces have enforcement and usage
-  accounting.
+- Do not advertise Packages, Pages, Wikis, or Projects until those
+  surfaces exist. Storage and Actions quota copy may appear on
+  owner-only billing settings once usage accounting exists, but public
+  pricing pages must not present them as broadly enforced until the
+  matching hard-deny gates have shipped.
 - Use upgrade language for unavailable Team features instead of hiding
   existing data. Downgrades preserve configuration and make gated
   settings read-only where possible.
@@ -150,12 +152,18 @@ Already present and safe to gate:
 - PR review and reviewer-request substrate.
 - Org/repo Actions secrets and variables schema.
 
-Present but missing enforcement or metering:
+Present but still moving toward full enforcement:
 
-- Storage quota type exists, but quota persistence and enforcement are
-  incomplete.
-- Actions minutes, artifacts, and object usage need accounting before
-  paid limits can be promised.
+- SP08 adds durable organization usage counters, usage snapshots, and
+  site-admin quota overrides for storage and Actions minutes.
+- Org-owned Actions dispatch now hard-denies new runs when the current
+  monthly usage recalculation shows the organization is at or over its
+  effective Actions minutes quota.
+- Org-owned git pushes now hard-deny in pre-receive when the pushed
+  repo's actual on-disk size would put the organization over its
+  effective storage quota.
+- Object upload storage write paths still need hard-deny checks before
+  quota rows should be advertised on public pricing pages.
 - Packages storage cannot be sold until the Packages sprint is active
   and quota enforcement exists.
 
@@ -275,7 +283,9 @@ PAYMENTS SP07 completes the first self-serve billing settings surface:
   as read-only data.
 - Normal organization owners do not see raw Stripe customer,
   subscription, or subscription-item IDs. Site admins see a debug panel
-  with those IDs and the latest locally recorded webhook receipt state.
+  with those IDs, the latest locally recorded webhook receipt state,
+  and support controls for saving or clearing storage and Actions
+  minutes quota overrides.
 
 PAYMENTS SP06a adds the first private-collaboration limit:
 
@@ -298,6 +308,54 @@ PAYMENTS SP06a adds the first private-collaboration limit:
 - Cleanup writes remain available: removing org members, team members,
   direct collaborators, team repo grants, and gated configuration must
   not require Team.
+
+PAYMENTS SP08 starts hosted-cost metering:
+
+- Free organizations have a 500 MiB storage quota and 2,000 Actions
+  minutes per calendar month.
+- Team organizations in good standing have a 2 GiB storage quota and
+  3,000 Actions minutes per calendar month.
+- Storage usage is tracked as bare repository bytes plus tracked object
+  bytes. The first recalculation source uses `repos.disk_used_bytes`,
+  finalized Actions step log bytes, and Actions artifact byte counts;
+  other object surfaces must be added as their storage metadata becomes
+  durable.
+- Actions minutes are counted from completed or canceled workflow job
+  runtime, rounded up to the next whole minute, within the current
+  monthly usage period.
+- `org_usage_counters` stores the current projection,
+  `org_usage_snapshots` records audit snapshots, and
+  `org_quota_overrides` lets site admins temporarily override a quota
+  for support cases.
+- `org:usage_recalc` is the repair worker for one organization. It
+  recalculates repository/object/Actions usage for the current monthly
+  period and records an audit snapshot unless the payload explicitly
+  skips snapshotting.
+- `org:usage_reconcile` is the scheduled/manual fanout job. It lists
+  non-deleted organizations in bounded batches and enqueues one
+  `org:usage_recalc` job per organization, defaulting the child source
+  to `scheduled`.
+- Org-owned workflow dispatch recalculates current monthly usage before
+  enqueueing and rejects new runs when Actions minutes used is greater
+  than or equal to the effective quota. Personal repositories are not
+  gated by organization quotas.
+- Org-owned git pushes measure the actual bare repo directory during
+  pre-receive, adjust the recalculated organization counters for that
+  repository's current disk size, and reject pushes that would exceed
+  the effective storage quota. Personal repositories are not gated by
+  organization quotas.
+- Org-owned Actions artifact upload URL requests recalculate current
+  storage usage before issuing a presigned PUT URL and reject uploads
+  whose declared byte count would exceed the effective storage quota.
+- Site admins can save or clear temporary storage and Actions minutes
+  quota overrides from the billing settings debug panel even when they
+  are not organization owners. Overrides are attributed to the actor and
+  take effect in entitlement limit calculations immediately. Stripe
+  checkout and portal actions remain owner-only.
+- Quota enforcement must read local counters and may force a source
+  recalculation before rejecting large writes; counters are repairable
+  and should not be treated as an eventually-consistent sole authority
+  for hard-deny decisions.
 
 ## Entitlement architecture
 
@@ -358,8 +416,9 @@ organization upgrades again.
 
 ## Open questions for implementation
 
-- Exact Free and Team quota numbers for Actions and storage. These must
-  come from real host-cost estimates before SP08.
+- Whether the v1 storage quota should eventually split repository bytes
+  from Actions/artifact bytes in the UI. The first SP08 implementation
+  tracks both separately but enforces a combined storage quota.
 
 ## Source references
 

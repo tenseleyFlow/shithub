@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"path/filepath"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,7 +64,7 @@ func RepoSizeRecalc(deps RepoSizeRecalcDeps) worker.Handler {
 		if err != nil {
 			return worker.PoisonError(fmt.Errorf("repo path: %w", err))
 		}
-		size, err := walkSize(ctx, gitDir)
+		size, err := deps.RepoFS.DiskUsageBytes(ctx, gitDir)
 		if err != nil {
 			return fmt.Errorf("walk size: %w", err)
 		}
@@ -78,32 +76,4 @@ func RepoSizeRecalc(deps RepoSizeRecalcDeps) worker.Handler {
 		}
 		return nil
 	}
-}
-
-// walkSize sums the byte size of every regular file under root. Walks
-// once; doesn't follow symlinks (we never create any inside a bare
-// repo). Honors ctx so a long-running walk on a giant repo can be
-// cancelled by graceful shutdown.
-func walkSize(ctx context.Context, root string) (int64, error) {
-	var total int64
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode().IsRegular() {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total, err
 }
