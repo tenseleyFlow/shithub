@@ -27,6 +27,24 @@
         <input type="text" name="target_name" value="{{ $.Repo.Name }}" class="shithub-fork-input" autocomplete="off">
       </label>
 
+      {{ if eq (printf "%s" $.Repo.Visibility) "public" }}
+      <label class="shithub-fork-field">
+        <span class="shithub-fork-field-label">Visibility</span>
+        <select name="target_visibility" class="shithub-fork-select">
+          <option value="public" selected>Public</option>
+          <option value="private">Private</option>
+        </select>
+      </label>
+      <p class="shithub-fork-note">
+        Private forks are visible only to you and collaborators you invite. You can change this later in settings.
+      </p>
+      {{ else }}
+      <input type="hidden" name="target_visibility" value="private">
+      <p class="shithub-fork-note">
+        Source is private, so your fork will also be private. shithub never widens visibility on fork.
+      </p>
+      {{ end }}
+
       <p class="shithub-fork-note">
         The default branch from the source will be the only branch in your new fork at first; you can sync more later.
       </p>
