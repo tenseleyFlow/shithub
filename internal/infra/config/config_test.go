@@ -236,3 +236,91 @@ func TestMergeEnv_RateLimitAPI(t *testing.T) {
 		t.Errorf("AnonPerHour: got %d, want 120", cfg.RateLimit.API.AnonPerHour)
 	}
 }
+
+func TestDefaults_RateLimitHTML(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if got, want := cfg.RateLimit.HTML.AnonBurst, 60; got != want {
+		t.Errorf("RateLimit.HTML.AnonBurst: got %d, want %d", got, want)
+	}
+	if got, want := cfg.RateLimit.HTML.AnonRefill, 1; got != want {
+		t.Errorf("RateLimit.HTML.AnonRefill: got %d, want %d", got, want)
+	}
+	if got, want := cfg.RateLimit.HTML.AuthedBurst, 600; got != want {
+		t.Errorf("RateLimit.HTML.AuthedBurst: got %d, want %d", got, want)
+	}
+	if got, want := cfg.RateLimit.HTML.AuthedRefill, 10; got != want {
+		t.Errorf("RateLimit.HTML.AuthedRefill: got %d, want %d", got, want)
+	}
+}
+
+func TestValidate_RejectsNegativeRateLimitHTML(t *testing.T) {
+	t.Parallel()
+	cases := map[string]func(*Config){
+		"anon_burst":            func(c *Config) { c.RateLimit.HTML.AnonBurst = -1 },
+		"anon_refill_per_sec":   func(c *Config) { c.RateLimit.HTML.AnonRefill = -1 },
+		"authed_burst":          func(c *Config) { c.RateLimit.HTML.AuthedBurst = -1 },
+		"authed_refill_per_sec": func(c *Config) { c.RateLimit.HTML.AuthedRefill = -1 },
+	}
+	for name, mutate := range cases {
+		name, mutate := name, mutate
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			mutate(&cfg)
+			if err := Validate(&cfg); err == nil {
+				t.Errorf("expected validation error for ratelimit.html.%s=-1", name)
+			}
+		})
+	}
+}
+
+func TestValidate_RateLimitHTMLZeroFillsDefault(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.RateLimit.HTML.AnonBurst = 0
+	cfg.RateLimit.HTML.AnonRefill = 0
+	cfg.RateLimit.HTML.AuthedBurst = 0
+	cfg.RateLimit.HTML.AuthedRefill = 0
+	if err := Validate(&cfg); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if cfg.RateLimit.HTML.AnonBurst != 60 {
+		t.Errorf("zero-fill anon_burst: got %d, want 60", cfg.RateLimit.HTML.AnonBurst)
+	}
+	if cfg.RateLimit.HTML.AnonRefill != 1 {
+		t.Errorf("zero-fill anon_refill: got %d, want 1", cfg.RateLimit.HTML.AnonRefill)
+	}
+	if cfg.RateLimit.HTML.AuthedBurst != 600 {
+		t.Errorf("zero-fill authed_burst: got %d, want 600", cfg.RateLimit.HTML.AuthedBurst)
+	}
+	if cfg.RateLimit.HTML.AuthedRefill != 10 {
+		t.Errorf("zero-fill authed_refill: got %d, want 10", cfg.RateLimit.HTML.AuthedRefill)
+	}
+}
+
+func TestMergeEnv_RateLimitHTML(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	env := []string{
+		"SHITHUB_RATELIMIT__HTML__ANON_BURST=120",
+		"SHITHUB_RATELIMIT__HTML__ANON_REFILL_PER_SEC=2",
+		"SHITHUB_RATELIMIT__HTML__AUTHED_BURST=1200",
+		"SHITHUB_RATELIMIT__HTML__AUTHED_REFILL_PER_SEC=20",
+	}
+	if err := mergeEnv(&cfg, env); err != nil {
+		t.Fatalf("mergeEnv: %v", err)
+	}
+	if cfg.RateLimit.HTML.AnonBurst != 120 {
+		t.Errorf("AnonBurst: got %d, want 120", cfg.RateLimit.HTML.AnonBurst)
+	}
+	if cfg.RateLimit.HTML.AnonRefill != 2 {
+		t.Errorf("AnonRefill: got %d, want 2", cfg.RateLimit.HTML.AnonRefill)
+	}
+	if cfg.RateLimit.HTML.AuthedBurst != 1200 {
+		t.Errorf("AuthedBurst: got %d, want 1200", cfg.RateLimit.HTML.AuthedBurst)
+	}
+	if cfg.RateLimit.HTML.AuthedRefill != 20 {
+		t.Errorf("AuthedRefill: got %d, want 20", cfg.RateLimit.HTML.AuthedRefill)
+	}
+}
