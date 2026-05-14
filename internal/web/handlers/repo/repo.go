@@ -158,6 +158,7 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)
+	r.Get("/{owner}/{repo}/actions/workflows/*", h.repoActionsWorkflow)
 	r.Get("/{owner}/{repo}/actions/caches", h.repoActionsCaches)
 	r.Get("/{owner}/{repo}/actions/attestations", h.repoActionsAttestations)
 	r.Get("/{owner}/{repo}/actions/runners", h.repoActionsRunners)
