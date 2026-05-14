@@ -1,0 +1,27 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-repo-empty">
+    {{ if .Repo.Description }}<p class="shithub-repo-empty-desc">{{ .Repo.Description }}</p>{{ end }}
+
+    <div class="shithub-repo-init-pending Box">
+      <div class="Box-body">
+        {{ if .IsFork }}
+        <h2>Cloning the fork…</h2>
+        <p>
+          shithub is copying
+          {{ if .SourceLink }}<a href="{{ .SourceLink }}">{{ .SourceFullName }}</a>{{ else }}<strong>{{ .SourceFullName }}</strong>{{ end }}
+          into this fork. This page refreshes automatically; usually
+          this finishes in seconds.
+        </p>
+        {{ else }}
+        <h2>Preparing the repository…</h2>
+        <p>shithub is finishing initialization. This page refreshes automatically.</p>
+        {{ end }}
+        <noscript><p><a href="">Refresh</a></p></noscript>
+      </div>
+    </div>
+  </section>
+</section>
+<meta http-equiv="refresh" content="5">
+{{- end }}
