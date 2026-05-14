@@ -125,3 +125,14 @@ S41k should follow S41j because it is UI parity:
 None of those replace S41j's security gates. S41k can make unsupported labels,
 queue state, runner health, and usage easier to see, but it should not be the
 first line of defense for arbitrary code execution.
+
+As of S41k-5, repository Actions management pages expose only repo-scoped or
+repo-relevant data:
+
+- caches list rows from `workflow_caches` for the current repository;
+- runners list non-revoked runners whose labels match labels requested by this
+  repository's jobs, or runners currently assigned to one of those jobs;
+- usage and performance pages use bounded current-month workflow/job rows.
+
+Runner host names, runner versions, registration tokens, revocation controls,
+and registration flows remain operator/admin surfaces, not repository web UI.

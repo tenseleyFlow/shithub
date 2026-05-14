@@ -8,6 +8,7 @@
       <div>
         <h1>{{ .Page.Title }}</h1>
         <p>{{ .Page.Description }}</p>
+        {{ if .Page.PeriodLabel }}<p>{{ .Page.PeriodLabel }}</p>{{ end }}
       </div>
       {{ if .Page.PrimaryAction }}
         {{ if .Page.PrimaryDisabled }}
@@ -54,11 +55,138 @@
       <header>
         <strong>{{ .Page.CountLabel }}</strong>
       </header>
-      <div class="shithub-actions-management-empty">
-        <span class="shithub-actions-empty-icon">{{ octicon .Page.Icon }}</span>
-        <h2>{{ .Page.EmptyTitle }}</h2>
-        <p>{{ .Page.EmptyBody }}</p>
-      </div>
+      {{ if .Page.HasRows }}
+        {{ if .Page.Caches }}
+          <div class="shithub-actions-management-table-wrap">
+            <table class="shithub-actions-management-table">
+              <thead>
+                <tr>
+                  <th scope="col">Key</th>
+                  <th scope="col">Branch</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Page.Caches }}
+                  <tr>
+                    <td>
+                      <strong>{{ .Key }}</strong>
+                      <span>{{ .Version }}</span>
+                    </td>
+                    <td>{{ .Ref }}</td>
+                    <td>{{ .Size }}</td>
+                    <td>{{ .LastUsed }}</td>
+                    <td>{{ .Created }}</td>
+                  </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ else if .Page.Runners }}
+          <div class="shithub-actions-management-table-wrap">
+            <table class="shithub-actions-management-table">
+              <thead>
+                <tr>
+                  <th scope="col">Runner</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Labels</th>
+                  <th scope="col">Last heartbeat</th>
+                  <th scope="col">Capacity</th>
+                  <th scope="col">Active jobs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Page.Runners }}
+                  <tr>
+                    <td><strong>{{ .Name }}</strong></td>
+                    <td>
+                      <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">
+                        {{ if eq .StateClass "success" }}{{ octicon "check-circle-fill" }}{{ else }}{{ octicon "dot-fill" }}{{ end }}
+                        {{ .Status }}
+                      </span>
+                    </td>
+                    <td>
+                      <span class="shithub-actions-labels">
+                        {{ range .Labels }}<span>{{ . }}</span>{{ end }}
+                      </span>
+                    </td>
+                    <td>{{ .LastHeartbeat }}</td>
+                    <td>{{ .Capacity }}</td>
+                    <td>{{ .ActiveJobCount }}</td>
+                  </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ else if .Page.UsageRows }}
+          <div class="shithub-actions-management-table-wrap">
+            <table class="shithub-actions-management-table">
+              <thead>
+                <tr>
+                  <th scope="col">Workflow</th>
+                  <th scope="col">Total minutes</th>
+                  <th scope="col">Workflow runs</th>
+                  <th scope="col">Jobs</th>
+                  <th scope="col">Runtime</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Page.UsageRows }}
+                  <tr>
+                    <td>
+                      <strong>{{ .WorkflowName }}</strong>
+                      <span>{{ .WorkflowFile }}</span>
+                    </td>
+                    <td>{{ .Minutes }}</td>
+                    <td>{{ .RunCount }}</td>
+                    <td>{{ .JobCount }}</td>
+                    <td>{{ .Duration }}</td>
+                  </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ else if .Page.PerformanceRows }}
+          <div class="shithub-actions-management-table-wrap">
+            <table class="shithub-actions-management-table">
+              <thead>
+                <tr>
+                  <th scope="col">Workflow</th>
+                  <th scope="col">Avg runtime</th>
+                  <th scope="col">Avg queue</th>
+                  <th scope="col">Failure rate</th>
+                  <th scope="col">Workflow runs</th>
+                  <th scope="col">Jobs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Page.PerformanceRows }}
+                  <tr>
+                    <td>
+                      <strong>{{ .WorkflowName }}</strong>
+                      <span>{{ .WorkflowFile }}</span>
+                    </td>
+                    <td>{{ .AvgRuntime }}</td>
+                    <td>{{ .AvgQueue }}</td>
+                    <td>{{ .FailureRate }}</td>
+                    <td>{{ .RunCount }}</td>
+                    <td>{{ .JobCount }}</td>
+                  </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ end }}
+        {{ if .Page.FooterNote }}<p class="shithub-actions-management-note">{{ .Page.FooterNote }}</p>{{ end }}
+      {{ else }}
+        <div class="shithub-actions-management-empty">
+          <span class="shithub-actions-empty-icon">{{ octicon .Page.Icon }}</span>
+          <h2>{{ .Page.EmptyTitle }}</h2>
+          <p>{{ .Page.EmptyBody }}</p>
+        </div>
+      {{ end }}
     </section>
   </div>
 </section>
