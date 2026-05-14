@@ -93,20 +93,14 @@ var workerCmd = &cobra.Command{
 				"hint", "set Auth.TOTPKeyB64 to a base64 32-byte key",
 				"error", boxErr)
 		}
-		// Webhook AEAD boxes. When webhook.aead_key is set, primary
-		// is the dedicated key and legacy is the TOTP-shared key
-		// (transition fallback for rows still under TOTP). When
-		// unset, primary collapses to the TOTP box (pre-separation
-		// behavior) and legacy is nil.
-		webhookPrimary, webhookLegacy, webhookBoxErr := webhook.BuildBoxes(cfg.Webhook.AEADKey, cfg.Auth.TOTPKeyB64)
+		// Webhook AEAD box. Built from cfg.Webhook.AEADKey; nil when
+		// unset (delivery disabled below). The pre-separation
+		// auth.totp_key_b64 fallback was retired in F-shakedown.
+		webhookBox, webhookBoxErr := webhook.BuildBox(cfg.Webhook.AEADKey)
 		if webhookBoxErr != nil {
-			logger.Warn("webhook AEAD boxes unavailable",
-				"hint", "set SHITHUB_WEBHOOK__AEAD_KEY to base64 32-byte key (or SHITHUB_TOTP_KEY for legacy)",
+			logger.Warn("webhook AEAD box unavailable",
+				"hint", "set SHITHUB_WEBHOOK__AEAD_KEY to a base64 32-byte key",
 				"error", webhookBoxErr)
-		}
-		if webhookPrimary != nil && webhookLegacy != nil {
-			logger.Info("webhook: separation transition mode — primary=webhook.aead_key, legacy=auth.totp_key_b64",
-				"hint", "run `shithubd admin re-encrypt-webhooks` to migrate existing rows; then the legacy fallback is unused")
 		}
 		var stripeRemote stripebilling.Remote
 		if cfg.Billing.Enabled {
@@ -192,23 +186,20 @@ var workerCmd = &cobra.Command{
 		// Webhook delivery (S33). The fan-out drains domain_events
 		// past its own cursor; deliver runs per-row HTTP POSTs;
 		// purge-old prunes terminal rows past the retention window.
-		// Primary box is webhook.aead_key when set; otherwise it
-		// collapses to the TOTP-shared key (pre-separation
-		// behavior). Legacy is non-nil during the transition window
-		// so existing TOTP-encrypted rows still decrypt.
-		if webhookPrimary == nil {
+		// SHITHUB_WEBHOOK__AEAD_KEY is required; absent, delivery is
+		// disabled with a loud warning.
+		if webhookBox == nil {
 			logger.Warn("webhook: no AEAD key configured; webhook delivery disabled",
-				"hint", "set SHITHUB_WEBHOOK__AEAD_KEY or SHITHUB_TOTP_KEY to a base64 32-byte key")
+				"hint", "set SHITHUB_WEBHOOK__AEAD_KEY to a base64 32-byte key")
 		} else {
 			p.Register(webhook.KindWebhookFanout, jobs.WebhookFanout(jobs.WebhookFanoutDeps{
 				Pool: pool, Logger: logger,
 			}))
 			p.Register(webhook.KindWebhookDeliver, jobs.WebhookDeliver(jobs.WebhookDeliverDeps{
-				Pool:            pool,
-				Logger:          logger,
-				SecretBox:       webhookPrimary,
-				LegacySecretBox: webhookLegacy,
-				SSRF:            webhook.DefaultSSRFConfig(),
+				Pool:      pool,
+				Logger:    logger,
+				SecretBox: webhookBox,
+				SSRF:      webhook.DefaultSSRFConfig(),
 			}))
 			p.Register(webhook.KindWebhookPurgeOld, jobs.WebhookPurgeOld(jobs.WebhookPurgeOldDeps{
 				Pool: pool, Logger: logger, Retention: 30 * 24 * time.Hour,

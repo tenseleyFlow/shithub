@@ -96,50 +96,33 @@ access mid-flight.
 
 The webhook secret AEAD key (`webhook.aead_key`, env
 `SHITHUB_WEBHOOK__AEAD_KEY`) encrypts every webhook's secret at
-rest. It's separate from `auth.totp_key_b64` so rotating one
-doesn't force rotating the other.
+rest. It's required — empty disables delivery with a loud
+warning. F-shakedown retired the `auth.totp_key_b64` fallback
+and the `shithubd admin re-encrypt-webhooks` migration command
+once prod confirmed zero rows remained on the legacy key.
 
-### First-time separation
+### Rotation
 
-If you're upgrading from a pre-separation deploy where webhook
-secrets shared `auth.totp_key_b64`:
+There is no in-place rotation tool today. With zero or a small
+number of webhooks live, the operator path is:
 
-1. Generate a new key:
-   `openssl rand -base64 32`.
-2. Set `shithub_webhook_aead_key_b64` in `inventory/production`
-   (or `SHITHUB_WEBHOOK__AEAD_KEY` directly on the box).
-3. `make deploy ANSIBLE_INVENTORY=production` (rolls both web
-   and worker; rendered env file now includes the new var).
-4. Run `shithubd admin re-encrypt-webhooks --dry-run` and review
-   the row count.
-5. Run `shithubd admin re-encrypt-webhooks` for the real
-   migration. Each row is re-encrypted from the legacy (TOTP)
-   key onto the new dedicated key. Idempotent and resumable.
-6. Verify by triggering a delivery — confirm signatures still
-   validate at the receiver end.
+1. Note every active webhook URL (psql:
+   `SELECT id, owner_kind, owner_id, url FROM webhooks WHERE active;`).
+2. Generate the new key: `openssl rand -base64 32`.
+3. Swap `shithub_webhook_aead_key_b64` in
+   `inventory/production`.
+4. `make deploy ANSIBLE_INVENTORY=production`.
+5. Existing webhook rows will fail decryption on next delivery
+   and auto-disable. For each one, re-create via the owner's
+   webhook settings UI (which generates a fresh secret encrypted
+   under the new key) and notify the receiver to update their
+   end.
 
-The transition is safe to take in either order (deploy first vs
-re-encrypt first) because `OpenSecret` tries the primary key
-first and falls back to the legacy key for any row that hasn't
-been migrated yet.
-
-### Routine rotation (already separated)
-
-1. Generate the new key:
-   `openssl rand -base64 32`.
-2. Swap `shithub_webhook_aead_key_b64` in inventory; the previous
-   value should still be temporarily kept as a comment in case
-   step 4 needs a rollback.
-3. `make deploy ANSIBLE_INVENTORY=production`.
-4. Run `shithubd admin re-encrypt-webhooks` to re-encrypt every
-   row from the previous key onto the new one.
-
-Failing to re-encrypt before fully retiring the previous key
-disables every webhook (the auto-disable logic kicks in on
-first decrypt failure). The new code's legacy fallback only
-helps when `auth.totp_key_b64` is the previous key — for a
-key-to-key rotation that didn't go through TOTP, the operator
-must run re-encrypt before the previous key is purged.
+If shithub grows enough webhooks that this dance is painful,
+add a key-rotation admin command that takes (old_b64, new_b64)
+explicitly. The previous TOTP→dedicated tool only knew how to
+read the TOTP key from config and isn't reusable for
+primary→primary' rotation.
 
 ## Operator SSH keys
 

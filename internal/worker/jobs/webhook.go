@@ -50,20 +50,15 @@ func WebhookFanout(deps WebhookFanoutDeps) worker.Handler {
 	}
 }
 
-// WebhookDeliverDeps wires the deliverer.
-//
-// SecretBox is the primary AEAD box (encrypts new secrets, first
-// try when decrypting). LegacySecretBox is the optional fallback
-// used to decrypt rows written under the pre-separation shared
-// key (auth.totp_key_b64). Pass nil for LegacySecretBox once the
-// `shithubd admin re-encrypt-webhooks` migration is verified and
-// you've confirmed no rows remain on the legacy key.
+// WebhookDeliverDeps wires the deliverer. SecretBox is the AEAD box
+// from cfg.Webhook.AEADKey; the pre-separation auth.totp_key_b64
+// fallback was retired in F-shakedown after prod confirmed zero
+// rows remained on the legacy key.
 type WebhookDeliverDeps struct {
-	Pool            *pgxpool.Pool
-	Logger          *slog.Logger
-	SecretBox       *secretbox.Box
-	LegacySecretBox *secretbox.Box
-	SSRF            webhook.SSRFConfig
+	Pool      *pgxpool.Pool
+	Logger    *slog.Logger
+	SecretBox *secretbox.Box
+	SSRF      webhook.SSRFConfig
 }
 
 // WebhookDeliver dispatches one delivery row. The job kind is fired by
@@ -80,11 +75,10 @@ func WebhookDeliver(deps WebhookDeliverDeps) worker.Handler {
 			return worker.PoisonError(jsonError("delivery_id must be positive"))
 		}
 		return webhook.Deliver(ctx, webhook.DeliverDeps{
-			Pool:            deps.Pool,
-			Logger:          deps.Logger,
-			SecretBox:       deps.SecretBox,
-			LegacySecretBox: deps.LegacySecretBox,
-			SSRF:            deps.SSRF,
+			Pool:      deps.Pool,
+			Logger:    deps.Logger,
+			SecretBox: deps.SecretBox,
+			SSRF:      deps.SSRF,
 		}, id)
 	}
 }

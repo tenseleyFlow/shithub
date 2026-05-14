@@ -36,14 +36,11 @@ type DeliverDeps struct {
 	Pool       *pgxpool.Pool
 	Logger     *slog.Logger
 	HTTPClient *http.Client
-	// SecretBox is the primary AEAD box used to decrypt webhook
-	// secrets (and encrypt new ones via ManageDeps). When
-	// LegacySecretBox is also set, OpenSecret tries the primary
-	// first and falls back to legacy for rows that haven't been
-	// re-encrypted yet — see internal/webhook/secrets.go.
-	SecretBox       *secretbox.Box
-	LegacySecretBox *secretbox.Box
-	SSRF            SSRFConfig
+	// SecretBox is the AEAD box used to decrypt webhook secrets
+	// (and encrypt new ones via ManageDeps). Built from
+	// cfg.Webhook.AEADKey — see internal/webhook/secrets.go.
+	SecretBox *secretbox.Box
+	SSRF      SSRFConfig
 	// JitterFn is plumbed for tests; nil => math/rand.Float64.
 	JitterFn func() float64
 }
@@ -87,7 +84,7 @@ func Deliver(ctx context.Context, deps DeliverDeps, deliveryID int64) error {
 		})
 		return nil
 	}
-	secret, err := OpenSecret(deps.SecretBox, deps.LegacySecretBox, hook.SecretCiphertext, hook.SecretNonce)
+	secret, err := OpenSecret(deps.SecretBox, hook.SecretCiphertext, hook.SecretNonce)
 	if err != nil {
 		_ = q.MarkDeliveryPermanentFailure(ctx, deps.Pool, webhookdb.MarkDeliveryPermanentFailureParams{
 			ID:                deliveryID,

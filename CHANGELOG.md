@@ -14,13 +14,26 @@ between minor releases.
 
 - **Dedicated AEAD key for webhook secrets at rest.** New
   `webhook.aead_key` (env `SHITHUB_WEBHOOK__AEAD_KEY`) decouples
-  webhook secret encryption from `auth.totp_key_b64`. Pre-existing
-  deploys keep working: leaving the new key unset preserves the
-  shared-key behavior; once set, `OpenSecret` tries the dedicated
-  key first and falls back to TOTP for un-migrated rows. New
-  `shithubd admin re-encrypt-webhooks` command walks every row and
-  re-encrypts onto the dedicated key. Idempotent + resumable.
-  Operator runbook updated under `docs/internal/runbooks/rotate-secrets.md`.
+  webhook secret encryption from `auth.totp_key_b64`. Required
+  for delivery; empty disables the worker handlers with a loud
+  warning. The earlier-shipped TOTP fallback and
+  `shithubd admin re-encrypt-webhooks` migration command were
+  retired in this release after prod confirmed zero rows
+  remained on the legacy key — see "Removed" below. Operator
+  runbook updated under
+  `docs/internal/runbooks/rotate-secrets.md`.
+
+### Removed
+
+- **TOTP fallback in the webhook deliverer.** `OpenSecret` no
+  longer attempts to decrypt webhook secret ciphertexts under
+  `auth.totp_key_b64` when the dedicated `webhook.aead_key`
+  fails. The `shithubd admin re-encrypt-webhooks` migration
+  command and its `ListWebhookSecretsForReencrypt` sqlc query
+  are gone with it — both existed only to retire the
+  TOTP-shared key, which prod confirmed had zero rows on it.
+  `webhook.aead_key` is now strictly required for delivery; an
+  empty key disables the worker handlers with a loud warning.
 
 ### Fixed
 
