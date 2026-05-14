@@ -13,7 +13,10 @@ Account menu → "New organization". You'll need:
 - A primary email (for billing/notifications; org settings only).
 
 When paid organization billing is enabled, the flow asks you to pick
-Free or Team before the form. The creator is the first owner.
+Free or Team before the form. The creator is the first owner. Team is
+billed per active organization member; pending invitations are not
+billed until accepted. Cancellation, refund, and payment-processing
+details are covered in [Billing policies](./billing-policies.md).
 
 ## Roles
 

@@ -76,6 +76,16 @@ userinfo component.
 | `auth.argon2.time` | uint32 | `3` | argon2id iterations. |
 | `auth.argon2.threads` | uint8 | `2` | argon2id parallelism. |
 | `auth.totp_key_b64` | string | `""` | Base64 32-byte AEAD for TOTP secrets. **Required if 2FA is in use.** |
+| `billing.enabled` | bool | `false` | Enables Stripe Billing flows. Requires Stripe secret key, webhook secret, and Team Price ID. |
+| `billing.grace_period` | duration | `336h` | Grace window before failed-payment paid features lock. |
+| `billing.stripe.secret_key` | string | `""` | Stripe secret API key. Redacted. |
+| `billing.stripe.webhook_secret` | string | `""` | Stripe webhook signing secret. Redacted. |
+| `billing.stripe.team_price_id` | string | `""` | Recurring per-unit/licensed Team Price ID. shithub sends active org-member quantity for seats. |
+| `billing.stripe.pro_price_id` | string | `""` | Optional recurring single-seat Pro Price ID. Enables personal-account Pro checkout. |
+| `billing.stripe.automatic_tax` | bool | `false` | Enables Stripe automatic tax after the Stripe account is configured for tax collection. |
+| `billing.enforce.user_required_reviewers` | bool | `false` | Hard-enforce the Pro required-reviewers gate. False is report-only. |
+| `billing.enforce.user_advanced_branch_protection` | bool | `false` | Hard-enforce the Pro advanced-branch-protection gate. |
+| `billing.enforce.user_profile_pins_beyond_free` | bool | `false` | Hard-enforce the Pro profile-pin cap gate. |
 
 ## Examples
 

@@ -87,7 +87,7 @@ Rules for paid-org copy:
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
 | Data residency/compliance | Deferred | Deferred | Later Enterprise feature |
-| Billing support | Basic instance support | Billing support after runbook exists | Contact sales |
+| Billing support | Basic instance support | Billing support via published contact | Contact sales |
 
 ## Pro v1 user-tier matrix (PRO07)
 
@@ -357,6 +357,30 @@ PAYMENTS SP08 starts hosted-cost metering:
   and should not be treated as an eventually-consistent sole authority
   for hard-deny decisions.
 
+PAYMENTS SP10 makes paid launch operationally supportable:
+
+- Team billing requires a Stripe recurring per-unit/licensed Price.
+  shithub sends active member quantity at Checkout and updates the
+  subscription item quantity from membership changes. A fixed flat-rate
+  Team Price is a Stripe configuration error because extra seats would
+  not bill correctly.
+- Pro billing uses a separate recurring single-seat Price. If
+  `billing.stripe.pro_price_id` is empty, personal-account checkout is
+  unavailable even when Team billing is enabled.
+- Public billing policy docs describe plan seats, cancellation,
+  downgrade preservation, refund handling, payment-data privacy, and
+  support expectations. Operators must adapt and publish final legal
+  terms before taking live payments.
+- Stripe Dashboard setup, live-mode launch checks, webhook replay,
+  subscription drift repair, manual downgrade/upgrade, refund handling,
+  past-due handling, quota overage response, and billing outage response
+  live in [`runbooks/stripe-billing.md`](./runbooks/stripe-billing.md).
+- Billing observability includes Checkout/Portal attempt counters,
+  webhook result counters, webhook backlog gauges, past-due principal
+  gauges, Team seat-drift gauges, and quota-overage gauges. Alert rules
+  live under `shithubd-billing` in
+  `deploy/monitoring/prometheus/rules.yml`.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -428,6 +452,8 @@ organization upgrades again.
 - Stripe Billing: `https://docs.stripe.com/billing`
 - Stripe pricing models:
   `https://docs.stripe.com/products-prices/pricing-models`
+- Stripe subscription quantities:
+  `https://docs.stripe.com/billing/subscriptions/quantities`
 
 ## PRO08 GA audit closure
 

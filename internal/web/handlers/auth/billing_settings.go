@@ -16,6 +16,7 @@ import (
 	userbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -97,10 +98,12 @@ func (h *Handlers) settingsBillingCheckout(w http.ResponseWriter, r *http.Reques
 	}
 	sessionURL, err := h.startUserBillingCheckout(r, user.ID, user.Username)
 	if err != nil {
+		metrics.BillingCheckoutSessionsTotal.WithLabelValues("user", "failure").Inc()
 		h.d.Logger.ErrorContext(r.Context(), "user billing: create checkout", "user_id", user.ID, "error", err)
 		h.renderUserSettingsBilling(w, r, user.ID, user.Username, "Could not start checkout right now.", "")
 		return
 	}
+	metrics.BillingCheckoutSessionsTotal.WithLabelValues("user", "success").Inc()
 	http.Redirect(w, r, sessionURL, http.StatusSeeOther)
 }
 
@@ -133,10 +136,12 @@ func (h *Handlers) settingsBillingPortal(w http.ResponseWriter, r *http.Request)
 		ReturnURL:  h.userBillingReturnURL(h.d.StripePortalReturnURL, userBillingSettingsPath),
 	})
 	if err != nil {
+		metrics.BillingPortalSessionsTotal.WithLabelValues("user", "failure").Inc()
 		h.d.Logger.ErrorContext(r.Context(), "user billing: create portal session", "user_id", user.ID, "error", err)
 		h.renderUserSettingsBilling(w, r, user.ID, user.Username, "Could not open the Stripe billing portal right now.", "")
 		return
 	}
+	metrics.BillingPortalSessionsTotal.WithLabelValues("user", "success").Inc()
 	http.Redirect(w, r, session.URL, http.StatusSeeOther)
 }
 

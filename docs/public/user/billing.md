@@ -7,6 +7,10 @@ $4 / month and managed entirely through the Stripe Billing Portal.
 Upgrade, downgrade, and invoice management live at
 [`/settings/billing`](../user/account.md).
 
+Organization Team billing is separate from Pro and is billed per active
+organization member. See the [billing policies](./billing-policies.md)
+for the cancellation, refund, payment processing, and support contract.
+
 ## What Pro unlocks
 
 | Feature | Free | Pro |

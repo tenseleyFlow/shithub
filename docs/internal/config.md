@@ -73,11 +73,15 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `billing.grace_period` | duration | `336h` | Lock grace window applied after failed subscription payments. |
 | `billing.stripe.secret_key` | string | `""` | Stripe secret API key. Required when `billing.enabled=true`. Redacted. |
 | `billing.stripe.webhook_secret` | string | `""` | Stripe webhook signing secret. Required when `billing.enabled=true`. Redacted. |
-| `billing.stripe.team_price_id` | string | `""` | Stripe recurring Price ID for the Team plan seat. Required when `billing.enabled=true`. |
+| `billing.stripe.team_price_id` | string | `""` | Stripe recurring per-unit/licensed Price ID for Team seats. Required when `billing.enabled=true`. |
+| `billing.stripe.pro_price_id` | string | `""` | Optional Stripe recurring Price ID for the single-seat Pro plan. When empty, personal-account Pro checkout is unavailable. |
 | `billing.stripe.success_url` | string | `""` | Optional absolute Checkout success URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
 | `billing.stripe.cancel_url` | string | `""` | Optional absolute Checkout cancel URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
 | `billing.stripe.portal_return_url` | string | `""` | Optional absolute Billing Portal return URL override. Empty derives from `auth.base_url`. Redacted by `config print`. |
 | `billing.stripe.automatic_tax` | bool | `false` | Enables Stripe Checkout automatic tax collection when the Stripe account is configured for it. |
+| `billing.enforce.user_required_reviewers` | bool | `false` | Hard-enforce the Pro gate for required reviewers on private personal repos. False logs report-only denies. |
+| `billing.enforce.user_advanced_branch_protection` | bool | `false` | Hard-enforce the Pro gate for advanced branch protection on private personal repos. |
+| `billing.enforce.user_profile_pins_beyond_free` | bool | `false` | Hard-enforce the Pro gate for profile pins above the Free cap. |
 
 ## Env-var examples
 
@@ -113,6 +117,7 @@ export SHITHUB_BILLING__ENABLED=true
 export SHITHUB_BILLING__STRIPE__SECRET_KEY=sk_test_...
 export SHITHUB_BILLING__STRIPE__WEBHOOK_SECRET=whsec_...
 export SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID=price_...
+export SHITHUB_BILLING__STRIPE__PRO_PRICE_ID=price_...
 ```
 
 ## Secrets

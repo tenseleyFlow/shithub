@@ -160,6 +160,20 @@ you need to rebuild by hand.
 | Host memory used | `(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes` |
 | Disk free | `node_filesystem_avail_bytes{mountpoint="/"}` |
 
+### Billing panels
+
+Add these once paid plans are enabled:
+
+| Panel | Query |
+|---|---|
+| Billing webhook outcomes | `sum(rate(shithub_billing_webhook_events_total[15m])) by (event_type, result)` |
+| Billing webhook backlog | `shithub_billing_webhook_backlog` |
+| Checkout failures | `sum(increase(shithub_billing_checkout_sessions_total{result="failure"}[10m])) by (subject_kind)` |
+| Billing Portal failures | `sum(increase(shithub_billing_portal_sessions_total{result="failure"}[10m])) by (subject_kind)` |
+| Team seat drift | `shithub_billing_org_seat_drift` |
+| Past-due accounts | `shithub_billing_past_due_principals` |
+| Quota overages | `shithub_billing_quota_overage_orgs` |
+
 ## Alerting
 
 Three places to set alert rules. Pick one:
@@ -178,6 +192,11 @@ Suggested first three alerts (Cloud UI):
 | shithubd p95 latency high | p95 latency query above | `> 1s` for 5m | UI feels slow before users notice |
 | DB pool saturation | utilization query | `> 0.8` for 10m | Pool too small or query regression |
 | Recovered panic in last 5m | panics rate | `> 0` for 1m | Bug ticket worth |
+
+Billing alert rules are committed in
+`deploy/monitoring/prometheus/rules.yml` under `shithubd-billing`.
+Load them before live billing launch. The corresponding response steps
+live in [`stripe-billing.md`](./stripe-billing.md#billing-alerts).
 
 ## When metrics stop landing
 

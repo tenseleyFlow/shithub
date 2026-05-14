@@ -72,6 +72,70 @@ groups:
         annotations:
           summary: "webhook failure rate > 50% sustained"
 
+  - name: shithubd-billing
+    interval: 30s
+    rules:
+      - alert: BillingWebhookFailureRateHigh
+        expr: |
+          (
+            sum(rate(shithub_billing_webhook_events_total{result=~"invalid_body|verify_failed|lock_failed|record_failed|process_failed|finalize_failed"}[15m]))
+            /
+            sum(rate(shithub_billing_webhook_events_total[15m]))
+          ) > 0.05
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "Stripe billing webhook failure rate > 5%"
+          runbook: "runbooks/stripe-billing.md#billing-alerts"
+
+      - alert: BillingWebhookBacklogHigh
+        expr: shithub_billing_webhook_backlog{state="pending"} > 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "billing webhooks pending for > 30m"
+          runbook: "runbooks/stripe-billing.md#failed-webhook-replay"
+
+      - alert: BillingWebhookFailedReceipt
+        expr: shithub_billing_webhook_backlog{state="failed"} > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "billing webhook receipt has failed processing"
+          runbook: "runbooks/stripe-billing.md#failed-webhook-replay"
+
+      - alert: BillingCheckoutFailures
+        expr: sum(increase(shithub_billing_checkout_sessions_total{result="failure"}[10m])) >= 3
+        for: 0m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Stripe Checkout creation failed at least 3 times in 10m"
+          runbook: "runbooks/stripe-billing.md#checkout-failures"
+
+      - alert: BillingSeatDrift
+        expr: shithub_billing_org_seat_drift > 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "one or more Team orgs have local seat drift"
+          runbook: "runbooks/stripe-billing.md#subscription-drift-repair"
+
+      - alert: BillingPastDuePrincipals
+        expr: sum(shithub_billing_past_due_principals) > 0
+        for: 1h
+        labels: {severity: ticket}
+        annotations:
+          summary: "one or more paid accounts need billing action"
+          runbook: "runbooks/stripe-billing.md#past-due-accounts"
+
+      - alert: BillingQuotaOverage
+        expr: sum(shithub_billing_quota_overage_orgs) > 0
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "one or more orgs are over hosted-cost quota"
+          runbook: "runbooks/stripe-billing.md#quota-overages"
+
   - name: shithubd-actions
     interval: 30s
     rules:

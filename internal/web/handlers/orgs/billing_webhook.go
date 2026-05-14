@@ -24,6 +24,7 @@ import (
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 )
 
 const stripeWebhookBodyLimit = 1 << 20
@@ -36,11 +37,13 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, stripeWebhookBodyLimit)
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
+		observeBillingWebhook("unknown", "invalid_body")
 		http.Error(w, "invalid webhook body", http.StatusBadRequest)
 		return
 	}
 	event, err := h.d.Stripe.VerifyWebhook(payload, r.Header.Get("Stripe-Signature"))
 	if err != nil {
+		observeBillingWebhook("unknown", "verify_failed")
 		http.Error(w, "invalid stripe signature", http.StatusBadRequest)
 		return
 	}
@@ -54,6 +57,7 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	// apply, Stripe will resend later (different delivery, fresh race).
 	conn, err := h.d.Pool.Acquire(r.Context())
 	if err != nil {
+		observeBillingWebhook(string(event.Type), "lock_failed")
 		h.d.Logger.ErrorContext(r.Context(), "org billing: acquire conn for webhook lock", "event_id", event.ID, "error", err)
 		http.Error(w, "could not acquire webhook lock", http.StatusInternalServerError)
 		return
@@ -61,6 +65,7 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	defer conn.Release()
 	var acquired bool
 	if err := conn.QueryRow(r.Context(), "SELECT pg_try_advisory_lock(hashtext($1)::bigint)", event.ID).Scan(&acquired); err != nil {
+		observeBillingWebhook(string(event.Type), "lock_failed")
 		h.d.Logger.ErrorContext(r.Context(), "org billing: try advisory lock", "event_id", event.ID, "error", err)
 		http.Error(w, "could not acquire webhook lock", http.StatusInternalServerError)
 		return
@@ -70,6 +75,7 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 		// retrying THIS delivery; the in-flight worker finishes the apply.
 		h.d.Logger.InfoContext(r.Context(), "org billing: webhook in flight elsewhere",
 			"event_id", event.ID, "event_type", event.Type)
+		observeBillingWebhook(string(event.Type), "in_flight")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok (in flight)"))
 		return
@@ -88,16 +94,19 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 		Payload:         payload,
 	})
 	if err != nil {
+		observeBillingWebhook(string(event.Type), "record_failed")
 		h.d.Logger.ErrorContext(r.Context(), "org billing: record webhook receipt", "event_id", event.ID, "event_type", event.Type, "error", err)
 		http.Error(w, "could not record webhook receipt", http.StatusInternalServerError)
 		return
 	}
 	if !created && receipt.ProcessedAt.Valid {
+		observeBillingWebhook(string(event.Type), "duplicate")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 		return
 	}
 	if err := h.processStripeWebhook(r.Context(), event); err != nil {
+		observeBillingWebhook(string(event.Type), "process_failed")
 		h.d.Logger.ErrorContext(r.Context(), "org billing: process webhook", "event_id", event.ID, "event_type", event.Type, "error", err)
 		if _, markErr := orgbilling.MarkWebhookEventFailed(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, event.ID, err.Error()); markErr != nil {
 			h.d.Logger.ErrorContext(r.Context(), "org billing: mark webhook failed", "event_id", event.ID, "error", markErr)
@@ -106,12 +115,37 @@ func (h *Handlers) billingWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := orgbilling.MarkWebhookEventProcessed(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, event.ID); err != nil {
+		observeBillingWebhook(string(event.Type), "finalize_failed")
 		h.d.Logger.ErrorContext(r.Context(), "org billing: mark webhook processed", "event_id", event.ID, "error", err)
 		http.Error(w, "could not finalize webhook receipt", http.StatusInternalServerError)
 		return
 	}
+	observeBillingWebhook(string(event.Type), "processed")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+func observeBillingWebhook(eventType, result string) {
+	metrics.BillingWebhookEventsTotal.WithLabelValues(normalizeStripeBillingEventType(eventType), result).Inc()
+}
+
+func normalizeStripeBillingEventType(eventType string) string {
+	switch eventType {
+	case "checkout.session.completed",
+		"customer.subscription.created",
+		"customer.subscription.updated",
+		"customer.subscription.deleted",
+		"invoice.finalized",
+		"invoice.payment_succeeded",
+		"invoice.payment_failed",
+		"invoice.voided",
+		"invoice.marked_uncollectible",
+		"charge.refunded",
+		"unknown":
+		return eventType
+	default:
+		return "other"
+	}
 }
 
 func (h *Handlers) processStripeWebhook(ctx context.Context, event stripeapi.Event) error {
@@ -120,7 +154,7 @@ func (h *Handlers) processStripeWebhook(ctx context.Context, event stripeapi.Eve
 		return h.applyStripeCheckoutCompleted(ctx, event)
 	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted":
 		return h.applyStripeSubscriptionEvent(ctx, event)
-	case "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
+	case "invoice.finalized", "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
 		return h.applyStripeInvoiceEvent(ctx, event)
 	case "charge.refunded":
 		return h.applyStripeChargeRefunded(ctx, event)
