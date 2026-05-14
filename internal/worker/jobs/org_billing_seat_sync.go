@@ -14,6 +14,7 @@ import (
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
@@ -45,6 +46,7 @@ func OrgBillingSeatSync(deps OrgBillingSeatSyncDeps) worker.Handler {
 					deps.Logger.InfoContext(ctx, "org billing seat sync skipped; billing state missing",
 						"org_id", p.OrgID)
 				}
+				metrics.BillingSeatSyncTotal.WithLabelValues("state_missing").Inc()
 				return nil
 			}
 			return fmt.Errorf("load billing state: %w", err)
@@ -63,8 +65,10 @@ func OrgBillingSeatSync(deps OrgBillingSeatSyncDeps) worker.Handler {
 		}); err != nil {
 			return fmt.Errorf("sync seat snapshot: %w", err)
 		}
+		metrics.BillingSeatSyncTotal.WithLabelValues("snapshot_updated").Inc()
 
 		if deps.Stripe == nil || !shouldSyncStripeSeatQuantity(state) {
+			metrics.BillingSeatSyncTotal.WithLabelValues("stripe_skipped").Inc()
 			return nil
 		}
 		if err := deps.Stripe.UpdateSubscriptionItemQuantity(ctx, stripebilling.SeatQuantityInput{
@@ -72,8 +76,10 @@ func OrgBillingSeatSync(deps OrgBillingSeatSyncDeps) worker.Handler {
 			SubscriptionItemID: state.StripeSubscriptionItemID.String,
 			Quantity:           int64(members),
 		}); err != nil {
+			metrics.BillingSeatSyncTotal.WithLabelValues("stripe_update_failed").Inc()
 			return fmt.Errorf("update stripe subscription item quantity: %w", err)
 		}
+		metrics.BillingSeatSyncTotal.WithLabelValues("stripe_updated").Inc()
 		if deps.Logger != nil {
 			deps.Logger.InfoContext(ctx, "org billing seat sync updated subscription quantity",
 				"org_id", p.OrgID,

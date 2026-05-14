@@ -112,6 +112,66 @@ var (
 	)
 )
 
+// Billing metrics. Handlers increment edge counters; ObserveBilling refreshes
+// DB-backed gauges used by launch-readiness alerts.
+var (
+	BillingCheckoutSessionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_billing_checkout_sessions_total",
+			Help: "Stripe Checkout session creation attempts by subject kind and result.",
+		},
+		[]string{"subject_kind", "result"},
+	)
+	BillingPortalSessionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_billing_portal_sessions_total",
+			Help: "Stripe Billing Portal session creation attempts by subject kind and result.",
+		},
+		[]string{"subject_kind", "result"},
+	)
+	BillingWebhookEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_billing_webhook_events_total",
+			Help: "Stripe billing webhook deliveries by event type and result.",
+		},
+		[]string{"event_type", "result"},
+	)
+	BillingSeatSyncTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_billing_seat_sync_total",
+			Help: "Org billing seat-sync outcomes.",
+		},
+		[]string{"result"},
+	)
+	BillingWebhookBacklog = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_billing_webhook_backlog",
+			Help: "Billing webhook receipts awaiting successful processing by state.",
+		},
+		[]string{"state"},
+	)
+	BillingPastDuePrincipals = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_billing_past_due_principals",
+			Help: "Principals in payment-action-needed subscription states by subject kind.",
+		},
+		[]string{"subject_kind"},
+	)
+	BillingOrgSeatDrift = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shithub_billing_org_seat_drift",
+			Help: "Team organizations whose stored billable seat count differs from current membership.",
+		},
+	)
+	BillingQuotaOverageOrgs = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_billing_quota_overage_orgs",
+			Help: "Organizations currently over a billing quota after plan and site-admin overrides are applied.",
+		},
+		[]string{"quota"},
+	)
+)
+
 // Actions trigger pipeline metrics (S41b). Incremented from
 // internal/actions/trigger.
 var (
@@ -315,6 +375,14 @@ func init() {
 		WorkerJobsProcessedTotal,
 		WorkerJobDurationSeconds,
 		WorkerInFlight,
+		BillingCheckoutSessionsTotal,
+		BillingPortalSessionsTotal,
+		BillingWebhookEventsTotal,
+		BillingSeatSyncTotal,
+		BillingWebhookBacklog,
+		BillingPastDuePrincipals,
+		BillingOrgSeatDrift,
+		BillingQuotaOverageOrgs,
 		ActionsRunsEnqueuedTotal,
 		ActionsTriggerMatchDurationSeconds,
 		ActionsRunnerRegistrationsTotal,
