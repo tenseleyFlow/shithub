@@ -22,6 +22,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	"github.com/tenseleyFlow/shithub/internal/repos/sigverify"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -91,6 +92,25 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	untilRaw := strings.TrimSpace(q.Get("until"))
 	since := parseDateParam(sinceRaw)
 	until := parseUntilDateParam(untilRaw)
+
+	// F01 PR-2: ETag short-circuit. The cache key is (repo_id,
+	// branch_head_oid, page); filtered views (path/author/since/until)
+	// bypass the cache entirely because the same key would resolve
+	// to different content across filter variants. Bot crawls hit
+	// unfiltered pages — that's the optimization target.
+	filtered := pathFilter != "" || authorFilter != "" || sinceRaw != "" || untilRaw != ""
+	if !filtered {
+		if headOID, oidErr := git.ResolveRefOID(r.Context(), gitDir, ref); oidErr == nil {
+			etag := httpcache.ETag(row.ID, headOID, page)
+			w.Header().Set("ETag", etag)
+			w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
+			w.Header().Add("Vary", "Cookie")
+			if httpcache.IfNoneMatch(r, etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+	}
 
 	commits, err := git.Log(r.Context(), gitDir, git.LogOptions{
 		Ref:      ref,
@@ -183,7 +203,7 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		"Page":             page,
 		"NewerHref":        newerHref,
 		"OlderHref":        olderHref,
-		"HasActiveFilters": pathFilter != "" || authorFilter != "" || sinceRaw != "" || untilRaw != "",
+		"HasActiveFilters": filtered,
 	})
 }
 
