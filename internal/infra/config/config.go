@@ -42,6 +42,17 @@ type Config struct {
 	RateLimit      RateLimitConfig      `toml:"ratelimit"`
 	Billing        BillingConfig        `toml:"billing"`
 	Actions        ActionsConfig        `toml:"actions"`
+	Webhook        WebhookConfig        `toml:"webhook"`
+}
+
+// WebhookConfig configures the outbound webhook subsystem. Today
+// it carries only the dedicated AEAD key used to encrypt webhook
+// secrets at rest. Leaving AEADKey unset falls back to the shared
+// auth.totp_key_b64 (the pre-separation legacy key) so existing
+// deploys keep working until operators run
+// `shithubd admin re-encrypt-webhooks` against the new key.
+type WebhookConfig struct {
+	AEADKey string `toml:"aead_key"` // base64 32-byte AEAD key
 }
 
 // RateLimitConfig configures runtime rate-limit budgets for surfaces that

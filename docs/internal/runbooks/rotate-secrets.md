@@ -94,17 +94,52 @@ access mid-flight.
 
 ## Webhook AEAD key
 
-The webhook secret AEAD key encrypts every webhook's secret at
-rest. Rotation is two-step like TOTP:
+The webhook secret AEAD key (`webhook.aead_key`, env
+`SHITHUB_WEBHOOK__AEAD_KEY`) encrypts every webhook's secret at
+rest. It's separate from `auth.totp_key_b64` so rotating one
+doesn't force rotating the other.
 
-1. Add `webhook.aead_key_next` alongside `webhook.aead_key`.
-2. Run `shithubd admin re-encrypt-webhooks --to-key=webhook.
-   aead_key_next`.
-3. Promote and restart.
+### First-time separation
 
-Failing to re-encrypt before retiring the old key disables every
-webhook (the auto-disable logic kicks in on first decrypt
-failure).
+If you're upgrading from a pre-separation deploy where webhook
+secrets shared `auth.totp_key_b64`:
+
+1. Generate a new key:
+   `openssl rand -base64 32`.
+2. Set `shithub_webhook_aead_key_b64` in `inventory/production`
+   (or `SHITHUB_WEBHOOK__AEAD_KEY` directly on the box).
+3. `make deploy ANSIBLE_INVENTORY=production` (rolls both web
+   and worker; rendered env file now includes the new var).
+4. Run `shithubd admin re-encrypt-webhooks --dry-run` and review
+   the row count.
+5. Run `shithubd admin re-encrypt-webhooks` for the real
+   migration. Each row is re-encrypted from the legacy (TOTP)
+   key onto the new dedicated key. Idempotent and resumable.
+6. Verify by triggering a delivery — confirm signatures still
+   validate at the receiver end.
+
+The transition is safe to take in either order (deploy first vs
+re-encrypt first) because `OpenSecret` tries the primary key
+first and falls back to the legacy key for any row that hasn't
+been migrated yet.
+
+### Routine rotation (already separated)
+
+1. Generate the new key:
+   `openssl rand -base64 32`.
+2. Swap `shithub_webhook_aead_key_b64` in inventory; the previous
+   value should still be temporarily kept as a comment in case
+   step 4 needs a rollback.
+3. `make deploy ANSIBLE_INVENTORY=production`.
+4. Run `shithubd admin re-encrypt-webhooks` to re-encrypt every
+   row from the previous key onto the new one.
+
+Failing to re-encrypt before fully retiring the previous key
+disables every webhook (the auto-disable logic kicks in on
+first decrypt failure). The new code's legacy fallback only
+helps when `auth.totp_key_b64` is the previous key — for a
+key-to-key rotation that didn't go through TOTP, the operator
+must run re-encrypt before the previous key is purged.
 
 ## Operator SSH keys
 
