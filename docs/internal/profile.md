@@ -7,7 +7,7 @@ S09 shipped the public `/{username}` page and the `/avatars/{username}` route. L
 | Route | Source | Notes |
 |---|---|---|
 | `GET /{username}` | profile.serveProfile | Public profile. citext lookup; canonical-case 301; reserved short-circuit. |
-| `GET /{username}?tab=repositories` | profile.serveRepositoriesTab | Visibility-filtered user-owned repositories. |
+| `GET /{username}?tab=repositories` | profile.serveRepositoriesTab | Visibility-filtered user-owned repositories with GitHub-style search, type, language, sort, pagination, and activity sparklines. |
 | `GET /{username}?tab=stars` | profile.serveStarsTab | Visibility-filtered starred repositories with search, type, language, and sort controls. |
 | `POST /{username}/contribution-settings` | profile.contributionSettingsUpdate | Auth required. Profile owner toggles private contribution counts. |
 | `POST /{username}/pins` | profile.pinsUpdate | Auth required. Profile owner saves up to six public affiliated repositories. |
@@ -135,6 +135,22 @@ visibility gates:
   stored owner slug, so org-owned stars do not require an extra owner lookup.
 - Filters are applied server-side for search text, repository type, language,
   and sort order (`recently-starred`, `recently-active`, `stars`).
+
+## Repositories tab
+
+`/{username}?tab=repositories` uses the same profile shell as overview/stars:
+
+- The left profile sidebar matches the overview profile metadata and
+  organization badges.
+- User-owned repositories are loaded in a visibility-aware scan, then
+  filtered server-side by search text, type (`public`, `private`, `source`,
+  `fork`, `archived`), language, and sort order (`updated`, `name`, `stars`).
+- Repository rows match GitHub's profile repository list: repo name only,
+  visibility/archived/fork labels, description, language, license, stars,
+  forks, relative update time, disabled Star control, and a weekly commit
+  activity sparkline when local repo storage is available.
+- The self-view gets a New button linked to the new-repository flow with the
+  profile owner preselected.
 
 ## Self-view enrichment
 

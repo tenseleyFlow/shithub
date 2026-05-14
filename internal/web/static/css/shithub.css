@@ -1935,6 +1935,45 @@ button.shithub-contrib-setting-item:hover {
 .shithub-profile-stars-page .shithub-user-profile-container {
   align-items: start;
 }
+.shithub-profile-repositories-page .shithub-user-profile-container {
+  align-items: start;
+}
+.shithub-profile-repositories-main {
+  min-width: 0;
+}
+.shithub-profile-repositories-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+}
+.shithub-profile-repositories-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+.shithub-profile-repositories-head p {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-profile-repositories-toolbar {
+  border-top: 1px solid var(--border-default);
+}
+.shithub-profile-repository-side {
+  justify-self: end;
+  min-width: 170px;
+  display: grid;
+  justify-items: end;
+  gap: 0.75rem;
+}
+.shithub-profile-repository-star {
+  min-width: 84px;
+}
+.shithub-profile-repository-star svg:first-child {
+  color: var(--fg-muted);
+}
 .shithub-stars-main {
   display: grid;
   gap: 2rem;
@@ -2148,10 +2187,15 @@ button.shithub-contrib-setting-item:hover {
   }
   .shithub-stars-toolbar,
   .shithub-stars-row,
-  .shithub-stars-section-head {
+  .shithub-stars-section-head,
+  .shithub-profile-repositories-head {
     align-items: stretch;
     flex-direction: column;
     display: flex;
+  }
+  .shithub-profile-repository-side {
+    justify-items: start;
+    min-width: 0;
   }
   .shithub-stars-list-actions {
     width: 100%;
