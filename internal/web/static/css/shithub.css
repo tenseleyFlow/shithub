@@ -5236,6 +5236,76 @@ button.shithub-contrib-setting-item:hover {
 .shithub-modal-open {
   overflow: hidden;
 }
+/* Fork target picker modal — same overlay primitives as the
+   pins modal; kept on its own class so future visual changes
+   don't ripple across both. */
+.shithub-fork-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(1, 4, 9, 0.55);
+}
+.shithub-fork-overlay[hidden] { display: none; }
+.shithub-fork-dialog {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-default);
+  box-shadow: 0 16px 48px rgba(1, 4, 9, 0.42);
+  overflow: hidden;
+}
+.shithub-fork-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+}
+.shithub-fork-head h2 { margin: 0; font-size: 1rem; }
+.shithub-fork-help {
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-fork-form { padding: 0 1rem 1rem; }
+.shithub-fork-field { display: block; margin: 0.75rem 0; }
+.shithub-fork-field-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.shithub-fork-select,
+.shithub-fork-input {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 0.95rem;
+}
+.shithub-fork-note {
+  margin: 0.5rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.shithub-fork-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .shithub-pins-overlay {
   position: fixed;
   inset: 0;
