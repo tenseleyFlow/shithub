@@ -36,6 +36,22 @@ type actionsWorkflowView struct {
 	Active bool
 }
 
+type actionsSidebarView struct {
+	AllHref     string
+	AllRunCount int64
+	AllActive   bool
+	Workflows   []actionsWorkflowView
+	Management  []actionsManagementNavItem
+}
+
+type actionsManagementNavItem struct {
+	Key    string
+	Label  string
+	Icon   string
+	Href   string
+	Active bool
+}
+
 type actionsListRunView struct {
 	ID            int64
 	RunIndex      int64
@@ -221,6 +237,7 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 
 	basePath := "/" + owner.Username + "/" + row.Name + "/actions"
 	workflows, allRunCount, activeWorkflowName := actionsWorkflowViews(workflowRows, filters, basePath)
+	sidebar := actionsSidebar(basePath, workflows, allRunCount, filters.Workflow == "", "")
 	runViews := make([]actionsListRunView, 0, len(runs))
 	now := time.Now()
 	for _, run := range runs {
@@ -235,6 +252,7 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 	data["Title"] = "Actions · " + row.Name
 	data["Runs"] = runViews
 	data["Workflows"] = workflows
+	data["ActionsSidebar"] = sidebar
 	data["DispatchWorkflows"] = dispatchWorkflows
 	data["RunCount"] = allRunCount
 	data["FilteredRunCount"] = filteredCount
@@ -247,6 +265,43 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 	if err := h.d.Render.RenderPage(w, r, "repo/actions", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo actions render", "error", err)
 	}
+}
+
+func actionsSidebar(basePath string, workflows []actionsWorkflowView, allRunCount int64, allActive bool, activeManagement string) actionsSidebarView {
+	if activeManagement != "" {
+		allActive = false
+		workflows = inactiveActionsWorkflows(workflows)
+	}
+	return actionsSidebarView{
+		AllHref:     basePath,
+		AllRunCount: allRunCount,
+		AllActive:   allActive,
+		Workflows:   workflows,
+		Management:  actionsManagementNavItems(basePath, activeManagement),
+	}
+}
+
+func inactiveActionsWorkflows(workflows []actionsWorkflowView) []actionsWorkflowView {
+	out := make([]actionsWorkflowView, len(workflows))
+	copy(out, workflows)
+	for i := range out {
+		out[i].Active = false
+	}
+	return out
+}
+
+func actionsManagementNavItems(basePath, active string) []actionsManagementNavItem {
+	items := []actionsManagementNavItem{
+		{Key: "caches", Label: "Caches", Icon: "cache", Href: basePath + "/caches"},
+		{Key: "attestations", Label: "Attestations", Icon: "shield-check", Href: basePath + "/attestations"},
+		{Key: "runners", Label: "Runners", Icon: "server", Href: basePath + "/runners"},
+		{Key: "usage", Label: "Usage metrics", Icon: "pulse", Href: basePath + "/metrics/usage"},
+		{Key: "performance", Label: "Performance metrics", Icon: "stopwatch", Href: basePath + "/metrics/performance"},
+	}
+	for i := range items {
+		items[i].Active = items[i].Key == active
+	}
+	return items
 }
 
 func actionsListFiltersFromRequest(r *http.Request) actionsListFilters {

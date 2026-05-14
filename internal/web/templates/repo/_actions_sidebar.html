@@ -1,0 +1,35 @@
+{{ define "actions-sidebar" -}}
+<aside class="shithub-actions-sidebar" aria-label="Actions navigation">
+  <div class="shithub-actions-sidebar-head">
+    <h2>Actions</h2>
+    <span class="shithub-button shithub-button-primary shithub-actions-new-workflow is-disabled" aria-disabled="true" title="Workflow creation UI is coming later">New workflow</span>
+  </div>
+  <nav>
+    <a href="{{ .ActionsSidebar.AllHref }}" class="shithub-actions-nav-item{{ if .ActionsSidebar.AllActive }} is-active{{ end }}"{{ if .ActionsSidebar.AllActive }} aria-current="page"{{ end }}>
+      <span>All workflows</span>
+    </a>
+    <div class="shithub-actions-sidebar-section">
+      <h3>Workflows</h3>
+      {{ if .ActionsSidebar.Workflows }}
+        {{ range .ActionsSidebar.Workflows }}
+          <a href="{{ .Href }}" class="shithub-actions-nav-item{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }}>
+            <span>{{ .Name }}</span>
+            <span class="shithub-actions-pin-placeholder" aria-hidden="true">{{ octicon "pin" }}</span>
+          </a>
+        {{ end }}
+      {{ else }}
+        <p>No workflows have run yet.</p>
+      {{ end }}
+    </div>
+    <div class="shithub-actions-sidebar-section">
+      <h3>Management</h3>
+      {{ range .ActionsSidebar.Management }}
+        <a href="{{ .Href }}" class="shithub-actions-nav-item shithub-actions-nav-item-visual{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }}>
+          <span class="shithub-actions-nav-visual">{{ octicon .Icon }}</span>
+          <span>{{ .Label }}</span>
+        </a>
+      {{ end }}
+    </div>
+  </nav>
+</aside>
+{{- end }}

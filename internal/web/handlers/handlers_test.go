@@ -177,3 +177,53 @@ func TestActionsLogStreamRouteBypassesCompressAndTimeout(t *testing.T) {
 		t.Fatalf("body: got %q, want no-deadline", got)
 	}
 }
+
+func TestActionsManagementRoutesStayBeforeProfileCatchAll(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := Register(mux, Deps{
+		Logger:      logger,
+		TemplatesFS: testTemplatesFS(t),
+		StaticFS:    testStaticFS(t),
+		LogoSVG:     `<svg xmlns="http://www.w3.org/2000/svg"><title>shithub</title></svg>`,
+		RepoHomeMounter: func(r chi.Router) {
+			r.Get("/{owner}/{repo}/actions/caches", writeRouteName("actions:caches"))
+			r.Get("/{owner}/{repo}/actions/attestations", writeRouteName("actions:attestations"))
+			r.Get("/{owner}/{repo}/actions/runners", writeRouteName("actions:runners"))
+			r.Get("/{owner}/{repo}/actions/metrics/usage", writeRouteName("actions:usage"))
+			r.Get("/{owner}/{repo}/actions/metrics/performance", writeRouteName("actions:performance"))
+		},
+		ProfileMounter: func(r chi.Router) {
+			r.Get("/{username}", writeRouteName("profile"))
+		},
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	tests := map[string]string{
+		"/octo/demo/actions/caches":              "actions:caches",
+		"/octo/demo/actions/attestations":        "actions:attestations",
+		"/octo/demo/actions/runners":             "actions:runners",
+		"/octo/demo/actions/metrics/usage":       "actions:usage",
+		"/octo/demo/actions/metrics/performance": "actions:performance",
+	}
+	for path, want := range tests {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status got %d want 200 body=%q", path, rec.Code, rec.Body.String())
+		}
+		if got := rec.Body.String(); got != want {
+			t.Fatalf("%s: body got %q want %q", path, got, want)
+		}
+	}
+}
+
+func writeRouteName(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, name)
+	}
+}
