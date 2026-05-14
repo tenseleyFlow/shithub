@@ -22,9 +22,12 @@ import (
 //
 // The cap is resolved per-principal via entitlements (Free=6, Pro=100).
 // Operators flip BillingEnforce.UserProfilePinsBeyondFree to make a
-// Free user's 7th-pin attempt return 402 with an upgrade banner;
-// otherwise the gate is report-only (logs the deny + returns the
-// pre-PRO07 400 BadRequest).
+// Free user's 7th-pin attempt return 402 with an upgrade banner.
+// Otherwise the gate is report-only: mirrors the BP gate by letting
+// the save proceed (up to the Pro cap) and emitting an
+// entitlements.report_only_deny log when the user crosses the Free
+// cap. F-shakedown corrected the prior behavior, which had blocked
+// the save with 400 even in report-only.
 
 func TestProfilePins_FreeUserBlockedAtCapWithEnforce(t *testing.T) {
 	t.Parallel()
@@ -54,10 +57,27 @@ func TestProfilePins_FreeUserReportOnlyWithoutEnforce(t *testing.T) {
 	repos := makeUserPinCandidates(t, env, alice.ID, 7)
 
 	resp := env.postPins(t, "/softalice/pins", alice, repos...)
-	// Report-only: the over-cap submission falls through to the same
-	// 400 the user got pre-PRO07. The would-deny lands in the logger.
+	// Report-only mirrors the BP gate: the over-Free-cap submission
+	// saves successfully and the would-deny lands in the logger.
+	if resp.StatusCode != http.StatusSeeOther {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("report-only over-cap status=%d, want 303; body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestProfilePins_FreeUserReportOnlyOverProCap(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnvWithBillingEnforce(t, config.EnforceConfig{
+		UserProfilePinsBeyondFree: false,
+	})
+	alice := env.insertUser(t, "noisyalice", "Alice", "")
+	repos := makeUserPinCandidates(t, env, alice.ID, int(entitlements.ProProfilePinsCap)+1)
+
+	resp := env.postPins(t, "/noisyalice/pins", alice, repos...)
+	// Report-only lifts the effective cap to Pro=100; submissions
+	// above that are a DB-sanity 400, not an upgrade prompt.
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("report-only over-cap status=%d, want 400", resp.StatusCode)
+		t.Fatalf("report-only over-Pro-cap status=%d, want 400", resp.StatusCode)
 	}
 }
 
