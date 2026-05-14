@@ -3103,6 +3103,18 @@ button.shithub-contrib-setting-item:hover {
   margin: 0 0 1rem;
   color: var(--fg-muted);
 }
+.shithub-repo-init-failed {
+  margin-top: 1rem;
+  border-color: rgba(248, 81, 73, 0.4);
+}
+.shithub-repo-init-failed h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+.shithub-repo-init-failed p { margin: 0 0 0.75rem; color: var(--fg-muted); }
+.shithub-repo-init-failed-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
 .shithub-pill-private { background: rgba(187, 128, 9, 0.15); border-color: rgba(187, 128, 9, 0.4); }
 .shithub-repo-empty-quickstart {
   margin-top: 1rem;
