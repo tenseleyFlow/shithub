@@ -15,7 +15,7 @@
     </div>
     <div class="shithub-actions-run-head-actions">
       <a class="shithub-button" href="{{ .Log.BackHref }}">{{ octicon "list-unordered" }} Run</a>
-      {{ if .Log.DownloadURL }}<a class="shithub-button" href="{{ .Log.DownloadURL }}">{{ octicon "download" }} Download</a>{{ end }}
+      {{ if .Log.DownloadHref }}<a class="shithub-button" href="{{ .Log.DownloadHref }}">{{ octicon "download" }} Download</a>{{ end }}
     </div>
   </header>
 
@@ -34,6 +34,33 @@
     </aside>
 
     <div class="shithub-actions-run-main">
+      {{ if .Log.Annotations }}
+        <section class="shithub-actions-annotations" aria-label="Step annotations">
+          <header>
+            <div>
+              <h2>Annotations</h2>
+              <p>{{ len .Log.Annotations }} total{{ if .Log.WarningCount }} · {{ .Log.WarningCount }} warnings{{ end }}{{ if .Log.ErrorCount }} · {{ .Log.ErrorCount }} errors{{ end }}</p>
+            </div>
+          </header>
+          <div class="shithub-actions-annotation-list">
+            {{ range .Log.Annotations }}
+              <article id="annotation-{{ .ID }}" class="shithub-actions-annotation shithub-actions-annotation-{{ .StateClass }}">
+                <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .Icon }}</span>
+                <div>
+                  <strong>{{ if .Title }}{{ .Title }}{{ else }}{{ .LevelLabel }}{{ end }}</strong>
+                  <p>{{ .Message }}</p>
+                  {{ if or .SourceHref .Location }}
+                    <div class="shithub-actions-annotation-meta">
+                      {{ if .SourceHref }}<a href="{{ .SourceHref }}">{{ .Location }}</a>{{ else }}<span>{{ .Location }}</span>{{ end }}
+                    </div>
+                  {{ end }}
+                </div>
+              </article>
+            {{ end }}
+          </div>
+        </section>
+      {{ end }}
+
       <section class="shithub-actions-log-panel">
         <header>
           <div>

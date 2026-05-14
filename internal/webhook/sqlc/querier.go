@@ -48,6 +48,10 @@ type Querier interface {
 	// Order matches the unpaginated form so callers can swap freely.
 	ListDeliveriesForWebhookPaged(ctx context.Context, db DBTX, arg ListDeliveriesForWebhookPagedParams) ([]ListDeliveriesForWebhookPagedRow, error)
 	ListUnprocessedDomainEvents(ctx context.Context, db DBTX, arg ListUnprocessedDomainEventsParams) ([]DomainEvent, error)
+	// Paginates all webhook rows by id for the admin
+	// re-encrypt-webhooks command. Only the columns the migration
+	// touches are projected.
+	ListWebhookSecretsForReencrypt(ctx context.Context, db DBTX, arg ListWebhookSecretsForReencryptParams) ([]ListWebhookSecretsForReencryptRow, error)
 	ListWebhooksForOwner(ctx context.Context, db DBTX, arg ListWebhooksForOwnerParams) ([]Webhook, error)
 	MarkDeliveryPermanentFailure(ctx context.Context, db DBTX, arg MarkDeliveryPermanentFailureParams) error
 	MarkDeliveryRetry(ctx context.Context, db DBTX, arg MarkDeliveryRetryParams) error

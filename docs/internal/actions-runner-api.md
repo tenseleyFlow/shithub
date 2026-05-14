@@ -135,6 +135,14 @@ claim-time mask snapshot. It also reprocesses any possible secret prefix
 carried at the end of the prior chunk, so a runner cannot leak a secret
 by splitting it across two log calls.
 
+After the server-side scrub, complete workflow-command lines of the form
+`::notice ...::message`, `::warning ...::message`, and
+`::error ...::message` are parsed into `workflow_annotations`. Annotation
+title, message, and path fields are capped, UTF-8 repaired, stripped of
+terminal/control sequences, and redacted against the same mask snapshot before
+storage. A trailing non-newline-terminated line is ignored until a later chunk
+completes it so partial secret fragments are not persisted as annotations.
+
 `POST /api/v1/jobs/{id}/steps/{step_id}/status`
 
 Auth: job JWT. Body:
@@ -159,8 +167,10 @@ The repository Actions UI reads logs from the same two-stage storage
 model. While chunks remain in SQL, a step log page concatenates them in
 sequence order and renders a static snapshot. After finalization, the
 page reads `workflow_steps.log_object_key` from object storage and
-offers a short-lived signed download URL. Live tailing is intentionally
-separate and lands in the S41f SSE slice.
+renders the same capped snapshot from object storage. Downloads stream through
+shithub with `Content-Disposition: attachment` for both SQL-backed and
+object-backed logs; browser pages do not expose raw object-storage URLs. Live
+tailing uses the S41f SSE route while chunks remain hot.
 
 `POST /api/v1/jobs/{id}/status`
 

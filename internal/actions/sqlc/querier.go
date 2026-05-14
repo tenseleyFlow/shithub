@@ -131,6 +131,8 @@ type Querier interface {
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
+	ListWorkflowAnnotationsForRun(ctx context.Context, db DBTX, runID int64) ([]ListWorkflowAnnotationsForRunRow, error)
+	ListWorkflowAnnotationsForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowAnnotation, error)
 	// Paginated list filtered optionally by ref + key. NULL params skip
 	// the filter. Sorted by last_accessed_at DESC so an operator sees the
 	// live caches first.
@@ -177,6 +179,8 @@ type Querier interface {
 	UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (WorkflowSecret, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (ActionsVariable, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	UpsertWorkflowAnnotation(ctx context.Context, db DBTX, arg UpsertWorkflowAnnotationParams) (WorkflowAnnotation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertWorkflowJobSecretMask(ctx context.Context, db DBTX, arg UpsertWorkflowJobSecretMaskParams) error
 }
