@@ -27,6 +27,12 @@
         <input type="text" name="target_name" value="{{ $.Repo.Name }}" class="shithub-fork-input" autocomplete="off">
       </label>
 
+      <label class="shithub-fork-field">
+        <span class="shithub-fork-field-label">Description <span class="shithub-fork-field-hint">(optional)</span></span>
+        <textarea name="target_description" class="shithub-fork-textarea" rows="2" maxlength="350" placeholder="{{ $.Repo.Description }}" autocomplete="off"></textarea>
+        <span class="shithub-fork-note">Leave blank to inherit the source description.</span>
+      </label>
+
       {{ if eq (printf "%s" $.Repo.Visibility) "public" }}
       <label class="shithub-fork-field">
         <span class="shithub-fork-field-label">Visibility</span>
