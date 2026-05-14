@@ -58,10 +58,12 @@ type WebhookConfig struct {
 
 // RateLimitConfig configures runtime rate-limit budgets for surfaces that
 // don't carry a domain-specific limiter. The /api/v1/ JSON surface uses
-// the API.* sub-block; future surfaces (search, git transports) get their
-// own sub-blocks here as they're factored out of their handlers.
+// the API.* sub-block; the public-HTML chi group uses HTML.*; future
+// surfaces (search, git transports) get their own sub-blocks here as
+// they're factored out of their handlers.
 type RateLimitConfig struct {
-	API APIRateLimitConfig `toml:"api"`
+	API  APIRateLimitConfig  `toml:"api"`
+	HTML HTMLRateLimitConfig `toml:"html"`
 }
 
 // APIRateLimitConfig sets the per-hour budgets for /api/v1/* requests.
@@ -73,6 +75,31 @@ type RateLimitConfig struct {
 type APIRateLimitConfig struct {
 	AuthedPerHour int `toml:"authed_per_hour"`
 	AnonPerHour   int `toml:"anon_per_hour"`
+}
+
+// HTMLRateLimitConfig sets the per-bucket budgets for the public-HTML
+// chi group (F02). Numbers are expressed in token-bucket terms —
+// Burst (max in a short window) + Refill (steady-state per second).
+// The middleware translates to its backing fixed-window limiter.
+//
+// Defaults:
+//   - Anonymous: 60 burst / 1 refill/sec  (~60 req/min steady, 60 burst)
+//   - Authenticated: 600 burst / 10 refill/sec (10× anon, plenty for browsing)
+//
+// Site admins bypass the middleware entirely — the budgets don't apply
+// to operators investigating an incident.
+//
+// Operators tune via:
+//
+//	SHITHUB_RATELIMIT__HTML__ANON_BURST
+//	SHITHUB_RATELIMIT__HTML__ANON_REFILL_PER_SEC
+//	SHITHUB_RATELIMIT__HTML__AUTHED_BURST
+//	SHITHUB_RATELIMIT__HTML__AUTHED_REFILL_PER_SEC
+type HTMLRateLimitConfig struct {
+	AnonBurst    int `toml:"anon_burst"`
+	AnonRefill   int `toml:"anon_refill_per_sec"`
+	AuthedBurst  int `toml:"authed_burst"`
+	AuthedRefill int `toml:"authed_refill_per_sec"`
 }
 
 // ActionsConfig groups configuration for the Actions subsystem. Today
@@ -328,6 +355,12 @@ func Defaults() Config {
 				AuthedPerHour: 5000,
 				AnonPerHour:   60,
 			},
+			HTML: HTMLRateLimitConfig{
+				AnonBurst:    60,
+				AnonRefill:   1,
+				AuthedBurst:  600,
+				AuthedRefill: 10,
+			},
 		},
 		Auth: AuthConfig{
 			RequireEmailVerification: true,
@@ -460,8 +493,45 @@ func Validate(c *Config) error {
 	if c.RateLimit.API.AnonPerHour == 0 {
 		c.RateLimit.API.AnonPerHour = 60
 	}
+	if err := validateHTMLRateLimit(&c.RateLimit.HTML); err != nil {
+		return err
+	}
 	if err := validateBilling(c); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateHTMLRateLimit rejects negative knobs and zero-fills any
+// untouched field with the F02 sprint defaults. Refusing service
+// (turning the middleware off) on a zero budget would be a worse
+// failure than reverting to the documented default — the worst
+// case the middleware itself can hit is misconfigured-Burst-zero
+// which it already handles by failing open.
+func validateHTMLRateLimit(c *HTMLRateLimitConfig) error {
+	if c.AnonBurst < 0 {
+		return fmt.Errorf("config: ratelimit.html.anon_burst: must be >= 0, got %d", c.AnonBurst)
+	}
+	if c.AnonRefill < 0 {
+		return fmt.Errorf("config: ratelimit.html.anon_refill_per_sec: must be >= 0, got %d", c.AnonRefill)
+	}
+	if c.AuthedBurst < 0 {
+		return fmt.Errorf("config: ratelimit.html.authed_burst: must be >= 0, got %d", c.AuthedBurst)
+	}
+	if c.AuthedRefill < 0 {
+		return fmt.Errorf("config: ratelimit.html.authed_refill_per_sec: must be >= 0, got %d", c.AuthedRefill)
+	}
+	if c.AnonBurst == 0 {
+		c.AnonBurst = 60
+	}
+	if c.AnonRefill == 0 {
+		c.AnonRefill = 1
+	}
+	if c.AuthedBurst == 0 {
+		c.AuthedBurst = 600
+	}
+	if c.AuthedRefill == 0 {
+		c.AuthedRefill = 10
 	}
 	return nil
 }
