@@ -48,6 +48,15 @@ grafana_cloud_prom_url=https://prometheus-prod-XX-prod-REGION.grafana.net/api/pr
 grafana_cloud_prom_user=REPLACE_ME    # numeric tenant id
 grafana_cloud_prom_token=REPLACE_ME   # access-policy token
 
+# Dedicated AEAD key for at-rest webhook secret encryption.
+# Leaving this unset falls back to shithub_totp_key_b64 (the
+# pre-separation behavior). Once set, OpenSecret tries the
+# dedicated key first then the TOTP key — run
+# `shithubd admin re-encrypt-webhooks` to migrate existing rows
+# to the dedicated key. See
+# docs/internal/runbooks/rotate-secrets.md for rotation procedure.
+# shithub_webhook_aead_key_b64=REPLACE_ME
+
 # Optional Actions runner on this host. Generate the token with:
 #   shithubd admin runner register --name prod-runner-1 --labels self-hosted,linux,ubuntu-latest,x64 --capacity 1 --output json
 # Store the real token in ansible-vault or your secret manager.
