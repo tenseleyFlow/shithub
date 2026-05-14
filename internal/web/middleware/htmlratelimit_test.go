@@ -17,11 +17,10 @@ import (
 // htmlLimitFixture wires the middleware around a tiny pass-through
 // handler that records whether it was reached.
 type htmlLimitFixture struct {
-	limiter  *ratelimit.Limiter
-	reached  int
-	chain    http.Handler
-	cfg      HTMLRateLimitConfig
-	bodyOpts htmlBodyOpts
+	limiter *ratelimit.Limiter
+	reached int
+	chain   http.Handler
+	cfg     HTMLRateLimitConfig
 }
 
 type htmlBodyOpts struct {
