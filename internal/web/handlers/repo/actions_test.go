@@ -75,8 +75,11 @@ func TestRepoTabActionsFiltersWorkflowRunsAndSidebar(t *testing.T) {
 		"COUNT=3;",
 		"FILTERED=1;",
 		"PAGE=1-1 of 1;",
-		"WF=CI:2:true;",
-		"WF=Deploy:1:false;",
+		"LISTBASE=/alice/public-repo/actions/workflows/ci.yml;",
+		"FILTERQ=branch:main event:push status:completed conclusion:success actor:alice;",
+		"MENU=event:Event:",
+		"WF=CI:2:true:/alice/public-repo/actions/workflows/ci.yml",
+		"WF=Deploy:1:false:/alice/public-repo/actions/workflows/deploy.yml",
 		"RUN=CI:#1:push:main:alice:success;",
 	} {
 		if !strings.Contains(body, want) {
@@ -85,6 +88,131 @@ func TestRepoTabActionsFiltersWorkflowRunsAndSidebar(t *testing.T) {
 	}
 	if strings.Contains(body, "RUN=Deploy") || strings.Contains(body, "#3:") {
 		t.Fatalf("unfiltered run leaked into filtered response: %s", body)
+	}
+}
+
+func TestRepoTabActionsQueryTokensResolveWorkflowNames(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      1,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "main",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -time.Hour,
+		DoneOffset:    -time.Minute,
+	}, now)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      2,
+		WorkflowFile:  ".shithub/workflows/deploy.yml",
+		WorkflowName:  "Deploy",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventWorkflowDispatch,
+		Status:        actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:   f.stranger.ID,
+		CreatedOffset: -30 * time.Minute,
+	}, now)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions?query=workflow:%22CI%22+branch:main+event:push+is:success+actor:alice", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"FILTERED=1;",
+		"LISTBASE=/alice/public-repo/actions/workflows/ci.yml;",
+		"FILTERQ=branch:main event:push conclusion:success actor:alice;",
+		"WF=CI:1:true:/alice/public-repo/actions/workflows/ci.yml",
+		"RUN=CI:#1:push:main:alice:success;",
+		"RUNACTIONS=true:false:/alice/public-repo/actions/workflows/ci.yml:/alice/public-repo/blob/main/.shithub/workflows/ci.yml;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q in %s", want, body)
+		}
+	}
+	if strings.Contains(body, "RUN=Deploy") {
+		t.Fatalf("workflow token did not filter rows: %s", body)
+	}
+}
+
+func TestRepoActionsWorkflowRouteSupportsNestedWorkflowPaths(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      4,
+		WorkflowFile:  ".shithub/workflows/nightly/ci.yml",
+		WorkflowName:  "Nightly CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusRunning,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -15 * time.Minute,
+		StartedOffset: -10 * time.Minute,
+	}, now)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/workflows/nightly/ci.yml?query=branch:trunk", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"FILTERED=1;",
+		"LISTBASE=/alice/public-repo/actions/workflows/nightly/ci.yml;",
+		"FILTERQ=branch:trunk;",
+		"MENU=event:Event:",
+		"WF=Nightly CI:1:true:/alice/public-repo/actions/workflows/nightly/ci.yml",
+		"RUN=Nightly CI:#4:push:trunk:alice:running;",
+		"RUNACTIONS=false:true:/alice/public-repo/actions/workflows/nightly/ci.yml:/alice/public-repo/blob/trunk/.shithub/workflows/nightly/ci.yml;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q in %s", want, body)
+		}
+	}
+}
+
+func TestActionsWorkflowRouteRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	tests := map[string]bool{
+		"ci.yml":                         true,
+		".shithub/workflows/ci.yaml":     true,
+		"nightly/ci.yml":                 true,
+		"/ci.yml":                        false,
+		"../ci.yml":                      false,
+		"nightly/../ci.yml":              false,
+		".shithub/workflows/../ci.yml":   false,
+		".shithub/workflows/nightly.txt": false,
+		`nightly\ci.yml`:                 false,
+	}
+	for raw, wantOK := range tests {
+		got, ok := normalizeActionsWorkflowFile(raw)
+		if ok != wantOK {
+			t.Fatalf("normalizeActionsWorkflowFile(%q) ok=%v want %v got %q", raw, ok, wantOK, got)
+		}
+		if ok && !strings.HasPrefix(got, dispatch.WorkflowFilesDir) {
+			t.Fatalf("normalized path escaped workflow dir: %q", got)
+		}
+	}
+}
+
+func TestParseActionsFilterQuerySupportsQuotedValuesAndAliases(t *testing.T) {
+	t.Parallel()
+	got := parseActionsFilterQuery(`workflow:"CI Smoke" branch:feature/x is:success actor:"octo cat"`)
+	if got.Workflow != "CI Smoke" || got.Branch != "feature/x" || got.Conclusion != "success" || got.Actor != "octo cat" {
+		t.Fatalf("parsed query = %+v", got)
+	}
+	got = parseActionsFilterQuery(`is:queued event:workflow_dispatch status:running`)
+	if got.Status != "running" || got.Event != "workflow_dispatch" {
+		t.Fatalf("parsed status query = %+v", got)
 	}
 }
 
@@ -238,7 +366,7 @@ func TestRepoActionsDispatchAcceptsFormInputs(t *testing.T) {
 	if resp.Code != http.StatusSeeOther {
 		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
 	}
-	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions?workflow=.shithub%2Fworkflows%2Fmanual.yml&event=workflow_dispatch" {
+	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions/workflows/manual.yml?query=event%3Aworkflow_dispatch" {
 		t.Fatalf("Location=%q", loc)
 	}
 
@@ -959,6 +1087,7 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
+	mux.Get("/{owner}/{repo}/actions/workflows/*", f.handlers.repoActionsWorkflow)
 	mux.Get("/{owner}/{repo}/actions/caches", f.handlers.repoActionsCaches)
 	mux.Get("/{owner}/{repo}/actions/attestations", f.handlers.repoActionsAttestations)
 	mux.Get("/{owner}/{repo}/actions/runners", f.handlers.repoActionsRunners)

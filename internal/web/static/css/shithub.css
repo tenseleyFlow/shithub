@@ -5909,6 +5909,126 @@ button.shithub-repo-action {
   font-size: 0.88rem;
   font-weight: 600;
 }
+.shithub-actions-filterbar {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.shithub-actions-query {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-muted);
+}
+.shithub-actions-query input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg-default);
+  font: inherit;
+}
+.shithub-actions-runs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+}
+.shithub-actions-filter-menus {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.shithub-actions-filter-menu,
+.shithub-actions-row-menu {
+  position: relative;
+}
+.shithub-actions-filter-menu summary,
+.shithub-actions-row-menu summary {
+  list-style: none;
+  cursor: pointer;
+}
+.shithub-actions-filter-menu summary::-webkit-details-marker,
+.shithub-actions-row-menu summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-actions-filter-menu summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.shithub-actions-filter-menu summary:hover {
+  color: var(--fg-default);
+}
+.shithub-actions-filter-menu-popover,
+.shithub-actions-row-menu-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 13rem;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-overlay, var(--canvas-default));
+  box-shadow: var(--shadow-large, 0 8px 24px rgba(140, 149, 159, 0.2));
+}
+.shithub-actions-filter-option,
+.shithub-actions-row-menu-popover a,
+.shithub-actions-row-menu-popover button,
+.shithub-actions-row-menu-popover span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-top: 1px solid var(--border-muted);
+  background: transparent;
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  text-decoration: none;
+}
+.shithub-actions-filter-option:first-child,
+.shithub-actions-row-menu-popover a:first-child {
+  border-top: 0;
+}
+.shithub-actions-filter-option:hover,
+.shithub-actions-row-menu-popover a:hover,
+.shithub-actions-row-menu-popover button:hover {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-actions-filter-option.is-selected {
+  font-weight: 600;
+}
+.shithub-actions-filter-option.is-disabled,
+.shithub-actions-row-menu-popover .is-disabled {
+  color: var(--fg-muted);
+  cursor: not-allowed;
+}
+.shithub-actions-row-menu-popover form {
+  margin: 0;
+}
 .shithub-actions-runs {
   overflow: hidden;
   border: 1px solid var(--border-default);
@@ -5923,7 +6043,12 @@ button.shithub-repo-action {
   padding: 0.9rem 1rem;
   border-top: 1px solid var(--border-default);
 }
-.shithub-actions-run-row:first-child { border-top: 0; }
+.shithub-actions-run-row:hover {
+  background: var(--canvas-subtle);
+}
+.shithub-actions-runs-header + .shithub-actions-run-row {
+  border-top: 0;
+}
 .shithub-actions-run-primary,
 .shithub-actions-run-branch,
 .shithub-actions-run-meta {
@@ -6515,6 +6640,19 @@ button.shithub-repo-action {
   .shithub-actions-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .shithub-actions-filterbar,
+  .shithub-actions-runs-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shithub-actions-filter-menus {
+    justify-content: flex-start;
+  }
+  .shithub-actions-filter-menu-popover,
+  .shithub-actions-row-menu-popover {
+    right: auto;
+    left: 0;
   }
   .shithub-actions-head-actions {
     width: 100%;

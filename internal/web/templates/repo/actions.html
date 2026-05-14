@@ -7,7 +7,11 @@
     <header class="shithub-actions-head">
       <div>
         <h1>{{ if .ActiveWorkflowName }}{{ .ActiveWorkflowName }}{{ else }}All workflows{{ end }}</h1>
-        <p>{{ .Pagination.ResultText }}</p>
+        {{ if .ActiveWorkflowName }}
+          <p>{{ if .ActiveWorkflowFileHref }}<a href="{{ .ActiveWorkflowFileHref }}">{{ .Filters.Workflow }}</a>{{ else }}{{ .Filters.Workflow }}{{ end }}</p>
+        {{ else }}
+          <p>Showing runs from all workflows</p>
+        {{ end }}
       </div>
       <div class="shithub-actions-head-actions">
         {{ if .DispatchWorkflows }}
@@ -53,42 +57,40 @@
       </div>
     </header>
 
-    <form class="shithub-actions-filters" method="GET" action="/{{ .Owner }}/{{ .Repo.Name }}/actions" aria-label="Workflow run filters">
-      {{ if .Filters.Workflow }}<input type="hidden" name="workflow" value="{{ .Filters.Workflow }}">{{ end }}
-      <label class="shithub-actions-search">
-        {{ octicon "git-branch" }}
-        <span class="sr-only">Branch</span>
-        <input type="search" name="branch" value="{{ .Filters.Branch }}" placeholder="Branch">
+    <form class="shithub-actions-filterbar" method="GET" action="{{ .ListBasePath }}" aria-label="Workflow run filters">
+      <label class="shithub-actions-query">
+        {{ octicon "search" }}
+        <span class="sr-only">Filter workflow runs</span>
+        <input type="search" name="query" value="{{ .FilterQuery }}" placeholder="Filter workflow runs">
       </label>
-      <label class="shithub-actions-select">
-        <span class="sr-only">Event</span>
-        <select name="event" aria-label="Event">
-          {{ range .EventOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
-        </select>
-      </label>
-      <label class="shithub-actions-select">
-        <span class="sr-only">Status</span>
-        <select name="status" aria-label="Status">
-          {{ range .StatusOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
-        </select>
-      </label>
-      <label class="shithub-actions-select">
-        <span class="sr-only">Conclusion</span>
-        <select name="conclusion" aria-label="Conclusion">
-          {{ range .ConclusionOptions }}<option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>{{ end }}
-        </select>
-      </label>
-      <label class="shithub-actions-search shithub-actions-actor-filter">
-        {{ octicon "person" }}
-        <span class="sr-only">Actor</span>
-        <input type="search" name="actor" value="{{ .Filters.Actor }}" placeholder="Actor">
-      </label>
-      <button type="submit" class="shithub-button">{{ octicon "search" }} Filter</button>
-      {{ if .Filters.HasAny }}<a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/actions">Clear</a>{{ end }}
+      <button type="submit" class="shithub-button">{{ octicon "list-unordered" }} Filter</button>
+      {{ if .HasClearableFilters }}<a class="shithub-button" href="{{ .ClearFiltersHref }}">Clear</a>{{ end }}
     </form>
 
     {{ if .Runs }}
       <div class="shithub-actions-runs" aria-label="Workflow runs">
+        <header class="shithub-actions-runs-header">
+          <strong>{{ .RunCountLabel }}</strong>
+          <div class="shithub-actions-filter-menus">
+            {{ range .FilterMenus }}
+              <details class="shithub-actions-filter-menu">
+                <summary>{{ .Label }} {{ octicon "triangle-down" }}</summary>
+                <div class="shithub-actions-filter-menu-popover">
+                  {{ range .Options }}
+                    {{ if .Disabled }}
+                      <span class="shithub-actions-filter-option is-disabled">{{ .Label }}</span>
+                    {{ else }}
+                      <a href="{{ .Href }}" class="shithub-actions-filter-option{{ if .Selected }} is-selected{{ end }}">
+                        <span>{{ .Label }}</span>
+                        {{ if .Selected }}{{ octicon "check" }}{{ end }}
+                      </a>
+                    {{ end }}
+                  {{ end }}
+                </div>
+              </details>
+            {{ end }}
+          </div>
+        </header>
         {{ range .Runs }}
           <article class="shithub-actions-run-row">
             <div class="shithub-actions-run-primary">
@@ -101,6 +103,7 @@
                 triggered via {{ .EventLabel }}
                 {{ if .ActorUsername }}by <a href="/{{ .ActorUsername }}">{{ .ActorUsername }}</a>{{ end }}
                 for <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .HeadSha }}"><code>{{ .HeadShaShort }}</code></a>
+                {{ if .WorkflowHref }}in <a href="{{ .WorkflowHref }}">{{ .WorkflowName }}</a>{{ end }}
               </p>
             </div>
             <div class="shithub-actions-run-branch">
@@ -109,7 +112,29 @@
             <div class="shithub-actions-run-meta">
               <span>{{ octicon "calendar" }} <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .UpdatedAt }}</time></span>
               <span>{{ octicon "stopwatch" }} {{ .Duration }}</span>
-              <button type="button" class="shithub-icon-button" aria-label="Show run options">{{ octicon "kebab-horizontal" }}</button>
+              <details class="shithub-actions-row-menu">
+                <summary class="shithub-icon-button" aria-label="Show run options">{{ octicon "kebab-horizontal" }}</summary>
+                <div class="shithub-actions-row-menu-popover">
+                  <a href="{{ .Href }}">View run</a>
+                  {{ if .WorkflowFileHref }}<a href="{{ .WorkflowFileHref }}">View workflow file</a>{{ end }}
+                  {{ if .CanRerun }}
+                    <form method="POST" action="{{ .RerunHref }}">
+                      <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                      <button type="submit">Re-run jobs</button>
+                    </form>
+                  {{ else }}
+                    <span class="is-disabled">Re-run jobs</span>
+                  {{ end }}
+                  {{ if .CanCancel }}
+                    <form method="POST" action="{{ .CancelHref }}">
+                      <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                      <button type="submit">Cancel run</button>
+                    </form>
+                  {{ else }}
+                    <span class="is-disabled">Cancel run</span>
+                  {{ end }}
+                </div>
+              </details>
             </div>
           </article>
         {{ end }}
@@ -124,8 +149,8 @@
     {{ else }}
       <section class="shithub-actions-empty">
         <div class="shithub-actions-empty-icon">{{ octicon "play" }}</div>
-        <h2>{{ if .Filters.HasAny }}No workflow runs match these filters{{ else }}There are no workflow runs yet{{ end }}</h2>
-        <p>{{ if .Filters.HasAny }}Clear or adjust the filters to see other runs.{{ else }}Runs from `.shithub/workflows/*.yml` will appear here after a trigger enqueues them.{{ end }}</p>
+        <h2>{{ if .Filters.HasRunFilters }}No workflow runs match these filters{{ else if .ActiveWorkflowName }}This workflow has no runs yet{{ else }}There are no workflow runs yet{{ end }}</h2>
+        <p>{{ if .Filters.HasRunFilters }}Clear or adjust the filters to see other runs.{{ else }}Runs from `.shithub/workflows/*.yml` will appear here after a trigger enqueues them.{{ end }}</p>
       </section>
     {{ end }}
   </div>

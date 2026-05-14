@@ -18,9 +18,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 const (
@@ -53,41 +55,56 @@ type actionsManagementNavItem struct {
 }
 
 type actionsListRunView struct {
-	ID            int64
-	RunIndex      int64
-	WorkflowFile  string
-	WorkflowName  string
-	Title         string
-	HeadSha       string
-	HeadShaShort  string
-	HeadRef       string
-	Event         string
-	EventLabel    string
-	ActorUsername string
-	StateText     string
-	StateClass    string
-	StateIcon     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Duration      string
-	Href          string
+	ID               int64
+	RunIndex         int64
+	WorkflowFile     string
+	WorkflowName     string
+	Title            string
+	HeadSha          string
+	HeadShaShort     string
+	HeadRef          string
+	Event            string
+	EventLabel       string
+	ActorUsername    string
+	StateText        string
+	StateClass       string
+	StateIcon        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Duration         string
+	Href             string
+	WorkflowHref     string
+	WorkflowFileHref string
+	CancelHref       string
+	RerunHref        string
+	CanCancel        bool
+	CanRerun         bool
 }
 
 type actionsListFilters struct {
-	Workflow   string
-	Branch     string
-	Event      string
-	Status     string
-	Conclusion string
-	Actor      string
-	Page       int32
-	HasAny     bool
+	Workflow      string
+	Branch        string
+	Event         string
+	Status        string
+	Conclusion    string
+	Actor         string
+	Page          int32
+	HasAny        bool
+	HasRunFilters bool
 }
 
 type actionsFilterOption struct {
 	Value    string
 	Label    string
 	Selected bool
+	Href     string
+	Disabled bool
+}
+
+type actionsFilterMenuView struct {
+	Key     string
+	Label   string
+	Options []actionsFilterOption
 }
 
 type actionsPaginationView struct {
@@ -205,13 +222,37 @@ type actionsStepLogView struct {
 }
 
 func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
+	h.repoActionsList(w, r, "")
+}
+
+func (h *Handlers) repoActionsWorkflow(w http.ResponseWriter, r *http.Request) {
+	workflowFile, ok := actionsWorkflowFileFromRoute(r)
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	h.repoActionsList(w, r, workflowFile)
+}
+
+func (h *Handlers) repoActionsList(w http.ResponseWriter, r *http.Request, routeWorkflowFile string) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
 	if !ok {
 		return
 	}
 
 	filters := actionsListFiltersFromRequest(r)
+	if routeWorkflowFile != "" {
+		filters.Workflow = routeWorkflowFile
+	}
 	q := actionsdb.New()
+	workflowRows, err := q.ListWorkflowRunWorkflowsForRepo(r.Context(), h.d.Pool, row.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: list workflows", "repo_id", row.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	filters = actionsResolveWorkflowFilter(filters, workflowRows)
+
 	params := workflowRunListParams(row.ID, filters)
 	params.PageLimit = actionsRunsPageSize
 	params.PageOffset = (filters.Page - 1) * actionsRunsPageSize
@@ -228,20 +269,27 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
-	workflowRows, err := q.ListWorkflowRunWorkflowsForRepo(r.Context(), h.d.Pool, row.ID)
-	if err != nil {
-		h.d.Logger.WarnContext(r.Context(), "repo actions: list workflows", "repo_id", row.ID, "error", err)
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
-	}
 
 	basePath := "/" + owner.Username + "/" + row.Name + "/actions"
+	listBasePath := basePath
+	includeWorkflowFilter := true
+	if filters.Workflow != "" {
+		if href := actionsWorkflowRoutePath(basePath, filters.Workflow); href != "" {
+			listBasePath = href
+			includeWorkflowFilter = false
+		}
+	}
 	workflows, allRunCount, activeWorkflowName := actionsWorkflowViews(workflowRows, filters, basePath)
+	if activeWorkflowName == "" && filters.Workflow != "" {
+		activeWorkflowName = workflowDisplayName("", filters.Workflow)
+	}
 	sidebar := actionsSidebar(basePath, workflows, allRunCount, filters.Workflow == "", "")
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row)).Allow
 	runViews := make([]actionsListRunView, 0, len(runs))
 	now := time.Now()
 	for _, run := range runs {
-		runViews = append(runViews, actionsListRunViewFromRow(run, owner.Username, row.Name, now))
+		runViews = append(runViews, actionsListRunViewFromRow(run, owner.Username, row.Name, now, canManage))
 	}
 	dispatchWorkflows, err := h.actionsDispatchWorkflowViews(r.Context(), row, owner.Username)
 	if err != nil {
@@ -258,10 +306,17 @@ func (h *Handlers) repoTabActions(w http.ResponseWriter, r *http.Request) {
 	data["FilteredRunCount"] = filteredCount
 	data["ActiveWorkflowName"] = activeWorkflowName
 	data["Filters"] = filters
+	data["FilterQuery"] = actionsFilterQuery(filters, includeWorkflowFilter)
+	data["FilterMenus"] = actionsFilterMenus(listBasePath, filters, workflows, includeWorkflowFilter)
+	data["ListBasePath"] = listBasePath
+	data["RunCountLabel"] = pluralizeInt64(filteredCount, "workflow run", "workflow runs")
+	data["ClearFiltersHref"] = listBasePath
+	data["HasClearableFilters"] = actionsHasClearableFilters(filters, includeWorkflowFilter)
+	data["ActiveWorkflowFileHref"] = actionsWorkflowFileHref(owner.Username, row.Name, codeTarget(row.DefaultBranch, ""), filters.Workflow)
 	data["EventOptions"] = actionsEventOptions(filters.Event)
 	data["StatusOptions"] = actionsStatusOptions(filters.Status)
 	data["ConclusionOptions"] = actionsConclusionOptions(filters.Conclusion)
-	data["Pagination"] = actionsPagination(basePath, filters, filteredCount, int64(len(runViews)))
+	data["Pagination"] = actionsPagination(listBasePath, filters, filteredCount, int64(len(runViews)), includeWorkflowFilter)
 	if err := h.d.Render.RenderPage(w, r, "repo/actions", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo actions render", "error", err)
 	}
@@ -315,8 +370,106 @@ func actionsListFiltersFromRequest(r *http.Request) actionsListFilters {
 		Actor:      trimFilter(q.Get("actor"), 39),
 		Page:       parseActionsPage(q.Get("page")),
 	}
-	f.HasAny = f.Workflow != "" || f.Branch != "" || f.Event != "" || f.Status != "" || f.Conclusion != "" || f.Actor != ""
+	if query := trimFilter(q.Get("query"), 1024); query != "" {
+		parsed := parseActionsFilterQuery(query)
+		if parsed.Workflow != "" {
+			f.Workflow = parsed.Workflow
+		}
+		if parsed.Branch != "" {
+			f.Branch = parsed.Branch
+		}
+		if parsed.Event != "" {
+			f.Event = validWorkflowRunEvent(parsed.Event)
+		}
+		if parsed.Status != "" {
+			f.Status = validWorkflowRunStatus(parsed.Status)
+		}
+		if parsed.Conclusion != "" {
+			f.Conclusion = validWorkflowRunConclusion(parsed.Conclusion)
+		}
+		if parsed.Actor != "" {
+			f.Actor = trimFilter(parsed.Actor, 39)
+		}
+	}
+	f.HasRunFilters = f.Branch != "" || f.Event != "" || f.Status != "" || f.Conclusion != "" || f.Actor != ""
+	f.HasAny = f.Workflow != "" || f.HasRunFilters
 	return f
+}
+
+type parsedActionsFilterQuery struct {
+	Workflow   string
+	Branch     string
+	Event      string
+	Status     string
+	Conclusion string
+	Actor      string
+}
+
+func parseActionsFilterQuery(query string) parsedActionsFilterQuery {
+	var out parsedActionsFilterQuery
+	for _, token := range actionsFilterTokens(query) {
+		key, value, ok := strings.Cut(token, ":")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		switch key {
+		case "workflow":
+			out.Workflow = value
+		case "branch":
+			out.Branch = value
+		case "event":
+			out.Event = value
+		case "status":
+			out.Status = value
+		case "conclusion":
+			out.Conclusion = value
+		case "actor":
+			out.Actor = value
+		case "is":
+			if status := validWorkflowRunStatus(value); status != "" {
+				out.Status = status
+			} else if conclusion := validWorkflowRunConclusion(value); conclusion != "" {
+				out.Conclusion = conclusion
+			}
+		}
+	}
+	return out
+}
+
+func actionsFilterTokens(query string) []string {
+	var tokens []string
+	var b strings.Builder
+	inQuote := false
+	escaped := false
+	flush := func() {
+		token := strings.TrimSpace(b.String())
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+		b.Reset()
+	}
+	for _, r := range query {
+		switch {
+		case escaped:
+			b.WriteRune(r)
+			escaped = false
+		case r == '\\' && inQuote:
+			escaped = true
+		case r == '"':
+			inQuote = !inQuote
+		case !inQuote && (r == ' ' || r == '\t' || r == '\n' || r == '\r'):
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return tokens
 }
 
 func trimFilter(v string, max int) string {
@@ -390,8 +543,32 @@ func nullableWorkflowRunConclusion(v string) actionsdb.NullCheckConclusion {
 	return actionsdb.NullCheckConclusion{CheckConclusion: actionsdb.CheckConclusion(v), Valid: true}
 }
 
+func actionsResolveWorkflowFilter(filters actionsListFilters, rows []actionsdb.ListWorkflowRunWorkflowsForRepoRow) actionsListFilters {
+	if filters.Workflow == "" {
+		return filters
+	}
+	if normalized, ok := normalizeActionsWorkflowFile(filters.Workflow); ok {
+		filters.Workflow = normalized
+		return filters
+	}
+	for _, row := range rows {
+		name := workflowDisplayName(row.WorkflowName, row.WorkflowFile)
+		base := path.Base(row.WorkflowFile)
+		trimmedBase := strings.TrimSuffix(base, path.Ext(base))
+		if strings.EqualFold(filters.Workflow, row.WorkflowFile) ||
+			strings.EqualFold(filters.Workflow, strings.TrimPrefix(row.WorkflowFile, dispatch.WorkflowFilesDir)) ||
+			strings.EqualFold(filters.Workflow, base) ||
+			strings.EqualFold(filters.Workflow, trimmedBase) ||
+			strings.EqualFold(filters.Workflow, name) {
+			filters.Workflow = row.WorkflowFile
+			return filters
+		}
+	}
+	return filters
+}
+
 func actionsWorkflowViews(rows []actionsdb.ListWorkflowRunWorkflowsForRepoRow, filters actionsListFilters, basePath string) ([]actionsWorkflowView, int64, string) {
-	params := actionsFilterParams(filters)
+	params := actionsFilterParamsFor(filters, false)
 	params.Del("page")
 	out := make([]actionsWorkflowView, 0, len(rows))
 	var total int64
@@ -399,49 +576,63 @@ func actionsWorkflowViews(rows []actionsdb.ListWorkflowRunWorkflowsForRepoRow, f
 	for _, row := range rows {
 		total += row.RunCount
 		name := workflowDisplayName(row.WorkflowName, row.WorkflowFile)
-		p := cloneValues(params)
-		p.Set("workflow", row.WorkflowFile)
 		active := filters.Workflow == row.WorkflowFile
 		if active {
 			activeName = name
+		}
+		href := actionsWorkflowRoutePath(basePath, row.WorkflowFile)
+		if href == "" {
+			p := cloneValues(params)
+			p.Set("workflow", row.WorkflowFile)
+			href = pathWithQuery(basePath, p)
+		} else {
+			href = pathWithQuery(href, params)
 		}
 		out = append(out, actionsWorkflowView{
 			File:   row.WorkflowFile,
 			Name:   name,
 			Count:  row.RunCount,
-			Href:   pathWithQuery(basePath, p),
+			Href:   href,
 			Active: active,
 		})
 	}
 	return out, total, activeName
 }
 
-func actionsListRunViewFromRow(row actionsdb.ListWorkflowRunsForRepoRow, owner, repoName string, now time.Time) actionsListRunView {
+func actionsListRunViewFromRow(row actionsdb.ListWorkflowRunsForRepoRow, owner, repoName string, now time.Time, canManage bool) actionsListRunView {
 	stateText, stateClass, stateIcon := workflowRunState(row.Status, row.Conclusion)
 	title := workflowDisplayName(row.WorkflowName, row.WorkflowFile)
 	updatedAt := row.UpdatedAt.Time
 	if updatedAt.IsZero() {
 		updatedAt = row.CreatedAt.Time
 	}
+	basePath := "/" + owner + "/" + repoName + "/actions"
+	runHref := repoActionRunHref(owner, repoName, row.RunIndex)
 	return actionsListRunView{
-		ID:            row.ID,
-		RunIndex:      row.RunIndex,
-		WorkflowFile:  row.WorkflowFile,
-		WorkflowName:  row.WorkflowName,
-		Title:         title,
-		HeadSha:       row.HeadSha,
-		HeadShaShort:  shortSHA(row.HeadSha),
-		HeadRef:       row.HeadRef,
-		Event:         string(row.Event),
-		EventLabel:    workflowRunEventLabel(string(row.Event)),
-		ActorUsername: row.ActorUsername,
-		StateText:     stateText,
-		StateClass:    stateClass,
-		StateIcon:     stateIcon,
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     updatedAt,
-		Duration:      workflowRunDuration(row.Status, row.StartedAt, row.CompletedAt, row.CreatedAt, updatedAt, now),
-		Href:          "/" + owner + "/" + repoName + "/actions/runs/" + strconv.FormatInt(row.RunIndex, 10),
+		ID:               row.ID,
+		RunIndex:         row.RunIndex,
+		WorkflowFile:     row.WorkflowFile,
+		WorkflowName:     row.WorkflowName,
+		Title:            title,
+		HeadSha:          row.HeadSha,
+		HeadShaShort:     shortSHA(row.HeadSha),
+		HeadRef:          row.HeadRef,
+		Event:            string(row.Event),
+		EventLabel:       workflowRunEventLabel(string(row.Event)),
+		ActorUsername:    row.ActorUsername,
+		StateText:        stateText,
+		StateClass:       stateClass,
+		StateIcon:        stateIcon,
+		CreatedAt:        row.CreatedAt.Time,
+		UpdatedAt:        updatedAt,
+		Duration:         workflowRunDuration(row.Status, row.StartedAt, row.CompletedAt, row.CreatedAt, updatedAt, now),
+		Href:             runHref,
+		WorkflowHref:     actionsWorkflowRoutePath(basePath, row.WorkflowFile),
+		WorkflowFileHref: actionsWorkflowFileHref(owner, repoName, codeTarget(row.HeadRef, row.HeadSha), row.WorkflowFile),
+		CancelHref:       runHref + "/cancel",
+		RerunHref:        runHref + "/rerun",
+		CanCancel:        canManage && !workflowRunTerminal(row.Status),
+		CanRerun:         canManage && workflowRunTerminal(row.Status),
 	}
 }
 
@@ -459,6 +650,60 @@ func workflowDisplayName(name, file string) string {
 		return file
 	}
 	return base
+}
+
+func actionsWorkflowFileFromRoute(r *http.Request) (string, bool) {
+	raw := chi.URLParam(r, "*")
+	if raw == "" {
+		raw = chi.URLParam(r, "file")
+	}
+	return normalizeActionsWorkflowFile(raw)
+}
+
+func normalizeActionsWorkflowFile(file string) (string, bool) {
+	file = strings.TrimSpace(file)
+	if file == "" || strings.Contains(file, "\x00") || strings.Contains(file, "\\") {
+		return "", false
+	}
+	if strings.HasPrefix(file, "/") {
+		return "", false
+	}
+	file = strings.TrimPrefix(file, dispatch.WorkflowFilesDir)
+	if strings.HasPrefix(file, "/") || strings.HasPrefix(file, ".") {
+		return "", false
+	}
+	clean := path.Clean(file)
+	if clean == "." || clean != file || strings.HasPrefix(clean, "../") || clean == ".." || strings.Contains(clean, "/../") {
+		return "", false
+	}
+	ext := path.Ext(clean)
+	if ext != ".yml" && ext != ".yaml" {
+		return "", false
+	}
+	return dispatch.WorkflowFilesDir + clean, true
+}
+
+func actionsWorkflowRoutePath(basePath, workflowFile string) string {
+	workflowFile, ok := normalizeActionsWorkflowFile(workflowFile)
+	if !ok {
+		return ""
+	}
+	rel := strings.TrimPrefix(workflowFile, dispatch.WorkflowFilesDir)
+	if rel == "" {
+		return ""
+	}
+	return basePath + "/workflows/" + escapePathSegments(rel)
+}
+
+func actionsWorkflowFileHref(owner, repoName, ref, workflowFile string) string {
+	if workflowFile == "" || ref == "" {
+		return ""
+	}
+	workflowFile, ok := normalizeActionsWorkflowFile(workflowFile)
+	if !ok {
+		return ""
+	}
+	return "/" + owner + "/" + repoName + "/blob/" + escapePathSegments(ref) + "/" + escapePathSegments(workflowFile)
 }
 
 func workflowRunState(status actionsdb.WorkflowRunStatus, conclusion actionsdb.NullCheckConclusion) (string, string, string) {
@@ -588,7 +833,7 @@ func workflowRunEventLabel(v string) string {
 	}
 }
 
-func actionsPagination(basePath string, filters actionsListFilters, total, pageRows int64) actionsPaginationView {
+func actionsPagination(basePath string, filters actionsListFilters, total, pageRows int64, includeWorkflow bool) actionsPaginationView {
 	offset := int64((filters.Page - 1) * actionsRunsPageSize)
 	view := actionsPaginationView{
 		Page:     filters.Page,
@@ -605,7 +850,7 @@ func actionsPagination(basePath string, filters actionsListFilters, total, pageR
 	view.End = offset + pageRows
 	view.ResultText = strconv.FormatInt(view.Start, 10) + "-" + strconv.FormatInt(view.End, 10) + " of " + strconv.FormatInt(total, 10)
 	if view.HasPrev {
-		p := actionsFilterParams(filters)
+		p := actionsFilterParamsFor(filters, includeWorkflow)
 		if filters.Page <= 2 {
 			p.Del("page")
 		} else {
@@ -614,37 +859,173 @@ func actionsPagination(basePath string, filters actionsListFilters, total, pageR
 		view.PrevHref = pathWithQuery(basePath, p)
 	}
 	if view.HasNext {
-		p := actionsFilterParams(filters)
+		p := actionsFilterParamsFor(filters, includeWorkflow)
 		p.Set("page", strconv.FormatInt(int64(filters.Page+1), 10))
 		view.NextHref = pathWithQuery(basePath, p)
 	}
 	return view
 }
 
-func actionsFilterParams(filters actionsListFilters) url.Values {
+func actionsFilterParamsFor(filters actionsListFilters, includeWorkflow bool) url.Values {
 	v := url.Values{}
-	if filters.Workflow != "" {
-		v.Set("workflow", filters.Workflow)
-	}
-	if filters.Branch != "" {
-		v.Set("branch", filters.Branch)
-	}
-	if filters.Event != "" {
-		v.Set("event", filters.Event)
-	}
-	if filters.Status != "" {
-		v.Set("status", filters.Status)
-	}
-	if filters.Conclusion != "" {
-		v.Set("conclusion", filters.Conclusion)
-	}
-	if filters.Actor != "" {
-		v.Set("actor", filters.Actor)
+	if query := actionsFilterQuery(filters, includeWorkflow); query != "" {
+		v.Set("query", query)
 	}
 	if filters.Page > 1 {
 		v.Set("page", strconv.FormatInt(int64(filters.Page), 10))
 	}
 	return v
+}
+
+func actionsFilterQuery(filters actionsListFilters, includeWorkflow bool) string {
+	tokens := make([]string, 0, 6)
+	if includeWorkflow && filters.Workflow != "" {
+		tokens = append(tokens, "workflow:"+quoteActionsFilterValue(filters.Workflow))
+	}
+	if filters.Branch != "" {
+		tokens = append(tokens, "branch:"+quoteActionsFilterValue(filters.Branch))
+	}
+	if filters.Event != "" {
+		tokens = append(tokens, "event:"+quoteActionsFilterValue(filters.Event))
+	}
+	if filters.Status != "" {
+		tokens = append(tokens, "status:"+quoteActionsFilterValue(filters.Status))
+	}
+	if filters.Conclusion != "" {
+		tokens = append(tokens, "conclusion:"+quoteActionsFilterValue(filters.Conclusion))
+	}
+	if filters.Actor != "" {
+		tokens = append(tokens, "actor:"+quoteActionsFilterValue(filters.Actor))
+	}
+	return strings.Join(tokens, " ")
+}
+
+func quoteActionsFilterValue(value string) string {
+	if value == "" {
+		return value
+	}
+	if strings.ContainsAny(value, " \t\n\r\"") {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	return value
+}
+
+func actionsHasClearableFilters(filters actionsListFilters, includeWorkflow bool) bool {
+	if includeWorkflow && filters.Workflow != "" {
+		return true
+	}
+	return filters.HasRunFilters
+}
+
+func pluralizeInt64(count int64, one, many string) string {
+	label := many
+	if count == 1 {
+		label = one
+	}
+	return strconv.FormatInt(count, 10) + " " + label
+}
+
+func actionsFilterMenus(basePath string, filters actionsListFilters, workflows []actionsWorkflowView, includeWorkflow bool) []actionsFilterMenuView {
+	menus := make([]actionsFilterMenuView, 0, 5)
+	if includeWorkflow {
+		opts := []actionsFilterOption{{
+			Label:    "All workflows",
+			Selected: filters.Workflow == "",
+			Href:     actionsFilterHref(basePath, filters, includeWorkflow, func(f *actionsListFilters) { f.Workflow = "" }),
+		}}
+		for _, workflow := range workflows {
+			opts = append(opts, actionsFilterOption{
+				Value:    workflow.File,
+				Label:    workflow.Name,
+				Selected: filters.Workflow == workflow.File,
+				Href:     workflow.Href,
+			})
+		}
+		menus = append(menus, actionsFilterMenuView{Key: "workflow", Label: "Workflow", Options: opts})
+	}
+	menus = append(menus,
+		actionsEventFilterMenu(basePath, filters, includeWorkflow),
+		actionsStatusFilterMenu(basePath, filters, includeWorkflow),
+		actionsTextFilterMenu("branch", "Branch", "All branches", filters.Branch, basePath, filters, includeWorkflow),
+		actionsTextFilterMenu("actor", "Actor", "Anyone", filters.Actor, basePath, filters, includeWorkflow),
+	)
+	return menus
+}
+
+func actionsEventFilterMenu(basePath string, filters actionsListFilters, includeWorkflow bool) actionsFilterMenuView {
+	values := []actionsFilterOption{
+		{Value: "", Label: "Any event"},
+		{Value: "push", Label: "push"},
+		{Value: "pull_request", Label: "pull_request"},
+		{Value: "schedule", Label: "schedule"},
+		{Value: "workflow_dispatch", Label: "workflow_dispatch"},
+	}
+	for i := range values {
+		value := values[i].Value
+		values[i].Selected = filters.Event == value
+		values[i].Href = actionsFilterHref(basePath, filters, includeWorkflow, func(f *actionsListFilters) { f.Event = value })
+	}
+	return actionsFilterMenuView{Key: "event", Label: "Event", Options: values}
+}
+
+func actionsStatusFilterMenu(basePath string, filters actionsListFilters, includeWorkflow bool) actionsFilterMenuView {
+	values := []actionsFilterOption{
+		{Value: "", Label: "Any status"},
+		{Value: "queued", Label: "queued"},
+		{Value: "running", Label: "running"},
+		{Value: "completed", Label: "completed"},
+		{Value: "cancelled", Label: "cancelled"},
+		{Value: "success", Label: "success"},
+		{Value: "failure", Label: "failure"},
+		{Value: "skipped", Label: "skipped"},
+		{Value: "timed_out", Label: "timed_out"},
+		{Value: "action_required", Label: "action_required"},
+	}
+	for i := range values {
+		value := values[i].Value
+		values[i].Selected = filters.Status == value || filters.Conclusion == value || (value == "" && filters.Status == "" && filters.Conclusion == "")
+		values[i].Href = actionsFilterHref(basePath, filters, includeWorkflow, func(f *actionsListFilters) {
+			f.Status = ""
+			f.Conclusion = ""
+			if status := validWorkflowRunStatus(value); status != "" {
+				f.Status = status
+			} else if conclusion := validWorkflowRunConclusion(value); conclusion != "" {
+				f.Conclusion = conclusion
+			}
+		})
+	}
+	return actionsFilterMenuView{Key: "status", Label: "Status", Options: values}
+}
+
+func actionsTextFilterMenu(key, label, allLabel, selected string, basePath string, filters actionsListFilters, includeWorkflow bool) actionsFilterMenuView {
+	opts := []actionsFilterOption{{
+		Label:    allLabel,
+		Selected: selected == "",
+		Href: actionsFilterHref(basePath, filters, includeWorkflow, func(f *actionsListFilters) {
+			if key == "branch" {
+				f.Branch = ""
+			} else {
+				f.Actor = ""
+			}
+		}),
+	}}
+	if selected != "" {
+		opts = append(opts, actionsFilterOption{Value: selected, Label: selected, Selected: true, Href: pathWithQuery(basePath, actionsFilterParamsFor(filters, includeWorkflow))})
+	} else {
+		opts = append(opts, actionsFilterOption{Label: "Use " + key + ": in the filter bar", Disabled: true})
+	}
+	return actionsFilterMenuView{Key: key, Label: label, Options: opts}
+}
+
+func actionsFilterHref(basePath string, filters actionsListFilters, includeWorkflow bool, mutate func(*actionsListFilters)) string {
+	next := filters
+	next.Page = 1
+	if mutate != nil {
+		mutate(&next)
+	}
+	next.HasRunFilters = next.Branch != "" || next.Event != "" || next.Status != "" || next.Conclusion != "" || next.Actor != ""
+	next.HasAny = next.Workflow != "" || next.HasRunFilters
+	return pathWithQuery(basePath, actionsFilterParamsFor(next, includeWorkflow))
 }
 
 func cloneValues(v url.Values) url.Values {

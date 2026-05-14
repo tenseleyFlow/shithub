@@ -181,7 +181,14 @@ func (h *Handlers) repoActionsDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if formPost {
-		redirectTo := "/" + owner.Username + "/" + row.Name + "/actions?workflow=" + url.QueryEscape(file) + "&event=workflow_dispatch"
+		basePath := "/" + owner.Username + "/" + row.Name + "/actions"
+		redirectTo := actionsWorkflowRoutePath(basePath, file)
+		q := url.Values{"query": []string{"event:workflow_dispatch"}}
+		if redirectTo == "" {
+			redirectTo = basePath
+			q.Set("workflow", file)
+		}
+		redirectTo = pathWithQuery(redirectTo, q)
 		http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 		return
 	}
