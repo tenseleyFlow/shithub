@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/repos/fork"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
@@ -101,12 +102,13 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := fork.Create(r.Context(), h.forkDeps(), fork.CreateParams{
-		SourceRepoID:     source.ID,
-		ActorUserID:      viewer.ID,
-		TargetOwnerKind:  targetKind,
-		TargetOwnerID:    targetID,
-		TargetName:       strings.TrimSpace(r.PostFormValue("target_name")),
-		TargetVisibility: strings.TrimSpace(r.PostFormValue("target_visibility")),
+		SourceRepoID:      source.ID,
+		ActorUserID:       viewer.ID,
+		TargetOwnerKind:   targetKind,
+		TargetOwnerID:     targetID,
+		TargetName:        strings.TrimSpace(r.PostFormValue("target_name")),
+		TargetVisibility:  strings.TrimSpace(r.PostFormValue("target_visibility")),
+		TargetDescription: r.PostFormValue("target_description"),
 	})
 	if err != nil {
 		h.handleForkError(w, r, err)
@@ -327,6 +329,8 @@ func (h *Handlers) handleForkError(w http.ResponseWriter, r *http.Request, err e
 		h.d.Render.HTTPError(w, r, http.StatusConflict, "forking your own repo requires a different name")
 	case errors.Is(err, fork.ErrVisibilityFloor):
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "fork visibility cannot exceed source visibility")
+	case errors.Is(err, repos.ErrDescriptionTooLong):
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "description is longer than the 350-character limit")
 	case errors.Is(err, fork.ErrSyncDiverged):
 		h.d.Render.HTTPError(w, r, http.StatusConflict, "fork has diverged from upstream; sync via your client")
 	case errors.Is(err, fork.ErrSyncUpToDate):
