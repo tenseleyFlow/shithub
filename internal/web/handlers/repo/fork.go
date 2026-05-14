@@ -31,6 +31,7 @@ func (h *Handlers) MountFork(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireUser)
 		r.Post("/{owner}/{repo}/fork", h.repoFork)
+		r.Post("/{owner}/{repo}/fork/retry", h.repoForkRetry)
 		r.Post("/{owner}/{repo}/sync", h.repoSync)
 	})
 }
@@ -108,6 +109,55 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 	// events (matches GitHub: the act of forking implies interest).
 	_ = social.AutoWatchOnCollab(r.Context(), h.socialDeps(), viewer.ID, res.Fork.ID)
 	http.Redirect(w, r, "/"+viewer.Username+"/"+res.Fork.Name, http.StatusSeeOther)
+}
+
+// repoForkRetry handles POST /{owner}/{repo}/fork/retry. The owner
+// of a fork whose init_status landed at init_failed can re-enqueue
+// the clone job. The repo row stays the same — only init_status
+// flips back to init_pending and the worker job restarts. Caller
+// is the owner; we 403 otherwise so neutral observers can't replay
+// failed clones.
+func (h *Handlers) repoForkRetry(w http.ResponseWriter, r *http.Request) {
+	ownerName := chi.URLParam(r, "owner")
+	name := chi.URLParam(r, "repo")
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	row, err := h.lookupRepoForViewer(r.Context(), ownerName, name, viewer)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	// Owner-only. We don't use policy.ActionRepoWrite because a
+	// failed-init repo has no branches and write semantics are
+	// ambiguous; "the user who minted this row can retry it" is
+	// the simpler model.
+	if !row.OwnerUserID.Valid || row.OwnerUserID.Int64 != viewer.ID {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+	if !row.ForkOfRepoID.Valid {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "not a fork")
+		return
+	}
+	if row.InitStatus != reposdb.RepoInitStatusInitFailed {
+		// Idempotent: already pending or initialized — just redirect.
+		http.Redirect(w, r, "/"+ownerName+"/"+row.Name, http.StatusSeeOther)
+		return
+	}
+	if err := h.rq.SetRepoInitStatus(r.Context(), h.d.Pool, reposdb.SetRepoInitStatusParams{
+		ID: row.ID, InitStatus: reposdb.RepoInitStatusInitPending,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "fork retry: set init_pending", "error", err, "repo_id", row.ID)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if _, err := worker.Enqueue(
+		r.Context(), h.d.Pool, worker.KindRepoForkClone,
+		map[string]any{"source_repo_id": row.ForkOfRepoID.Int64, "fork_repo_id": row.ID},
+		worker.EnqueueOptions{},
+	); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "fork retry: enqueue clone", "error", err, "fork_id", row.ID)
+	}
+	http.Redirect(w, r, "/"+ownerName+"/"+row.Name+"?notice=fork-retry-enqueued", http.StatusSeeOther)
 }
 
 // repoSync handles POST /{owner}/{repo}/sync. The repo here is the
