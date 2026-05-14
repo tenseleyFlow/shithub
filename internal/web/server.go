@@ -188,11 +188,24 @@ func Run(ctx context.Context, opts Options) error {
 			logger.Warn("actions runner API disabled: auth.totp_key_b64 is not configured",
 				"hint", "set SHITHUB_TOTP_KEY=$(openssl rand -base64 32) to enable runner job JWTs")
 		}
-		api, err := buildAPIHandlers(cfg, pool, objectStore, runnerJWT, actionsBox, ratelimit.New(pool), logger)
+		// Hoist the limiter so the HTML middleware (F02) and the
+		// /api/v1 surface share one Limiter wrapper. The state itself
+		// lives in Postgres and is keyed by scope, so the two
+		// surfaces are independent budget-wise even though they share
+		// the same Go object.
+		rateLimiter := ratelimit.New(pool)
+		api, err := buildAPIHandlers(cfg, pool, objectStore, runnerJWT, actionsBox, rateLimiter, logger)
 		if err != nil {
 			return fmt.Errorf("api handlers: %w", err)
 		}
 		deps.APIMounter = api.Mount
+		deps.HTMLRateLimit = middleware.HTMLRateLimit(rateLimiter, middleware.HTMLRateLimitConfig{
+			AnonBurst:    cfg.RateLimit.HTML.AnonBurst,
+			AnonRefill:   cfg.RateLimit.HTML.AnonRefill,
+			AuthedBurst:  cfg.RateLimit.HTML.AuthedBurst,
+			AuthedRefill: cfg.RateLimit.HTML.AuthedRefill,
+			Logger:       logger,
+		})
 
 		profile, err := buildProfileHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
