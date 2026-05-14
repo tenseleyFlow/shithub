@@ -68,6 +68,8 @@ var (
 	ErrInvalidStatus        = errors.New("billing: invalid subscription status")
 	ErrInvalidInvoiceStatus = errors.New("billing: invalid invoice status")
 	ErrInvalidSeatCount     = errors.New("billing: seat counts cannot be negative")
+	ErrTeamPlanRequired     = errors.New("billing: team plan is required")
+	ErrSeatCountBelowUsage  = errors.New("billing: licensed seats cannot be below used seats")
 	ErrWebhookEventID       = errors.New("billing: webhook event id is required")
 	ErrWebhookEventType     = errors.New("billing: webhook event type is required")
 	ErrWebhookPayload       = errors.New("billing: webhook payload must be a JSON object")
@@ -92,9 +94,26 @@ type SubscriptionSnapshot struct {
 type SeatSnapshot struct {
 	OrgID                int64
 	StripeSubscriptionID string
-	ActiveMembers        int
-	BillableSeats        int
+	LicensedSeats        int
+	UsedSeats            int
 	Source               string
+}
+
+type TeamSeatUsage struct {
+	OrgID      int64
+	OrgMembers int
+	UsedSeats  int
+}
+
+type TeamLicenseState struct {
+	OrgID                    int64
+	Plan                     Plan
+	SubscriptionStatus       SubscriptionStatus
+	StripeSubscriptionItemID string
+	LicensedSeats            int
+	UsedSeats                int
+	AvailableSeats           int
+	SeatSnapshotAt           pgtype.Timestamptz
 }
 
 type WebhookEvent struct {
@@ -500,7 +519,7 @@ func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billin
 	if snap.OrgID == 0 {
 		return billingdb.BillingSeatSnapshot{}, ErrOrgIDRequired
 	}
-	if snap.ActiveMembers < 0 || snap.BillableSeats < 0 {
+	if snap.LicensedSeats < 0 || snap.UsedSeats < 0 {
 		return billingdb.BillingSeatSnapshot{}, ErrInvalidSeatCount
 	}
 	source := strings.TrimSpace(snap.Source)
@@ -510,14 +529,107 @@ func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billin
 	row, err := billingdb.New().CreateSeatSnapshot(ctx, deps.Pool, billingdb.CreateSeatSnapshotParams{
 		OrgID:                snap.OrgID,
 		StripeSubscriptionID: pgText(snap.StripeSubscriptionID),
-		ActiveMembers:        int32(snap.ActiveMembers),
-		BillableSeats:        int32(snap.BillableSeats),
+		LicensedSeats:        int32(snap.LicensedSeats),
+		UsedSeats:            int32(snap.UsedSeats),
 		Source:               source,
 	})
 	if err != nil {
 		return billingdb.BillingSeatSnapshot{}, err
 	}
 	return billingdb.BillingSeatSnapshot(row), nil
+}
+
+func ComputeTeamSeatUsage(ctx context.Context, deps Deps, orgID int64) (TeamSeatUsage, error) {
+	if err := validateDeps(deps); err != nil {
+		return TeamSeatUsage{}, err
+	}
+	if orgID == 0 {
+		return TeamSeatUsage{}, ErrOrgIDRequired
+	}
+	members, err := CountBillableOrgMembers(ctx, deps, orgID)
+	if err != nil {
+		return TeamSeatUsage{}, err
+	}
+	return TeamSeatUsage{
+		OrgID:      orgID,
+		OrgMembers: members,
+		UsedSeats:  members,
+	}, nil
+}
+
+func GetTeamLicenseState(ctx context.Context, deps Deps, orgID int64) (TeamLicenseState, error) {
+	if err := validateDeps(deps); err != nil {
+		return TeamLicenseState{}, err
+	}
+	if orgID == 0 {
+		return TeamLicenseState{}, ErrOrgIDRequired
+	}
+	state, err := GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		return TeamLicenseState{}, err
+	}
+	usage, err := ComputeTeamSeatUsage(ctx, deps, orgID)
+	if err != nil {
+		return TeamLicenseState{}, err
+	}
+	licensed := int(state.LicensedSeats)
+	if state.Plan != PlanTeam {
+		licensed = 0
+	}
+	available := licensed - usage.UsedSeats
+	if available < 0 {
+		available = 0
+	}
+	subscriptionItemID := ""
+	if state.StripeSubscriptionItemID.Valid {
+		subscriptionItemID = strings.TrimSpace(state.StripeSubscriptionItemID.String)
+	}
+	return TeamLicenseState{
+		OrgID:                    orgID,
+		Plan:                     state.Plan,
+		SubscriptionStatus:       state.SubscriptionStatus,
+		StripeSubscriptionItemID: subscriptionItemID,
+		LicensedSeats:            licensed,
+		UsedSeats:                usage.UsedSeats,
+		AvailableSeats:           available,
+		SeatSnapshotAt:           state.SeatSnapshotAt,
+	}, nil
+}
+
+func SetTeamLicensedSeats(ctx context.Context, deps Deps, orgID int64, licensedSeats int, source string) (TeamLicenseState, error) {
+	if err := validateDeps(deps); err != nil {
+		return TeamLicenseState{}, err
+	}
+	if orgID == 0 {
+		return TeamLicenseState{}, ErrOrgIDRequired
+	}
+	if licensedSeats < 1 {
+		return TeamLicenseState{}, ErrInvalidSeatCount
+	}
+	state, err := GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		return TeamLicenseState{}, err
+	}
+	if state.Plan != PlanTeam {
+		return TeamLicenseState{}, ErrTeamPlanRequired
+	}
+	usage, err := ComputeTeamSeatUsage(ctx, deps, orgID)
+	if err != nil {
+		return TeamLicenseState{}, err
+	}
+	if licensedSeats < usage.UsedSeats {
+		return TeamLicenseState{}, ErrSeatCountBelowUsage
+	}
+	if _, err := SyncSeatSnapshot(ctx, deps, SeatSnapshot{
+		OrgID:                orgID,
+		StripeSubscriptionID: state.StripeSubscriptionID.String,
+		LicensedSeats:        licensedSeats,
+		UsedSeats:            usage.UsedSeats,
+		Source:               source,
+	}); err != nil {
+		return TeamLicenseState{}, err
+	}
+	return GetTeamLicenseState(ctx, deps, orgID)
 }
 
 func CountBillableOrgMembers(ctx context.Context, deps Deps, orgID int64) (int, error) {

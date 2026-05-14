@@ -52,57 +52,22 @@ func OrgBillingSeatSync(deps OrgBillingSeatSyncDeps) worker.Handler {
 			return fmt.Errorf("load billing state: %w", err)
 		}
 
-		members, err := orgbilling.CountBillableOrgMembers(ctx, bdeps, p.OrgID)
+		licenseState, err := orgbilling.GetTeamLicenseState(ctx, bdeps, p.OrgID)
 		if err != nil {
-			return fmt.Errorf("count billable members: %w", err)
+			return fmt.Errorf("load license state: %w", err)
 		}
 		if _, err := orgbilling.SyncSeatSnapshot(ctx, bdeps, orgbilling.SeatSnapshot{
 			OrgID:                p.OrgID,
 			StripeSubscriptionID: state.StripeSubscriptionID.String,
-			ActiveMembers:        members,
-			BillableSeats:        members,
+			LicensedSeats:        licenseState.LicensedSeats,
+			UsedSeats:            licenseState.UsedSeats,
 			Source:               "worker",
 		}); err != nil {
 			return fmt.Errorf("sync seat snapshot: %w", err)
 		}
 		metrics.BillingSeatSyncTotal.WithLabelValues("snapshot_updated").Inc()
 
-		if deps.Stripe == nil || !shouldSyncStripeSeatQuantity(state) {
-			metrics.BillingSeatSyncTotal.WithLabelValues("stripe_skipped").Inc()
-			return nil
-		}
-		if err := deps.Stripe.UpdateSubscriptionItemQuantity(ctx, stripebilling.SeatQuantityInput{
-			OrgID:              p.OrgID,
-			SubscriptionItemID: state.StripeSubscriptionItemID.String,
-			Quantity:           int64(members),
-		}); err != nil {
-			metrics.BillingSeatSyncTotal.WithLabelValues("stripe_update_failed").Inc()
-			return fmt.Errorf("update stripe subscription item quantity: %w", err)
-		}
-		metrics.BillingSeatSyncTotal.WithLabelValues("stripe_updated").Inc()
-		if deps.Logger != nil {
-			deps.Logger.InfoContext(ctx, "org billing seat sync updated subscription quantity",
-				"org_id", p.OrgID,
-				"seats", members,
-				"subscription_item_id", state.StripeSubscriptionItemID.String)
-		}
+		metrics.BillingSeatSyncTotal.WithLabelValues("stripe_skipped").Inc()
 		return nil
-	}
-}
-
-func shouldSyncStripeSeatQuantity(state orgbilling.State) bool {
-	if !state.StripeSubscriptionItemID.Valid {
-		return false
-	}
-	switch state.SubscriptionStatus {
-	case orgbilling.SubscriptionStatusActive,
-		orgbilling.SubscriptionStatusTrialing,
-		orgbilling.SubscriptionStatusIncomplete,
-		orgbilling.SubscriptionStatusPastDue,
-		orgbilling.SubscriptionStatusUnpaid,
-		orgbilling.SubscriptionStatusPaused:
-		return true
-	default:
-		return false
 	}
 }

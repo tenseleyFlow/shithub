@@ -4,6 +4,7 @@ package billing_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -299,20 +300,20 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	snap, err := billing.SyncSeatSnapshot(ctx, deps, billing.SeatSnapshot{
 		OrgID:                org.ID,
 		StripeSubscriptionID: "sub_test",
-		ActiveMembers:        2,
-		BillableSeats:        2,
+		LicensedSeats:        3,
+		UsedSeats:            2,
 	})
 	if err != nil {
 		t.Fatalf("SyncSeatSnapshot: %v", err)
 	}
-	if snap.ActiveMembers != 2 || snap.BillableSeats != 2 || snap.Source != "local" {
+	if snap.ActiveMembers != 2 || snap.BillableSeats != 3 || snap.LicensedSeats != 3 || snap.UsedSeats != 2 || snap.AvailableSeats != 1 || snap.Source != "local" {
 		t.Fatalf("unexpected snapshot: %+v", snap)
 	}
 	state, err := billing.GetOrgBillingState(ctx, deps, org.ID)
 	if err != nil {
 		t.Fatalf("GetOrgBillingState: %v", err)
 	}
-	if state.BillableSeats != 2 || !state.SeatSnapshotAt.Valid {
+	if state.BillableSeats != 3 || state.LicensedSeats != 3 || state.UsedSeats != 2 || !state.SeatSnapshotAt.Valid {
 		t.Fatalf("state did not record seat snapshot: %+v", state)
 	}
 
@@ -321,7 +322,7 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 		t.Fatalf("CountBillableOrgMembers: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("billable members: got %d, want 1", count)
+		t.Fatalf("organization members: got %d, want 1", count)
 	}
 
 	if _, err := deps.Pool.Exec(ctx, `
@@ -337,6 +338,89 @@ func TestSyncSeatSnapshotUpdatesBillingState(t *testing.T) {
 	}
 	if pending != 1 {
 		t.Fatalf("pending invitations: got %d, want 1", pending)
+	}
+}
+
+func TestTeamLicenseStateSeparatesCapacityFromUsage(t *testing.T) {
+	pool, deps, org := setup(t)
+	ctx := context.Background()
+
+	freeState, err := billing.GetTeamLicenseState(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState free: %v", err)
+	}
+	if freeState.LicensedSeats != 0 || freeState.UsedSeats != 1 || freeState.AvailableSeats != 0 {
+		t.Fatalf("free license state: %+v", freeState)
+	}
+	if _, err := billing.SetTeamLicensedSeats(ctx, deps, org.ID, 1, "test"); !errors.Is(err, billing.ErrTeamPlanRequired) {
+		t.Fatalf("SetTeamLicensedSeats on free err=%v, want ErrTeamPlanRequired", err)
+	}
+	if _, err := billing.SyncSeatSnapshot(ctx, deps, billing.SeatSnapshot{
+		OrgID:         org.ID,
+		LicensedSeats: 0,
+		UsedSeats:     1,
+		Source:        "worker",
+	}); err != nil {
+		t.Fatalf("SyncSeatSnapshot free: %v", err)
+	}
+
+	start := time.Now().UTC().Truncate(time.Second)
+	if _, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
+		OrgID:                    org.ID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_license",
+		StripeSubscriptionItemID: "si_license",
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_license",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	activated, err := billing.GetOrgBillingState(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState activated: %v", err)
+	}
+	if activated.LicensedSeats != 1 || activated.UsedSeats != 1 {
+		t.Fatalf("activation should seed license capacity from current usage: %+v", activated)
+	}
+
+	licensed, err := billing.SetTeamLicensedSeats(ctx, deps, org.ID, 3, "checkout")
+	if err != nil {
+		t.Fatalf("SetTeamLicensedSeats: %v", err)
+	}
+	if licensed.LicensedSeats != 3 || licensed.UsedSeats != 1 || licensed.AvailableSeats != 2 {
+		t.Fatalf("licensed state after checkout: %+v", licensed)
+	}
+
+	u, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "bob", DisplayName: "Bob", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("create member user: %v", err)
+	}
+	if err := orgs.AddMember(ctx, orgs.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}, org.ID, u.ID, 0, "member"); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	usage, err := billing.ComputeTeamSeatUsage(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("ComputeTeamSeatUsage: %v", err)
+	}
+	if usage.UsedSeats != 2 || usage.OrgMembers != 2 {
+		t.Fatalf("usage after member add: %+v", usage)
+	}
+	current, err := billing.GetTeamLicenseState(ctx, deps, org.ID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState team: %v", err)
+	}
+	if current.LicensedSeats != 3 || current.UsedSeats != 2 || current.AvailableSeats != 1 {
+		t.Fatalf("current license state: %+v", current)
+	}
+	if _, err := billing.SetTeamLicensedSeats(ctx, deps, org.ID, 1, "remove_seats"); !errors.Is(err, billing.ErrSeatCountBelowUsage) {
+		t.Fatalf("SetTeamLicensedSeats below usage err=%v, want ErrSeatCountBelowUsage", err)
+	}
+	if _, err := billing.SetTeamLicensedSeats(ctx, deps, org.ID, 0, "remove_seats"); !errors.Is(err, billing.ErrInvalidSeatCount) {
+		t.Fatalf("SetTeamLicensedSeats zero err=%v, want ErrInvalidSeatCount", err)
 	}
 }
 

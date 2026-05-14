@@ -59,14 +59,19 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>Active members</td>
-                  <td>{{ .Seats.ActiveMembers }}</td>
-                  <td>Current organization members. Team billing charges active members, including owners.</td>
+                  <td>Used seats</td>
+                  <td>{{ .Seats.UsedSeats }}</td>
+                  <td>Current organization members consuming Team seats, including owners.</td>
                 </tr>
                 <tr>
-                  <td>Billable seats</td>
-                  <td>{{ .Seats.BillableSeats }}</td>
+                  <td>Licensed seats</td>
+                  <td>{{ .Seats.LicensedSeats }}</td>
                   <td>{{ .Seats.SnapshotLabel }}</td>
+                </tr>
+                <tr>
+                  <td>Available seats</td>
+                  <td>{{ .Seats.AvailableSeats }}</td>
+                  <td>Purchased seats that are not currently assigned to a member.</td>
                 </tr>
                 <tr>
                   <td>Pending invitations</td>
@@ -133,7 +138,7 @@
           <div class="shithub-org-settings-row">
             <div>
               <strong>Team plan</strong>
-              <p>$4 per active organization member per month. Public and private repositories stay available; Team unlocks paid organization controls.</p>
+              <p>$4 per licensed organization seat per month. Public and private repositories stay available; Team unlocks paid organization controls.</p>
             </div>
             {{ if not .CanUseBillingControls }}
             <span class="shithub-empty-note">Only organization owners can manage customer billing.</span>

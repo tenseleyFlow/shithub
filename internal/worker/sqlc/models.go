@@ -2067,6 +2067,9 @@ type BillingSeatSnapshot struct {
 	BillableSeats        int32
 	Source               string
 	CapturedAt           pgtype.Timestamptz
+	LicensedSeats        int32
+	UsedSeats            int32
+	AvailableSeats       int32
 }
 
 type BillingWebhookEvent struct {
@@ -2406,6 +2409,8 @@ type OrgBillingState struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+	LicensedSeats            int32
+	UsedSeats                int32
 }
 
 type OrgGithubImport struct {

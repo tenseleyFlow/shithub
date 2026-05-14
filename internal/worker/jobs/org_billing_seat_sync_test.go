@@ -26,7 +26,7 @@ const billingFixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
 	"AAAAAAAAAAAAAAAA$" +
 	"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-func TestOrgBillingSeatSyncUpdatesStateAndStripeQuantity(t *testing.T) {
+func TestOrgBillingSeatSyncUpdatesSeatUsageWithoutChangingStripeQuantity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool, orgID := setupOrgBillingSeatSync(t)
@@ -50,14 +50,17 @@ func TestOrgBillingSeatSyncUpdatesStateAndStripeQuantity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
+	if _, err := billing.SetTeamLicensedSeats(ctx, billing.Deps{Pool: pool}, orgID, 2, "test"); err != nil {
+		t.Fatalf("SetTeamLicensedSeats: %v", err)
+	}
 
-	var got stripebilling.SeatQuantityInput
+	called := false
 	handler := jobs.OrgBillingSeatSync(jobs.OrgBillingSeatSyncDeps{
 		Pool:   pool,
 		Logger: discardLogger(),
 		Stripe: &fakeSeatSyncStripeRemote{
 			updateQuantityFn: func(_ context.Context, in stripebilling.SeatQuantityInput) error {
-				got = in
+				called = true
 				return nil
 			},
 		},
@@ -71,11 +74,11 @@ func TestOrgBillingSeatSyncUpdatesStateAndStripeQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrgBillingState: %v", err)
 	}
-	if state.BillableSeats != 2 || !state.SeatSnapshotAt.Valid {
+	if state.LicensedSeats != 2 || state.UsedSeats != 2 || state.BillableSeats != 2 || !state.SeatSnapshotAt.Valid {
 		t.Fatalf("seat snapshot not reflected in state: %+v", state)
 	}
-	if got.OrgID != orgID || got.SubscriptionItemID != "si_test" || got.Quantity != 2 {
-		t.Fatalf("unexpected stripe quantity update: %+v", got)
+	if called {
+		t.Fatal("seat usage sync must not update Stripe quantity from current members")
 	}
 }
 
@@ -105,7 +108,7 @@ func TestOrgBillingSeatSyncSkipsStripeForFreeOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrgBillingState: %v", err)
 	}
-	if state.BillableSeats != 1 || !state.SeatSnapshotAt.Valid {
+	if state.LicensedSeats != 0 || state.UsedSeats != 1 || state.BillableSeats != 0 || !state.SeatSnapshotAt.Valid {
 		t.Fatalf("free org seat snapshot not recorded: %+v", state)
 	}
 }

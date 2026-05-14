@@ -25,12 +25,20 @@ ON CONFLICT (org_id) DO UPDATE
 RETURNING *;
 
 -- name: ApplySubscriptionSnapshot :one
-WITH state AS (
+WITH seat_counts AS (
+    SELECT count(*)::integer AS used_seats
+    FROM org_members
+    WHERE org_id = sqlc.arg(org_id)::bigint
+), state AS (
     INSERT INTO org_billing_states (
         org_id,
         provider,
         plan,
         subscription_status,
+        billable_seats,
+        licensed_seats,
+        used_seats,
+        seat_snapshot_at,
         stripe_subscription_id,
         stripe_subscription_item_id,
         current_period_start,
@@ -49,6 +57,16 @@ WITH state AS (
         'stripe',
         sqlc.arg(plan)::org_plan,
         sqlc.arg(subscription_status)::billing_subscription_status,
+        CASE
+            WHEN sqlc.arg(plan)::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            ELSE 0
+        END,
+        CASE
+            WHEN sqlc.arg(plan)::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            ELSE 0
+        END,
+        (SELECT used_seats FROM seat_counts),
+        now(),
         sqlc.narg(stripe_subscription_id)::text,
         sqlc.narg(stripe_subscription_item_id)::text,
         sqlc.narg(current_period_start)::timestamptz,
@@ -68,6 +86,26 @@ WITH state AS (
     ON CONFLICT (org_id) DO UPDATE
        SET plan = EXCLUDED.plan,
            subscription_status = EXCLUDED.subscription_status,
+           billable_seats = CASE
+               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
+                   org_billing_states.billable_seats,
+                   org_billing_states.licensed_seats,
+                   EXCLUDED.used_seats,
+                   1
+               )
+               ELSE 0
+           END,
+           licensed_seats = CASE
+               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
+                   org_billing_states.licensed_seats,
+                   org_billing_states.billable_seats,
+                   EXCLUDED.used_seats,
+                   1
+               )
+               ELSE 0
+           END,
+           used_seats = EXCLUDED.used_seats,
+           seat_snapshot_at = EXCLUDED.seat_snapshot_at,
            stripe_subscription_id = EXCLUDED.stripe_subscription_id,
            stripe_subscription_item_id = EXCLUDED.stripe_subscription_item_id,
            current_period_start = EXCLUDED.current_period_start,
@@ -219,22 +257,30 @@ WITH snapshot AS (
         stripe_subscription_id,
         active_members,
         billable_seats,
+        licensed_seats,
+        used_seats,
+        available_seats,
         source
     )
     VALUES (
         sqlc.arg(org_id)::bigint,
         'stripe',
         sqlc.narg(stripe_subscription_id)::text,
-        sqlc.arg(active_members)::integer,
-        sqlc.arg(billable_seats)::integer,
+        sqlc.arg(used_seats)::integer,
+        sqlc.arg(licensed_seats)::integer,
+        sqlc.arg(licensed_seats)::integer,
+        sqlc.arg(used_seats)::integer,
+        GREATEST(sqlc.arg(licensed_seats)::integer - sqlc.arg(used_seats)::integer, 0),
         sqlc.arg(source)::text
     )
     RETURNING *
 ), state AS (
-    INSERT INTO org_billing_states (org_id, billable_seats, seat_snapshot_at)
-    SELECT org_id, billable_seats, captured_at FROM snapshot
+    INSERT INTO org_billing_states (org_id, billable_seats, licensed_seats, used_seats, seat_snapshot_at)
+    SELECT org_id, licensed_seats, licensed_seats, used_seats, captured_at FROM snapshot
     ON CONFLICT (org_id) DO UPDATE
        SET billable_seats = EXCLUDED.billable_seats,
+           licensed_seats = EXCLUDED.licensed_seats,
+           used_seats = EXCLUDED.used_seats,
            seat_snapshot_at = EXCLUDED.seat_snapshot_at,
            updated_at = now()
     RETURNING org_id

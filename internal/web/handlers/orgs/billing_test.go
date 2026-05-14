@@ -162,13 +162,21 @@ func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
 	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_owner_secret"); err != nil {
 		t.Fatalf("SetStripeCustomer: %v", err)
 	}
-	if _, err := orgbilling.SyncSeatSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SeatSnapshot{
-		OrgID:         orgID,
-		ActiveMembers: 3,
-		BillableSeats: 3,
-		Source:        "test",
+	start := time.Now().UTC().Truncate(time.Second)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_owner_secret",
+		StripeSubscriptionItemID: "si_owner_secret",
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_owner_secret",
 	}); err != nil {
-		t.Fatalf("SyncSeatSnapshot: %v", err)
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	if _, err := orgbilling.SetTeamLicensedSeats(ctx, orgbilling.Deps{Pool: pool}, orgID, 3, "test"); err != nil {
+		t.Fatalf("SetTeamLicensedSeats: %v", err)
 	}
 	insertBillingPendingInvitation(t, pool, orgID, "pending@example.com", []byte{1, 2, 3})
 	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
@@ -180,7 +188,7 @@ func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("settings status=%d body=%s", resp.Code, body)
 	}
-	if !strings.Contains(body, "SEATS=1/3/1;") {
+	if !strings.Contains(body, "SEATS=1/3/2/1;") {
 		t.Fatalf("settings did not render seat breakdown: %s", body)
 	}
 	if strings.Contains(body, "cus_owner_secret") {
@@ -805,7 +813,7 @@ func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cu
 	tmplFS := fstest.MapFS{
 		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/billing_result.html":   {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.ActiveMembers }}/{{ .Seats.BillableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
 		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
