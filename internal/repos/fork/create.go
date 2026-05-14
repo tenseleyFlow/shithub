@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/repos"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
@@ -37,6 +38,12 @@ type CreateParams struct {
 	// (Public source can fork to private; private source is
 	// pinned to private.)
 	TargetVisibility string
+	// TargetDescription is optional. Empty (after trim) defaults to
+	// the source's description; non-empty must pass
+	// `repos.ValidateDescription` (≤350 char DB CHECK). Lets the
+	// forker customize the fork's blurb at create time without a
+	// follow-up settings round-trip.
+	TargetDescription string
 }
 
 // CreateResult is the inserted fork shell. The on-disk clone hasn't
@@ -110,6 +117,14 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		return CreateResult{}, ErrVisibilityFloor
 	}
 
+	description := source.Description
+	if trimmed := strings.TrimSpace(p.TargetDescription); trimmed != "" {
+		if err := repos.ValidateDescription(trimmed); err != nil {
+			return CreateResult{}, err
+		}
+		description = trimmed
+	}
+
 	// Check name availability against the target owner.
 	var exists bool
 	switch targetKind {
@@ -133,7 +148,7 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 
 	insertParams := reposdb.CreateForkRepoParams{
 		Name:          targetName,
-		Description:   source.Description,
+		Description:   description,
 		Visibility:    reposdb.RepoVisibility(visibility),
 		DefaultBranch: source.DefaultBranch,
 		ForkOfRepoID:  pgtype.Int8{Int64: source.ID, Valid: true},

@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/repos/fork"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -289,6 +290,77 @@ func TestCreate_SelfForkRenamed_OK(t *testing.T) {
 	}
 	if res.Fork.Name != "demo-fork" {
 		t.Errorf("fork name: got %s, want demo-fork", res.Fork.Name)
+	}
+}
+
+func TestCreate_DescriptionInheritsSource(t *testing.T) {
+	f := setup(t)
+	_, err := f.pool.Exec(context.Background(),
+		"UPDATE repos SET description = $2 WHERE id = $1", f.source.ID, "from the source")
+	if err != nil {
+		t.Fatalf("set source description: %v", err)
+	}
+	res, err := fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:  f.source.ID,
+		ActorUserID:   f.other.ID,
+		TargetOwnerID: f.other.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.Fork.Description != "from the source" {
+		t.Errorf("fork description: got %q, want %q", res.Fork.Description, "from the source")
+	}
+}
+
+func TestCreate_DescriptionOverride_Honored(t *testing.T) {
+	f := setup(t)
+	res, err := fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:      f.source.ID,
+		ActorUserID:       f.other.ID,
+		TargetOwnerID:     f.other.ID,
+		TargetDescription: "  my own blurb  ",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.Fork.Description != "my own blurb" {
+		t.Errorf("fork description: got %q, want %q (trim expected)", res.Fork.Description, "my own blurb")
+	}
+}
+
+func TestCreate_DescriptionOverride_BlankFallsBackToSource(t *testing.T) {
+	f := setup(t)
+	_, err := f.pool.Exec(context.Background(),
+		"UPDATE repos SET description = $2 WHERE id = $1", f.source.ID, "source blurb")
+	if err != nil {
+		t.Fatalf("set source description: %v", err)
+	}
+	res, err := fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:      f.source.ID,
+		ActorUserID:       f.other.ID,
+		TargetOwnerID:     f.other.ID,
+		TargetDescription: "   ",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.Fork.Description != "source blurb" {
+		t.Errorf("fork description: got %q, want source fallback", res.Fork.Description)
+	}
+}
+
+func TestCreate_DescriptionOverride_TooLong(t *testing.T) {
+	f := setup(t)
+	long := strings.Repeat("a", 351)
+	_, err := fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:      f.source.ID,
+		ActorUserID:       f.other.ID,
+		TargetOwnerID:     f.other.ID,
+		TargetDescription: long,
+	})
+	if !errors.Is(err, repos.ErrDescriptionTooLong) {
+		t.Errorf("expected ErrDescriptionTooLong, got %v", err)
 	}
 }
 
