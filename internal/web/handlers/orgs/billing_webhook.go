@@ -135,6 +135,7 @@ func normalizeStripeBillingEventType(eventType string) string {
 		"customer.subscription.created",
 		"customer.subscription.updated",
 		"customer.subscription.deleted",
+		"invoice.finalized",
 		"invoice.payment_succeeded",
 		"invoice.payment_failed",
 		"invoice.voided",
@@ -153,7 +154,7 @@ func (h *Handlers) processStripeWebhook(ctx context.Context, event stripeapi.Eve
 		return h.applyStripeCheckoutCompleted(ctx, event)
 	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted":
 		return h.applyStripeSubscriptionEvent(ctx, event)
-	case "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
+	case "invoice.finalized", "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
 		return h.applyStripeInvoiceEvent(ctx, event)
 	case "charge.refunded":
 		return h.applyStripeChargeRefunded(ctx, event)
