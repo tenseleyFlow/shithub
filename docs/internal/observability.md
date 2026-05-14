@@ -30,9 +30,20 @@ shithub ships four sinks: structured logging, Prometheus metrics, OpenTelemetry 
   - `shithub_panics_total` (counter, incremented by the recover middleware)
   - `shithub_db_pool_acquired`, `shithub_db_pool_idle`, `shithub_db_pool_total` (gauges)
   - `shithub_db_pool_acquire_wait_seconds_total` (counter)
+  - `shithub_billing_checkout_sessions_total{subject_kind,result}` (counter)
+  - `shithub_billing_portal_sessions_total{subject_kind,result}` (counter)
+  - `shithub_billing_webhook_events_total{event_type,result}` (counter)
+  - `shithub_billing_webhook_backlog{state}` (gauge)
+  - `shithub_billing_past_due_principals{subject_kind}` (gauge)
+  - `shithub_billing_org_seat_drift` (gauge)
+  - `shithub_billing_quota_overage_orgs{quota}` (gauge)
   - Standard Go runtime + process metrics (registered automatically).
 - **Cardinality discipline.** Route labels come from chi's `RoutePattern()` so we get `/owner/{repo}` instead of per-repo concrete paths. Never label by `user_id` or `repo_id`.
 - Per-domain metrics (added in later sprints) MUST register against `metrics.Registry` so a single `/metrics` scrape sees everything.
+
+Billing webhook event-type labels are normalized to the supported
+Stripe event set plus `other` and `unknown`; never label by Stripe
+customer, subscription, invoice, org, repo, or user ids.
 
 ## Tracing
 

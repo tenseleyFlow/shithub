@@ -1,8 +1,9 @@
 # Stripe Billing
 
-Operator runbook for turning on shithub's paid organization flow.
-Pair this with [`../billing.md`](../billing.md) for the product
-contract and entitlement matrix.
+Operator runbook for turning on shithub's hosted paid flows: Team
+organizations and optional Pro personal accounts. Pair this with
+[`../billing.md`](../billing.md) for the product contract and
+entitlement matrix.
 
 ## Preconditions
 
@@ -10,6 +11,10 @@ contract and entitlement matrix.
   operator controls.
 - A recurring per-seat Product/Price for Team organizations. The v1
   price is `$4` USD per active organization member per month.
+- Optional recurring single-seat Product/Price for Pro accounts.
+- A billing support email that appears in public policy pages.
+- A documented refund/cancellation policy and privacy notice for Stripe
+  payment processing data.
 - Production `auth.base_url` points at the public HTTPS origin.
 - Web and worker processes share the same billing env vars.
 - Database migrations are current.
@@ -18,7 +23,28 @@ Do not enable live billing before Stripe account identity, tax, payout,
 and statement descriptor setup are complete. shithub stores only Stripe
 IDs and derived payment summaries; card data stays in Stripe.
 
+## Launch readiness checklist
+
+Complete this checklist before flipping live-mode billing:
+
+- Stripe account identity verified.
+- Bank payout destination added and payout schedule visible.
+- Statement descriptor reviewed.
+- Support email can receive and reply to billing tickets.
+- Public billing terms, refund/cancellation policy, and payment-data
+  privacy language published.
+- Stripe Tax decision recorded:
+  - disabled and operator will handle tax outside shithub, or
+  - enabled in Stripe and `SHITHUB_BILLING__STRIPE__AUTOMATIC_TAX=true`.
+- Test-mode Team checkout completes and webhook activates the org.
+- Test-mode Pro checkout completes if `pro_price_id` is configured.
+- Test-mode webhook replay has been drilled from Stripe Dashboard.
+- Billing alert rules are loaded in Prometheus/Grafana and firing paths
+  are tested with a synthetic failure.
+
 ## Stripe setup
+
+### Team price
 
 1. Create a Product named `shithub Team`.
 2. Create a recurring monthly Price:
@@ -27,13 +53,41 @@ IDs and derived payment summaries; card data stays in Stripe.
    - Unit amount: `400`.
    - Usage: licensed quantity.
 3. Copy the Price ID, for example `price_...`.
-4. Create a restricted secret key if possible. It must be able to:
+
+This Price must bill by quantity. shithub creates Team Checkout
+Sessions with `Quantity=<active org members>` and later updates the
+Stripe subscription item quantity from the seat-sync worker. If the
+Dashboard Price was created as a fixed flat-rate subscription, extra
+seats will not bill correctly. Stripe Prices are immutable in the
+fields that matter here; create a new Team Price and replace
+`SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID`.
+
+Do not let customers edit Team quantity in the Billing Portal. shithub
+owns Team quantity through organization membership, so Dashboard/Portal
+quantity edits create subscription drift.
+
+### Pro price
+
+Create a separate recurring monthly Price for `shithub Pro`:
+
+- Billing scheme: flat/single unit is acceptable.
+- Currency: USD.
+- Unit amount: `400`.
+- Usage: licensed quantity with quantity `1`.
+
+Copy this Price ID to `SHITHUB_BILLING__STRIPE__PRO_PRICE_ID`. When the
+field is empty, `/settings/billing` renders Pro as unavailable and
+personal-account upgrades cannot start.
+
+### API key and webhooks
+
+1. Create a restricted secret key if possible. It must be able to:
    - create/read Customers,
    - create Checkout Sessions,
    - create Billing Portal Sessions,
    - update Subscription Items,
    - read invoice/subscription objects delivered by webhooks.
-5. Create a webhook endpoint for:
+2. Create a webhook endpoint for:
    - `checkout.session.completed`
    - `customer.subscription.created`
    - `customer.subscription.updated`
@@ -42,9 +96,11 @@ IDs and derived payment summaries; card data stays in Stripe.
    - `invoice.payment_succeeded`
    - `invoice.payment_failed`
    - `invoice.voided`
-6. Point the endpoint at:
+   - `invoice.marked_uncollectible`
+   - `charge.refunded`
+3. Point the endpoint at:
    `https://<host>/stripe/webhook`
-7. Copy the webhook signing secret, for example `whsec_...`.
+4. Copy the webhook signing secret, for example `whsec_...`.
 
 Enable Stripe Tax only after the Stripe account is configured for it.
 If it is enabled in shithub while Stripe is not ready, Checkout can fail
@@ -60,7 +116,12 @@ SHITHUB_BILLING__GRACE_PERIOD=336h
 SHITHUB_BILLING__STRIPE__SECRET_KEY=sk_test_...
 SHITHUB_BILLING__STRIPE__WEBHOOK_SECRET=whsec_...
 SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID=price_...
+# Optional: enable Pro checkout after creating the Pro Price.
+SHITHUB_BILLING__STRIPE__PRO_PRICE_ID=price_...
 SHITHUB_BILLING__STRIPE__AUTOMATIC_TAX=false
+SHITHUB_BILLING__ENFORCE__USER_REQUIRED_REVIEWERS=false
+SHITHUB_BILLING__ENFORCE__USER_ADVANCED_BRANCH_PROTECTION=false
+SHITHUB_BILLING__ENFORCE__USER_PROFILE_PINS_BEYOND_FREE=false
 ```
 
 Then validate and restart:
@@ -90,6 +151,12 @@ worker uses the same Stripe credentials for seat quantity sync.
    - a billable member count matching the org membership.
 8. Invite or remove a member and verify the worker updates the Stripe
    subscription item quantity.
+9. If Pro is configured, visit `/settings/billing`, start checkout,
+   complete it with a test card, and confirm the user plan becomes Pro
+   after webhook processing.
+10. Open the Stripe Billing Portal from both paid settings pages and
+    confirm customers can change payment method or cancel, but cannot
+    edit Team subscription quantity directly.
 
 If the UI remains Free after checkout, inspect webhook receipts and the
 web journal. The most likely causes are a wrong webhook secret, missing
@@ -120,6 +187,215 @@ exist.
 | Subscription stays Free | missing subscription webhook events or unmapped customer/subscription metadata. |
 | Seat count stale | worker not running, seat-sync jobs failing, or Stripe key lacks Subscription Item update permission. |
 | Billing portal unavailable | the organization has no Stripe customer yet; start Checkout first. |
+
+## Billing alerts
+
+Prometheus rules live in
+`deploy/monitoring/prometheus/rules.yml` under `shithubd-billing`.
+They cover:
+
+- webhook failure rate,
+- webhook backlog and failed receipts,
+- Checkout creation failures,
+- Team seat drift,
+- past-due principals,
+- quota overages.
+
+Dashboard queries:
+
+```promql
+sum(rate(shithub_billing_webhook_events_total[15m])) by (event_type, result)
+shithub_billing_webhook_backlog
+sum(increase(shithub_billing_checkout_sessions_total{result="failure"}[10m])) by (subject_kind)
+shithub_billing_org_seat_drift
+shithub_billing_past_due_principals
+shithub_billing_quota_overage_orgs
+```
+
+If these metrics are missing entirely, confirm the web process is on a
+build with SP10, `/metrics` is enabled, and Alloy/Prometheus is scraping
+the `shithubd-web` target.
+
+## Failed webhook replay
+
+Use this when `BillingWebhookFailedReceipt` or
+`BillingWebhookBacklogHigh` fires.
+
+1. Inspect the latest failed receipts:
+
+   ```sql
+   SELECT provider_event_id, event_type, received_at, processing_attempts,
+          process_error, subject_kind, subject_id
+     FROM billing_webhook_events
+    WHERE processed_at IS NULL
+    ORDER BY received_at DESC
+    LIMIT 50;
+   ```
+
+2. Fix the root cause first:
+   - wrong webhook secret,
+   - missing event type in Stripe endpoint,
+   - price-kind mismatch,
+   - duplicate subscription for the same customer,
+   - stale or manually edited Stripe state.
+3. In Stripe Dashboard, open the webhook endpoint, select the event,
+   and click **Resend**.
+4. Confirm the receipt becomes processed:
+
+   ```sql
+   SELECT provider_event_id, processed_at, process_error
+     FROM billing_webhook_events
+    WHERE provider_event_id = '<evt_...>';
+   ```
+
+The handler is idempotent and serialized by event id. Replaying a
+successfully processed event should return 200 and leave local state
+unchanged.
+
+## Checkout failures
+
+Use this when `BillingCheckoutFailures` fires.
+
+1. Tail web logs for `org billing: create checkout` or
+   `user billing: create checkout`.
+2. Check `shithubd config print` for redacted but present billing keys.
+3. Verify `auth.base_url` is the public HTTPS origin.
+4. Verify the Team Price ID is live/test-mode matched to the secret key.
+5. Verify the Team Price is per-unit/licensed. A fixed flat-rate Price
+   can create checkout, but it will not bill extra seats correctly.
+6. If `automatic_tax=true`, confirm Stripe Tax is configured in the
+   matching Stripe account mode.
+
+## Subscription drift repair
+
+Use this when `BillingSeatDrift` fires or an org owner reports wrong
+seat counts.
+
+1. Identify drifting organizations:
+
+   ```sql
+   WITH seat_counts AS (
+     SELECT org_id, count(*) AS seats
+       FROM org_members
+      GROUP BY org_id
+   )
+   SELECT s.org_id, s.stripe_subscription_id, s.stripe_subscription_item_id,
+          s.billable_seats AS local_seats, COALESCE(c.seats, 0) AS actual_seats
+     FROM org_billing_states s
+     LEFT JOIN seat_counts c ON c.org_id = s.org_id
+    WHERE s.plan = 'team'
+      AND s.stripe_subscription_item_id IS NOT NULL
+      AND s.billable_seats <> COALESCE(c.seats, 0);
+   ```
+
+2. Enqueue or run `org:billing_seat_sync` for the org. If the worker is
+   unavailable, update the Stripe subscription item quantity in Stripe
+   Dashboard to `actual_seats`.
+3. Re-run the worker when it is healthy so shithub records a new local
+   seat snapshot.
+4. Audit manual repairs:
+
+   ```sql
+   INSERT INTO auth_audit_log (actor_id, action, target_type, target_id, meta)
+   VALUES (<operator_user_id>, 'billing.manual_seat_repair', 'org', <org_id>,
+           jsonb_build_object('stripe_subscription_item_id', '<si_...>',
+                              'quantity', <actual_seats>,
+                              'reason', '<ticket/url>'));
+   ```
+
+## Manual downgrade or upgrade
+
+Prefer Stripe Dashboard changes and webhooks over direct SQL. Direct SQL
+is only for Stripe outages or data-repair incidents.
+
+- Upgrade: create or fix the subscription in Stripe, ensure metadata has
+  `shithub_subject_kind` and `shithub_subject_id`, then resend the
+  latest `customer.subscription.updated` event.
+- Downgrade: cancel the subscription in Stripe, then resend
+  `customer.subscription.deleted`.
+- Emergency local lock: set the local subscription status to a
+  payment-action-needed state only after recording an audit row and a
+  support ticket.
+
+Every manual operation needs a matching `auth_audit_log` row with the
+operator user id, target type (`org` or `user`), target id, Stripe object
+ids, and ticket/reason.
+
+## Refund handling
+
+Issue refunds in Stripe Dashboard. shithub records the refund when
+Stripe sends `charge.refunded`.
+
+1. Refund the charge or invoice in Stripe.
+2. Do not assume refund means cancellation. If future billing should
+   stop, cancel the subscription too.
+3. Confirm shithub recorded the refund:
+
+   ```sql
+   SELECT stripe_invoice_id, status, refunded_at
+     FROM billing_invoices
+    WHERE stripe_invoice_id = '<in_...>';
+   ```
+
+4. Audit the support action:
+
+   ```sql
+   INSERT INTO auth_audit_log (actor_id, action, target_type, target_id, meta)
+   VALUES (<operator_user_id>, 'billing.refund_issued', '<org|user>', <id>,
+           jsonb_build_object('stripe_invoice_id', '<in_...>',
+                              'reason', '<ticket/url>'));
+   ```
+
+## Past-due accounts
+
+Use this when `BillingPastDuePrincipals` fires.
+
+1. Find accounts needing action:
+
+   ```sql
+   SELECT 'org' AS kind, org_id AS id, plan::text, subscription_status::text,
+          past_due_at, grace_until
+     FROM org_billing_states
+    WHERE subscription_status IN ('past_due', 'unpaid', 'incomplete')
+   UNION ALL
+   SELECT 'user' AS kind, user_id AS id, plan::text, subscription_status::text,
+          past_due_at, grace_until
+     FROM user_billing_states
+    WHERE subscription_status IN ('past_due', 'unpaid', 'incomplete')
+    ORDER BY past_due_at NULLS LAST;
+   ```
+
+2. Confirm Stripe agrees with local state.
+3. If payment was recovered, resend the latest subscription update or
+   invoice payment event.
+4. If payment failed permanently, let the grace window expire and let
+   entitlements move features to billing-action-needed.
+
+## Quota overages
+
+Use this when `BillingQuotaOverage` fires.
+
+1. Open the org billing settings page as a site admin. The Usage panel
+   shows storage and Actions minutes against the effective limits.
+2. If counters look stale, run `org:usage_recalc` for that org.
+3. If the overage is legitimate, ask the org owner to upgrade or reduce
+   usage. For support incidents, add a temporary quota override in the
+   site-admin debug panel; it is attributed to the operator.
+4. Do not edit `org_usage_counters` directly unless repairing corrupted
+   metering after a bug. If you do, create an `auth_audit_log` row.
+
+## Billing outage response
+
+If Stripe is unreachable or webhooks are delayed:
+
+1. Check Stripe status and local network errors.
+2. Leave `billing.enabled=true` if existing customers can still use the
+   site; disabling billing hides checkout/portal routes and can make
+   support harder.
+3. Pause public paid launch links if new checkouts are failing.
+4. Keep workers running so delayed webhooks and seat-sync jobs catch up.
+5. After recovery, inspect failed webhook receipts, replay them, and
+   verify `shithub_billing_webhook_backlog{state="pending"} == 0`.
 
 ## Rollback
 
@@ -251,4 +527,3 @@ If a customer somehow ends up with two active Stripe subscriptions
 to flip its `stripe_subscription_id` to point at the new one.
 The receipt records the mismatch — operator must reconcile the
 Stripe-side state (cancel the duplicate) before the apply succeeds.
-
