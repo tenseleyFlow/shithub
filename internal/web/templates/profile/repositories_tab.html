@@ -1,39 +1,156 @@
 {{ define "page" -}}
-<section class="shithub-profile">
-  <header class="shithub-profile-header">
-    <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="" width="120" height="120">
-    <div class="shithub-profile-id">
-      <h1 class="shithub-profile-name">
-        {{ if .User.DisplayName }}{{ .User.DisplayName }}{{ else }}{{ .User.Username }}{{ end }}
-      </h1>
-      <p class="shithub-profile-handle">@{{ .User.Username }}</p>
-    </div>
-  </header>
+<section class="shithub-user-profile shithub-profile-repositories-page">
+  <div class="shithub-profile-tabs-shell">
+    {{ template "profile-tabs" . }}
+  </div>
 
-  {{ template "profile-tabs" . }}
+  <div class="shithub-user-profile-container">
+    <aside class="shithub-user-profile-sidebar" aria-label="{{ .User.Username }} profile">
+      <a class="shithub-profile-avatar-link" href="{{ .AvatarURL }}">
+        <img class="shithub-profile-avatar" src="{{ .AvatarURL }}" alt="@{{ .User.Username }}" width="296" height="296">
+      </a>
+      <div class="shithub-profile-names">
+        <h1>
+          <span class="shithub-profile-name">{{ .DisplayName }}</span>
+          <span class="shithub-profile-handle">{{ .User.Username }}</span>
+        </h1>
+        {{ if .User.Pronouns }}<span class="shithub-profile-pronouns">{{ .User.Pronouns }}</span>{{ end }}
+      </div>
 
-  {{ if .Repos }}
-  <ul class="shithub-repo-list">
-    {{ range .Repos }}
-    <li class="shithub-repo-list-row">
-      <h3 class="shithub-repo-list-name">
-        <a href="/{{ $.User.Username }}/{{ .Name }}">{{ $.User.Username }}/{{ .Name }}</a>
-        {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">private</span>{{ else }}<span class="shithub-pill">public</span>{{ end }}
-        {{ if .IsArchived }}<span class="shithub-pill shithub-pill-archived">archived</span>{{ end }}
-        {{ if .IsFork }}<span class="shithub-pill">fork</span>{{ end }}
-      </h3>
-      {{ if .Description }}<p class="shithub-meta">{{ .Description }}</p>{{ end }}
-      <p class="shithub-repo-list-meta">
-        {{ if .PrimaryLanguage }}<span>{{ .PrimaryLanguage }}</span>{{ end }}
-        <span>★ {{ .StarCount }}</span>
-        <span>⑂ {{ .ForkCount }}</span>
-        <span>updated {{ .UpdatedAt }}</span>
+      {{ if .User.Bio }}<div class="shithub-profile-bio">{{ .User.Bio }}</div>{{ end }}
+      {{ if .IsSelf }}<a href="/settings/profile" class="shithub-button shithub-button-block">Edit profile</a>{{ end }}
+
+      <p class="shithub-profile-follow-counts">
+        {{ octicon "people" }}
+        <a href="/{{ .User.Username }}?tab=followers"><strong>{{ .FollowersCount }}</strong> followers</a>
+        <span class="shithub-profile-dot" aria-hidden="true">·</span>
+        <a href="/{{ .User.Username }}?tab=following"><strong>{{ .FollowingCount }}</strong> following</a>
       </p>
-    </li>
-    {{ end }}
-  </ul>
-  {{ else }}
-  <p class="shithub-empty">{{ if .IsSelf }}You don't have any repositories yet. <a href="/new">Create one</a>?{{ else }}No repositories visible.{{ end }}</p>
-  {{ end }}
+
+      <ul class="shithub-profile-vcard">
+        {{ if .User.Company }}<li>{{ octicon "organization" }} <span>{{ .User.Company }}</span></li>{{ end }}
+        {{ if .User.Location }}<li>{{ octicon "location" }} <span>{{ .User.Location }}</span></li>{{ end }}
+        {{ if .WebsiteSafe }}<li>{{ octicon "link" }} <a href="{{ .WebsiteSafe }}" rel="nofollow noopener">{{ .User.Website }}</a></li>{{ end }}
+        <li>{{ octicon "calendar" }} <span>Joined {{ .JoinedFormatted }}</span></li>
+      </ul>
+
+      {{ if .Orgs }}
+      <section class="shithub-profile-sidebar-section" aria-labelledby="repos-profile-orgs-heading">
+        <h2 id="repos-profile-orgs-heading">Organizations</h2>
+        <div class="shithub-profile-orgs">
+          {{ range .Orgs }}
+          <a href="/{{ .Slug }}" aria-label="{{ .DisplayName }}">
+            <img src="{{ .AvatarURL }}" alt="" width="32" height="32">
+          </a>
+          {{ end }}
+        </div>
+      </section>
+      {{ end }}
+    </aside>
+
+    <main class="shithub-user-profile-main shithub-profile-repositories-main">
+      <div class="shithub-profile-repositories-head">
+        <div>
+          <h2>Repositories</h2>
+          <p>
+            {{ if .HasActiveFilters }}
+              {{ .FilteredCount }} result{{ if ne .FilteredCount 1 }}s{{ end }}
+            {{ else }}
+              {{ .RepoTotal }} repositor{{ if eq .RepoTotal 1 }}y{{ else }}ies{{ end }}
+            {{ end }}
+          </p>
+        </div>
+        {{ if .CanCreateRepo }}<a href="{{ .NewRepoHref }}" class="shithub-button shithub-button-primary">{{ octicon "repo" }} New</a>{{ end }}
+      </div>
+
+      <div class="shithub-org-repositories-toolbar shithub-profile-repositories-toolbar">
+        <form action="/{{ .User.Username }}" method="get" role="search" class="shithub-org-repositories-search" aria-label="Repositories">
+          <span aria-hidden="true">{{ octicon "search" }}</span>
+          <input type="hidden" name="tab" value="repositories">
+          <label class="sr-only" for="profile-repositories-search">Find a repository</label>
+          <input id="profile-repositories-search" type="search" name="q" value="{{ .RepositoryFilters.Query }}" placeholder="Find a repository..." autocomplete="off">
+          {{ if ne .SelectedType "all" }}<input type="hidden" name="type" value="{{ .SelectedType }}">{{ end }}
+          {{ if .SelectedLanguage }}<input type="hidden" name="language" value="{{ .SelectedLanguage }}">{{ end }}
+          {{ if ne .SelectedSort "updated" }}<input type="hidden" name="sort" value="{{ .SelectedSort }}">{{ end }}
+        </form>
+
+        <div class="shithub-org-repositories-filters">
+          <details class="shithub-filter-menu">
+            <summary>Type: <span>{{ .SelectedTypeLabel }}</span> {{ octicon "triangle-down" }}</summary>
+            <div>
+              {{ range .TypeFilters }}
+              <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }} <span class="shithub-filter-count">{{ .Count }}</span></a>
+              {{ end }}
+            </div>
+          </details>
+          <details class="shithub-filter-menu">
+            <summary>Language: <span>{{ .SelectedLanguageLabel }}</span> {{ octicon "triangle-down" }}</summary>
+            <div>
+              {{ range .LanguageFilters }}
+              <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }} <span class="shithub-filter-count">{{ .Count }}</span></a>
+              {{ end }}
+            </div>
+          </details>
+          <details class="shithub-filter-menu">
+            <summary>Sort: <span>{{ .SelectedSortLabel }}</span> {{ octicon "triangle-down" }}</summary>
+            <div>
+              {{ range .SortOptions }}
+              <a href="{{ .Href }}" class="{{ if .Selected }}is-selected{{ end }}">{{ .Label }}</a>
+              {{ end }}
+            </div>
+          </details>
+        </div>
+      </div>
+
+      {{ if .Repos }}
+      <ul class="shithub-org-repo-list shithub-org-repositories-list shithub-profile-repositories-list">
+      {{ range .Repos }}
+        <li class="shithub-org-repo-row shithub-profile-repository-row">
+          <div class="shithub-org-repo-row-main">
+            <h3>
+              <a href="/{{ $.User.Username }}/{{ .Name }}">{{ .Name }}</a>
+              {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+              {{ if .IsArchived }}<span class="shithub-pill shithub-pill-archived">Archived</span>{{ end }}
+              {{ if .IsFork }}<span class="shithub-pill">Fork</span>{{ end }}
+            </h3>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+            <div class="shithub-org-repo-meta">
+              {{ if .PrimaryLanguage }}<span><span class="shithub-language-dot" style="background-color: {{ .PrimaryLanguageColor }};"></span>{{ .PrimaryLanguage }}</span>{{ end }}
+              {{ if .LicenseKey }}<span>{{ octicon "law" }} {{ .LicenseKey }}</span>{{ end }}
+              <span>{{ octicon "star" }} {{ .StarCount }}</span>
+              <span>{{ octicon "repo-forked" }} {{ .ForkCount }}</span>
+              <time datetime="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z" }}">Updated {{ relativeTime .UpdatedAt }}</time>
+            </div>
+          </div>
+          <div class="shithub-profile-repository-side">
+            <button type="button" class="shithub-button shithub-button-small shithub-profile-repository-star" disabled>{{ octicon "star" }} Star {{ octicon "triangle-down" }}</button>
+            {{ .ActivitySparkline }}
+          </div>
+        </li>
+      {{ end }}
+      </ul>
+      {{ else }}
+      <div class="shithub-org-empty shithub-org-repositories-empty">
+        {{ if .HasActiveFilters }}
+        <h2>No repositories matched your search.</h2>
+        <p>Try another search term or a different filter.</p>
+        {{ else }}
+        <h2>{{ if .IsSelf }}You do not have any repositories yet.{{ else }}No repositories visible.{{ end }}</h2>
+        {{ if .CanCreateRepo }}<a href="{{ .NewRepoHref }}" class="shithub-button shithub-button-primary">Create a repository</a>{{ end }}
+        {{ end }}
+      </div>
+      {{ end }}
+
+      {{ if gt .PageCount 1 }}
+      <nav class="shithub-org-repositories-pagination" aria-label="Pagination">
+        {{ if .HasPrev }}<a href="{{ .PrevHref }}">Previous</a>{{ else }}<span class="is-disabled" aria-disabled="true">Previous</span>{{ end }}
+        {{ range .PaginationPages }}
+          {{ if .Current }}<span class="is-current" aria-current="page">{{ .Number }}</span>{{ else }}<a href="{{ .Href }}">{{ .Number }}</a>{{ end }}
+        {{ end }}
+        {{ if .HasNext }}<a href="{{ .NextHref }}">Next</a>{{ else }}<span class="is-disabled" aria-disabled="true">Next</span>{{ end }}
+      </nav>
+      {{ end }}
+    </main>
+  </div>
 </section>
 {{- end }}
