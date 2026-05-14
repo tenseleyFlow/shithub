@@ -10,7 +10,7 @@ entitlement matrix.
 - A verified Stripe account with payouts enabled to a bank account the
   operator controls.
 - A recurring per-seat Product/Price for Team organizations. The v1
-  price is `$4` USD per active organization member per month.
+  price is `$4` USD per licensed organization seat per month.
 - Optional recurring single-seat Product/Price for Pro accounts.
 - A billing support email that appears in public policy pages.
 - A documented refund/cancellation policy and privacy notice for Stripe
@@ -133,7 +133,9 @@ systemctl restart shithubd-web shithubd-worker
 
 If `config validate` fails, fix the named key before restarting. The
 web process mounts billing routes only when billing is configured; the
-worker uses the same Stripe credentials for seat quantity sync.
+worker records local seat usage. Stripe quantity changes are explicit
+licensed-seat operations; membership changes must not silently change
+the subscription quantity.
 
 ## Smoke test
 
@@ -148,9 +150,9 @@ worker uses the same Stripe credentials for seat quantity sync.
    - current plan: Team,
    - subscription: Active,
    - payment source: Stripe customer configured,
-   - a billable member count matching the org membership.
-8. Invite or remove a member and verify the worker updates the Stripe
-   subscription item quantity.
+   - licensed, used, and available seat counts.
+8. Invite or remove a member and verify the worker records local used
+   seat changes without changing the Stripe subscription quantity.
 9. If Pro is configured, visit `/settings/billing`, start checkout,
    complete it with a test card, and confirm the user plan becomes Pro
    after webhook processing.
@@ -280,19 +282,24 @@ seat counts.
       GROUP BY org_id
    )
    SELECT s.org_id, s.stripe_subscription_id, s.stripe_subscription_item_id,
-          s.billable_seats AS local_seats, COALESCE(c.seats, 0) AS actual_seats
+          s.licensed_seats,
+          s.used_seats AS local_used_seats,
+          COALESCE(c.seats, 0) AS actual_used_seats
      FROM org_billing_states s
      LEFT JOIN seat_counts c ON c.org_id = s.org_id
     WHERE s.plan = 'team'
-      AND s.stripe_subscription_item_id IS NOT NULL
-      AND s.billable_seats <> COALESCE(c.seats, 0);
+      AND (
+        s.used_seats <> COALESCE(c.seats, 0)
+        OR s.licensed_seats < s.used_seats
+      );
    ```
 
-2. Enqueue or run `org:billing_seat_sync` for the org. If the worker is
-   unavailable, update the Stripe subscription item quantity in Stripe
-   Dashboard to `actual_seats`.
-3. Re-run the worker when it is healthy so shithub records a new local
-   seat snapshot.
+2. Enqueue or run `org:billing_seat_sync` for the org to refresh local
+   used-seat state.
+3. If `licensed_seats < actual_used_seats`, do not silently change
+   Stripe from the worker. Have an owner add seats through the explicit
+   seat-management flow once SP16 is live, or perform an operator repair
+   that updates both Stripe quantity and local licensed-seat state.
 4. Audit manual repairs:
 
    ```sql

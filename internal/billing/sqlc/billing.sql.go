@@ -12,12 +12,20 @@ import (
 )
 
 const applySubscriptionSnapshot = `-- name: ApplySubscriptionSnapshot :one
-WITH state AS (
+WITH seat_counts AS (
+    SELECT count(*)::integer AS used_seats
+    FROM org_members
+    WHERE org_id = $1::bigint
+), state AS (
     INSERT INTO org_billing_states (
         org_id,
         provider,
         plan,
         subscription_status,
+        billable_seats,
+        licensed_seats,
+        used_seats,
+        seat_snapshot_at,
         stripe_subscription_id,
         stripe_subscription_item_id,
         current_period_start,
@@ -36,6 +44,16 @@ WITH state AS (
         'stripe',
         $2::org_plan,
         $3::billing_subscription_status,
+        CASE
+            WHEN $2::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            ELSE 0
+        END,
+        CASE
+            WHEN $2::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            ELSE 0
+        END,
+        (SELECT used_seats FROM seat_counts),
+        now(),
         $4::text,
         $5::text,
         $6::timestamptz,
@@ -55,6 +73,26 @@ WITH state AS (
     ON CONFLICT (org_id) DO UPDATE
        SET plan = EXCLUDED.plan,
            subscription_status = EXCLUDED.subscription_status,
+           billable_seats = CASE
+               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
+                   org_billing_states.billable_seats,
+                   org_billing_states.licensed_seats,
+                   EXCLUDED.used_seats,
+                   1
+               )
+               ELSE 0
+           END,
+           licensed_seats = CASE
+               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
+                   org_billing_states.licensed_seats,
+                   org_billing_states.billable_seats,
+                   EXCLUDED.used_seats,
+                   1
+               )
+               ELSE 0
+           END,
+           used_seats = EXCLUDED.used_seats,
+           seat_snapshot_at = EXCLUDED.seat_snapshot_at,
            stripe_subscription_id = EXCLUDED.stripe_subscription_id,
            stripe_subscription_item_id = EXCLUDED.stripe_subscription_item_id,
            current_period_start = EXCLUDED.current_period_start,
@@ -92,7 +130,7 @@ WITH state AS (
                ELSE org_billing_states.grace_until
            END,
            updated_at = now()
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 ), org_update AS (
     UPDATE orgs
        SET plan = $2::org_plan,
@@ -100,7 +138,7 @@ WITH state AS (
      WHERE id = $1::bigint
     RETURNING id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM state
 `
 
 type ApplySubscriptionSnapshotParams struct {
@@ -140,6 +178,8 @@ type ApplySubscriptionSnapshotRow struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+	LicensedSeats            int32
+	UsedSeats                int32
 }
 
 func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error) {
@@ -180,6 +220,8 @@ func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg Ap
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -369,7 +411,7 @@ WITH state AS (
            grace_until = NULL,
            updated_at = now()
      WHERE org_id = $1
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 ), org_update AS (
     UPDATE orgs
        SET plan = state.plan,
@@ -378,7 +420,7 @@ WITH state AS (
      WHERE orgs.id = state.org_id
     RETURNING orgs.id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM state
 `
 
 type ClearBillingLockRow struct {
@@ -404,6 +446,8 @@ type ClearBillingLockRow struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+	LicensedSeats            int32
+	UsedSeats                int32
 }
 
 func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (ClearBillingLockRow, error) {
@@ -432,6 +476,8 @@ func (q *Queries) ClearBillingLock(ctx context.Context, db DBTX, orgID int64) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -605,6 +651,9 @@ WITH snapshot AS (
         stripe_subscription_id,
         active_members,
         billable_seats,
+        licensed_seats,
+        used_seats,
+        available_seats,
         source
     )
     VALUES (
@@ -613,26 +662,31 @@ WITH snapshot AS (
         $2::text,
         $3::integer,
         $4::integer,
+        $4::integer,
+        $3::integer,
+        GREATEST($4::integer - $3::integer, 0),
         $5::text
     )
-    RETURNING id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at
+    RETURNING id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at, licensed_seats, used_seats, available_seats
 ), state AS (
-    INSERT INTO org_billing_states (org_id, billable_seats, seat_snapshot_at)
-    SELECT org_id, billable_seats, captured_at FROM snapshot
+    INSERT INTO org_billing_states (org_id, billable_seats, licensed_seats, used_seats, seat_snapshot_at)
+    SELECT org_id, licensed_seats, licensed_seats, used_seats, captured_at FROM snapshot
     ON CONFLICT (org_id) DO UPDATE
        SET billable_seats = EXCLUDED.billable_seats,
+           licensed_seats = EXCLUDED.licensed_seats,
+           used_seats = EXCLUDED.used_seats,
            seat_snapshot_at = EXCLUDED.seat_snapshot_at,
            updated_at = now()
     RETURNING org_id
 )
-SELECT id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at FROM snapshot
+SELECT id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at, licensed_seats, used_seats, available_seats FROM snapshot
 `
 
 type CreateSeatSnapshotParams struct {
 	OrgID                int64
 	StripeSubscriptionID pgtype.Text
-	ActiveMembers        int32
-	BillableSeats        int32
+	UsedSeats            int32
+	LicensedSeats        int32
 	Source               string
 }
 
@@ -645,6 +699,9 @@ type CreateSeatSnapshotRow struct {
 	BillableSeats        int32
 	Source               string
 	CapturedAt           pgtype.Timestamptz
+	LicensedSeats        int32
+	UsedSeats            int32
+	AvailableSeats       int32
 }
 
 // ─── billing_seat_snapshots ────────────────────────────────────────
@@ -652,8 +709,8 @@ func (q *Queries) CreateSeatSnapshot(ctx context.Context, db DBTX, arg CreateSea
 	row := db.QueryRow(ctx, createSeatSnapshot,
 		arg.OrgID,
 		arg.StripeSubscriptionID,
-		arg.ActiveMembers,
-		arg.BillableSeats,
+		arg.UsedSeats,
+		arg.LicensedSeats,
 		arg.Source,
 	)
 	var i CreateSeatSnapshotRow
@@ -666,6 +723,9 @@ func (q *Queries) CreateSeatSnapshot(ctx context.Context, db DBTX, arg CreateSea
 		&i.BillableSeats,
 		&i.Source,
 		&i.CapturedAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
+		&i.AvailableSeats,
 	)
 	return i, err
 }
@@ -745,7 +805,7 @@ func (q *Queries) DeleteOrgQuotaOverride(ctx context.Context, db DBTX, arg Delet
 const getOrgBillingState = `-- name: GetOrgBillingState :one
 
 
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states WHERE org_id = $1
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM org_billing_states WHERE org_id = $1
 `
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -776,12 +836,14 @@ func (q *Queries) GetOrgBillingState(ctx context.Context, db DBTX, orgID int64) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
 
 const getOrgBillingStateByStripeCustomer = `-- name: GetOrgBillingStateByStripeCustomer :one
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM org_billing_states
 WHERE provider = 'stripe'
   AND stripe_customer_id = $1
 `
@@ -812,12 +874,14 @@ func (q *Queries) GetOrgBillingStateByStripeCustomer(ctx context.Context, db DBT
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
 
 const getOrgBillingStateByStripeSubscription = `-- name: GetOrgBillingStateByStripeSubscription :one
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM org_billing_states
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM org_billing_states
 WHERE provider = 'stripe'
   AND stripe_subscription_id = $1
 `
@@ -848,6 +912,8 @@ func (q *Queries) GetOrgBillingStateByStripeSubscription(ctx context.Context, db
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -1374,7 +1440,7 @@ func (q *Queries) ListOrgUsageSnapshots(ctx context.Context, db DBTX, arg ListOr
 }
 
 const listSeatSnapshotsForOrg = `-- name: ListSeatSnapshotsForOrg :many
-SELECT id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at FROM billing_seat_snapshots
+SELECT id, org_id, provider, stripe_subscription_id, active_members, billable_seats, source, captured_at, licensed_seats, used_seats, available_seats FROM billing_seat_snapshots
 WHERE org_id = $1
 ORDER BY captured_at DESC, id DESC
 LIMIT $2
@@ -1403,6 +1469,9 @@ func (q *Queries) ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg List
 			&i.BillableSeats,
 			&i.Source,
 			&i.CapturedAt,
+			&i.LicensedSeats,
+			&i.UsedSeats,
+			&i.AvailableSeats,
 		); err != nil {
 			return nil, err
 		}
@@ -1427,7 +1496,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE org_id = $2::bigint
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 ), org_update AS (
     UPDATE orgs
        SET plan = 'free',
@@ -1435,7 +1504,7 @@ WITH state AS (
      WHERE id = $2::bigint
     RETURNING id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM state
 `
 
 type MarkCanceledParams struct {
@@ -1466,6 +1535,8 @@ type MarkCanceledRow struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+	LicensedSeats            int32
+	UsedSeats                int32
 }
 
 func (q *Queries) MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error) {
@@ -1494,6 +1565,8 @@ func (q *Queries) MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledPar
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -1558,7 +1631,7 @@ UPDATE org_billing_states
        last_webhook_event_id = $2::text,
        updated_at = now()
  WHERE org_id = $3::bigint
-RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 `
 
 type MarkPastDueParams struct {
@@ -1593,6 +1666,8 @@ func (q *Queries) MarkPastDue(ctx context.Context, db DBTX, arg MarkPastDueParam
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -1618,7 +1693,7 @@ WITH state AS (
            last_webhook_event_id = $1::text,
            updated_at = now()
      WHERE org_id = $2::bigint
-    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+    RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 ), org_update AS (
     UPDATE orgs
        SET plan = state.plan,
@@ -1627,7 +1702,7 @@ WITH state AS (
      WHERE orgs.id = state.org_id
     RETURNING orgs.id
 )
-SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at FROM state
+SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats FROM state
 `
 
 type MarkPaymentSucceededParams struct {
@@ -1658,6 +1733,8 @@ type MarkPaymentSucceededRow struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+	LicensedSeats            int32
+	UsedSeats                int32
 }
 
 func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPaymentSucceededParams) (MarkPaymentSucceededRow, error) {
@@ -1686,6 +1763,8 @@ func (q *Queries) MarkPaymentSucceeded(ctx context.Context, db DBTX, arg MarkPay
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }
@@ -2094,7 +2173,7 @@ ON CONFLICT (org_id) DO UPDATE
    SET stripe_customer_id = EXCLUDED.stripe_customer_id,
        provider = 'stripe',
        updated_at = now()
-RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at
+RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 `
 
 type SetStripeCustomerParams struct {
@@ -2128,6 +2207,8 @@ func (q *Queries) SetStripeCustomer(ctx context.Context, db DBTX, arg SetStripeC
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEventAt,
+		&i.LicensedSeats,
+		&i.UsedSeats,
 	)
 	return i, err
 }

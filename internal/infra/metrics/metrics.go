@@ -160,7 +160,7 @@ var (
 	BillingOrgSeatDrift = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "shithub_billing_org_seat_drift",
-			Help: "Team organizations whose stored billable seat count differs from current membership.",
+			Help: "Team organizations whose stored seat usage is stale or exceeds licensed capacity.",
 		},
 	)
 	BillingQuotaOverageOrgs = prometheus.NewGaugeVec(

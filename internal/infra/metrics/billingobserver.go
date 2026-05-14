@@ -99,8 +99,10 @@ FROM org_billing_states s
 LEFT JOIN seat_counts c ON c.org_id = s.org_id
 WHERE s.plan = 'team'
   AND s.subscription_status IN ('active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused')
-  AND s.stripe_subscription_item_id IS NOT NULL
-  AND s.billable_seats <> COALESCE(c.seats, 0)`).Scan(&drift); err != nil {
+  AND (
+    s.used_seats <> COALESCE(c.seats, 0)
+    OR s.licensed_seats < s.used_seats
+  )`).Scan(&drift); err != nil {
 		return
 	}
 	BillingOrgSeatDrift.Set(drift)

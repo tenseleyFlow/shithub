@@ -22,8 +22,12 @@ Copilot/AI promises from the paid-org offering.
 Initial decisions:
 
 - Free organizations remain self-serve.
-- Team is `$4` per active organization member per month.
-- Active organization members, including owners, count as paid seats.
+- Team is `$4` per licensed organization seat per month.
+- Active organization members, including owners, consume licensed
+  seats.
+- Team keeps purchased capacity (`licensed_seats`) separate from
+  current usage (`used_seats`) so owners can buy seats before inviting
+  members and can remove only unassigned seats.
 - Team has no launch trial.
 - Enterprise is a visible contact-sales stub, not self-serve.
 - Stripe Billing is the first payment processor.
@@ -70,7 +74,7 @@ Rules for paid-org copy:
 | --- | --- | --- | --- |
 | Public org repositories | Included | Included | Contact sales |
 | Basic private org repositories | Included | Included | Contact sales |
-| Org members and invitations | Included | Billed by active member | Contact sales |
+| Org members and invitations | Included | Billed by licensed seat | Contact sales |
 | Effective private org collaborators | Up to 3 | Unlimited while active/in grace | Contact sales |
 | Visible teams | Included | Included | Contact sales |
 | Secret teams | Upgrade | Included | Contact sales |
@@ -189,7 +193,7 @@ Required local concepts:
 
 - Stripe customer per billable organization.
 - Subscription state per organization.
-- Subscription item ID for seat quantity sync.
+- Subscription item ID for licensed-seat quantity sync.
 - Immutable webhook receipts with unique provider event IDs.
 - Invoice/payment summaries for UI.
 - Seat snapshots for auditability.
@@ -199,8 +203,8 @@ PAYMENTS SP02 adds these as local database tables:
 
 - `org_billing_states` stores the organization billing projection used
   by entitlement checks.
-- `billing_seat_snapshots` records active and billable seat counts over
-  time.
+- `billing_seat_snapshots` records legacy active/billable counts and
+  SP13's explicit licensed, used, and available seat counts over time.
 - `billing_invoices` stores invoice/payment summaries for billing UI.
 - `billing_webhook_events` stores immutable provider event receipts for
   idempotent webhook processing.
@@ -235,8 +239,9 @@ PAYMENTS SP04 adds the self-serve onboarding flow:
 - `/organizations/plan` is the canonical plan picker.
 - Free setup creates the organization locally without Stripe.
 - Team setup creates the organization, creates or reuses the Stripe
-  customer, counts billable seats, and redirects directly to hosted
-  Stripe Checkout.
+  customer, and redirects directly to hosted Stripe Checkout. Before
+  SP14, checkout quantity is still derived from current members; SP14
+  replaces that with an explicit licensed-seat picker.
 - Checkout success and cancel returns render shithub pages. Success
   tells the owner that activation waits for webhook processing; cancel
   keeps the organization on Free and offers a retry path.
@@ -273,10 +278,9 @@ PAYMENTS SP07 completes the first self-serve billing settings surface:
   source summary, recent Stripe-synced invoice snapshots, and actionable
   banners for past-due, grace-period, canceled, scheduled-cancel, and
   billing-action-needed states.
-- Seat accounting is shown as three separate values: current active
-  members, billable seats from the latest local billing state, and
-  pending invitations. Pending invitations are explicitly not billed
-  until accepted.
+- Seat accounting is shown as used seats, licensed seats, available
+  seats, and pending invitations. Pending invitations are explicitly not
+  billed until accepted.
 - Team organizations manage payment method, invoices, cancellation, and
   downgrade through Stripe Billing Portal. shithub never collects card
   data directly and downgrades continue to preserve paid configuration

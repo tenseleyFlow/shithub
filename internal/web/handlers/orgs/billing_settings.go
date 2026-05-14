@@ -42,8 +42,9 @@ type billingInvoiceView struct {
 }
 
 type billingSeatBreakdown struct {
-	ActiveMembers  int
-	BillableSeats  int64
+	UsedSeats      int
+	LicensedSeats  int64
+	AvailableSeats int64
 	PendingInvites int
 	SnapshotLabel  string
 }
@@ -151,7 +152,7 @@ func (h *Handlers) startBillingCheckout(r *http.Request, org orgsdb.Org) (string
 	}
 	seats, err := orgbilling.CountBillableOrgMembers(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
-		return "", fmt.Errorf("count billable seats: %w", err)
+		return "", fmt.Errorf("count current organization members: %w", err)
 	}
 	session, err := h.d.Stripe.CreateCheckoutSession(r.Context(), stripebilling.CheckoutInput{
 		OrgID:      org.ID,
@@ -338,10 +339,21 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
-	memberCount, err := orgbilling.CountBillableOrgMembers(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	licenseState, err := orgbilling.GetTeamLicenseState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
-		h.d.Logger.WarnContext(r.Context(), "org billing: count members", "org_id", org.ID, "error", err)
-		memberCount = int(state.BillableSeats)
+		h.d.Logger.WarnContext(r.Context(), "org billing: load seat license state", "org_id", org.ID, "error", err)
+		available := int(state.LicensedSeats) - int(state.UsedSeats)
+		if available < 0 {
+			available = 0
+		}
+		licenseState = orgbilling.TeamLicenseState{
+			OrgID:          org.ID,
+			Plan:           state.Plan,
+			LicensedSeats:  int(state.LicensedSeats),
+			UsedSeats:      int(state.UsedSeats),
+			AvailableSeats: available,
+			SeatSnapshotAt: state.SeatSnapshotAt,
+		}
 	}
 	pendingInviteCount, err := orgbilling.CountPendingOrgInvitations(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
@@ -374,8 +386,8 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 		"Error":                 errMsg,
 		"Notice":                notice,
 		"BillingAlert":          billingAlertForState(state, org.Slug),
-		"Summary":               billingSummary(state, memberCount),
-		"Seats":                 billingSeatBreakdown{ActiveMembers: memberCount, BillableSeats: int64(state.BillableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(state)},
+		"Summary":               billingSummary(state, licenseState),
+		"Seats":                 billingSeatBreakdown{UsedSeats: licenseState.UsedSeats, LicensedSeats: int64(licenseState.LicensedSeats), AvailableSeats: int64(licenseState.AvailableSeats), PendingInvites: pendingInviteCount, SnapshotLabel: billingSeatDetail(licenseState)},
 		"PrivateCollaboration":  privateCollab,
 		"Usage":                 usage,
 		"CanUseBillingControls": canManageBilling,
@@ -750,7 +762,7 @@ func billingQuotaOverrideForms(overrides []orgbilling.QuotaOverride) []billingQu
 	return forms
 }
 
-func billingSummary(state orgbilling.State, memberCount int) []billingSummaryItem {
+func billingSummary(state orgbilling.State, licenseState orgbilling.TeamLicenseState) []billingSummaryItem {
 	summary := []billingSummaryItem{
 		{
 			Label:  "Current plan",
@@ -763,9 +775,9 @@ func billingSummary(state orgbilling.State, memberCount int) []billingSummaryIte
 			Detail: billingStatusDetail(state),
 		},
 		{
-			Label:  "Billable members",
-			Value:  fmt.Sprintf("%d", memberCount),
-			Detail: billingSeatDetail(state),
+			Label:  "Licensed seats",
+			Value:  fmt.Sprintf("%d", licenseState.LicensedSeats),
+			Detail: billingSeatDetail(licenseState),
 		},
 		{
 			Label:  "Payment source",
@@ -836,12 +848,12 @@ func billingStatusDetail(state orgbilling.State) string {
 	return ""
 }
 
-func billingSeatDetail(state orgbilling.State) string {
+func billingSeatDetail(state orgbilling.TeamLicenseState) string {
 	if state.SeatSnapshotAt.Valid {
-		return fmt.Sprintf("Latest billed seat snapshot: %d captured %s", state.BillableSeats, state.SeatSnapshotAt.Time.Format("Jan 2, 2006"))
+		return fmt.Sprintf("Latest license snapshot: %d licensed, %d used captured %s", state.LicensedSeats, state.UsedSeats, state.SeatSnapshotAt.Time.Format("Jan 2, 2006"))
 	}
-	if state.BillableSeats > 0 {
-		return fmt.Sprintf("Latest billed seat snapshot: %d", state.BillableSeats)
+	if state.LicensedSeats > 0 || state.UsedSeats > 0 {
+		return fmt.Sprintf("Latest license snapshot: %d licensed, %d used", state.LicensedSeats, state.UsedSeats)
 	}
 	return "Seat sync has not recorded a snapshot yet."
 }
