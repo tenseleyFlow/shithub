@@ -340,6 +340,34 @@
   })();
 
   (function () {
+    // Fork modal — opens when any [data-fork-open] is clicked,
+    // closes on the dialog close button, on Escape, and on
+    // backdrop click. Markup lives in _fork_modal.html.
+    var modal = document.querySelector("[data-fork-modal]");
+    if (!modal) return;
+    var openers = document.querySelectorAll("[data-fork-open]");
+    var closers = modal.querySelectorAll("[data-fork-close]");
+    function open() {
+      modal.hidden = false;
+      document.body.classList.add("shithub-modal-open");
+      var nameInput = modal.querySelector('input[name="target_name"]');
+      if (nameInput) nameInput.focus();
+    }
+    function close() {
+      modal.hidden = true;
+      document.body.classList.remove("shithub-modal-open");
+    }
+    openers.forEach(function (b) { b.addEventListener("click", open); });
+    closers.forEach(function (b) { b.addEventListener("click", close); });
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !modal.hidden) close();
+    });
+  })();
+
+  (function () {
     document.querySelectorAll("[data-profile-activity]").forEach(function (root) {
       var button = root.querySelector("[data-profile-activity-show-more]");
       if (!button) return;

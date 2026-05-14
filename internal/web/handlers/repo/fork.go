@@ -74,10 +74,37 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
 		return
 	}
+
+	// Resolve fork target. The picker submits a single composite
+	// `target_owner` token ("user:42" or "org:7") matching the
+	// repo-create form pattern. Empty/missing token falls back to
+	// the viewer's own user account (back-compat for any caller
+	// that still POSTs without the picker).
+	targetKind := "user"
+	targetID := viewer.ID
+	if tok := strings.TrimSpace(r.PostFormValue("target_owner")); tok != "" {
+		kind, id, ok := parseOwnerToken(tok)
+		if !ok {
+			h.d.Render.HTTPError(w, r, http.StatusBadRequest, "invalid target owner")
+			return
+		}
+		targetKind, targetID = kind, id
+	}
+	// Authorize the target: viewer must own the user account or be
+	// in the org's allow-create set. Re-derive the candidate list
+	// here (don't trust the form) so a hand-crafted POST can't
+	// fork into an org the viewer isn't a member of.
+	targetOpt, ok := findForkTarget(h.ownerOptions(r), targetKind, targetID)
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+
 	res, err := fork.Create(r.Context(), h.forkDeps(), fork.CreateParams{
 		SourceRepoID:     source.ID,
 		ActorUserID:      viewer.ID,
-		TargetOwnerID:    viewer.ID, // self-fork only today; org targets land with S31
+		TargetOwnerKind:  targetKind,
+		TargetOwnerID:    targetID,
 		TargetName:       strings.TrimSpace(r.PostFormValue("target_name")),
 		TargetVisibility: strings.TrimSpace(r.PostFormValue("target_visibility")),
 	})
@@ -108,7 +135,21 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 	// Auto-watch the new fork at level=all so the user sees fork-side
 	// events (matches GitHub: the act of forking implies interest).
 	_ = social.AutoWatchOnCollab(r.Context(), h.socialDeps(), viewer.ID, res.Fork.ID)
-	http.Redirect(w, r, "/"+viewer.Username+"/"+res.Fork.Name, http.StatusSeeOther)
+	http.Redirect(w, r, "/"+targetOpt.Slug+"/"+res.Fork.Name, http.StatusSeeOther)
+}
+
+// findForkTarget locates the (kind, id) entry in the viewer's
+// allowed-owner list. The matching option carries the slug needed
+// for the post-create redirect URL. Forms can be hand-crafted, so
+// this is the authoritative gate — `ownerOptions(r)` rebuilds the
+// list per-request from the live membership state.
+func findForkTarget(opts []ownerOption, kind string, id int64) (ownerOption, bool) {
+	for _, o := range opts {
+		if o.Kind == kind && o.ID == id {
+			return o, true
+		}
+	}
+	return ownerOption{}, false
 }
 
 // repoForkRetry handles POST /{owner}/{repo}/fork/retry. The owner

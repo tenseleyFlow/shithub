@@ -1,0 +1,60 @@
+{{ define "fork-modal" -}}
+{{ with .RepoActions }}{{ if and .IsLoggedIn .ForkTargets }}
+<div class="shithub-fork-overlay" data-fork-modal hidden>
+  <div class="shithub-fork-dialog" role="dialog" aria-modal="true" aria-labelledby="fork-modal-title">
+    <div class="shithub-fork-head">
+      <h2 id="fork-modal-title">Create a new fork</h2>
+      <button type="button" class="shithub-icon-button shithub-fork-close" data-fork-close aria-label="Close">{{ octicon "x" }}</button>
+    </div>
+    <p class="shithub-fork-help">
+      A fork is a copy of <strong>{{ $.Owner }}/{{ $.Repo.Name }}</strong>.
+      You can edit the fork independently and propose changes back via pull requests.
+    </p>
+    <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/fork" class="shithub-fork-form">
+      <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+
+      <label class="shithub-fork-field">
+        <span class="shithub-fork-field-label">Owner</span>
+        <select name="target_owner" class="shithub-fork-select">
+          {{ range .ForkTargets }}
+          <option value="{{ .Token }}">{{ .Display }}{{ if ne .Display .Slug }} ({{ .Slug }}){{ end }}</option>
+          {{ end }}
+        </select>
+      </label>
+
+      <label class="shithub-fork-field">
+        <span class="shithub-fork-field-label">Repository name</span>
+        <input type="text" name="target_name" value="{{ $.Repo.Name }}" class="shithub-fork-input" autocomplete="off">
+      </label>
+
+      {{ if eq (printf "%s" $.Repo.Visibility) "public" }}
+      <label class="shithub-fork-field">
+        <span class="shithub-fork-field-label">Visibility</span>
+        <select name="target_visibility" class="shithub-fork-select">
+          <option value="public" selected>Public</option>
+          <option value="private">Private</option>
+        </select>
+      </label>
+      <p class="shithub-fork-note">
+        Private forks are visible only to you and collaborators you invite. You can change this later in settings.
+      </p>
+      {{ else }}
+      <input type="hidden" name="target_visibility" value="private">
+      <p class="shithub-fork-note">
+        Source is private, so your fork will also be private. shithub never widens visibility on fork.
+      </p>
+      {{ end }}
+
+      <p class="shithub-fork-note">
+        The default branch from the source will be the only branch in your new fork at first; you can sync more later.
+      </p>
+
+      <div class="shithub-fork-actions">
+        <button type="button" class="shithub-button" data-fork-close>Cancel</button>
+        <button type="submit" class="shithub-button shithub-button-primary">Create fork</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{ end }}{{ end }}
+{{- end }}

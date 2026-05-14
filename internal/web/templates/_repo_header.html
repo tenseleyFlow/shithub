@@ -35,14 +35,11 @@
           <a href="/{{ $root.Owner }}/{{ $root.Repo.Name }}/watchers" class="shithub-repo-action-popover-link">{{ $root.Repo.WatcherCount }} watcher{{ if ne $root.Repo.WatcherCount 1 }}s{{ end }}</a>
         </div>
       </details>
-      <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/fork" class="shithub-repo-action-form">
-        <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
-        <button type="submit" class="shithub-repo-action">
-          {{ octicon "repo-forked" }}
-          <span class="shithub-repo-action-label">Fork</span>
-          <span class="shithub-counter">{{ $root.Repo.ForkCount }}</span>
-        </button>
-      </form>
+      <button type="button" class="shithub-repo-action" data-fork-open>
+        {{ octicon "repo-forked" }}
+        <span class="shithub-repo-action-label">Fork</span>
+        <span class="shithub-counter">{{ $root.Repo.ForkCount }}</span>
+      </button>
       <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/{{ if .Starred }}unstar{{ else }}star{{ end }}" class="shithub-repo-action-form">
         <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
         <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
@@ -76,4 +73,5 @@
     </div>
   </div>
 </header>
+{{ template "fork-modal" . }}
 {{- end }}

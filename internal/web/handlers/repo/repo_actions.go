@@ -18,6 +18,11 @@ type repoActionView struct {
 	Starred      bool
 	WatchLevel   string
 	WatchOptions []repoWatchOptionView
+	// ForkTargets is the viewer's allowed-owner list for fork
+	// destinations: their own user + every org they can create
+	// repos in. Populated only when logged in. Drives the fork
+	// modal's picker.
+	ForkTargets []ownerOption
 }
 
 type repoWatchOptionView struct {
@@ -60,6 +65,7 @@ func (h *Handlers) repoActions(r *http.Request, repoID int64) repoActionView {
 	}
 	out.WatchLevel = string(level)
 	out.WatchOptions = repoWatchOptions(level)
+	out.ForkTargets = h.ownerOptions(r)
 	return out
 }
 
