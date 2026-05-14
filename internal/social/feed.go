@@ -145,11 +145,17 @@ func PublicFeed(ctx context.Context, deps Deps, cursor FeedCursor, limit int32) 
 }
 
 func DashboardRepos(ctx context.Context, deps Deps, viewerUserID int64, limit int32) ([]DashboardRepo, error) {
-	if limit <= 0 || limit > 50 {
+	return SearchDashboardRepos(ctx, deps, viewerUserID, "", limit)
+}
+
+func SearchDashboardRepos(ctx context.Context, deps Deps, viewerUserID int64, query string, limit int32) ([]DashboardRepo, error) {
+	query = strings.TrimSpace(query)
+	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	rows, err := socialdb.New().ListDashboardReposForUser(ctx, deps.Pool, socialdb.ListDashboardReposForUserParams{
 		ViewerUserID: viewerUserID,
+		SearchQuery:  query,
 		LimitCount:   limit,
 	})
 	if err != nil {

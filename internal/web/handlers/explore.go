@@ -18,6 +18,7 @@ import (
 )
 
 const feedDisplayLimit int32 = 20
+const dashboardRepoSearchLimit int32 = 50
 
 type exploreHandler struct {
 	render *render.Renderer
@@ -31,6 +32,37 @@ func (h exploreHandler) ServeExplore(w http.ResponseWriter, r *http.Request) {
 
 func (h exploreHandler) ServeTrending(w http.ResponseWriter, r *http.Request) {
 	h.serve(w, r, "Trending", "/trending", "trending")
+}
+
+func (h exploreHandler) ServeDashboardRepositories(w http.ResponseWriter, r *http.Request) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.ID == 0 {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	var repos []social.DashboardRepo
+	if h.pool != nil {
+		var err error
+		repos, err = social.SearchDashboardRepos(r.Context(), social.Deps{Pool: h.pool, Logger: h.logger}, viewer.ID, query, dashboardRepoSearchLimit)
+		if err != nil {
+			if h.logger != nil {
+				h.logger.WarnContext(r.Context(), "explore dashboard repo search", "error", err)
+			}
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+	data := map[string]any{
+		"TopRepos":           repos,
+		"DashboardRepoQuery": query,
+	}
+	if err := h.render.RenderFragment(w, "explore/dashboard_repositories", data); err != nil {
+		if h.logger != nil {
+			h.logger.ErrorContext(r.Context(), "render explore dashboard repo search", "error", err)
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (h exploreHandler) serve(w http.ResponseWriter, r *http.Request, title, path, activeTab string) {

@@ -5,6 +5,7 @@ package social_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -117,6 +118,61 @@ func TestStar_IncrementsCount_AndIsIdempotent(t *testing.T) {
 	}
 	if got := repoStarCount(t, pool, repoID); got != 1 {
 		t.Errorf("after re-star: got %d, want 1 (idempotent)", got)
+	}
+}
+
+func TestDashboardReposSearchesBeyondInitialLimit(t *testing.T) {
+	pool, deps, uid, _ := setup(t)
+	ctx := context.Background()
+	orgID := mustCreateOrg(t, pool, "fortrangoingonforty", uid)
+	if err := orgsdb.New().AddOrgMember(ctx, pool, orgsdb.AddOrgMemberParams{
+		OrgID:  orgID,
+		UserID: uid,
+		Role:   orgsdb.OrgRoleOwner,
+	}); err != nil {
+		t.Fatalf("AddOrgMember: %v", err)
+	}
+	target, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: orgID, Valid: true},
+		Name:          "ferp",
+		Description:   "Fortran expression parser",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo target: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE repos SET updated_at = now() - interval '90 days' WHERE id = $1`, target.ID); err != nil {
+		t.Fatalf("age target repo: %v", err)
+	}
+	for i := 0; i < 35; i++ {
+		_, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+			OwnerUserID:   pgtype.Int8{Int64: uid, Valid: true},
+			Name:          fmt.Sprintf("recent-%02d", i),
+			DefaultBranch: "trunk",
+			Visibility:    reposdb.RepoVisibilityPublic,
+		})
+		if err != nil {
+			t.Fatalf("CreateRepo filler %d: %v", i, err)
+		}
+	}
+
+	initial, err := social.DashboardRepos(ctx, deps, uid, 10)
+	if err != nil {
+		t.Fatalf("DashboardRepos: %v", err)
+	}
+	for _, repo := range initial {
+		if repo.Owner == "fortrangoingonforty" && repo.Name == "ferp" {
+			t.Fatalf("unfiltered dashboard repos included aged target; test setup no longer exercises capped search")
+		}
+	}
+
+	matches, err := social.SearchDashboardRepos(ctx, deps, uid, "for", 10)
+	if err != nil {
+		t.Fatalf("SearchDashboardRepos: %v", err)
+	}
+	if len(matches) == 0 || matches[0].Owner != "fortrangoingonforty" || matches[0].Name != "ferp" {
+		t.Fatalf("SearchDashboardRepos(for) first = %+v, want fortrangoingonforty/ferp", matches)
 	}
 }
 

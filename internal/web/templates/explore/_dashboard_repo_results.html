@@ -1,0 +1,15 @@
+{{ define "dashboard-repo-results" -}}
+{{ if .TopRepos }}
+<ol class="shithub-dashboard-repo-list" data-dashboard-repo-list>
+  {{ range .TopRepos }}
+  <li data-dashboard-repo-row data-repo-name="{{ .Owner }}/{{ .Name }}">
+    <a href="/{{ .Owner }}/{{ .Name }}"><img src="/avatars/{{ .Owner }}" alt="" width="18" height="18"> {{ .Owner }}/{{ .Name }}</a>
+  </li>
+  {{ end }}
+</ol>
+{{ else }}
+<p class="shithub-dashboard-empty" data-dashboard-repo-empty>
+  {{ if .DashboardRepoQuery }}No repositories match "{{ .DashboardRepoQuery }}".{{ else }}No repositories yet.{{ end }}
+</p>
+{{ end }}
+{{- end }}

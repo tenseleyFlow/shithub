@@ -52,6 +52,14 @@ fallbacks; HTMX requests return only the next feed rows plus a replacement
 `More` control, so the browser appends activity in place like GitHub's
 dashboard feed.
 
+The signed-in Explore sidebar renders a small recency-ranked Top
+repositories slice on first load. Its search box is server-backed through
+`/explore/repositories?q=...`: typed queries search all non-deleted
+repositories owned by the viewer or by organizations where the viewer is a
+member, then return the same sidebar-row fragment. This avoids making the
+browser filter a truncated first-page list, which would hide older org repos
+that still match the typed owner/name.
+
 ## Event Kinds
 
 Current feed sources include:

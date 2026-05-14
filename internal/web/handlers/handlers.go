@@ -296,8 +296,13 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		marketing := marketingHandler{render: rr, baseURL: deps.BaseURL, logger: deps.Logger}
 		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, baseURL: deps.BaseURL, logger: deps.Logger}.ServeHTTP)
 		r.Get("/about", marketing.serveAbout)
-		r.Get("/explore", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeExplore)
-		r.Get("/trending", exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}.ServeTrending)
+		exploreH := exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}
+		r.Get("/explore", exploreH.ServeExplore)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireUser)
+			r.Get("/explore/repositories", exploreH.ServeDashboardRepositories)
+		})
+		r.Get("/trending", exploreH.ServeTrending)
 		globalNavH := globalNavHandler{render: rr, logger: deps.Logger, pool: deps.Pool}
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireUser)

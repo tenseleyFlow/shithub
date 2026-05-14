@@ -135,19 +135,62 @@
 
   (function () {
     var input = document.querySelector("[data-dashboard-repo-filter]");
-    var rows = Array.prototype.slice.call(document.querySelectorAll("[data-dashboard-repo-row]"));
-    if (!input || rows.length === 0) return;
+    var results = document.querySelector("[data-dashboard-repo-results]");
+    if (!input || !results) return;
+    var initialHTML = results.innerHTML;
+    var endpoint = results.getAttribute("data-dashboard-repo-results-url") || "";
+    var timer = 0;
+    var controller = null;
 
-    function applyFilter() {
-      var query = input.value.trim().toLowerCase();
+    function applyLocalFilter(query) {
+      var rows = Array.prototype.slice.call(results.querySelectorAll("[data-dashboard-repo-row]"));
+      var lower = query.toLowerCase();
       rows.forEach(function (row) {
         var name = (row.getAttribute("data-repo-name") || "").toLowerCase();
-        row.hidden = query !== "" && name.indexOf(query) === -1;
+        row.hidden = lower !== "" && name.indexOf(lower) === -1;
       });
     }
 
-    input.addEventListener("input", applyFilter);
-    applyFilter();
+    function loadResults(query) {
+      if (controller) {
+        controller.abort();
+        controller = null;
+      }
+      if (query === "") {
+        results.innerHTML = initialHTML;
+        return;
+      }
+      if (!endpoint || !window.fetch) {
+        applyLocalFilter(query);
+        return;
+      }
+      if (window.AbortController) {
+        controller = new AbortController();
+      }
+      results.setAttribute("aria-busy", "true");
+      fetch(endpoint + "?q=" + encodeURIComponent(query), {
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+        signal: controller ? controller.signal : undefined
+      }).then(function (response) {
+        if (!response.ok) throw new Error("dashboard repo search failed");
+        return response.text();
+      }).then(function (html) {
+        results.innerHTML = html;
+      }).catch(function (error) {
+        if (error && error.name === "AbortError") return;
+        applyLocalFilter(query);
+      }).finally(function () {
+        results.removeAttribute("aria-busy");
+      });
+    }
+
+    input.addEventListener("input", function () {
+      var query = input.value.trim();
+      window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        loadResults(query);
+      }, 150);
+    });
   })();
 
   (function () {

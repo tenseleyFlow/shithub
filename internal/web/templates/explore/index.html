@@ -46,17 +46,9 @@
       </div>
       <label class="sr-only" for="dashboard-repo-filter">Find a repository</label>
       <input id="dashboard-repo-filter" class="shithub-dashboard-filter" type="search" placeholder="Find a repository..." autocomplete="off" data-dashboard-repo-filter>
-      {{ if .TopRepos }}
-      <ol class="shithub-dashboard-repo-list" data-dashboard-repo-list>
-        {{ range .TopRepos }}
-        <li data-dashboard-repo-row data-repo-name="{{ .Owner }}/{{ .Name }}">
-          <a href="/{{ .Owner }}/{{ .Name }}"><img src="/avatars/{{ .Owner }}" alt="" width="18" height="18"> {{ .Owner }}/{{ .Name }}</a>
-        </li>
-        {{ end }}
-      </ol>
-      {{ else }}
-      <p class="shithub-dashboard-empty">No repositories yet.</p>
-      {{ end }}
+      <div data-dashboard-repo-results data-dashboard-repo-results-url="/explore/repositories">
+        {{ template "dashboard-repo-results" . }}
+      </div>
     </aside>
     {{ end }}
 
