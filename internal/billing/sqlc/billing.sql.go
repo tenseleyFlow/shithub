@@ -1075,6 +1075,34 @@ func (q *Queries) IsUserBillingEventStale(ctx context.Context, db DBTX, arg IsUs
 	return stale, err
 }
 
+const listActiveOrgIDsForUsageRecalc = `-- name: ListActiveOrgIDsForUsageRecalc :many
+SELECT id
+FROM orgs
+WHERE deleted_at IS NULL
+ORDER BY id ASC
+LIMIT $1::integer
+`
+
+func (q *Queries) ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error) {
+	rows, err := db.Query(ctx, listActiveOrgIDsForUsageRecalc, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFailedWebhookEvents = `-- name: ListFailedWebhookEvents :many
 SELECT id, provider, provider_event_id, event_type, api_version,
        received_at, processed_at, processing_attempts, process_error,
@@ -1133,34 +1161,6 @@ func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit in
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listActiveOrgIDsForUsageRecalc = `-- name: ListActiveOrgIDsForUsageRecalc :many
-SELECT id
-FROM orgs
-WHERE deleted_at IS NULL
-ORDER BY id ASC
-LIMIT $1::integer
-`
-
-func (q *Queries) ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error) {
-	rows, err := db.Query(ctx, listActiveOrgIDsForUsageRecalc, lim)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []int64{}
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

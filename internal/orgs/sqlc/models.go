@@ -1699,6 +1699,49 @@ func (ns NullWebhookOwnerKind) Value() (driver.Value, error) {
 	return string(ns.WebhookOwnerKind), nil
 }
 
+type WorkflowAnnotationLevel string
+
+const (
+	WorkflowAnnotationLevelNotice  WorkflowAnnotationLevel = "notice"
+	WorkflowAnnotationLevelWarning WorkflowAnnotationLevel = "warning"
+	WorkflowAnnotationLevelError   WorkflowAnnotationLevel = "error"
+)
+
+func (e *WorkflowAnnotationLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkflowAnnotationLevel(s)
+	case string:
+		*e = WorkflowAnnotationLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkflowAnnotationLevel: %T", src)
+	}
+	return nil
+}
+
+type NullWorkflowAnnotationLevel struct {
+	WorkflowAnnotationLevel WorkflowAnnotationLevel
+	Valid                   bool // Valid is true if WorkflowAnnotationLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkflowAnnotationLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkflowAnnotationLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkflowAnnotationLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkflowAnnotationLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkflowAnnotationLevel), nil
+}
+
 type WorkflowJobStatus string
 
 const (
@@ -2997,6 +3040,25 @@ type WebhookEventsPending struct {
 	EventKind string
 	Payload   []byte
 	CreatedAt pgtype.Timestamptz
+}
+
+type WorkflowAnnotation struct {
+	ID          int64
+	RunID       int64
+	JobID       int64
+	StepID      int64
+	Level       WorkflowAnnotationLevel
+	Title       string
+	Message     string
+	Path        string
+	StartLine   pgtype.Int4
+	EndLine     pgtype.Int4
+	StartColumn pgtype.Int4
+	EndColumn   pgtype.Int4
+	LogLine     pgtype.Int4
+	LogChunkSeq pgtype.Int4
+	Fingerprint string
+	CreatedAt   pgtype.Timestamptz
 }
 
 type WorkflowArtifact struct {

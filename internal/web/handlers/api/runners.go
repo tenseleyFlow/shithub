@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	actionsannotations "github.com/tenseleyFlow/shithub/internal/actions/annotations"
 	actionsevents "github.com/tenseleyFlow/shithub/internal/actions/events"
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	actionslifecycle "github.com/tenseleyFlow/shithub/internal/actions/lifecycle"
@@ -464,7 +465,7 @@ func (h *Handlers) runnerJobLogs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.appendScrubbedLogChunk(r.Context(), stepID, body.Seq, chunk, values); err != nil {
+	if err := h.appendScrubbedLogChunk(r.Context(), auth.Job.RunID, auth.Job.ID, stepID, body.Seq, chunk, values); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "append log failed")
 		return
 	}
@@ -1286,7 +1287,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq int32, chunk []byte, values []string) error {
+func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, runID, jobID, stepID int64, seq int32, chunk []byte, values []string) error {
 	q := actionsdb.New()
 	acceptedChunkBytes := len(chunk)
 	if len(values) == 0 {
@@ -1299,6 +1300,9 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := h.storeLogAnnotations(ctx, h.d.Pool, runID, jobID, stepID, seq, chunk, values); err != nil {
 			return err
 		}
 		metrics.ActionsLogChunksTotal.WithLabelValues("server").Inc()
@@ -1365,6 +1369,9 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 	switch {
 	case err == nil:
 		accepted = true
+		if err := h.storeLogAnnotations(ctx, tx, runID, jobID, stepID, seq, chunk, values); err != nil {
+			return err
+		}
 		if err := logstream.NotifyChunk(ctx, tx, stepID, row.Seq); err != nil {
 			return err
 		}
@@ -1384,6 +1391,53 @@ func (h *Handlers) appendScrubbedLogChunk(ctx context.Context, stepID int64, seq
 		metrics.ActionsLogChunkBytesTotal.WithLabelValues("server").Add(float64(acceptedChunkBytes))
 	}
 	return nil
+}
+
+func (h *Handlers) storeLogAnnotations(ctx context.Context, db actionsdb.DBTX, runID, jobID, stepID int64, seq int32, chunk []byte, values []string) error {
+	parsed := actionsannotations.ParseChunk(chunk, seq, values)
+	if len(parsed) == 0 {
+		return nil
+	}
+	q := actionsdb.New()
+	for _, ann := range parsed {
+		if _, err := q.UpsertWorkflowAnnotation(ctx, db, actionsdb.UpsertWorkflowAnnotationParams{
+			RunID:       runID,
+			JobID:       jobID,
+			StepID:      stepID,
+			Level:       workflowAnnotationLevel(ann.Level),
+			Title:       ann.Title,
+			Message:     ann.Message,
+			Path:        ann.Path,
+			StartLine:   annotationInt4(ann.StartLine),
+			EndLine:     annotationInt4(ann.EndLine),
+			StartColumn: annotationInt4(ann.StartColumn),
+			EndColumn:   annotationInt4(ann.EndColumn),
+			LogLine:     annotationInt4(ann.LogLine),
+			LogChunkSeq: annotationInt4(ann.LogChunkSeq),
+			Fingerprint: ann.Fingerprint,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func workflowAnnotationLevel(level string) actionsdb.WorkflowAnnotationLevel {
+	switch level {
+	case actionsannotations.LevelError:
+		return actionsdb.WorkflowAnnotationLevelError
+	case actionsannotations.LevelNotice:
+		return actionsdb.WorkflowAnnotationLevelNotice
+	default:
+		return actionsdb.WorkflowAnnotationLevelWarning
+	}
+}
+
+func annotationInt4(value int32) pgtype.Int4 {
+	if value <= 0 {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: value, Valid: true}
 }
 
 func scrubChunk(chunk []byte, values []string) ([]byte, uint64) {

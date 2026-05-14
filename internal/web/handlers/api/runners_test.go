@@ -556,6 +556,12 @@ func TestRunnerSecretsAreClaimedAndServerScrubsLogs(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("logs status: got %d, want 202; body=%s", rr.Code, rr.Body.String())
 	}
+	var logResp struct {
+		NextToken string `json:"next_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &logResp); err != nil {
+		t.Fatalf("decode log response: %v", err)
+	}
 	step, err := actionsdb.New().GetFirstStepForJob(ctx, pool, claim.Job.ID)
 	if err != nil {
 		t.Fatalf("GetFirstStepForJob: %v", err)
@@ -574,6 +580,27 @@ func TestRunnerSecretsAreClaimedAndServerScrubsLogs(t *testing.T) {
 	got := string(chunks[0].Chunk)
 	if strings.Contains(got, "hunter2") || got != "before *** after\n" {
 		t.Fatalf("stored log chunk was not scrubbed: %q", got)
+	}
+
+	postRunnerLogChunk(t, router, claim.Job.ID, logResp.NextToken, 1, []byte("::warning file=cmd/main.go,line=9,title=hunter2::message hunter2\n"))
+	annotations, err := actionsdb.New().ListWorkflowAnnotationsForStep(ctx, pool, step.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowAnnotationsForStep: %v", err)
+	}
+	if len(annotations) != 1 {
+		t.Fatalf("annotations=%#v", annotations)
+	}
+	ann := annotations[0]
+	if ann.Level != actionsdb.WorkflowAnnotationLevelWarning ||
+		ann.Title != "***" ||
+		ann.Message != "message ***" ||
+		ann.Path != "cmd/main.go" ||
+		!ann.StartLine.Valid ||
+		ann.StartLine.Int32 != 9 {
+		t.Fatalf("annotation was not parsed and scrubbed: %#v", ann)
+	}
+	if strings.Contains(ann.Title, "hunter2") || strings.Contains(ann.Message, "hunter2") {
+		t.Fatalf("annotation leaked secret: %#v", ann)
 	}
 }
 
