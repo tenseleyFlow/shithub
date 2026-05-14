@@ -247,6 +247,11 @@
     var checkboxes = Array.prototype.slice.call(modal.querySelectorAll("[data-pins-checkbox]"));
     var remaining = modal.querySelector("[data-pins-remaining]");
     var submit = modal.querySelector("[data-pins-submit]");
+    // Cap is per-subject (user-Pro=100, user-Free / org=6). Server
+    // enforces the same value; this is just the client-side hint
+    // that keeps the Save button disabled past the cap.
+    var maxPins = Number(modal.getAttribute("data-pins-max") || "6");
+    if (!Number.isFinite(maxPins) || maxPins < 1) maxPins = 6;
 
     rows.forEach(function (row, index) {
       row.setAttribute("data-pins-index", String(index));
@@ -280,14 +285,14 @@
 
     function refreshPins() {
       var count = checkedCount();
-      var left = Math.max(0, 6 - count);
+      var left = Math.max(0, maxPins - count);
       if (remaining) {
         remaining.textContent = String(left);
         remaining.parentElement.classList.toggle("is-full", left === 0);
       }
-      if (submit) submit.disabled = count > 6;
+      if (submit) submit.disabled = count > maxPins;
       checkboxes.forEach(function (box) {
-        box.disabled = !box.checked && count >= 6;
+        box.disabled = !box.checked && count >= maxPins;
       });
     }
 

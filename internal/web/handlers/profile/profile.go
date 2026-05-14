@@ -215,6 +215,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"PinnedRepos":                pinnedRepos,
 		"PinCandidates":              pinCandidates,
 		"PinsRemaining":              profilePinsRemaining(pinCandidates, userPinsCap),
+		"MaxPins":                    userPinsCap,
 		"CanCustomizePins":           isSelf,
 		"PinsAction":                 "/" + url.PathEscape(user.Username) + "/pins",
 		"ContributionSettingsAction": "/" + url.PathEscape(user.Username) + "/contribution-settings",

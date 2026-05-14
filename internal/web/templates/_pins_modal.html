@@ -1,12 +1,12 @@
 {{ define "pins-modal" -}}
 {{ if .CanCustomizePins }}
-<div class="shithub-pins-overlay" data-pins-modal hidden>
+<div class="shithub-pins-overlay" data-pins-modal data-pins-max="{{ .MaxPins }}" hidden>
   <div class="shithub-pins-dialog" role="dialog" aria-modal="true" aria-labelledby="pins-modal-title">
     <div class="shithub-pins-head">
       <h2 id="pins-modal-title">Edit pinned repositories</h2>
       <button type="button" class="shithub-icon-button shithub-pins-close" data-pins-close aria-label="Close">{{ octicon "x" }}</button>
     </div>
-    <p class="shithub-pins-help">Select up to six public repositories you'd like to show to anyone.</p>
+    <p class="shithub-pins-help">Select up to {{ .MaxPins }} public repositories you'd like to show to anyone.</p>
     <form method="post" action="{{ .PinsAction }}" data-pins-form>
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
       <label class="shithub-pins-filter">
