@@ -33,6 +33,8 @@ const (
 	actionsStepLogRenderLimit = 1 << 20
 )
 
+var errActionsLogStorageUnavailable = errors.New("actions archived log storage unavailable")
+
 type actionsWorkflowView struct {
 	File   string
 	Name   string
@@ -162,9 +164,13 @@ type actionsRunDetailView struct {
 	JobCount         int
 	CompletedCount   int
 	FailureCount     int
+	AnnotationCount  int
+	WarningCount     int
+	ErrorCount       int
 	Jobs             []actionsJobDetailView
 	Stages           []actionsJobStageView
 	Graph            actionsRunGraphView
+	AnnotationGroups []actionsAnnotationGroupView
 }
 
 type actionsJobDetailView struct {
@@ -260,16 +266,42 @@ type actionsRunGraphEdgeView struct {
 	Path string `json:"path"`
 }
 
+type actionsAnnotationGroupView struct {
+	JobID       int64
+	JobName     string
+	JobAnchor   string
+	Count       int
+	Annotations []actionsAnnotationView
+}
+
+type actionsAnnotationView struct {
+	ID         int64
+	Level      string
+	LevelLabel string
+	StateClass string
+	Icon       string
+	Title      string
+	Message    string
+	Path       string
+	Location   string
+	StepName   string
+	StepHref   string
+	SourceHref string
+}
+
 type actionsStepLogView struct {
 	Run          actionsRunDetailView
 	Job          actionsJobDetailView
 	Step         actionsStepDetailView
+	Annotations  []actionsAnnotationView
+	WarningCount int
+	ErrorCount   int
 	LogText      string
 	LogSource    string
 	LogError     string
 	LogTruncated bool
 	StreamHref   string
-	DownloadURL  string
+	DownloadHref string
 	BackHref     string
 }
 
@@ -1200,19 +1232,30 @@ func (h *Handlers) repoActionStepLog(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	annotations, warningCount, errorCount, err := h.loadStepAnnotations(r.Context(), step.ID, owner.Username, row.Name, run, step)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: load step annotations", "step_id", step.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
 
 	view := actionsStepLogView{
 		Run:          run,
 		Job:          job,
 		Step:         step,
+		Annotations:  annotations,
+		WarningCount: warningCount,
+		ErrorCount:   errorCount,
 		LogText:      logContent.Text,
 		LogSource:    logContent.Source,
 		LogError:     logContent.Error,
 		LogTruncated: logContent.Truncated,
-		DownloadURL:  logContent.DownloadURL,
 		BackHref:     run.ActionsHref + "/runs/" + strconv.FormatInt(run.RunIndex, 10) + "#job-" + strconv.FormatInt(int64(job.JobIndex), 10),
 	}
-	if !step.IsTerminal && logContent.Error == "" && logContent.DownloadURL == "" {
+	if logContent.HasLog && logContent.Error == "" {
+		view.DownloadHref = step.LogHref + "/log/download"
+	}
+	if !step.IsTerminal && logContent.Error == "" && logContent.CanStream {
 		view.StreamHref = step.LogHref + "/log/stream?after=" + strconv.FormatInt(int64(logContent.LastSeq), 10)
 	}
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
@@ -1220,6 +1263,57 @@ func (h *Handlers) repoActionStepLog(w http.ResponseWriter, r *http.Request) {
 	data["Log"] = view
 	if err := h.d.Render.RenderPage(w, r, "repo/action_step_log", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo action step log render", "run_index", runIndex, "job_index", jobIndex, "step_index", stepIndex, "error", err)
+	}
+}
+
+func (h *Handlers) repoActionStepLogDownload(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
+	if !ok {
+		return
+	}
+	runIndex, ok := parsePositiveInt64Param(r, "runIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	jobIndex, ok := parseNonNegativeInt32Param(r, "jobIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	stepIndex, ok := parseNonNegativeInt32Param(r, "stepIndex")
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	run, err := h.loadActionsRunDetail(r.Context(), row.ID, owner.Username, row.Name, runIndex)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		} else {
+			h.d.Logger.WarnContext(r.Context(), "repo actions: get run for log download", "repo_id", row.ID, "run_index", runIndex, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		}
+		return
+	}
+	job, step, ok := findActionStep(run, jobIndex, stepIndex)
+	if !ok {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	filename := actionsStepLogFilename(run.RunIndex, job.JobIndex, step.StepIndex)
+	if err := h.writeStepLogDownload(r.Context(), w, step.ID, filename); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+			return
+		}
+		if errors.Is(err, errActionsLogStorageUnavailable) {
+			h.d.Render.HTTPError(w, r, http.StatusServiceUnavailable, "")
+			return
+		}
+		h.d.Logger.WarnContext(r.Context(), "repo actions: stream log download", "step_id", step.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
 	}
 }
 
@@ -1322,6 +1416,11 @@ func (h *Handlers) loadActionsRunDetail(ctx context.Context, repoID int64, owner
 	}
 	view.Stages = actionsJobStages(view.Jobs)
 	view.Graph = actionsRunGraph(view.Jobs)
+	annotations, err := q.ListWorkflowAnnotationsForRun(ctx, h.d.Pool, run.ID)
+	if err != nil {
+		return actionsRunDetailView{}, err
+	}
+	view.AnnotationGroups, view.AnnotationCount, view.WarningCount, view.ErrorCount = actionsAnnotationGroups(annotations, owner, repoName, run.RunIndex, codeTarget(run.HeadRef, run.HeadSha))
 	return view, nil
 }
 
@@ -1715,13 +1814,165 @@ func findActionStep(run actionsRunDetailView, jobIndex, stepIndex int32) (action
 	return actionsJobDetailView{}, actionsStepDetailView{}, false
 }
 
+func actionsAnnotationGroups(rows []actionsdb.ListWorkflowAnnotationsForRunRow, owner, repoName string, runIndex int64, sourceTarget string) ([]actionsAnnotationGroupView, int, int, int) {
+	groups := make([]actionsAnnotationGroupView, 0)
+	count, warnings, errorsCount := 0, 0, 0
+	for _, row := range rows {
+		if len(groups) == 0 || groups[len(groups)-1].JobID != row.JobID {
+			name := strings.TrimSpace(row.JobName)
+			if name == "" {
+				name = row.JobKey
+			}
+			groups = append(groups, actionsAnnotationGroupView{
+				JobID:     row.JobID,
+				JobName:   name,
+				JobAnchor: "job-" + strconv.FormatInt(int64(row.JobIndex), 10),
+			})
+		}
+		view := actionsAnnotationViewFromRunRow(row, owner, repoName, runIndex, sourceTarget)
+		count++
+		switch view.Level {
+		case string(actionsdb.WorkflowAnnotationLevelError):
+			errorsCount++
+		case string(actionsdb.WorkflowAnnotationLevelWarning):
+			warnings++
+		}
+		last := &groups[len(groups)-1]
+		last.Count++
+		last.Annotations = append(last.Annotations, view)
+	}
+	return groups, count, warnings, errorsCount
+}
+
+func actionsAnnotationViewFromRunRow(row actionsdb.ListWorkflowAnnotationsForRunRow, owner, repoName string, runIndex int64, sourceTarget string) actionsAnnotationView {
+	stepName := actionsAnnotationStepName(row.StepName, row.RunCommand, row.UsesAlias, row.StepIndex)
+	stepHref := "/" + owner + "/" + repoName + "/actions/runs/" + strconv.FormatInt(runIndex, 10) +
+		"/jobs/" + strconv.FormatInt(int64(row.JobIndex), 10) +
+		"/steps/" + strconv.FormatInt(int64(row.StepIndex), 10)
+	view := actionsAnnotationView{
+		ID:         row.ID,
+		Level:      string(row.Level),
+		Title:      row.Title,
+		Message:    row.Message,
+		Path:       row.Path,
+		StepName:   stepName,
+		StepHref:   stepHref,
+		Location:   actionsAnnotationLocation(row.Path, row.StartLine, row.StartColumn),
+		SourceHref: actionsAnnotationSourceHref(owner, repoName, sourceTarget, row.Path, row.StartLine),
+	}
+	view.LevelLabel, view.StateClass, view.Icon = actionsAnnotationPresentation(view.Level)
+	return view
+}
+
+func actionsAnnotationViewFromStepRow(row actionsdb.WorkflowAnnotation, owner, repoName, sourceTarget string, step actionsStepDetailView) actionsAnnotationView {
+	view := actionsAnnotationView{
+		ID:         row.ID,
+		Level:      string(row.Level),
+		Title:      row.Title,
+		Message:    row.Message,
+		Path:       row.Path,
+		StepName:   step.Name,
+		StepHref:   step.LogHref,
+		Location:   actionsAnnotationLocation(row.Path, row.StartLine, row.StartColumn),
+		SourceHref: actionsAnnotationSourceHref(owner, repoName, sourceTarget, row.Path, row.StartLine),
+	}
+	view.LevelLabel, view.StateClass, view.Icon = actionsAnnotationPresentation(view.Level)
+	return view
+}
+
+func actionsAnnotationStepName(stepName, runCommand, usesAlias string, stepIndex int32) string {
+	if name := strings.TrimSpace(stepName); name != "" {
+		return name
+	}
+	if alias := strings.TrimSpace(usesAlias); alias != "" {
+		return alias
+	}
+	if line := firstCommandLine(runCommand); line != "" {
+		return line
+	}
+	return "Step " + strconv.Itoa(int(stepIndex)+1)
+}
+
+func actionsAnnotationPresentation(level string) (label, stateClass, icon string) {
+	switch level {
+	case string(actionsdb.WorkflowAnnotationLevelError):
+		return "Error", "failure", "x-circle"
+	case string(actionsdb.WorkflowAnnotationLevelNotice):
+		return "Notice", "neutral", "dot-fill"
+	default:
+		return "Warning", "pending", "alert"
+	}
+}
+
+func actionsAnnotationLocation(filePath string, line, column pgtype.Int4) string {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return ""
+	}
+	if line.Valid {
+		if column.Valid {
+			return filePath + ":" + strconv.FormatInt(int64(line.Int32), 10) + ":" + strconv.FormatInt(int64(column.Int32), 10)
+		}
+		return filePath + ":" + strconv.FormatInt(int64(line.Int32), 10)
+	}
+	return filePath
+}
+
+func actionsAnnotationSourceHref(owner, repoName, target, filePath string, line pgtype.Int4) string {
+	if target == "" {
+		return ""
+	}
+	clean, ok := cleanAnnotationPath(filePath)
+	if !ok {
+		return ""
+	}
+	href := "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + "/blob/" + url.PathEscape(target) + "/" + escapePathSegments(clean)
+	if line.Valid {
+		href += "#L" + strconv.FormatInt(int64(line.Int32), 10)
+	}
+	return href
+}
+
+func cleanAnnotationPath(filePath string) (string, bool) {
+	filePath = strings.ReplaceAll(strings.TrimSpace(filePath), "\\", "/")
+	if filePath == "" || strings.ContainsRune(filePath, '\x00') || strings.HasPrefix(filePath, "/") {
+		return "", false
+	}
+	clean := path.Clean(filePath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", false
+	}
+	return clean, true
+}
+
+func (h *Handlers) loadStepAnnotations(ctx context.Context, stepID int64, owner, repoName string, run actionsRunDetailView, step actionsStepDetailView) ([]actionsAnnotationView, int, int, error) {
+	rows, err := actionsdb.New().ListWorkflowAnnotationsForStep(ctx, h.d.Pool, stepID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	out := make([]actionsAnnotationView, 0, len(rows))
+	warnings, errorsCount := 0, 0
+	for _, row := range rows {
+		view := actionsAnnotationViewFromStepRow(row, owner, repoName, codeTarget(run.HeadRef, run.HeadSha), step)
+		switch view.Level {
+		case string(actionsdb.WorkflowAnnotationLevelError):
+			errorsCount++
+		case string(actionsdb.WorkflowAnnotationLevelWarning):
+			warnings++
+		}
+		out = append(out, view)
+	}
+	return out, warnings, errorsCount, nil
+}
+
 type actionsStepLogContent struct {
-	Text        string
-	Source      string
-	Error       string
-	Truncated   bool
-	LastSeq     int32
-	DownloadURL string
+	Text      string
+	Source    string
+	Error     string
+	Truncated bool
+	LastSeq   int32
+	HasLog    bool
+	CanStream bool
 }
 
 func (h *Handlers) loadStepLogContent(ctx context.Context, stepID int64) (actionsStepLogContent, error) {
@@ -1759,6 +2010,8 @@ func (h *Handlers) loadStepLogContent(ctx context.Context, stepID int64) (action
 		Source:    "SQL chunks",
 		Truncated: truncated,
 		LastSeq:   lastSeq,
+		HasLog:    lastSeq >= 0 || buf.Len() > 0,
+		CanStream: true,
 	}, nil
 }
 
@@ -1784,13 +2037,75 @@ func (h *Handlers) loadArchivedStepLog(ctx context.Context, key string) (actions
 	if err != nil {
 		return actionsStepLogContent{}, err
 	}
-	downloadURL, _ := h.d.ObjectStore.SignedURL(ctx, key, 15*time.Minute, http.MethodGet)
 	return actionsStepLogContent{
-		Text:        strings.ToValidUTF8(string(body), "\uFFFD"),
-		Source:      "object storage",
-		Truncated:   truncated,
-		DownloadURL: downloadURL,
+		Text:      strings.ToValidUTF8(string(body), "\uFFFD"),
+		Source:    "object storage",
+		Truncated: truncated,
+		HasLog:    true,
 	}, nil
+}
+
+func actionsStepLogFilename(runIndex int64, jobIndex, stepIndex int32) string {
+	return "shithub-run-" + strconv.FormatInt(runIndex, 10) +
+		"-job-" + strconv.FormatInt(int64(jobIndex), 10) +
+		"-step-" + strconv.FormatInt(int64(stepIndex), 10) + ".log"
+}
+
+func (h *Handlers) writeStepLogDownload(ctx context.Context, w http.ResponseWriter, stepID int64, filename string) error {
+	q := actionsdb.New()
+	step, err := q.GetWorkflowStepByID(ctx, h.d.Pool, stepID)
+	if err != nil {
+		return err
+	}
+	if step.LogObjectKey.Valid && step.LogObjectKey.String != "" {
+		if h.d.ObjectStore == nil {
+			return errActionsLogStorageUnavailable
+		}
+		rc, _, err := h.d.ObjectStore.Get(ctx, step.LogObjectKey.String)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		writeStepLogDownloadHeaders(w, filename)
+		_, err = io.Copy(w, rc)
+		return err
+	}
+
+	const batchSize = int32(128)
+	afterSeq := int32(-1)
+	wroteHeaders := false
+	for {
+		chunks, err := q.ListStepLogChunks(ctx, h.d.Pool, actionsdb.ListStepLogChunksParams{
+			StepID: step.ID,
+			Seq:    afterSeq,
+			Limit:  batchSize,
+		})
+		if err != nil {
+			return err
+		}
+		if !wroteHeaders {
+			writeStepLogDownloadHeaders(w, filename)
+			wroteHeaders = true
+		}
+		if len(chunks) == 0 {
+			return nil
+		}
+		for _, chunk := range chunks {
+			if _, err := w.Write(chunk.Chunk); err != nil {
+				return err
+			}
+			afterSeq = chunk.Seq
+		}
+		if len(chunks) < int(batchSize) {
+			return nil
+		}
+	}
+}
+
+func writeStepLogDownloadHeaders(w http.ResponseWriter, filename string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
 func readLimitedLog(r io.Reader, limit int) ([]byte, bool, error) {

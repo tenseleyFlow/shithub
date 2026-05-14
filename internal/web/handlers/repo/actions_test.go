@@ -545,7 +545,7 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 		Conclusion:  actionsdb.CheckConclusionSuccess,
 		CompletedAt: now.Add(-18 * time.Minute),
 	})
-	f.insertWorkflowStep(t, workflowStepFixture{
+	testStepID := f.insertWorkflowStep(t, workflowStepFixture{
 		JobID:       testID,
 		StepIndex:   0,
 		RunCommand:  "go test ./...",
@@ -553,6 +553,21 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 		Conclusion:  actionsdb.CheckConclusionFailure,
 		CompletedAt: now.Add(-10 * time.Minute),
 	})
+	if _, err := actionsdb.New().UpsertWorkflowAnnotation(context.Background(), f.pool, actionsdb.UpsertWorkflowAnnotationParams{
+		RunID:       runID,
+		JobID:       testID,
+		StepID:      testStepID,
+		Level:       actionsdb.WorkflowAnnotationLevelWarning,
+		Title:       "Slow test",
+		Message:     "Use cache",
+		Path:        "cmd/main.go",
+		StartLine:   pgtype.Int4{Int32: 12, Valid: true},
+		LogLine:     pgtype.Int4{Int32: 1, Valid: true},
+		LogChunkSeq: pgtype.Int4{Int32: 0, Valid: true},
+		Fingerprint: strings.Repeat("a", 64),
+	}); err != nil {
+		t.Fatalf("UpsertWorkflowAnnotation: %v", err)
+	}
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/7", nil)
@@ -564,6 +579,9 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 	for _, want := range []string{
 		"RUN=CI:#7:push:alice:failure;",
 		"SUMMARY=2:2:1:0;",
+		"ANNOTATIONS=1:1:0;",
+		"AGROUP=Test:1;",
+		"ANN=warning:Slow test:Use cache:cmd/main.go:12:/alice/public-repo/blob/trunk/cmd/main.go#L12:/alice/public-repo/actions/runs/7/jobs/1/steps/0;",
 		"GRAPH=640x140:2:1;",
 		"GNODE=build:32:32:1:0;",
 		"GNODE=test:368:32:1:1;",
@@ -1026,7 +1044,7 @@ func TestRepoActionStepLogRendersSQLChunks(t *testing.T) {
 	}
 	body := resp.Body.String()
 	for _, want := range []string{
-		"STEPLOG=Build:Run tests:SQL chunks::false;",
+		"STEPLOG=Build:Run tests:SQL chunks:/alice/public-repo/actions/runs/9/jobs/0/steps/0/log/download:false;",
 		"STREAM=/alice/public-repo/actions/runs/9/jobs/0/steps/0/log/stream?after=1;",
 		"LOG=hello\nworld\n;",
 	} {
@@ -1151,6 +1169,19 @@ func TestRepoActionStepLogRendersArchivedObject(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update log object: %v", err)
 	}
+	if _, err := actionsdb.New().UpsertWorkflowAnnotation(context.Background(), f.pool, actionsdb.UpsertWorkflowAnnotationParams{
+		RunID:       runID,
+		JobID:       jobID,
+		StepID:      stepID,
+		Level:       actionsdb.WorkflowAnnotationLevelError,
+		Title:       "Archive warning",
+		Message:     "archived message",
+		Path:        ".shithub/workflows/ci.yml",
+		StartLine:   pgtype.Int4{Int32: 5, Valid: true},
+		Fingerprint: strings.Repeat("b", 64),
+	}); err != nil {
+		t.Fatalf("UpsertWorkflowAnnotation: %v", err)
+	}
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/10/jobs/0/steps/0", nil)
@@ -1160,12 +1191,62 @@ func TestRepoActionStepLogRendersArchivedObject(t *testing.T) {
 	}
 	body := resp.Body.String()
 	for _, want := range []string{
-		"STEPLOG=Build:Archive:object storage:mem://actions/runs/",
+		"STEPLOG=Build:Archive:object storage:/alice/public-repo/actions/runs/10/jobs/0/steps/0/log/download:false;",
+		"ANN=error:Archive warning:archived message:.shithub/workflows/ci.yml:5:/alice/public-repo/blob/trunk/.shithub/workflows/ci.yml#L5;",
 		"LOG=archived\n;",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q in %s", want, body)
 		}
+	}
+}
+
+func TestRepoActionStepLogDownloadStreamsThroughShithub(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      11,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusRunning,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -5 * time.Minute,
+		StartedOffset: -4 * time.Minute,
+	}, now)
+	jobID := f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:     runID,
+		JobIndex:  0,
+		JobKey:    "build",
+		JobName:   "Build",
+		RunsOn:    "ubuntu-latest",
+		Status:    actionsdb.WorkflowJobStatusRunning,
+		StartedAt: now.Add(-4 * time.Minute),
+	})
+	stepID := f.insertWorkflowStep(t, workflowStepFixture{
+		JobID:      jobID,
+		StepIndex:  0,
+		StepName:   "Run",
+		RunCommand: "printf",
+		Status:     actionsdb.WorkflowStepStatusRunning,
+		StartedAt:  now.Add(-3 * time.Minute),
+	})
+	f.insertStepLogChunk(t, stepID, 0, "before *** after\n")
+	f.insertStepLogChunk(t, stepID, 1, "done\n")
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/11/jobs/0/steps/0/log/download", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Disposition"); got != `attachment; filename="shithub-run-11-job-0-step-0.log"` {
+		t.Fatalf("content-disposition=%q", got)
+	}
+	if got := resp.Body.String(); got != "before *** after\ndone\n" || strings.Contains(got, "hunter2") {
+		t.Fatalf("download body=%q", got)
 	}
 }
 
@@ -1177,6 +1258,7 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 		})
 	})
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/stream", f.handlers.repoActionStepLogStream)
+	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}/log/download", f.handlers.repoActionStepLogDownload)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)

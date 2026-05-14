@@ -47,6 +47,13 @@
   <div class="shithub-actions-run-layout">
     <aside class="shithub-actions-sidebar shithub-actions-run-sidebar" aria-label="Run navigation">
       <a href="#summary" class="shithub-actions-nav-item is-active" aria-current="page">{{ octicon "home" }} <span>Summary</span></a>
+      {{ if .Run.AnnotationCount }}
+        <a href="#annotations" class="shithub-actions-nav-item">
+          {{ octicon "alert" }}
+          <span>Annotations</span>
+          <span class="shithub-actions-nav-count">{{ .Run.AnnotationCount }}</span>
+        </a>
+      {{ end }}
       <div class="shithub-actions-sidebar-section">
         <h2>Jobs</h2>
         {{ range .Run.Jobs }}
@@ -167,6 +174,41 @@
           </div>
         {{ end }}
       </section>
+
+      {{ if .Run.AnnotationCount }}
+        <section id="annotations" class="shithub-actions-annotations" aria-label="Run annotations">
+          <header>
+            <div>
+              <h2>Annotations</h2>
+              <p>{{ .Run.AnnotationCount }} total{{ if .Run.WarningCount }} · {{ .Run.WarningCount }} warnings{{ end }}{{ if .Run.ErrorCount }} · {{ .Run.ErrorCount }} errors{{ end }}</p>
+            </div>
+          </header>
+          <div class="shithub-actions-annotation-list">
+            {{ range .Run.AnnotationGroups }}
+              <details class="shithub-actions-annotation-group" open>
+                <summary>
+                  <a href="#{{ .JobAnchor }}">{{ .JobName }}</a>
+                  <span>{{ .Count }} annotations</span>
+                </summary>
+                {{ range .Annotations }}
+                  <article id="annotation-{{ .ID }}" class="shithub-actions-annotation shithub-actions-annotation-{{ .StateClass }}">
+                    <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .Icon }}</span>
+                    <div>
+                      <strong>{{ if .Title }}{{ .Title }}{{ else }}{{ .LevelLabel }}{{ end }}</strong>
+                      <p>{{ .Message }}</p>
+                      <div class="shithub-actions-annotation-meta">
+                        <span>{{ .StepName }}</span>
+                        {{ if .SourceHref }}<a href="{{ .SourceHref }}">{{ .Location }}</a>{{ else if .Location }}<span>{{ .Location }}</span>{{ end }}
+                        <a href="{{ .StepHref }}">View step</a>
+                      </div>
+                    </div>
+                  </article>
+                {{ end }}
+              </details>
+            {{ end }}
+          </div>
+        </section>
+      {{ end }}
 
       <section class="shithub-actions-jobs" aria-label="Workflow jobs">
         {{ range .Run.Jobs }}
