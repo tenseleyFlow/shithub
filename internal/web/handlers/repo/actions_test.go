@@ -406,6 +406,96 @@ func TestNormalizeDispatchInputsRejectsUnknownAndInvalidChoice(t *testing.T) {
 	}
 }
 
+func TestActionsRunGraphBuildsEdgesAndStepSummaries(t *testing.T) {
+	t.Parallel()
+	graph := actionsRunGraph([]actionsJobDetailView{
+		{
+			JobIndex:   0,
+			JobKey:     "build",
+			Name:       "Build",
+			RunsOn:     "ubuntu-latest",
+			StateText:  "Success",
+			StateClass: "success",
+			StateIcon:  "check-circle",
+			Duration:   "2m",
+			Anchor:     "job-0",
+			Steps: []actionsStepDetailView{
+				{Name: "Checkout", Kind: "uses", Detail: "actions/checkout@v4", StateText: "Success", StateClass: "success", Duration: "1s", IsTerminal: true, LogHref: "/steps/0"},
+				{Name: "Build", Kind: "run", Detail: "go build ./...", StateText: "Success", StateClass: "success", Duration: "2m", IsTerminal: true, LogHref: "/steps/1"},
+			},
+		},
+		{
+			JobIndex:   1,
+			JobKey:     "test",
+			Name:       "Test",
+			RunsOn:     "ubuntu-latest",
+			Needs:      []string{"build"},
+			NeedsText:  "build",
+			StateText:  "Failure",
+			StateClass: "failure",
+			StateIcon:  "x-circle",
+			Duration:   "1m",
+			Anchor:     "job-1",
+			Steps: []actionsStepDetailView{
+				{Name: "Test", Kind: "run", Detail: "go test ./...", StateText: "Failure", StateClass: "failure", Duration: "1m", IsTerminal: true, LogHref: "/steps/2"},
+			},
+		},
+	})
+	if len(graph.Nodes) != 2 {
+		t.Fatalf("nodes=%d, want 2", len(graph.Nodes))
+	}
+	if len(graph.Edges) != 1 {
+		t.Fatalf("edges=%d, want 1", len(graph.Edges))
+	}
+	if graph.Edges[0].From != "job-0" || graph.Edges[0].To != "job-1" || graph.Edges[0].Path == "" {
+		t.Fatalf("unexpected edge: %+v", graph.Edges[0])
+	}
+	if got := graph.Nodes[1]; got.StepCount != 1 || got.CompletedStepCount != 1 || got.FailureCount != 1 || got.Steps[0].LogHref != "/steps/2" {
+		t.Fatalf("test node summary = %+v", got)
+	}
+	if graph.Nodes[1].X <= graph.Nodes[0].X {
+		t.Fatalf("dependent job not placed to the right: %+v", graph.Nodes)
+	}
+}
+
+func TestActionsRunGraphLaysOutWideWorkflowWithoutOverlap(t *testing.T) {
+	t.Parallel()
+	jobs := make([]actionsJobDetailView, 0, 15)
+	for i := range 15 {
+		jobs = append(jobs, actionsJobDetailView{
+			JobIndex:   int32(i),
+			JobKey:     "job-" + strconv.Itoa(i),
+			Name:       "Job " + strconv.Itoa(i),
+			StateText:  "Queued",
+			StateClass: "pending",
+			StateIcon:  "dot-fill",
+			Duration:   "0s",
+			Anchor:     "job-" + strconv.Itoa(i),
+		})
+	}
+	graph := actionsRunGraph(jobs)
+	if len(graph.Nodes) != len(jobs) {
+		t.Fatalf("nodes=%d, want %d", len(graph.Nodes), len(jobs))
+	}
+	for i := range graph.Nodes {
+		for j := i + 1; j < len(graph.Nodes); j++ {
+			if graphNodesOverlap(graph.Nodes[i], graph.Nodes[j]) {
+				t.Fatalf("nodes overlap: %+v %+v", graph.Nodes[i], graph.Nodes[j])
+			}
+		}
+	}
+	if graph.CanvasHeight < graph.Nodes[len(graph.Nodes)-1].Y+graph.Nodes[len(graph.Nodes)-1].Height+actionsRunGraphMarginY {
+		t.Fatalf("canvas does not contain final node: graph=%+v last=%+v", graph, graph.Nodes[len(graph.Nodes)-1])
+	}
+}
+
+func graphNodesOverlap(a, b actionsRunGraphNodeView) bool {
+	return a.X < b.X+b.Width &&
+		a.X+a.Width > b.X &&
+		a.Y < b.Y+b.Height &&
+		a.Y+a.Height > b.Y
+}
+
 func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -474,6 +564,9 @@ func TestRepoActionRunRendersWorkflowRunJobsAndSteps(t *testing.T) {
 	for _, want := range []string{
 		"RUN=CI:#7:push:alice:failure;",
 		"SUMMARY=2:2:1:0;",
+		"GRAPH=640x140:2:1;",
+		"GNODE=build:32:32:1:0;",
+		"GNODE=test:368:32:1:1;",
 		"JOB=Build:success::ubuntu-latest;",
 		"STEP=Checkout:success:/alice/public-repo/actions/runs/7/jobs/0/steps/0;",
 		"JOB=Test:failure:build:ubuntu-latest;",
