@@ -172,28 +172,60 @@ ORDER BY score DESC, u.created_at DESC
 LIMIT sqlc.arg(limit_count)::int;
 
 -- name: ListDashboardReposForUser :many
+WITH candidates AS (
+    SELECT
+        r.id AS repo_id,
+        COALESCE(owner_user.username::text, owner_org.slug::text, '')::text AS owner,
+        r.name::text AS name,
+        r.description,
+        r.visibility,
+        COALESCE(r.primary_language, '') AS primary_language,
+        r.star_count,
+        r.fork_count,
+        r.updated_at
+    FROM repos r
+    LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
+    LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+    WHERE (
+          r.owner_user_id = sqlc.arg(viewer_user_id)::bigint
+          OR r.owner_org_id IN (
+              SELECT org_id FROM org_members
+              WHERE user_id = sqlc.arg(viewer_user_id)::bigint
+          )
+      )
+      AND r.deleted_at IS NULL
+)
 SELECT
-    r.id AS repo_id,
-    COALESCE(owner_user.username::text, owner_org.slug::text, '')::text AS owner,
+    r.repo_id,
+    r.owner,
     r.name::text AS name,
     r.description,
     r.visibility,
-    COALESCE(r.primary_language, '') AS primary_language,
+    r.primary_language,
     r.star_count,
     r.fork_count,
     r.updated_at
-FROM repos r
-LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
-LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
+FROM candidates r
 WHERE (
-      r.owner_user_id = sqlc.arg(viewer_user_id)::bigint
-      OR r.owner_org_id IN (
-          SELECT org_id FROM org_members
-          WHERE user_id = sqlc.arg(viewer_user_id)::bigint
-      )
-  )
-  AND r.deleted_at IS NULL
-ORDER BY r.updated_at DESC
+    sqlc.arg(search_query)::text = ''
+    OR lower(r.owner || '/' || r.name::text) LIKE '%' || lower(sqlc.arg(search_query)::text) || '%'
+    OR lower(r.owner) LIKE '%' || lower(sqlc.arg(search_query)::text) || '%'
+    OR lower(r.name::text) LIKE '%' || lower(sqlc.arg(search_query)::text) || '%'
+    OR lower(r.description) LIKE '%' || lower(sqlc.arg(search_query)::text) || '%'
+)
+ORDER BY
+    CASE
+        WHEN sqlc.arg(search_query)::text = '' THEN 0
+        WHEN lower(r.owner || '/' || r.name::text) = lower(sqlc.arg(search_query)::text) THEN 0
+        WHEN lower(r.name::text) = lower(sqlc.arg(search_query)::text) THEN 1
+        WHEN lower(r.owner || '/' || r.name::text) LIKE lower(sqlc.arg(search_query)::text) || '%' THEN 2
+        WHEN lower(r.name::text) LIKE lower(sqlc.arg(search_query)::text) || '%' THEN 3
+        WHEN lower(r.owner) LIKE lower(sqlc.arg(search_query)::text) || '%' THEN 4
+        ELSE 5
+    END,
+    r.updated_at DESC,
+    lower(r.owner),
+    lower(r.name::text)
 LIMIT sqlc.arg(limit_count)::int;
 
 -- name: InsertTrendingSnapshot :one
