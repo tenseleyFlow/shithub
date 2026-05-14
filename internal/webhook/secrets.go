@@ -6,9 +6,43 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 )
+
+// BuildBoxes returns the (primary, legacy) pair callers wire into
+// ManageDeps / DeliverDeps. Semantics:
+//
+//   - If dedicatedB64 is set, primary is built from it and legacy
+//     is built from legacyB64 (if set). New encryption uses
+//     primary; OpenSecret falls back to legacy for rows written
+//     before separation.
+//   - If dedicatedB64 is empty, the pre-separation state applies:
+//     primary IS the legacy box, legacy is nil. There's nothing
+//     to fall back to because nothing has split yet.
+//
+// Either or both inputs may be empty; the helper does not warn —
+// callers decide what to do with a nil primary (typically: log a
+// loud warning and disable webhook delivery for this process).
+func BuildBoxes(dedicatedB64, legacyB64 string) (primary, legacy *secretbox.Box, err error) {
+	if legacyB64 != "" {
+		legacy, err = secretbox.FromBase64(legacyB64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("webhook legacy box: %w", err)
+		}
+	}
+	if dedicatedB64 != "" {
+		primary, err = secretbox.FromBase64(dedicatedB64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("webhook primary box: %w", err)
+		}
+		return primary, legacy, nil
+	}
+	// Pre-separation: only the shared/legacy key exists. There's
+	// no fallback chain — surface a single box as primary.
+	return legacy, nil, nil
+}
 
 // SecretLength is the byte length of a freshly minted webhook secret.
 // 32 bytes ≈ 256 bits — well above HMAC-SHA256's effective security.
