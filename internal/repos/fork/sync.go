@@ -60,11 +60,11 @@ func Sync(ctx context.Context, deps Deps, actorUserID, forkRepoID int64) (SyncRe
 		return SyncResult{}, ErrSourceDeleted
 	}
 
-	forkOwner, err := ownerUsername(ctx, deps, fork)
+	forkOwner, err := ownerSlug(ctx, deps, fork)
 	if err != nil {
 		return SyncResult{}, err
 	}
-	sourceOwner, err := ownerUsername(ctx, deps, source)
+	sourceOwner, err := ownerSlug(ctx, deps, source)
 	if err != nil {
 		return SyncResult{}, err
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/git/hooks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -65,6 +66,7 @@ func RepoForkClone(deps ForkCloneDeps) worker.Handler {
 
 		rq := reposdb.New()
 		uq := usersdb.New()
+		oq := orgsdb.New()
 
 		fork, err := rq.GetRepoByID(ctx, deps.Pool, p.ForkRepoID)
 		if err != nil {
@@ -88,11 +90,11 @@ func RepoForkClone(deps ForkCloneDeps) worker.Handler {
 			return failFork(ctx, deps, p.ForkRepoID, errors.New("source repo soft-deleted between enqueue and clone"))
 		}
 
-		forkOwner, err := getOwnerUsername(ctx, deps.Pool, uq, fork)
+		forkOwner, err := getOwnerSlug(ctx, deps.Pool, uq, oq, fork)
 		if err != nil {
 			return failFork(ctx, deps, p.ForkRepoID, err)
 		}
-		sourceOwner, err := getOwnerUsername(ctx, deps.Pool, uq, source)
+		sourceOwner, err := getOwnerSlug(ctx, deps.Pool, uq, oq, source)
 		if err != nil {
 			return failFork(ctx, deps, p.ForkRepoID, err)
 		}
@@ -157,16 +159,30 @@ func failFork(ctx context.Context, deps ForkCloneDeps, forkRepoID int64, cause e
 	return worker.PoisonError(cause)
 }
 
-// getOwnerUsername — same shape as the resolver in internal/repos/
-// fork/helpers.go but kept local to avoid pulling the orchestrator
-// package into the worker import graph.
-func getOwnerUsername(ctx context.Context, pool *pgxpool.Pool, uq *usersdb.Queries, repo reposdb.Repo) (string, error) {
-	if !repo.OwnerUserID.Valid {
-		return "", fmt.Errorf("repo %d has no user owner (org-owned arrives in S31)", repo.ID)
+// getOwnerSlug resolves the on-disk repo path segment for an owner,
+// regardless of whether the owner is a user or an org. The
+// RepoFS keys paths as <owner-slug>/<repo-name> and doesn't
+// distinguish kinds — the only thing the clone needs is the right
+// directory name on either side of the source→fork copy.
+//
+// Mirrored in internal/repos/fork/helpers.go (kept local here to
+// avoid pulling the orchestrator package into the worker import
+// graph).
+func getOwnerSlug(ctx context.Context, pool *pgxpool.Pool, uq *usersdb.Queries, oq *orgsdb.Queries, repo reposdb.Repo) (string, error) {
+	switch {
+	case repo.OwnerUserID.Valid:
+		u, err := uq.GetUserByID(ctx, pool, repo.OwnerUserID.Int64)
+		if err != nil {
+			return "", fmt.Errorf("load user owner: %w", err)
+		}
+		return u.Username, nil
+	case repo.OwnerOrgID.Valid:
+		o, err := oq.GetOrgByID(ctx, pool, repo.OwnerOrgID.Int64)
+		if err != nil {
+			return "", fmt.Errorf("load org owner: %w", err)
+		}
+		return o.Slug, nil
+	default:
+		return "", fmt.Errorf("repo %d has neither user nor org owner", repo.ID)
 	}
-	u, err := uq.GetUserByID(ctx, pool, repo.OwnerUserID.Int64)
-	if err != nil {
-		return "", fmt.Errorf("load owner: %w", err)
-	}
-	return u.Username, nil
 }
