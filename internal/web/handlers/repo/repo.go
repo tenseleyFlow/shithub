@@ -494,9 +494,110 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Branch on init_status: failed and in-progress shells render
+	// purpose-built pages instead of the empty-repo bootstrap.
+	// Pre-fix-B this was conflated — failed-init shells looked
+	// identical to fresh-but-empty repos, which surfaced as "your
+	// fork worked, here's how to clone" misdirection.
+	switch row.InitStatus {
+	case reposdb.RepoInitStatusInitFailed:
+		h.renderRepoInitFailed(w, r, owner, row, common)
+		return
+	case reposdb.RepoInitStatusInitPending:
+		h.renderRepoInitPending(w, r, row, common)
+		return
+	}
 	// Empty path only — populated repos already redirected above.
 	if err := h.d.Render.RenderPage(w, r, "repo/empty", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "repo: render empty", "error", err)
+	}
+}
+
+// renderRepoInitPending serves a "cloning, refresh in 5s" page for
+// rows whose worker job hasn't finished yet. Shared between
+// freshly-clicked forks and retries; both flip init_status to
+// init_pending before enqueuing.
+func (h *Handlers) renderRepoInitPending(w http.ResponseWriter, r *http.Request, row reposdb.Repo, common map[string]any) {
+	isFork := row.ForkOfRepoID.Valid
+	var (
+		sourceFullName string
+		sourceLink     string
+	)
+	if isFork {
+		src, err := h.rq.GetRepoByID(r.Context(), h.d.Pool, row.ForkOfRepoID.Int64)
+		if err == nil && !src.DeletedAt.Valid {
+			var srcOwner string
+			switch {
+			case src.OwnerUserID.Valid:
+				if u, uerr := usersdb.New().GetUserByID(r.Context(), h.d.Pool, src.OwnerUserID.Int64); uerr == nil {
+					srcOwner = u.Username
+				}
+			case src.OwnerOrgID.Valid:
+				if o, oerr := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, src.OwnerOrgID.Int64); oerr == nil {
+					srcOwner = o.Slug
+				}
+			}
+			if srcOwner != "" {
+				sourceFullName = srcOwner + "/" + src.Name
+				sourceLink = "/" + srcOwner + "/" + src.Name
+			} else {
+				sourceFullName = "the upstream repository"
+			}
+		} else {
+			sourceFullName = "the upstream repository"
+		}
+	}
+	common["IsFork"] = isFork
+	common["SourceFullName"] = sourceFullName
+	common["SourceLink"] = sourceLink
+	if err := h.d.Render.RenderPage(w, r, "repo/init_pending", common); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo: render init_pending", "error", err)
+	}
+}
+
+// renderRepoInitFailed serves the "fork failed / repo init failed"
+// page. Forks get a retry affordance and a delete shortcut; non-fork
+// init_failed rows get just delete (there's no generic retry — only
+// the fork_clone job knows how to drive its retry).
+func (h *Handlers) renderRepoInitFailed(w http.ResponseWriter, r *http.Request, owner string, row reposdb.Repo, common map[string]any) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	isFork := row.ForkOfRepoID.Valid
+	var (
+		sourceFullName string
+		sourceLink     string
+	)
+	if isFork {
+		src, err := h.rq.GetRepoByID(r.Context(), h.d.Pool, row.ForkOfRepoID.Int64)
+		if err == nil && !src.DeletedAt.Valid {
+			var srcOwner string
+			switch {
+			case src.OwnerUserID.Valid:
+				if u, uerr := usersdb.New().GetUserByID(r.Context(), h.d.Pool, src.OwnerUserID.Int64); uerr == nil {
+					srcOwner = u.Username
+				}
+			case src.OwnerOrgID.Valid:
+				if o, oerr := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, src.OwnerOrgID.Int64); oerr == nil {
+					srcOwner = o.Slug
+				}
+			}
+			if srcOwner != "" {
+				sourceFullName = srcOwner + "/" + src.Name
+				sourceLink = "/" + srcOwner + "/" + src.Name
+			} else {
+				sourceFullName = "the upstream repository"
+			}
+		} else {
+			sourceFullName = "the upstream repository"
+		}
+	}
+	common["IsFork"] = isFork
+	common["SourceFullName"] = sourceFullName
+	common["SourceLink"] = sourceLink
+	common["CanManage"] = !viewer.IsAnonymous() && row.OwnerUserID.Valid && row.OwnerUserID.Int64 == viewer.ID
+	common["RetryAction"] = "/" + owner + "/" + row.Name + "/fork/retry"
+	common["SettingsLink"] = "/" + owner + "/" + row.Name + "/settings"
+	if err := h.d.Render.RenderPage(w, r, "repo/init_failed", common); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "repo: render init_failed", "error", err)
 	}
 }
 
