@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/fork"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -155,6 +156,54 @@ func (f fx) runForkClone(t *testing.T, sourceID, forkID int64) {
 	_ = rq.SetRepoInitStatus(ctx, f.pool, reposdb.SetRepoInitStatusParams{
 		ID: forkID, InitStatus: reposdb.RepoInitStatusInitialized,
 	})
+}
+
+func TestCreate_TargetOrg_Succeeds(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	// An org the other user can fork into.
+	org, err := orgsdb.New().CreateOrg(ctx, f.pool, orgsdb.CreateOrgParams{
+		Slug: "labgang", DisplayName: "Lab Gang",
+		Description: "", BillingEmail: "billing@example.com",
+		CreatedByUserID: pgtype.Int8{Int64: f.other.ID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	res, err := fork.Create(ctx, f.deps, fork.CreateParams{
+		SourceRepoID:    f.source.ID,
+		ActorUserID:     f.other.ID,
+		TargetOwnerKind: "org",
+		TargetOwnerID:   org.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create (org target): %v", err)
+	}
+	if res.Fork.OwnerUserID.Valid {
+		t.Errorf("org-target fork should not set OwnerUserID")
+	}
+	if !res.Fork.OwnerOrgID.Valid || res.Fork.OwnerOrgID.Int64 != org.ID {
+		t.Errorf("OwnerOrgID: got %v, want %d", res.Fork.OwnerOrgID, org.ID)
+	}
+	if !res.Fork.ForkOfRepoID.Valid || res.Fork.ForkOfRepoID.Int64 != f.source.ID {
+		t.Errorf("fork_of_repo_id: got %v, want %d", res.Fork.ForkOfRepoID, f.source.ID)
+	}
+}
+
+func TestCreate_TargetOrg_InvalidKindRejected(t *testing.T) {
+	f := setup(t)
+	_, err := fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:    f.source.ID,
+		ActorUserID:     f.other.ID,
+		TargetOwnerKind: "team", // not user/org
+		TargetOwnerID:   f.other.ID,
+	})
+	if err == nil {
+		t.Fatal("Create unexpectedly succeeded for invalid TargetOwnerKind")
+	}
+	if !strings.Contains(err.Error(), "invalid TargetOwnerKind") {
+		t.Errorf("error should name the invalid-kind condition: %v", err)
+	}
 }
 
 func TestCreate_Basic(t *testing.T) {
