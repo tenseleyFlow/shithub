@@ -131,15 +131,33 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 	}
 
 	candidates := h.publicUserPinCandidates(ctx, user.ID)
-	maxPins, beyondFreeAllowed := h.userProfilePinCap(ctx, user.ID)
-	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates, maxPins)
+	tierCap, beyondFreeAllowed := h.userProfilePinCap(ctx, user.ID)
+	// Report-only (Free user, enforce off) mirrors the BP gate: lift
+	// the effective cap to Pro for the save so the write proceeds, and
+	// emit the would-deny log once we know the submission landed.
+	saveCap := tierCap
+	reportOnly := !beyondFreeAllowed && !h.d.BillingEnforce.UserProfilePinsBeyondFree
+	if reportOnly {
+		saveCap = entitlements.ProProfilePinsCap
+	}
+	repoIDs, err := selectedProfilePinIDs(r.PostForm["repo_id"], candidates, saveCap)
 	if errors.Is(err, errTooManyPins) {
-		h.handleUserPinOverflow(w, r, user.ID, beyondFreeAllowed)
+		h.handleUserPinOverflow(w, r, user.ID, beyondFreeAllowed || reportOnly)
 		return
 	}
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
+	}
+	if reportOnly && int64(len(repoIDs)) > entitlements.FreeProfilePinsCap {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", billing.PrincipalForUser(user.ID).String(),
+			"principal_kind", string(billing.SubjectKindUser),
+			"principal_id", user.ID,
+			"feature", string(entitlements.FeatureProfilePinsBeyondFree),
+			"reason", string(entitlements.ReasonUpgradeRequired),
+			"required_plan", "pro",
+			"pin_count", len(repoIDs))
 	}
 	if err := h.saveUserPins(ctx, user.ID, repoIDs); err != nil {
 		h.d.Logger.ErrorContext(ctx, "profile pins: save user pins", "user_id", user.ID, "error", err)
@@ -149,12 +167,14 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 	http.Redirect(w, r, "/"+url.PathEscape(user.Username)+"#pinned", http.StatusSeeOther)
 }
 
-// userProfilePinCap resolves the entitled pin cap for a user. Returns
-// (cap, beyondFreeAllowed). Falls back to the Free cap if entitlement
-// resolution errors so a degraded billing path can't silently raise
-// the limit. beyondFreeAllowed mirrors CanUse(FeatureProfilePinsBeyondFree)
-// — the caller uses it to flavor the upgrade-banner copy and tells
-// the report-only logger whether the deny would have triggered.
+// userProfilePinCap resolves the user-tier pin cap. Returns
+// (cap, beyondFreeAllowed). The cap is purely tier-based — Free=6,
+// Pro=100 — so the GET render path tells a Free user they have 6
+// slots regardless of the operator's enforce flag. The write path
+// derives a separate "save cap" that lifts to Pro when the gate is
+// report-only (the F-shakedown fix). Falls back to the Free cap if
+// entitlement resolution errors so a degraded billing path can't
+// silently raise the limit.
 func (h *Handlers) userProfilePinCap(ctx context.Context, userID int64) (int64, bool) {
 	set, err := entitlements.ForPrincipal(ctx, entitlements.Deps{Pool: h.d.Pool}, billing.PrincipalForUser(userID))
 	if err != nil {
@@ -169,25 +189,14 @@ func (h *Handlers) userProfilePinCap(ctx context.Context, userID int64) (int64, 
 }
 
 // handleUserPinOverflow renders the over-cap response for a personal
-// profile pin submission. When the operator hasn't flipped the enforce
-// flag (PRO05 report-only default), logs the would-deny and falls back
-// to the pre-PRO07 400 response. With enforce on, returns 402 + an
-// upgrade banner pointing at /settings/billing.
-func (h *Handlers) handleUserPinOverflow(w http.ResponseWriter, r *http.Request, userID int64, beyondFreeAllowed bool) {
-	// Pro users that hit this branch are over the Pro cap (100) — that's
-	// a DB-sanity 400 regardless of enforcement.
-	if beyondFreeAllowed {
-		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
-		return
-	}
-	if !h.d.BillingEnforce.UserProfilePinsBeyondFree {
-		h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
-			"principal", billing.PrincipalForUser(userID).String(),
-			"principal_kind", string(billing.SubjectKindUser),
-			"principal_id", userID,
-			"feature", string(entitlements.FeatureProfilePinsBeyondFree),
-			"reason", string(entitlements.ReasonUpgradeRequired),
-			"required_plan", "pro")
+// profile pin submission. `pastFreeAllowed` is true when the caller's
+// effective cap was the Pro cap (Pro subscribers, or Free users in
+// report-only). Reaching here in that branch means the submission
+// exceeded the Pro cap itself — that's a DB-sanity 400, not an
+// upgrade prompt. Otherwise (Free user, enforce on, over 6), return
+// 402 + an upgrade banner pointing at /settings/billing.
+func (h *Handlers) handleUserPinOverflow(w http.ResponseWriter, r *http.Request, userID int64, pastFreeAllowed bool) {
+	if pastFreeAllowed {
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
 		return
 	}
