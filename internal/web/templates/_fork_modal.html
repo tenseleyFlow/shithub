@@ -10,12 +10,12 @@
       A fork is a copy of <strong>{{ $.Owner }}/{{ $.Repo.Name }}</strong>.
       You can edit the fork independently and propose changes back via pull requests.
     </p>
-    <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/fork" class="shithub-fork-form">
+    <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/fork" class="shithub-fork-form" data-fork-check-url="/{{ $.Owner }}/{{ $.Repo.Name }}/fork/check-name">
       <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
 
       <label class="shithub-fork-field">
         <span class="shithub-fork-field-label">Owner</span>
-        <select name="target_owner" class="shithub-fork-select">
+        <select name="target_owner" class="shithub-fork-select" data-fork-check-trigger>
           {{ range .ForkTargets }}
           <option value="{{ .Token }}">{{ .Display }}{{ if ne .Display .Slug }} ({{ .Slug }}){{ end }}</option>
           {{ end }}
@@ -24,7 +24,8 @@
 
       <label class="shithub-fork-field">
         <span class="shithub-fork-field-label">Repository name</span>
-        <input type="text" name="target_name" value="{{ $.Repo.Name }}" class="shithub-fork-input" autocomplete="off">
+        <input type="text" name="target_name" value="{{ $.Repo.Name }}" class="shithub-fork-input" autocomplete="off" data-fork-check-trigger>
+        <span class="shithub-fork-check" data-fork-check-status hidden></span>
       </label>
 
       <label class="shithub-fork-field">

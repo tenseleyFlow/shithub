@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -33,6 +34,7 @@ func (h *Handlers) MountFork(r chi.Router) {
 		r.Use(middleware.RequireUser)
 		r.Post("/{owner}/{repo}/fork", h.repoFork)
 		r.Post("/{owner}/{repo}/fork/retry", h.repoForkRetry)
+		r.Get("/{owner}/{repo}/fork/check-name", h.repoForkCheckName)
 		r.Post("/{owner}/{repo}/sync", h.repoSync)
 	})
 }
@@ -138,6 +140,127 @@ func (h *Handlers) repoFork(w http.ResponseWriter, r *http.Request) {
 	// events (matches GitHub: the act of forking implies interest).
 	_ = social.AutoWatchOnCollab(r.Context(), h.socialDeps(), viewer.ID, res.Fork.ID)
 	http.Redirect(w, r, "/"+targetOpt.Slug+"/"+res.Fork.Name, http.StatusSeeOther)
+}
+
+// repoForkCheckName backs the modal's live name-availability preview.
+// Returns a small JSON object the modal JS swaps into the status
+// element next to the name input:
+//
+//	{"status":"available","message":"Name is available."}
+//	{"status":"taken","message":"You already own a repository with that name."}
+//	{"status":"invalid","message":"Name must be lowercase letters, digits, dot, dash, or underscore."}
+//	{"status":"forbidden","message":"You can't fork into that owner."}
+//
+// Auth + policy mirror repoFork so a poking client can't enumerate
+// repos under an org they don't belong to. The "available" answer is
+// advisory — the POST handler is still authoritative, so a race
+// between the check and the submit just turns the submit into a
+// regular 409 with the existing taken-name banner.
+func (h *Handlers) repoForkCheckName(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ownerName := chi.URLParam(r, "owner")
+	name := chi.URLParam(r, "repo")
+	viewer := middleware.CurrentUserFromContext(ctx)
+
+	source, err := h.lookupRepoForViewer(ctx, ownerName, name, viewer)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, forkCheckResult{Status: "forbidden", Message: "Source repo not found."})
+		return
+	}
+	actor := viewer.PolicyActor()
+	repoRef := policy.NewRepoRefFromRepo(source)
+	if dec := policy.Can(ctx, policy.Deps{Pool: h.d.Pool}, actor, policy.ActionForkCreate, repoRef); !dec.Allow {
+		writeJSON(w, http.StatusForbidden, forkCheckResult{Status: "forbidden", Message: "You can't fork this repository."})
+		return
+	}
+
+	targetKind := "user"
+	targetID := viewer.ID
+	if tok := strings.TrimSpace(r.URL.Query().Get("target_owner")); tok != "" {
+		kind, id, ok := parseOwnerToken(tok)
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, forkCheckResult{Status: "invalid", Message: "Invalid target owner."})
+			return
+		}
+		targetKind, targetID = kind, id
+	}
+	if _, ok := findForkTarget(h.ownerOptions(r), targetKind, targetID); !ok {
+		writeJSON(w, http.StatusForbidden, forkCheckResult{Status: "forbidden", Message: "You can't fork into that owner."})
+		return
+	}
+
+	raw := strings.TrimSpace(r.URL.Query().Get("target_name"))
+	if raw == "" {
+		raw = source.Name
+	}
+	normalized := repos.NormalizeName(raw)
+	if err := repos.ValidateName(normalized); err != nil {
+		writeJSON(w, http.StatusOK, forkCheckResult{Status: "invalid", Message: nameInvalidMessage(err)})
+		return
+	}
+
+	// Same-owner-same-name short-circuit mirrors the orchestrator's
+	// ErrSelfForkSameName guard — surface it as a taken-style hint
+	// since "rename or fork elsewhere" is the user action either way.
+	if (targetKind == "user" && source.OwnerUserID.Valid && source.OwnerUserID.Int64 == targetID && normalized == source.Name) ||
+		(targetKind == "org" && source.OwnerOrgID.Valid && source.OwnerOrgID.Int64 == targetID && normalized == source.Name) {
+		writeJSON(w, http.StatusOK, forkCheckResult{Status: "taken", Message: "Forking into the source owner requires a different name."})
+		return
+	}
+
+	var exists bool
+	switch targetKind {
+	case "user":
+		exists, err = h.rq.ExistsRepoForOwnerUser(ctx, h.d.Pool, reposdb.ExistsRepoForOwnerUserParams{
+			OwnerUserID: pgtype.Int8{Int64: targetID, Valid: true},
+			Name:        normalized,
+		})
+	case "org":
+		exists, err = h.rq.ExistsRepoForOwnerOrg(ctx, h.d.Pool, reposdb.ExistsRepoForOwnerOrgParams{
+			OwnerOrgID: pgtype.Int8{Int64: targetID, Valid: true},
+			Name:       normalized,
+		})
+	}
+	if err != nil {
+		h.d.Logger.ErrorContext(ctx, "fork check-name: existence query", "error", err)
+		writeJSON(w, http.StatusInternalServerError, forkCheckResult{Status: "invalid", Message: "Couldn't check name availability."})
+		return
+	}
+	if exists {
+		writeJSON(w, http.StatusOK, forkCheckResult{Status: "taken", Message: "That owner already has a repository with this name."})
+		return
+	}
+	writeJSON(w, http.StatusOK, forkCheckResult{Status: "available", Message: "Name is available."})
+}
+
+// forkCheckResult is the modal's live-validation payload shape.
+type forkCheckResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// writeJSON renders body as JSON with the given status. Local to the
+// repo handlers because most of them are HTML-only; the fork-name
+// preview is the first JSON endpoint here. Tiny enough to inline
+// rather than pull the api-package helper across a circular import.
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// nameInvalidMessage flattens repos.ValidateName error variants into
+// short user-facing copy. Falls back to the generic shape rule if the
+// error isn't a recognized sentinel.
+func nameInvalidMessage(err error) string {
+	switch {
+	case errors.Is(err, repos.ErrReservedName):
+		return "That name is reserved."
+	case errors.Is(err, repos.ErrInvalidName):
+		return "Name must be lowercase letters, digits, dot, dash, or underscore (no leading dot)."
+	default:
+		return "Name is not valid."
+	}
 }
 
 // findForkTarget locates the (kind, id) entry in the viewer's
