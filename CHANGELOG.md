@@ -10,6 +10,18 @@ between minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Dedicated AEAD key for webhook secrets at rest.** New
+  `webhook.aead_key` (env `SHITHUB_WEBHOOK__AEAD_KEY`) decouples
+  webhook secret encryption from `auth.totp_key_b64`. Pre-existing
+  deploys keep working: leaving the new key unset preserves the
+  shared-key behavior; once set, `OpenSecret` tries the dedicated
+  key first and falls back to TOTP for un-migrated rows. New
+  `shithubd admin re-encrypt-webhooks` command walks every row and
+  re-encrypts onto the dedicated key. Idempotent + resumable.
+  Operator runbook updated under `docs/internal/runbooks/rotate-secrets.md`.
+
 ### Fixed
 
 - **PRO08 Pro tier GA audit remediation.** Thirteen audit findings
