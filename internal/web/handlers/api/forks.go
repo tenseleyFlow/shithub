@@ -13,6 +13,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/repos"
 	"github.com/tenseleyFlow/shithub/internal/repos/fork"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
@@ -125,6 +126,11 @@ type forkCreateRequest struct {
 	// fork. Empty defaults to the source visibility (private sources
 	// are pinned to private).
 	Visibility string `json:"visibility"`
+	// Description lets the caller override the fork's description
+	// at create time. Empty (after trim) defaults to the source's
+	// description. Validated server-side against the ≤350-char DB
+	// CHECK.
+	Description string `json:"description"`
 }
 
 func (h *Handlers) forkCreate(w http.ResponseWriter, r *http.Request) {
@@ -150,11 +156,12 @@ func (h *Handlers) forkCreate(w http.ResponseWriter, r *http.Request) {
 		Audit:  h.d.Audit,
 		Logger: h.d.Logger,
 	}, fork.CreateParams{
-		SourceRepoID:     source.ID,
-		ActorUserID:      auth.UserID,
-		TargetOwnerID:    auth.UserID, // self-fork; org targets need a separate route
-		TargetName:       strings.TrimSpace(body.Name),
-		TargetVisibility: strings.TrimSpace(body.Visibility),
+		SourceRepoID:      source.ID,
+		ActorUserID:       auth.UserID,
+		TargetOwnerID:     auth.UserID, // self-fork; org targets need a separate route
+		TargetName:        strings.TrimSpace(body.Name),
+		TargetVisibility:  strings.TrimSpace(body.Visibility),
+		TargetDescription: body.Description,
 	})
 	if err != nil {
 		writeForkError(w, err)
@@ -203,6 +210,8 @@ func writeForkError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusConflict, "forking your own repo requires a different name")
 	case errors.Is(err, fork.ErrVisibilityFloor):
 		writeAPIError(w, http.StatusUnprocessableEntity, "fork visibility cannot exceed source visibility")
+	case errors.Is(err, repos.ErrDescriptionTooLong):
+		writeAPIError(w, http.StatusUnprocessableEntity, "description is longer than the 350-character limit")
 	default:
 		writeAPIError(w, http.StatusInternalServerError, "internal error")
 	}
