@@ -172,6 +172,14 @@ type Deps struct {
 	// route. MUST run last in its group — chi matches in registration
 	// order, and {username} swallows everything else.
 	ProfileMounter func(chi.Router)
+	// HTMLRateLimit, when non-nil, is mounted inside the CSRF-protected
+	// (application-routes) group so every public HTML route runs through
+	// the F02 per-IP / per-user token-bucket gate. The middleware itself
+	// lives in internal/web/middleware/htmlratelimit.go; the wiring layer
+	// builds it from cfg.RateLimit.HTML. Static, health, probes, /api/v1
+	// (its own limiter) and /stripe/webhook (idempotent + signed) live
+	// outside this group and are never gated.
+	HTMLRateLimit func(http.Handler) http.Handler
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -288,10 +296,17 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 
 	// Application routes — CSRF protected. Compress + Timeout live in
 	// this group (and the static one above) rather than globally so the
-	// streaming groups can opt out.
+	// streaming groups can opt out. F02: the HTML rate-limit middleware
+	// fronts this group too — anonymous and authenticated browsers get
+	// distinct token-bucket budgets, site admins bypass. Static,
+	// health, probes, /api/v1 and /stripe/webhook live outside this
+	// group and are intentionally not gated.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
+		if deps.HTMLRateLimit != nil {
+			r.Use(deps.HTMLRateLimit)
+		}
 		r.Use(csrf)
 		marketing := marketingHandler{render: rr, baseURL: deps.BaseURL, logger: deps.Logger}
 		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, baseURL: deps.BaseURL, logger: deps.Logger}.ServeHTTP)
