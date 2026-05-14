@@ -17,8 +17,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
-const feedDisplayLimit int32 = 20
-const dashboardRepoSearchLimit int32 = 50
+const (
+	feedDisplayLimit         int32 = 20
+	dashboardRepoSearchLimit int32 = 50
+)
 
 type exploreHandler struct {
 	render *render.Renderer
