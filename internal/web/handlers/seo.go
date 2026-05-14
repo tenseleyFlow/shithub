@@ -69,6 +69,26 @@ func (h crawlerHandler) serveRobots(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Disallow: /search")
 	fmt.Fprintln(w, "Disallow: /settings")
 	fmt.Fprintln(w, "Disallow: /*.git/")
+	// Per-repo paths that are expensive to render and provide
+	// negligible indexing value to general crawlers. These are
+	// the read endpoints that walk git history or render large
+	// files. Profile pages, repo homepages (READMEs), about,
+	// hello, and the org index stay allowed for SEO.
+	//
+	// Pattern: leading "/*/" matches any owner segment so all
+	// owner+repo combinations are covered. Major crawlers
+	// (Google, Bing, ClaudeBot, GPTBot, Bytespider, CCBot)
+	// support these wildcards; less-capable bots simply ignore
+	// the line and we live with that.
+	fmt.Fprintln(w, "Disallow: /*/commits/")
+	fmt.Fprintln(w, "Disallow: /*/commit/")
+	fmt.Fprintln(w, "Disallow: /*/tree/")
+	fmt.Fprintln(w, "Disallow: /*/blob/")
+	fmt.Fprintln(w, "Disallow: /*/raw/")
+	fmt.Fprintln(w, "Disallow: /*/compare/")
+	fmt.Fprintln(w, "Disallow: /*/tags")
+	fmt.Fprintln(w, "Disallow: /*/branches")
+	fmt.Fprintln(w, "Disallow: /*/pulls/*/files")
 	if sitemap != "" {
 		fmt.Fprintln(w, "Sitemap: "+sitemap) // #nosec G705 -- text/plain robots body; request-host fallback rejects control characters.
 	}
