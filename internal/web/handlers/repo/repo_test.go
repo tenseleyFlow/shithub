@@ -166,6 +166,7 @@ func minimalTemplatesFS() fstest.MapFS {
 		"repo/action_step_log.html":    {Data: []byte(`{{ define "page" }}STEPLOG={{ .Log.Job.Name }}:{{ .Log.Step.Name }}:{{ .Log.LogSource }}:{{ .Log.DownloadHref }}:{{ .Log.LogTruncated }};{{ range .Log.Annotations }}ANN={{ .Level }}:{{ .Title }}:{{ .Message }}:{{ .Location }}:{{ .SourceHref }};{{ end }}{{ with .Log.StreamHref }}STREAM={{ . }};{{ end }}{{ with .Log.LogError }}ERROR={{ . }};{{ end }}LOG={{ .Log.LogText }};{{ end }}`)},
 		"repo/settings_actions.html":   {Data: []byte(`{{ define "page" }}POLICY={{ .Policy.ActionsEnabled }}:{{ .Policy.RequirePRApproval }}:{{ .Policy.EffectiveActionsEnabled }}:{{ .Policy.EffectiveRequirePRApproval }}:{{ .Policy.EffectiveMaxRepoQueuedRuns }};{{ with .Error }}ERROR={{ . }}{{ end }}{{ end }}`)},
 		"repo/settings_secrets.html":   {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
+		"repo/commits.html":            {Data: []byte(`{{ define "page" }}COMMITS={{ .Repo.Name }}:{{ .Ref }}:{{ .Page }}{{ end }}`)},
 	}
 }
 
