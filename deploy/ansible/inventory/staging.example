@@ -28,3 +28,11 @@ shithub_email_backend=stdout    # no real outbound mail in staging
 # shithub_runner_token=REPLACE_ME
 # shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 # shithub_runner_capacity=1
+
+# HTML rate-limit budgets (F02). Same defaults as production —
+# usually no need to override on staging unless you're actively
+# load-testing the limiter itself.
+# shithub_ratelimit_html_anon_burst=60
+# shithub_ratelimit_html_anon_refill=1
+# shithub_ratelimit_html_authed_burst=600
+# shithub_ratelimit_html_authed_refill=10
