@@ -486,6 +486,48 @@ func (q *Queries) ListDeliveriesForWebhookPaged(ctx context.Context, db DBTX, ar
 	return items, nil
 }
 
+const listWebhookSecretsForReencrypt = `-- name: ListWebhookSecretsForReencrypt :many
+SELECT id, secret_ciphertext, secret_nonce
+  FROM webhooks
+ WHERE id > $1
+ ORDER BY id
+ LIMIT $2
+`
+
+type ListWebhookSecretsForReencryptParams struct {
+	ID    int64
+	Limit int32
+}
+
+type ListWebhookSecretsForReencryptRow struct {
+	ID               int64
+	SecretCiphertext []byte
+	SecretNonce      []byte
+}
+
+// Paginates all webhook rows by id for the admin
+// re-encrypt-webhooks command. Only the columns the migration
+// touches are projected.
+func (q *Queries) ListWebhookSecretsForReencrypt(ctx context.Context, db DBTX, arg ListWebhookSecretsForReencryptParams) ([]ListWebhookSecretsForReencryptRow, error) {
+	rows, err := db.Query(ctx, listWebhookSecretsForReencrypt, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWebhookSecretsForReencryptRow{}
+	for rows.Next() {
+		var i ListWebhookSecretsForReencryptRow
+		if err := rows.Scan(&i.ID, &i.SecretCiphertext, &i.SecretNonce); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWebhooksForOwner = `-- name: ListWebhooksForOwner :many
 SELECT id, owner_kind, owner_id, url, content_type, events, secret_ciphertext, secret_nonce, active, ssl_verification, consecutive_failures, auto_disable_threshold, disabled_at, disabled_reason, last_success_at, last_failure_at, created_by_user_id, created_at, updated_at FROM webhooks
 WHERE owner_kind = $1 AND owner_id = $2

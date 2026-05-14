@@ -51,6 +51,16 @@ UPDATE webhooks
        updated_at        = now()
  WHERE id = $1;
 
+-- name: ListWebhookSecretsForReencrypt :many
+-- Paginates all webhook rows by id for the admin
+-- re-encrypt-webhooks command. Only the columns the migration
+-- touches are projected.
+SELECT id, secret_ciphertext, secret_nonce
+  FROM webhooks
+ WHERE id > $1
+ ORDER BY id
+ LIMIT $2;
+
 -- name: DeleteWebhook :exec
 DELETE FROM webhooks WHERE id = $1;
 
