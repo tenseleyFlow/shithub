@@ -101,6 +101,8 @@ Returns the single ruleset whose id matches. 404 when the id doesn't belong to t
 GET /api/v1/repos/{owner}/{repo}/rules/branches/{branch}
 ```
 
+Implementation route literal: `GET /api/v1/repos/{owner}/{repo}/rules/branches/*`.
+
 Required scope: `repo:read`.
 
 Returns every ruleset whose pattern matches the given branch name. **All** matching patterns are returned, not just the longest-match — the longest-match heuristic shithub's pre-receive enforcer uses is an internal precedence detail, not a contract surface.
