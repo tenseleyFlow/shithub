@@ -61,7 +61,10 @@ type Querier interface {
 	// in migration 0051; both must agree for postgres to infer the
 	// target.
 	EnqueueWorkflowRun(ctx context.Context, db DBTX, arg EnqueueWorkflowRunParams) (WorkflowRun, error)
+	GetActionsPerformanceSummaryForRepo(ctx context.Context, db DBTX, arg GetActionsPerformanceSummaryForRepoParams) (GetActionsPerformanceSummaryForRepoRow, error)
 	GetActionsRepoPolicy(ctx context.Context, db DBTX, repoID int64) (ActionsRepoPolicy, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	GetActionsUsageSummaryForRepo(ctx context.Context, db DBTX, arg GetActionsUsageSummaryForRepoParams) (GetActionsUsageSummaryForRepoRow, error)
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetEffectiveActionsPolicyForRepo(ctx context.Context, db DBTX, id int64) (GetEffectiveActionsPolicyForRepoRow, error)
@@ -105,6 +108,8 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Hot path for trigger.Enqueue: skip enqueueing when the row exists.
 	IsWorkflowDisabled(ctx context.Context, db DBTX, arg IsWorkflowDisabledParams) (bool, error)
+	ListActionsPerformanceWorkflowsForRepo(ctx context.Context, db DBTX, arg ListActionsPerformanceWorkflowsForRepoParams) ([]ListActionsPerformanceWorkflowsForRepoRow, error)
+	ListActionsUsageWorkflowsForRepo(ctx context.Context, db DBTX, arg ListActionsUsageWorkflowsForRepoParams) ([]ListActionsUsageWorkflowsForRepoRow, error)
 	ListActiveWorkflowRunsForAdmin(ctx context.Context, db DBTX, arg ListActiveWorkflowRunsForAdminParams) ([]WorkflowRun, error)
 	ListAllStepLogChunksForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowStepLogChunk, error)
 	// Used by the run-delete REST handler to drive a best-effort S3
@@ -129,6 +134,11 @@ type Querier interface {
 	ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error)
 	ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error)
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
+	// Repo UI visibility is intentionally narrower than the admin runner list:
+	// show non-revoked runners whose labels match labels this repository has
+	// actually requested, or runners currently assigned to one of this repo's
+	// jobs. Host names, runner versions, and token state remain operator-only.
+	ListRunnersForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListRunnersForRepoRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListWorkflowAnnotationsForRun(ctx context.Context, db DBTX, runID int64) ([]ListWorkflowAnnotationsForRunRow, error)

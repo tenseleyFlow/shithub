@@ -34,6 +34,65 @@ GROUP BY r.id, r.name, r.labels, r.capacity, r.status, r.last_heartbeat_at,
          r.revoked_reason, r.created_at
 ORDER BY r.name ASC;
 
+-- name: ListRunnersForRepo :many
+-- Repo UI visibility is intentionally narrower than the admin runner list:
+-- show non-revoked runners whose labels match labels this repository has
+-- actually requested, or runners currently assigned to one of this repo's
+-- jobs. Host names, runner versions, and token state remain operator-only.
+WITH requested AS (
+    SELECT DISTINCT NULLIF(j.runs_on, '')::text AS label
+    FROM workflow_jobs j
+    JOIN workflow_runs run ON run.id = j.run_id
+    WHERE run.repo_id = $1
+),
+requested_any_runner AS (
+    SELECT EXISTS (
+        SELECT 1
+        FROM requested
+        WHERE label IS NULL
+    ) AS any_runner
+),
+repo_runner_jobs AS (
+    SELECT DISTINCT j.runner_id
+    FROM workflow_jobs j
+    JOIN workflow_runs run ON run.id = j.run_id
+    WHERE run.repo_id = $1
+      AND j.runner_id IS NOT NULL
+)
+SELECT r.id, r.name, r.labels, r.capacity, r.status, r.last_heartbeat_at,
+       r.draining_at, r.created_at,
+       COUNT(active_run.id)::integer AS active_job_count
+FROM workflow_runners r
+CROSS JOIN requested_any_runner ar
+LEFT JOIN workflow_jobs active
+       ON active.runner_id = r.id
+      AND active.status = 'running'
+LEFT JOIN workflow_runs active_run
+       ON active_run.id = active.run_id
+      AND active_run.repo_id = $1
+LEFT JOIN repo_runner_jobs rrj ON rrj.runner_id = r.id
+WHERE r.revoked_at IS NULL
+  AND (
+      ar.any_runner
+      OR rrj.runner_id IS NOT NULL
+      OR EXISTS (
+          SELECT 1
+          FROM requested req
+          WHERE req.label IS NOT NULL
+            AND req.label = ANY(r.labels)
+      )
+  )
+GROUP BY r.id, r.name, r.labels, r.capacity, r.status, r.last_heartbeat_at,
+         r.draining_at, r.created_at
+ORDER BY CASE r.status
+             WHEN 'busy' THEN 0
+             WHEN 'idle' THEN 1
+             WHEN 'offline' THEN 2
+             ELSE 3
+         END,
+         lower(r.name) ASC,
+         r.id ASC;
+
 -- name: LockRunnerByID :one
 SELECT id, name, labels, capacity, status, last_heartbeat_at,
        host_name, version, draining_at, drain_reason, revoked_at,
