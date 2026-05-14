@@ -1,0 +1,45 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-repo-empty">
+    {{ if .Repo.Description }}<p class="shithub-repo-empty-desc">{{ .Repo.Description }}</p>{{ end }}
+
+    <div class="shithub-repo-init-failed Box">
+      <div class="Box-body">
+        {{ if .IsFork }}
+        <h2>Fork failed to initialize</h2>
+        <p>
+          shithub couldn't finish cloning
+          {{ if .SourceLink }}<a href="{{ .SourceLink }}">{{ .SourceFullName }}</a>{{ else }}<strong>{{ .SourceFullName }}</strong>{{ end }}
+          into this fork. The repository shell exists but it has no
+          content. You can retry the clone, or delete the fork and
+          start over.
+        </p>
+        {{ if .CanManage }}
+        <div class="shithub-repo-init-failed-actions">
+          <form method="POST" action="{{ .RetryAction }}">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-primary">Retry fork clone</button>
+          </form>
+          <a href="{{ .SettingsLink }}#danger" class="shithub-button shithub-button-danger">Delete this fork</a>
+        </div>
+        {{ else }}
+        <p class="shithub-empty-note">Only the owner can retry or delete this fork.</p>
+        {{ end }}
+        {{ else }}
+        <h2>Repository failed to initialize</h2>
+        <p>
+          shithub couldn't finish setting up this repository.
+          {{ if .CanManage }}You can delete it and create a new one.{{ else }}Only the owner can delete this repository.{{ end }}
+        </p>
+        {{ if .CanManage }}
+        <div class="shithub-repo-init-failed-actions">
+          <a href="{{ .SettingsLink }}#danger" class="shithub-button shithub-button-danger">Delete this repository</a>
+        </div>
+        {{ end }}
+        {{ end }}
+      </div>
+    </div>
+  </section>
+</section>
+{{- end }}
