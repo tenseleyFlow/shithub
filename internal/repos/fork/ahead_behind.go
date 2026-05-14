@@ -53,11 +53,11 @@ func AheadBehind(ctx context.Context, deps Deps, forkRepoID int64) (AheadBehindS
 		return AheadBehindStats{}, ErrSourceDeleted
 	}
 
-	forkOwner, err := ownerUsername(ctx, deps, fork)
+	forkOwner, err := ownerSlug(ctx, deps, fork)
 	if err != nil {
 		return AheadBehindStats{}, err
 	}
-	sourceOwner, err := ownerUsername(ctx, deps, source)
+	sourceOwner, err := ownerSlug(ctx, deps, source)
 	if err != nil {
 		return AheadBehindStats{}, err
 	}
