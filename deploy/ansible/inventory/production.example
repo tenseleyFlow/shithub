@@ -85,3 +85,18 @@ grafana_cloud_prom_token=REPLACE_ME   # access-policy token
 # billing_enforce_user_required_reviewers=false
 # billing_enforce_user_advanced_branch_protection=false
 # billing_enforce_user_profile_pins_beyond_free=false
+
+# HTML rate-limit budgets (F02). Token-bucket front for the public
+# HTML chi group; defense-in-depth against bots that ignore
+# robots.txt. Defaults below match the F02 sprint table — leave
+# commented to inherit the binary's bake-in defaults, override if a
+# tier (e.g. corporate NAT) is hitting 429 legitimately.
+#
+#   Anon    burst 60   / 1 req/sec refill   (= ~60 req/min steady)
+#   Authed  burst 600  / 10 req/sec refill  (= 10× anon)
+#   Admin   bypass (no env var; site-admin flag in the user row)
+#
+# shithub_ratelimit_html_anon_burst=60
+# shithub_ratelimit_html_anon_refill=1
+# shithub_ratelimit_html_authed_burst=600
+# shithub_ratelimit_html_authed_refill=10
