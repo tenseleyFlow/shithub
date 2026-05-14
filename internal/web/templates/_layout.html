@@ -396,6 +396,7 @@
       document.body.classList.add("shithub-modal-open");
       var nameInput = modal.querySelector('input[name="target_name"]');
       if (nameInput) nameInput.focus();
+      checkName();
     }
     function close() {
       modal.hidden = true;
@@ -409,6 +410,48 @@
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && !modal.hidden) close();
     });
+
+    // Live name-availability preview. Debounced fetch against the
+    // check-name endpoint on owner/name change; advisory only — the
+    // POST handler is still authoritative.
+    var form = modal.querySelector("form[data-fork-check-url]");
+    if (!form) return;
+    var checkURL = form.getAttribute("data-fork-check-url");
+    var nameInput = form.querySelector('input[name="target_name"]');
+    var ownerSelect = form.querySelector('select[name="target_owner"]');
+    var status = form.querySelector("[data-fork-check-status]");
+    if (!nameInput || !status) return;
+    var debounce = null;
+    var inflight = null;
+    function setStatus(state, message) {
+      status.hidden = !message;
+      status.textContent = message || "";
+      status.className = "shithub-fork-check" + (state ? " shithub-fork-check-" + state : "");
+    }
+    function checkName() {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(function () {
+        if (inflight) inflight.abort();
+        var name = nameInput.value;
+        if (!name.trim()) {
+          setStatus(null, "");
+          return;
+        }
+        var params = new URLSearchParams({ target_name: name });
+        if (ownerSelect && ownerSelect.value) params.set("target_owner", ownerSelect.value);
+        var url = checkURL + "?" + params.toString();
+        inflight = new AbortController();
+        fetch(url, { credentials: "same-origin", signal: inflight.signal })
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            if (!data || !data.status) return;
+            setStatus(data.status, data.message || "");
+          })
+          .catch(function () { /* network errors swallowed; submit path will catch */ });
+      }, 250);
+    }
+    nameInput.addEventListener("input", checkName);
+    if (ownerSelect) ownerSelect.addEventListener("change", checkName);
   })();
 
   (function () {

@@ -5304,6 +5304,16 @@ button.shithub-contrib-setting-item:hover {
   color: var(--fg-muted);
   font-weight: 400;
 }
+.shithub-fork-check {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.shithub-fork-check-available { color: var(--fg-success, #1a7f37); }
+.shithub-fork-check-taken,
+.shithub-fork-check-invalid,
+.shithub-fork-check-forbidden { color: var(--fg-danger, #cf222e); }
 .shithub-fork-note {
   margin: 0.5rem 0 0;
   color: var(--fg-muted);
