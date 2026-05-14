@@ -323,7 +323,7 @@ func TestRepoActionsManagementPagesRenderPlaceholdersAndActiveNav(t *testing.T) 
 	}{
 		{"/alice/public-repo/actions/caches", "caches", "Caches", "No caches"},
 		{"/alice/public-repo/actions/attestations", "attestations", "Attestations", "No attestations"},
-		{"/alice/public-repo/actions/runners", "runners", "Runners", "Repository runner management is coming later"},
+		{"/alice/public-repo/actions/runners", "runners", "Runners", "No matching runners"},
 		{"/alice/public-repo/actions/metrics/usage", "usage", "Actions Usage Metrics", "No usage metrics available yet"},
 		{"/alice/public-repo/actions/metrics/performance", "performance", "Actions Performance Metrics", "No performance metrics available yet"},
 	}
@@ -338,7 +338,7 @@ func TestRepoActionsManagementPagesRenderPlaceholdersAndActiveNav(t *testing.T) 
 			}
 			body := resp.Body.String()
 			for _, want := range []string{
-				"MGMT=" + tt.key + ":" + tt.title + ":" + tt.empty + ";",
+				"MGMT=" + tt.key + ":" + tt.title + ":" + tt.empty + ":",
 				"MGMTNAV=" + tt.key + ":true:",
 				"COUNT=1;",
 				"WF=CI:false;",
@@ -348,6 +348,120 @@ func TestRepoActionsManagementPagesRenderPlaceholdersAndActiveNav(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+func TestRepoActionsManagementPagesRenderBackedData(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      1,
+		WorkflowFile:  ".shithub/workflows/ci.yml",
+		WorkflowName:  "CI",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionFailure,
+		ActorUserID:   f.owner.ID,
+		StartedOffset: time.Minute,
+		DoneOffset:    3 * time.Minute,
+	}, now)
+	f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:       runID,
+		JobIndex:    0,
+		JobKey:      "test",
+		JobName:     "Test",
+		RunsOn:      "ubuntu-latest",
+		Status:      actionsdb.WorkflowJobStatusCompleted,
+		Conclusion:  actionsdb.CheckConclusionFailure,
+		StartedAt:   now.Add(time.Minute),
+		CompletedAt: now.Add(3 * time.Minute),
+	})
+	f.insertWorkflowCache(t, f.publicRepo.ID, "go-build", "v1", "refs/heads/trunk", 2048)
+	f.insertWorkflowRunnerWith(t, "shared-linux", []string{"self-hosted", "linux", "ubuntu-latest"}, actionsdb.WorkflowRunnerStatusIdle, 2, now.Add(-2*time.Minute))
+
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{
+			path: "/alice/public-repo/actions/caches",
+			want: []string{
+				"MGMT=caches:Caches:No caches:1 cache;",
+				"CACHE=go-build:v1:trunk:2 KiB;",
+			},
+		},
+		{
+			path: "/alice/public-repo/actions/runners",
+			want: []string{
+				"MGMT=runners:Runners:No matching runners:2 matching runners;",
+				"RUNNER=shared-linux:Idle:2:0:self-hosted|linux|ubuntu-latest|;",
+			},
+		},
+		{
+			path: "/alice/public-repo/actions/metrics/usage",
+			want: []string{
+				"STAT=Total minutes:2;",
+				"STAT=Total workflow runs:1;",
+				"STAT=Total job runs:1;",
+				"USAGE=CI:.shithub/workflows/ci.yml:1:1:2;",
+			},
+		},
+		{
+			path: "/alice/public-repo/actions/metrics/performance",
+			want: []string{
+				"STAT=Avg job run time:2m;",
+				"STAT=Job failure rate:100%;",
+				"PERF=CI:.shithub/workflows/ci.yml:1:1:2m:",
+			},
+		},
+	}
+	for _, tt := range tests {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+		f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", tt.path, resp.Code, resp.Body.String())
+		}
+		body := resp.Body.String()
+		for _, want := range tt.want {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s body missing %q in %s", tt.path, want, body)
+			}
+		}
+	}
+}
+
+func TestRepoActionsManagementPrivateRepoVisibility(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	f.insertWorkflowCache(t, f.privateRepo.ID, "private-cache", "v1", "refs/heads/trunk", 1024)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/private-repo/actions/caches", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("owner status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "CACHE=private-cache:v1:trunk:1 KiB;") {
+		t.Fatalf("owner did not see private cache row: %s", resp.Body.String())
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/private-repo/actions/caches", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("stranger status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	suspendedOwner := viewerFor(f.owner)
+	suspendedOwner.IsSuspended = true
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/private-repo/actions/caches", nil)
+	f.actionsMux(suspendedOwner).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("suspended owner read status=%d body=%s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -1543,6 +1657,42 @@ func (f *repoFixture) insertWorkflowRunner(t *testing.T) int64 {
 		t.Fatalf("insert workflow runner: %v", err)
 	}
 	return id
+}
+
+func (f *repoFixture) insertWorkflowRunnerWith(t *testing.T, name string, labels []string, status actionsdb.WorkflowRunnerStatus, capacity int32, heartbeat time.Time) int64 {
+	t.Helper()
+	var id int64
+	err := f.pool.QueryRow(
+		context.Background(), `
+		INSERT INTO workflow_runners (name, labels, capacity, status, last_heartbeat_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id`,
+		name,
+		labels,
+		capacity,
+		status,
+		pgtype.Timestamptz{Time: heartbeat, Valid: true},
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert workflow runner %s: %v", name, err)
+	}
+	return id
+}
+
+func (f *repoFixture) insertWorkflowCache(t *testing.T, repoID int64, key, version, ref string, size int64) actionsdb.WorkflowCache {
+	t.Helper()
+	row, err := actionsdb.New().InsertWorkflowCache(context.Background(), f.pool, actionsdb.InsertWorkflowCacheParams{
+		RepoID:       repoID,
+		CacheKey:     key,
+		CacheVersion: version,
+		GitRef:       ref,
+		ObjectKey:    "actions/caches/" + strconv.FormatInt(repoID, 10) + "/" + key + "-" + version,
+		SizeBytes:    size,
+	})
+	if err != nil {
+		t.Fatalf("InsertWorkflowCache: %v", err)
+	}
+	return row
 }
 
 type workflowStepFixture struct {
