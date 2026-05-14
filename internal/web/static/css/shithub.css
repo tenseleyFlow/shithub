@@ -5284,7 +5284,8 @@ button.shithub-contrib-setting-item:hover {
   font-weight: 600;
 }
 .shithub-fork-select,
-.shithub-fork-input {
+.shithub-fork-input,
+.shithub-fork-textarea {
   width: 100%;
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--border-default);
@@ -5293,6 +5294,15 @@ button.shithub-contrib-setting-item:hover {
   color: var(--fg-default);
   font: inherit;
   font-size: 0.95rem;
+}
+.shithub-fork-textarea {
+  resize: vertical;
+  min-height: 2.5rem;
+}
+.shithub-fork-field-hint {
+  margin-left: 0.35rem;
+  color: var(--fg-muted);
+  font-weight: 400;
 }
 .shithub-fork-note {
   margin: 0.5rem 0 0;
