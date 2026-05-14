@@ -59,3 +59,20 @@ grafana_cloud_prom_token=REPLACE_ME   # access-policy token
 # The role creates shithub-actions on shact0 (172.30.0.1/24), runs
 # dnsmasq on that bridge, and enforces direct-IP egress denial with
 # shithub-runner-firewall.service.
+
+# Stripe billing. Leaving billing_stripe_secret_key empty disables
+# the entire billing surface (no routes mounted, no checkout). See
+# docs/internal/runbooks/stripe-billing.md for end-to-end setup.
+# The secret key should be a restricted key (rk_live_…) with
+# Customers/Checkout/Customer-portal/Subscription-items write only.
+# billing_stripe_secret_key=rk_live_REPLACE_ME
+# billing_stripe_webhook_secret=whsec_REPLACE_ME
+# billing_stripe_team_price_id=price_REPLACE_ME
+# billing_stripe_pro_price_id=price_REPLACE_ME
+# billing_stripe_automatic_tax=false
+# billing_grace_period=336h
+# Per-feature enforce flags. Ship report-only (false) and flip
+# after 7 days of clean entitlements.report_only_deny telemetry.
+# billing_enforce_user_required_reviewers=false
+# billing_enforce_user_advanced_branch_protection=false
+# billing_enforce_user_profile_pins_beyond_free=false
