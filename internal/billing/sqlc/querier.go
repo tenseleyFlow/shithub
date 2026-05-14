@@ -48,13 +48,13 @@ type Querier interface {
 	// stale.
 	IsOrgBillingEventStale(ctx context.Context, db DBTX, arg IsOrgBillingEventStaleParams) (bool, error)
 	IsUserBillingEventStale(ctx context.Context, db DBTX, arg IsUserBillingEventStaleParams) (bool, error)
+	ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error)
 	// Operator query for "events we received but failed to process."
 	// A row is "failed" when it has a non-empty process_error OR when
 	// it has never been processed (processed_at NULL) and has at least
 	// one processing attempt. Rows that are merely new and untouched
 	// (attempts=0, processed_at NULL, no error) are excluded.
 	ListFailedWebhookEvents(ctx context.Context, db DBTX, limit int32) ([]ListFailedWebhookEventsRow, error)
-	ListActiveOrgIDsForUsageRecalc(ctx context.Context, db DBTX, lim int32) ([]int64, error)
 	// PRO03: filters on the polymorphic subject columns so the index
 	// billing_invoices_subject_created_idx services this query. The
 	// legacy `org_id` column is kept populated by UpsertInvoice for the
