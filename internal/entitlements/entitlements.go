@@ -79,6 +79,14 @@ const (
 	// Free user sees the schedule control rendered as a disabled
 	// pro-lock; clicking the lock CTA routes to /settings/billing.
 	FeatureScheduledIssues Feature = "scheduled_issues"
+	// FeatureAdvancedCodeSearch gates Pro-only code-search extensions
+	// layered on top of the existing visibility-aware global search.
+	// PRO-EXT01-08a ships the saved-queries CRUD; PRO-EXT01-08b adds
+	// the regex query path. Kinds: user only. NOTE: this gate does
+	// NOT restrict the existing /search code surface — Free users
+	// keep cross-repo plain-text search; the gate only fences the new
+	// Pro features (named saved queries + regex search).
+	FeatureAdvancedCodeSearch Feature = "advanced_code_search"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -175,6 +183,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
 	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
 	FeatureScheduledIssues:          {billing.SubjectKindUser},
+	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
