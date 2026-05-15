@@ -18,8 +18,24 @@
         <label class="sr-only" for="search-page-query">Search query</label>
         <input id="search-page-query" type="text" name="q" value="{{ .Query }}" placeholder="Search shithub" autofocus>
         <input type="hidden" name="type" value="{{ .Tab }}">
+        {{ if eq .Tab "code" }}
+          {{ if .RegexAllowed }}
+          <label class="shithub-search-regex-toggle">
+            <input type="checkbox" name="regex" value="on"{{ if .RegexMode }} checked{{ end }}>
+            <span>Regex</span>
+          </label>
+          {{ else if eq .RegexLockAffordance "upgrade" }}
+          <label class="shithub-search-regex-toggle shithub-pro-lock" data-pro-feature="{{ .RegexFeatureKey }}">
+            <input type="checkbox" disabled aria-disabled="true">
+            <span>Regex {{ template "pro-lock-cta" .RegexFeatureKey }}</span>
+          </label>
+          {{ end }}
+        {{ end }}
         <button type="submit" class="shithub-button shithub-button-primary">Search</button>
       </form>
+
+      {{ with .RegexError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ if .RegexBlocked }}<p class="shithub-flash shithub-flash-notice" role="status">Regex search is a Pro feature. Showing plain-text results instead.</p>{{ end }}
 
       {{ if .EmptyQuery }}
         <div class="shithub-search-blank">
