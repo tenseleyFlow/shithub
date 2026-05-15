@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -325,6 +326,14 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	// steps are durable before we touch a different subsystem. ExternalID
 	// idempotency means a retry of just this phase converges cleanly.
 	checkRunIDs := make([]int64, 0, len(p.Workflow.Jobs))
+	checkDetailsURL := ""
+	if ownerRow, err := reposdb.New().GetRepoOwnerUsernameByID(ctx, deps.Pool, p.RepoID); err == nil {
+		if ownerSlug, ok := repoOwnerSlugString(ownerRow.OwnerUsername); ok {
+			checkDetailsURL = fmt.Sprintf("/%s/%s/actions/runs/%d", url.PathEscape(ownerSlug), url.PathEscape(ownerRow.RepoName), run.RunIndex)
+		}
+	} else {
+		deps.Logger.WarnContext(ctx, "trigger: load repo owner for check_run details_url", "repo_id", p.RepoID, "error", err)
+	}
 	for i, j := range p.Workflow.Jobs {
 		extID := fmt.Sprintf("workflow_run:%d:job:%s", run.ID, j.Key)
 		name := j.Name
@@ -337,6 +346,7 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 			AppSlug:    "shithub-actions",
 			Name:       name,
 			Status:     "queued",
+			DetailsURL: checkDetailsURL,
 			ExternalID: extID,
 		})
 		if err != nil {
@@ -487,6 +497,17 @@ func runTerminalAction(run actionsdb.WorkflowRun) string {
 
 func pgInt8(v int64) pgtype.Int8 {
 	return pgtype.Int8{Int64: v, Valid: v != 0}
+}
+
+func repoOwnerSlugString(v any) (string, bool) {
+	switch s := v.(type) {
+	case string:
+		return s, s != ""
+	case []byte:
+		return string(s), len(s) > 0
+	default:
+		return "", false
+	}
 }
 
 // marshalEnv encodes a workflow.Value-keyed map to jsonb-friendly

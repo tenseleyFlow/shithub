@@ -20,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/actions/workflow"
 	"github.com/tenseleyFlow/shithub/internal/billing"
+	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -171,6 +172,14 @@ func TestEnqueue_HappyPath(t *testing.T) {
 	// One job, so one check_run.
 	if len(res.CheckRunIDs) != 1 {
 		t.Errorf("expected 1 check_run, got %d", len(res.CheckRunIDs))
+	} else {
+		checkRun, err := checksdb.New().GetCheckRun(ctx, f.pool, res.CheckRunIDs[0])
+		if err != nil {
+			t.Fatalf("GetCheckRun: %v", err)
+		}
+		if checkRun.DetailsUrl != "/alice/demo/actions/runs/1" {
+			t.Errorf("check details_url = %q, want local run page", checkRun.DetailsUrl)
+		}
 	}
 
 	// Verify rows landed.
@@ -279,6 +288,25 @@ func seedCompletedActionsMinutes(t *testing.T, f enqFx, completedAt time.Time, m
 	}
 	if len(jobs) != 1 {
 		t.Fatalf("seed jobs = %d, want 1", len(jobs))
+	}
+	runner, err := q.InsertRunner(ctx, f.pool, actionsdb.InsertRunnerParams{
+		Name:               fmt.Sprintf("quota-seed-%d", f.repoID),
+		Labels:             []string{"ubuntu-latest"},
+		Capacity:           1,
+		RegisteredByUserID: pgtype.Int8{Int64: f.userID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner seed: %v", err)
+	}
+	claimed, err := q.ClaimQueuedWorkflowJob(ctx, f.pool, actionsdb.ClaimQueuedWorkflowJobParams{
+		Labels:   runner.Labels,
+		RunnerID: runner.ID,
+	})
+	if err != nil {
+		t.Fatalf("ClaimQueuedWorkflowJob seed: %v", err)
+	}
+	if claimed.ID != jobs[0].ID {
+		t.Fatalf("claimed seed job id=%d, want %d", claimed.ID, jobs[0].ID)
 	}
 	startedAt := completedAt.Add(-time.Duration(minutes) * time.Minute)
 	if _, err := q.UpdateWorkflowJobStatus(ctx, f.pool, actionsdb.UpdateWorkflowJobStatusParams{

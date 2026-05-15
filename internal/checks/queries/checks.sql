@@ -135,6 +135,20 @@ SELECT * FROM check_runs
 WHERE repo_id = $1 AND head_sha = $2
 ORDER BY name;
 
+-- name: ListCheckRunsForCommits :many
+-- Batch form for Code-tab status indicators. Callers render commit lists,
+-- compare rows, and branch lists without issuing one check_runs query per
+-- displayed commit. Code surfaces show the latest row for each check name so
+-- re-runs replace stale failures instead of permanently poisoning the commit
+-- rollup.
+SELECT * FROM (
+    SELECT DISTINCT ON (head_sha, name) *
+    FROM check_runs
+    WHERE repo_id = $1 AND head_sha = ANY(sqlc.arg(head_shas)::text[])
+    ORDER BY head_sha, name, created_at DESC, id DESC
+) latest
+ORDER BY head_sha, name;
+
 -- name: ListCheckRunsBySuite :many
 SELECT * FROM check_runs
 WHERE suite_id = $1

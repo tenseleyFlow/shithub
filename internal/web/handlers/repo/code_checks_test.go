@@ -49,6 +49,44 @@ func TestSummarizeCodeCommitChecks(t *testing.T) {
 			stateClass: "failure",
 			label:      "1 of 2 checks failed",
 		},
+		{
+			name: "cancelled renders distinct",
+			runs: []checksdb.CheckRun{
+				completedCheck(checksdb.CheckConclusionCancelled),
+			},
+			show:       true,
+			stateClass: "cancelled",
+			label:      "1 check cancelled",
+		},
+		{
+			name: "skipped renders distinct",
+			runs: []checksdb.CheckRun{
+				completedCheck(checksdb.CheckConclusionSkipped),
+			},
+			show:       true,
+			stateClass: "skipped",
+			label:      "1 check skipped",
+		},
+		{
+			name: "neutral renders distinct",
+			runs: []checksdb.CheckRun{
+				completedCheck(checksdb.CheckConclusionNeutral),
+			},
+			show:       true,
+			stateClass: "neutral",
+			label:      "1 check neutral",
+		},
+		{
+			name: "success wins over skipped and neutral",
+			runs: []checksdb.CheckRun{
+				completedCheck(checksdb.CheckConclusionSkipped),
+				completedCheck(checksdb.CheckConclusionNeutral),
+				completedCheck(checksdb.CheckConclusionSuccess),
+			},
+			show:       true,
+			stateClass: "success",
+			label:      "1 of 3 checks successful",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,6 +95,33 @@ func TestSummarizeCodeCommitChecks(t *testing.T) {
 				t.Fatalf("summary: got show=%t state=%q label=%q", got.Show, got.StateClass, got.Label)
 			}
 		})
+	}
+}
+
+func TestCodeCheckSummaryHrefUsesOnlySafeLocalDetailsURL(t *testing.T) {
+	runs := []checksdb.CheckRun{
+		{DetailsUrl: "https://evil.example/actions/runs/1"},
+		{DetailsUrl: "//evil.example/actions/runs/2"},
+		{DetailsUrl: "/alice/public-repo/actions/runs/3"},
+	}
+	got := codeCheckSummaryHref("alice", "public-repo", runs)
+	if got != "/alice/public-repo/actions/runs/3" {
+		t.Fatalf("href = %q, want safe local details URL", got)
+	}
+}
+
+func TestCodeCheckSummaryHrefFallsBackToActionsList(t *testing.T) {
+	runs := []checksdb.CheckRun{{DetailsUrl: ""}}
+	got := codeCheckSummaryHref("alice", "public-repo", runs)
+	if got != "/alice/public-repo/actions" {
+		t.Fatalf("href = %q, want actions fallback", got)
+	}
+}
+
+func TestUniqueHeadSHAsTrimsAndDedupes(t *testing.T) {
+	got := uniqueHeadSHAs([]string{" abc ", "", "def", "abc", "def"})
+	if len(got) != 2 || got[0] != "abc" || got[1] != "def" {
+		t.Fatalf("uniqueHeadSHAs = %#v, want [abc def]", got)
 	}
 }
 

@@ -22,6 +22,7 @@ func TestApproveRunDoesNotRecordApprovalForNonQueuedRun(t *testing.T) {
 		SET need_approval = true,
 		    status = 'completed',
 		    conclusion = 'success',
+		    started_at = now(),
 		    completed_at = now()
 		WHERE id = $1`,
 		run.ID,

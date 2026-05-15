@@ -30,6 +30,12 @@ type Querier interface {
 	GetOrCreateCheckSuite(ctx context.Context, db DBTX, arg GetOrCreateCheckSuiteParams) (CheckSuite, error)
 	ListCheckRunsBySuite(ctx context.Context, db DBTX, suiteID int64) ([]CheckRun, error)
 	ListCheckRunsForCommit(ctx context.Context, db DBTX, arg ListCheckRunsForCommitParams) ([]CheckRun, error)
+	// Batch form for Code-tab status indicators. Callers render commit lists,
+	// compare rows, and branch lists without issuing one check_runs query per
+	// displayed commit. Code surfaces show the latest row for each check name so
+	// re-runs replace stale failures instead of permanently poisoning the commit
+	// rollup.
+	ListCheckRunsForCommits(ctx context.Context, db DBTX, arg ListCheckRunsForCommitsParams) ([]CheckRun, error)
 	// Used by the stale-on-push hook to flip queued/in_progress suites on
 	// the previous head to conclusion='stale'.
 	ListCheckSuiteIDsForHead(ctx context.Context, db DBTX, arg ListCheckSuiteIDsForHeadParams) ([]int64, error)

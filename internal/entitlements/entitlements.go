@@ -422,17 +422,19 @@ func (s Set) Limit(name Limit) (LimitValue, error) {
 		value.Value = ProProfilePinsCap
 		return value, nil
 	}
-	if !decision.Allowed {
-		return value, nil
-	}
-	switch name {
-	case LimitOrgPrivateCollaboration:
+	if name == LimitOrgPrivateCollaboration {
 		value.Defined = true
 		if decision.Allowed {
 			value.Unlimited = true
 		} else {
 			value.Value = FreePrivateCollaborationLimit
 		}
+		return value, nil
+	}
+	if !decision.Allowed {
+		return value, nil
+	}
+	switch name {
 	case LimitOrgStorageQuota, LimitOrgActionsMinutesQuota:
 		value = s.usageLimit(name, feature, unit)
 	}

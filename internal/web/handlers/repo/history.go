@@ -170,6 +170,10 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 				rows[i].Verification = sigverify.LookupView(verifications, rows[i].Commit.OID)
 			}
 		}
+		checkSummaries := h.codeCommitCheckSummaries(r.Context(), owner.Username, row.Name, row.ID, oids)
+		for i := range rows {
+			rows[i].Checks = checkSummaries[rows[i].Commit.OID]
+		}
 	}
 
 	filterValues := commitFilterValues(pathFilter, authorFilter, sinceRaw, untilRaw)
@@ -313,6 +317,7 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 		// errors get logged but the page still renders.
 		h.d.Logger.WarnContext(r.Context(), "commit: load verification", "error", vErr, "repo_id", row.ID, "sha", detail.OID)
 	}
+	commitChecks := h.codeCommitCheckSummary(r.Context(), owner.Username, row.Name, row.ID, detail.OID)
 
 	h.d.Render.RenderPage(w, r, "repo/commit", map[string]any{
 		"Title":        detail.Subject + " · " + row.Name,
@@ -327,6 +332,7 @@ func (h *Handlers) commitView(w http.ResponseWriter, r *http.Request) {
 		"DiffMode":     string(mode),
 		"HideWS":       hideWS,
 		"Verification": verification,
+		"Checks":       commitChecks,
 	})
 }
 
@@ -405,6 +411,7 @@ type commitRow struct {
 	AuthorLabel  string
 	AuthorHref   string
 	Verification sigverify.View
+	Checks       codeCommitCheckSummary
 }
 
 func newCommitRow(c git.Commit, author identity.Resolved) commitRow {

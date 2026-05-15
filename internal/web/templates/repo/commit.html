@@ -14,6 +14,12 @@
       {{ .Detail.Subject }}
       {{ template "verified-badge" .Verification }}
     </h2>
+    {{ if .Checks.Show }}
+    <a href="{{ .Checks.Href }}" class="shithub-commit-check-summary shithub-actions-state-{{ .Checks.StateClass }}" aria-label="{{ .Checks.Label }}">
+      {{ octicon .Checks.StateIcon }}
+      <span>{{ .Checks.Label }}</span>
+    </a>
+    {{ end }}
     {{ if .Detail.Body }}<div class="shithub-commit-body">{{ .BodyHTML }}</div>{{ end }}
 
     <div class="shithub-commit-people">

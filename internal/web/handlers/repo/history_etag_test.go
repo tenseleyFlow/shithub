@@ -16,6 +16,7 @@ import (
 
 	gitops "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 // seedCommitsRepo materializes a bare git repo on the fixture's
@@ -55,10 +56,14 @@ func (f *repoFixture) seedCommitsRepo(t *testing.T, owner, name string) string {
 // The real RequestID/RealIP middleware isn't needed for these
 // tests because the handler only reads the user from context.
 func (f *repoFixture) commitsListMux() *chi.Mux {
+	return f.historyMuxWithViewer(anonymousViewer())
+}
+
+func (f *repoFixture) historyMuxWithViewer(viewer middleware.CurrentUser) *chi.Mux {
 	mux := chi.NewRouter()
 	mux.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, withViewer(r, anonymousViewer()))
+			next.ServeHTTP(w, withViewer(r, viewer))
 		})
 	})
 	f.handlers.MountHistory(mux)

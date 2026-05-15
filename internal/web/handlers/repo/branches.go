@@ -85,6 +85,18 @@ func (h *Handlers) branchesList(w http.ResponseWriter, r *http.Request) {
 		br.Protected = isBranchProtected(rules, b.Name)
 		rows = append(rows, br)
 	}
+	if len(rows) > 0 {
+		oids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if row.OID != "" {
+				oids = append(oids, row.OID)
+			}
+		}
+		checkSummaries := h.codeCommitCheckSummaries(r.Context(), owner.Username, row.Name, row.ID, oids)
+		for i := range rows {
+			rows[i].Checks = checkSummaries[rows[i].OID]
+		}
+	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].IsDefault != rows[j].IsDefault {
 			return rows[i].IsDefault
@@ -128,6 +140,7 @@ type branchRow struct {
 	Behind      int
 	LastSubject string
 	LastWhen    time.Time
+	Checks      codeCommitCheckSummary
 	Protected   bool
 	IsDefault   bool
 	Stale       bool
@@ -276,6 +289,7 @@ func (h *Handlers) compareView(w http.ResponseWriter, r *http.Request) {
 			"Ahead":        state.Ahead,
 			"Behind":       state.Behind,
 			"Commits":      state.Commits,
+			"CommitRows":   state.CommitRows,
 			"DiffHTML":     state.DiffHTML,
 			"Stats":        state.Stats,
 			"MergeState":   state.MergeState,

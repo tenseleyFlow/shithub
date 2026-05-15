@@ -211,12 +211,12 @@ func insertEntitlementTeam(t *testing.T, db orgsdbtx, orgID int64, slug string, 
 	t.Helper()
 	var id int64
 	if parentTeamID == 0 {
-		if err := db.QueryRow(context.Background(), `INSERT INTO teams (org_id, slug, display_name) VALUES ($1, $2, $2) RETURNING id`, orgID, slug).Scan(&id); err != nil {
+		if err := db.QueryRow(context.Background(), `INSERT INTO teams (org_id, slug, display_name) VALUES ($1, $2, $3) RETURNING id`, orgID, slug, slug).Scan(&id); err != nil {
 			t.Fatalf("insert team: %v", err)
 		}
 		return id
 	}
-	if err := db.QueryRow(context.Background(), `INSERT INTO teams (org_id, slug, display_name, parent_team_id) VALUES ($1, $2, $2, $3) RETURNING id`, orgID, slug, parentTeamID).Scan(&id); err != nil {
+	if err := db.QueryRow(context.Background(), `INSERT INTO teams (org_id, slug, display_name, parent_team_id) VALUES ($1, $2, $3, $4) RETURNING id`, orgID, slug, slug, parentTeamID).Scan(&id); err != nil {
 		t.Fatalf("insert child team: %v", err)
 	}
 	return id

@@ -32,6 +32,9 @@
         </td>
         <td>
           {{ if .LastSubject }}
+          {{ if .Checks.Show }}
+          <a href="{{ .Checks.Href }}" class="shithub-code-check-status shithub-actions-state-{{ .Checks.StateClass }}" aria-label="{{ .Checks.Label }}" title="{{ .Checks.Label }}">{{ octicon .Checks.StateIcon }}</a>
+          {{ end }}
           <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .OID }}" class="shithub-branches-subject">{{ .LastSubject }}</a>
           <small><time datetime="{{ .LastWhen.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .LastWhen }}</time></small>
           {{ end }}

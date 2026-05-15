@@ -275,7 +275,9 @@ func TestTwoFactor_DisableRequiresPasswordAndTOTP(t *testing.T) {
 
 	// Correct password + correct TOTP → succeed.
 	csrf = cli.extractCSRF(t, "/settings/security/2fa/disable")
-	code, _ := totp.Generate(secret, time.Now().Add(31*time.Second)) // ensure NEW counter step vs enrollment
+	// Enrollment already consumed the current counter. Use the next
+	// 30-second step, which is still within the verifier's +1 skew window.
+	code, _ := totp.Generate(secret, time.Now().Add(30*time.Second))
 	resp = cli.post(t, "/settings/security/2fa/disable", url.Values{
 		"csrf_token": {csrf}, "password": {password}, "code": {code},
 	})
