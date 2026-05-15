@@ -138,7 +138,7 @@ func (h *Handlers) loadRepo(w http.ResponseWriter, r *http.Request) (reposdb.Rep
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "bad id", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "bad id")
 		return reposdb.Repo{}, false
 	}
 	row, err := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, id)
