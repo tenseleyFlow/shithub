@@ -23,6 +23,15 @@
 --   * Variables remain plaintext (4096 char cap from the parent
 --     migration); no schema change beyond the new owner column.
 --
+-- Down-migration note (PRO-EXT_SR-03):
+--   This migration's Down DELETES any user-scope rows in
+--   workflow_secrets and actions_variables. The data is unrecoverable.
+--   Operators rolling back should snapshot the affected tables first
+--   if they want to preserve user-scope secrets/variables for re-
+--   application after the upgrade. The explicit DELETE prevents the
+--   tighter (repo,org)-only XOR constraint from failing to apply
+--   against rows where user_id IS NOT NULL.
+--
 -- +goose Up
 ALTER TABLE workflow_secrets
     ADD COLUMN user_id bigint REFERENCES users(id) ON DELETE CASCADE;
@@ -51,7 +60,12 @@ CREATE UNIQUE INDEX actions_variables_user_name_idx
     ON actions_variables (user_id, name) WHERE user_id IS NOT NULL;
 
 -- +goose Down
+-- Order matters: DELETE user-scope rows BEFORE re-applying the
+-- 2-way XOR; otherwise the constraint validation fails on existing
+-- rows where user_id IS NOT NULL. The DELETEs are the explicit
+-- destruction noted in the header — see the runbook comment above.
 DROP INDEX IF EXISTS actions_variables_user_name_idx;
+DELETE FROM actions_variables WHERE user_id IS NOT NULL;
 ALTER TABLE actions_variables DROP CONSTRAINT actions_variables_owner_xor;
 ALTER TABLE actions_variables ADD CONSTRAINT actions_variables_owner_xor CHECK (
     (repo_id IS NOT NULL AND org_id IS NULL) OR
@@ -60,6 +74,7 @@ ALTER TABLE actions_variables ADD CONSTRAINT actions_variables_owner_xor CHECK (
 ALTER TABLE actions_variables DROP COLUMN user_id;
 
 DROP INDEX IF EXISTS workflow_secrets_user_name_idx;
+DELETE FROM workflow_secrets WHERE user_id IS NOT NULL;
 ALTER TABLE workflow_secrets DROP CONSTRAINT workflow_secrets_owner_xor;
 ALTER TABLE workflow_secrets ADD CONSTRAINT workflow_secrets_owner_xor CHECK (
     (repo_id IS NOT NULL AND org_id IS NULL) OR
