@@ -87,6 +87,12 @@ const (
 	// keep cross-repo plain-text search; the gate only fences the new
 	// Pro features (named saved queries + regex search).
 	FeatureAdvancedCodeSearch Feature = "advanced_code_search"
+	// FeatureContributionPrivacy gates Pro-only contribution-graph
+	// controls beyond the gh-parity master toggle: per-repo opt-outs
+	// that let a Pro user exclude specific repos from their public
+	// heatmap. PRO-EXT01-09. Kinds: user only. The existing
+	// users.include_private_contributions toggle remains Free.
+	FeatureContributionPrivacy Feature = "contribution_privacy"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -184,6 +190,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
 	FeatureScheduledIssues:          {billing.SubjectKindUser},
 	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
+	FeatureContributionPrivacy:      {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
