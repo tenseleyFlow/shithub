@@ -25,6 +25,9 @@ type Querier interface {
 	// the caller should reject the code.
 	BumpTOTPCounter(ctx context.Context, db DBTX, arg BumpTOTPCounterParams) (int64, error)
 	BumpUserSessionEpoch(ctx context.Context, db DBTX, id int64) error
+	// Idempotent: only flips status when still pending. Caller scopes by
+	// user_id so a misaddressed id is a no-op.
+	CancelScheduledIssue(ctx context.Context, db DBTX, arg CancelScheduledIssueParams) error
 	// Sets confirmed_at on a pending row. Returns the number of rows updated;
 	// callers MUST check this to handle the parallel-enrollment race
 	// (only one of two concurrent confirms wins).
@@ -36,6 +39,7 @@ type Querier interface {
 	// 0 means rejected.
 	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountActiveUserTokens(ctx context.Context, db DBTX, userID int64) (int64, error)
+	CountPendingScheduledIssuesForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// Drives the 3-changes-per-60d cap.
 	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
 	CountSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
@@ -86,6 +90,13 @@ type Querier interface {
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
 	// Scoped by user_id so an id-guess from another user is a no-op.
 	GetSavedReply(ctx context.Context, db DBTX, arg GetSavedReplyParams) (UserSavedReply, error)
+	// Scoped by user_id for handler-side cancel/view; the worker calls
+	// GetScheduledIssueByID below (no user_id filter, since the worker is
+	// system-level).
+	GetScheduledIssue(ctx context.Context, db DBTX, arg GetScheduledIssueParams) (UserScheduledIssue, error)
+	// Worker-only: no user_id filter. The worker uses status to decide
+	// whether to short-circuit (cancelled / already created).
+	GetScheduledIssueByID(ctx context.Context, db DBTX, id int64) (UserScheduledIssue, error)
 	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error)
 	GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error)
@@ -141,6 +152,12 @@ type Querier interface {
 	// PRO-EXT01-07a: saved replies.
 	InsertSavedReply(ctx context.Context, db DBTX, arg InsertSavedReplyParams) (UserSavedReply, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-07b: scheduled issues. The settings page reads
+	// (Pending, Recent) lists; the worker handler reads a single row by
+	// id at job time.
+	InsertScheduledIssue(ctx context.Context, db DBTX, arg InsertScheduledIssueParams) (UserScheduledIssue, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Inserts a parsed primary GPG key. Subkeys land in user_gpg_subkeys
 	// in the same transaction (see InsertUserGPGSubkey). expires_at is
 	// nullable; many keys have no expiration. revoked_at stays NULL on
@@ -174,6 +191,9 @@ type Querier interface {
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) ([]UserSavedReply, error)
+	// Settings page: pending first (sorted by schedule_at), then recent
+	// non-pending. Limit prevents an unbounded scan in pathological data.
+	ListScheduledIssuesForUser(ctx context.Context, db DBTX, userID int64) ([]UserScheduledIssue, error)
 	// Reads all live subkeys for one primary; used when invalidating the
 	// verification cache on primary soft-delete (every dependent subkey
 	// needs its cache rows stamped invalidated too).
@@ -195,6 +215,8 @@ type Querier interface {
 	// Resolve an old username to the current username via the user_id FK.
 	// Returns ErrNoRows when no redirect exists.
 	LookupUsernameRedirect(ctx context.Context, db DBTX, oldUsername string) (LookupUsernameRedirectRow, error)
+	MarkScheduledIssueCreated(ctx context.Context, db DBTX, arg MarkScheduledIssueCreatedParams) error
+	MarkScheduledIssueFailed(ctx context.Context, db DBTX, arg MarkScheduledIssueFailedParams) error
 	// Called after MarkUserEmailVerified for the primary email, to flip the
 	// denormalized users.email_verified flag.
 	MarkUserEmailPrimaryVerified(ctx context.Context, db DBTX, id int64) error
