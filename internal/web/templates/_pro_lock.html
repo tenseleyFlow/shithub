@@ -1,0 +1,13 @@
+{{/*
+  pro-lock-cta renders the "Upgrade to Pro" inline link that goes
+  inside any Free-locked control. Gate sites wrap their disabled
+  control with `<span class="shithub-pro-lock" data-pro-feature="...">`
+  and embed this CTA so users have a one-click upgrade path.
+
+  Argument is the feature slug used for the data-pro-feature attribute
+  on the surrounding wrapper. The slug is passed in so PRO-EXT01-17's
+  conversion telemetry can attribute upgrade-clicks per feature.
+*/}}
+{{ define "pro-lock-cta" -}}
+<a class="shithub-pro-lock-cta" href="/settings/billing" data-pro-feature="{{ . }}" aria-label="Upgrade to Pro to enable this feature">{{ template "pro-badge" true }}</a>
+{{- end }}
