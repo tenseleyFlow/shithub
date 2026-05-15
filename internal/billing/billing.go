@@ -117,6 +117,26 @@ type TeamLicenseState struct {
 	SeatSnapshotAt           pgtype.Timestamptz
 }
 
+func IsTeamPlan(plan Plan) bool {
+	return plan == PlanTeam
+}
+
+func IsTeamState(state State) bool {
+	return IsTeamPlan(state.Plan)
+}
+
+func IsTeamLicenseState(state TeamLicenseState) bool {
+	return IsTeamPlan(state.Plan)
+}
+
+func IsUserPlanUnset(plan UserPlan) bool {
+	return plan == ""
+}
+
+func IsProUserPlan(plan UserPlan) bool {
+	return plan == UserPlanPro
+}
+
 type WebhookEvent struct {
 	ProviderEventID string
 	EventType       string
@@ -708,6 +728,16 @@ func CountBillableOrgMembers(ctx context.Context, deps Deps, orgID int64) (int, 
 		return 0, err
 	}
 	return int(n), nil
+}
+
+func ListTeamSeatConsumers(ctx context.Context, deps Deps, orgID int64) ([]billingdb.ListTeamSeatConsumersRow, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if orgID == 0 {
+		return nil, ErrOrgIDRequired
+	}
+	return billingdb.New().ListTeamSeatConsumers(ctx, deps.Pool, orgID)
 }
 
 func CountPendingOrgInvitations(ctx context.Context, deps Deps, orgID int64) (int, error) {

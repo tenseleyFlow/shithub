@@ -69,6 +69,7 @@ type Querier interface {
 	ListOrgQuotaOverrides(ctx context.Context, db DBTX, orgID int64) ([]OrgQuotaOverride, error)
 	ListOrgUsageSnapshots(ctx context.Context, db DBTX, arg ListOrgUsageSnapshotsParams) ([]OrgUsageSnapshot, error)
 	ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg ListSeatSnapshotsForOrgParams) ([]BillingSeatSnapshot, error)
+	ListTeamSeatConsumers(ctx context.Context, db DBTX, orgID int64) ([]ListTeamSeatConsumersRow, error)
 	MarkCanceled(ctx context.Context, db DBTX, arg MarkCanceledParams) (MarkCanceledRow, error)
 	// PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
 	// the invoice.status='paid' after a refund and fires a charge.refunded

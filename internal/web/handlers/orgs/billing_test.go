@@ -151,6 +151,13 @@ func TestOrgBillingSettingsRequiresOwner(t *testing.T) {
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("settings status=%d body=%s", resp.Code, resp.Body.String())
 	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing/licensing", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("licensing status=%d body=%s", resp.Code, resp.Body.String())
+	}
 }
 
 func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
@@ -193,6 +200,233 @@ func TestOrgBillingSettingsRendersSeatBreakdownAndHidesStripeIDs(t *testing.T) {
 	}
 	if strings.Contains(body, "cus_owner_secret") {
 		t.Fatalf("owner billing page leaked Stripe customer id: %s", body)
+	}
+}
+
+func TestOrgBillingLicensingRendersSeatConsumersAndActions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	memberID := insertOrgAvatarUser(t, pool, "member")
+	if _, err := pool.Exec(ctx, `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'member')`, orgID, memberID); err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_licensing",
+		StripeSubscriptionItemID: "si_licensing",
+		LicensedSeats:            4,
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	insertBillingPendingInvitation(t, pool, orgID, "pending@example.com", []byte{5, 6, 7})
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing/licensing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("licensing status=%d body=%s", resp.Code, body)
+	}
+	for _, want := range []string{
+		"LICENSE=2/4/2/1;",
+		"CONSUMER=owner:Owner;",
+		"CONSUMER=member:Member;",
+		"PENDING=pending@example.com;",
+		"ADD=true;REMOVE=true;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("licensing missing %q in body %s", want, body)
+		}
+	}
+}
+
+func TestOrgBillingAddSeatsUpdatesStripeQuantity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_add",
+		StripeSubscriptionItemID: "si_add",
+		LicensedSeats:            2,
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	var updated int64
+	fake := &fakeStripeRemote{
+		updateQuantityFn: func(_ context.Context, in stripebilling.SeatQuantityInput) error {
+			if in.SubscriptionItemID != "si_add" {
+				t.Fatalf("subscription item = %q", in.SubscriptionItemID)
+			}
+			updated = in.Quantity
+			return nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/billing/seats/add", url.Values{
+		"additional_seats": {"2"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("add seats status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/organizations/acme/settings/billing/licensing?notice=seats-added" {
+		t.Fatalf("add redirect=%q", got)
+	}
+	if updated != 4 {
+		t.Fatalf("stripe quantity = %d, want 4", updated)
+	}
+	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState: %v", err)
+	}
+	if state.LicensedSeats != 4 || state.UsedSeats != 1 || state.AvailableSeats != 3 {
+		t.Fatalf("unexpected license state: %+v", state)
+	}
+}
+
+func TestOrgBillingRemoveSeatsRejectsBelowUsedAndHidesWhenUnavailable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	memberID := insertOrgAvatarUser(t, pool, "member")
+	if _, err := pool.Exec(ctx, `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'member')`, orgID, memberID); err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_remove",
+		StripeSubscriptionItemID: "si_remove",
+		LicensedSeats:            4,
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	var updateCalls int
+	fake := &fakeStripeRemote{
+		updateQuantityFn: func(_ context.Context, in stripebilling.SeatQuantityInput) error {
+			updateCalls++
+			if in.Quantity != 2 {
+				t.Fatalf("stripe quantity = %d, want 2", in.Quantity)
+			}
+			return nil
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/billing/seats/remove", url.Values{
+		"remove_seats": {"3"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("invalid remove status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "ERROR=Licensed seats cannot be reduced below the number of people consuming seats.") {
+		t.Fatalf("invalid remove did not explain used-seat floor: %s", resp.Body.String())
+	}
+	if updateCalls != 0 {
+		t.Fatalf("stripe update called for invalid removal")
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/billing/seats/remove", url.Values{
+		"remove_seats": {"2"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("valid remove status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if updateCalls != 1 {
+		t.Fatalf("stripe update calls = %d, want 1", updateCalls)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing/seats/remove", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("remove with no available seats status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestOrgBillingAddSeatsUnavailableForFreeOrg(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing/seats/add", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("free add seats status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestOrgInviteFullTeamLinksToAddSeats(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	insertOrgAvatarUser(t, pool, "member")
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_full",
+		StripeSubscriptionItemID: "si_full",
+		LicensedSeats:            1,
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/acme/people/invite", url.Values{
+		"target": {"member"},
+		"role":   {"member"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("invite status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/people?notice=team-seat-limit" {
+		t.Fatalf("invite redirect=%q", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodGet, "/acme/people?notice=team-seat-limit", nil)
+	mux.ServeHTTP(resp, req)
+	if !strings.Contains(resp.Body.String(), "ACTION=Add seats|/organizations/acme/settings/billing/seats/add;") {
+		t.Fatalf("people notice did not link add seats: %s", resp.Body.String())
 	}
 }
 
@@ -815,12 +1049,15 @@ func newOrgBillingMuxForUser(t *testing.T, pool *pgxpool.Pool, viewer middleware
 func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser, remote stripebilling.Remote, teamPriceID, proPriceID string) *chi.Mux {
 	t.Helper()
 	tmplFS := fstest.MapFS{
-		"_layout.html":               {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
-		"orgs/billing_result.html":   {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
-		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
-		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
-		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
+		"_layout.html":                         {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
+		"orgs/billing_result.html":             {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
+		"orgs/settings_billing.html":           {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing_licensing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}LICENSE={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Consumers }}CONSUMER={{ .Username }}:{{ .RoleLabel }};{{ end }}{{ range .PendingInvites }}PENDING={{ .Target }};{{ end }}ADD={{ .SeatMenu.CanAddSeats }};REMOVE={{ .SeatMenu.CanRemove }};{{ end }}`)},
+		"orgs/settings_billing_seats.html":     {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}FORM={{ .Form.Mode }};CURRENT={{ .Form.CurrentSeats }};USED={{ .Form.UsedSeats }};AVAILABLE={{ .Form.AvailableSeats }};NEW={{ .Form.NewTotal }};CAN={{ .Form.CanSubmit }};PRORATION={{ .Form.ProrationLabel }};{{ end }}`)},
+		"orgs/people.html":                     {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }};{{ end }}{{ if .NoticeActionHref }}ACTION={{ .NoticeActionText }}|{{ .NoticeActionHref }};{{ end }}{{ end }}`)},
+		"errors/403.html":                      {Data: []byte(`{{ define "page" }}403{{ end }}`)},
+		"errors/404.html":                      {Data: []byte(`{{ define "page" }}404{{ end }}`)},
+		"errors/500.html":                      {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
 	rr, err := render.New(tmplFS, render.Options{})
 	if err != nil {
@@ -850,6 +1087,7 @@ func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cu
 		})
 	})
 	h.MountCreate(mux)
+	h.MountOrgRoutes(mux)
 	h.MountBillingWebhook(mux)
 	return mux
 }

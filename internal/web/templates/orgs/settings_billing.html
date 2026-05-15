@@ -23,7 +23,7 @@
       {{ end }}{{ end }}
 
       <div class="Subhead">
-        <h2 class="Subhead-heading Subhead-heading--large">Billing and plans</h2>
+        <h2 class="Subhead-heading Subhead-heading--large">Billing and licensing</h2>
       </div>
 
       <section class="shithub-org-settings-section" aria-labelledby="org-billing-summary-heading">
@@ -45,7 +45,10 @@
 
       <section class="shithub-org-settings-section" aria-labelledby="org-billing-seats-heading">
         <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
-          <h2 id="org-billing-seats-heading" class="Subhead-heading">Seats</h2>
+          <h2 id="org-billing-seats-heading" class="Subhead-heading">Licensing</h2>
+          <div class="Subhead-actions">
+            <a class="shithub-button" href="/organizations/{{ .Org.Slug }}/settings/billing/licensing">View licensing</a>
+          </div>
         </div>
         <div class="Box">
           <div class="Box-body p-0">
@@ -145,7 +148,7 @@
             {{ else if .CanManageSubscription }}
             <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/portal">
               <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-              <button type="submit" class="shithub-button">Manage or cancel</button>
+              <button type="submit" class="shithub-button">Manage payment method</button>
             </form>
             {{ else if .CanStartCheckout }}
             <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/checkout">

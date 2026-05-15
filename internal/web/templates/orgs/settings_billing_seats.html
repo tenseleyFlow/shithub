@@ -1,0 +1,68 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+      {{ with .BillingAlert }}{{ if .Message }}
+      <p class="shithub-flash {{ .Class }}" role="status">
+        {{ .Message }}
+        {{ if .ActionHref }}<a href="{{ .ActionHref }}">{{ .ActionText }}</a>{{ end }}
+      </p>
+      {{ end }}{{ end }}
+
+      <nav class="shithub-billing-breadcrumb" aria-label="Billing">
+        <a href="{{ .BillingPath }}">Billing and licensing</a>
+        <span>/</span>
+        <a href="{{ .LicensingPath }}">Licensing</a>
+        <span>/</span>
+        <strong>{{ .Form.Heading }}</strong>
+      </nav>
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">{{ .Form.Heading }}</h2>
+        <div class="Subhead-description">{{ .Form.Description }}</div>
+      </div>
+
+      <section class="Box shithub-seat-change-box">
+        <form method="POST" action="{{ .Form.Action }}" class="shithub-seat-change-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <div class="shithub-seat-change-grid">
+            <label>
+              <span>{{ .Form.InputLabel }}</span>
+              <input type="number" name="{{ .Form.InputName }}" min="1" step="1" value="{{ .Form.ChangeSeats }}" inputmode="numeric" required>
+              <small>{{ .Form.InputHelp }}</small>
+            </label>
+            <div class="shithub-seat-change-summary">
+              <dl>
+                <div><dt>Current seats</dt><dd>{{ .Form.CurrentSeats }}</dd></div>
+                <div><dt>Used seats</dt><dd>{{ .Form.UsedSeats }}</dd></div>
+                <div><dt>Available seats</dt><dd>{{ .Form.AvailableSeats }}</dd></div>
+                <div><dt>New total</dt><dd>{{ .Form.NewTotal }}</dd></div>
+                <div><dt>Monthly change</dt><dd>{{ .Form.MonthlyDeltaLabel }}</dd></div>
+                <div><dt>Current period</dt><dd>{{ .Form.ProrationLabel }}</dd></div>
+                <div><dt>Next bill</dt><dd>{{ .Form.NextBillLabel }}</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="shithub-seat-change-actions">
+            <a class="shithub-button" href="{{ .LicensingPath }}">Cancel</a>
+            <button type="submit" class="shithub-button shithub-button-primary" {{ if not .Form.CanSubmit }}disabled{{ end }}>{{ .Form.SubmitLabel }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

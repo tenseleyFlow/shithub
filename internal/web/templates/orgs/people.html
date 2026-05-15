@@ -28,7 +28,12 @@
     </aside>
 
     <div class="shithub-org-people-main">
-      {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+      {{ with .Notice }}
+      <p class="shithub-flash shithub-flash-notice" role="status">
+        {{ . }}
+        {{ if $.NoticeActionHref }}<a href="{{ $.NoticeActionHref }}">{{ $.NoticeActionText }}</a>{{ end }}
+      </p>
+      {{ end }}
       <div class="shithub-org-people-toolbar">
         <form method="GET" action="/{{ .Org.Slug }}/people" class="shithub-org-people-search" role="search">
           {{ octicon "search" }}

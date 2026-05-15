@@ -387,6 +387,39 @@ PAYMENTS SP10 makes paid launch operationally supportable:
   live under `shithubd-billing` in
   `deploy/monitoring/prometheus/rules.yml`.
 
+PAYMENTS SP15 adds the GitHub-shaped Billing and licensing management
+surface for Team seats:
+
+- Organization settings labels the billing area "Billing and
+  licensing". `/organizations/{org}/settings/billing` remains the
+  owner-only current-plan overview and links to Stripe Billing Portal
+  only for payment method, invoice, and cancellation tasks.
+- `/organizations/{org}/settings/billing/licensing` is the local
+  licensing surface. It shows licensed seats, used seats, available
+  seats, pending invitations, and the organization members currently
+  consuming seats. Owners get a Team banner with an Edit menu for Add
+  seats and Remove seats.
+- `/organizations/{org}/settings/billing/seats/add` and
+  `/organizations/{org}/settings/billing/seats/remove` are explicit
+  confirmation flows. They show the current seat count, used seats,
+  available seats, new total, estimated monthly delta, a local
+  current-period estimate, and the next monthly total before submit.
+- Seat changes are available only for Team organizations with an
+  active or trialing local subscription state and a Stripe subscription
+  item ID. The handler updates Stripe subscription-item quantity first
+  and writes local licensed seats only after Stripe accepts the change.
+- Remove seats is hidden/denied when there are no unassigned seats and
+  rejects any reduction below current used seats.
+- When a Team owner tries to invite a member and no seats are
+  available, the People page shows a blocker linking directly to Add
+  seats. Pending invitations are still displayed separately and are not
+  counted as used seats until invitation-seat charging is explicitly
+  implemented.
+- SP16 owns exact Stripe invoice previews, explicit proration
+  collection behavior, and Stripe/local drift repair. SP15's
+  current-period amount is a local estimate for user orientation, not a
+  substitute for the SP16 Stripe preview contract.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not

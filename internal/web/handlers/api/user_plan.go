@@ -96,7 +96,7 @@ func buildUserPlanResponse(set entitlements.Set) userPlanResponse {
 		Features:          features,
 		Limits:            map[string]int64{"profile_pins": pinCap},
 	}
-	if state.Plan == "" {
+	if billing.IsUserPlanUnset(state.Plan) {
 		resp.Plan = "free"
 	}
 	if state.SubscriptionStatus == "" {
