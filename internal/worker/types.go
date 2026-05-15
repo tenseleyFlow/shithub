@@ -63,6 +63,16 @@ const (
 	KindRepoTemplateInit Kind = "repo:template_init"
 )
 
+// PRO-EXT01-07b scheduled-issue kind. scheduled_issue:create fires at
+// the scheduled time, reads the user_scheduled_issues row by id, and
+// calls issues.Create to materialize the real issue. The job's run_at
+// is set to the row's schedule_at at enqueue time; the worker
+// short-circuits if status is no longer 'pending' (cancelled or
+// already-created).
+const (
+	KindScheduledIssueCreate Kind = "scheduled_issue:create"
+)
+
 // S28 code-search kinds. index_code re-indexes a repo's default
 // branch (paths + content). Enqueued by push:process when the
 // default branch advances; also by index_reconcile when drift
