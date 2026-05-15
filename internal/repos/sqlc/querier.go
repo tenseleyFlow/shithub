@@ -37,6 +37,12 @@ type Querier interface {
 	CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRepoParams) (Repo, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams) (Repo, error)
+	// PRO-EXT01-06pre-b: insert a template-init shell. Mirrors
+	// CreateForkRepo's `init_status='init_pending'` semantics so the
+	// worker can flip to 'initialized' once the clone finishes, but
+	// WITHOUT setting fork_of_repo_id — the new repo is independent
+	// of the template (no alternates, no fork-count bump).
+	CreateRepoFromTemplate(ctx context.Context, db DBTX, arg CreateRepoFromTemplateParams) (Repo, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
 	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
 	// Used by tests to reset cache state between cases. Not called from
