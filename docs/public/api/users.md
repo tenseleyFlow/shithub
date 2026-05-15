@@ -43,6 +43,56 @@ authenticating PAT.
 
 > **Planned.** `GET /api/v1/users/{username}` is not shipped yet.
 
+## Get the authenticated user's plan
+
+```
+GET /api/v1/user/plan
+```
+
+Required scope: `user:read`.
+
+Returns the authenticated user's local plan and entitlement projection.
+Free accounts receive the same response shape as Pro accounts, with
+locked features marked as `allowed: false` and Free limits populated so
+clients can render plan-aware UI from one response.
+
+### Response
+
+```json
+{
+  "plan": "free",
+  "status": "none",
+  "current_period_end": null,
+  "cancel_at_period_end": false,
+  "grace_until": null,
+  "features": {
+    "profile_pins_beyond_free": { "allowed": false },
+    "required_reviewers": { "allowed": false }
+  },
+  "limits": {
+    "profile_pins": 6
+  }
+}
+```
+
+| Field                  | Type   | Notes                                      |
+|------------------------|--------|--------------------------------------------|
+| `plan`                 | string | `free` or `pro`.                           |
+| `status`               | string | Local subscription status, or `none`.      |
+| `current_period_end`   | string | RFC 3339 timestamp, or `null`.             |
+| `cancel_at_period_end` | bool   | Whether cancellation is scheduled.         |
+| `grace_until`          | string | RFC 3339 timestamp for grace, or `null`.   |
+| `features`             | object | Feature keys mapped to `{ "allowed": … }`. |
+| `limits`               | object | Numeric plan limits such as profile pins.  |
+
+### Errors
+
+| Status | When                                |
+|-------:|-------------------------------------|
+|    401 | PAT missing/invalid/expired/revoked. |
+|    403 | PAT lacks `user:read` scope.         |
+|    500 | Local entitlement projection failed. |
+
 ## Update the authenticated user
 
 > **Planned.** `PATCH /api/v1/user` is not shipped yet.
