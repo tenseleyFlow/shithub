@@ -202,6 +202,17 @@ type EnforceConfig struct {
 	// default → report-only (the would-deny is logged + the scan runs).
 	// PRO-EXT01-10b; promoted in PRO-EXT01-17.
 	UserSecretScanHistory bool `toml:"user_secret_scan_history"`
+	// UserFineGrainedPATs: when true, Free users are blocked from
+	// *attaching* PAT restrictions (IP allowlist now; repo binding in
+	// 11b). Off by default → report-only (the restriction lands but the
+	// would-deny is logged). 14-day soak before PRO-EXT01-17 flip
+	// (longer than the campaign default 7) — credential-escalation
+	// blast radius if the gate has a bug.
+	//
+	// NOTE: this flag governs the WRITE path. The middleware ALWAYS
+	// enforces an IP allowlist that exists on a token, regardless of
+	// enforce mode — once the user has expressed intent, we honor it.
+	UserFineGrainedPATs bool `toml:"user_fine_grained_pats"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
