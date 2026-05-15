@@ -2891,6 +2891,16 @@ type RunnerToken struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type SecretScanAllowlist struct {
+	ID        int64
+	RepoID    int64
+	Pattern   string
+	Path      string
+	Reason    string
+	CreatedBy pgtype.Int8
+	CreatedAt pgtype.Timestamptz
+}
+
 type SecretScanFinding struct {
 	ID             int64
 	RepoID         int64
