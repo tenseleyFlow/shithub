@@ -79,6 +79,25 @@
   })();
 
   (function () {
+    document.querySelectorAll("[data-team-seat-calculator]").forEach(function (root) {
+      var input = root.querySelector("[data-team-seat-input]");
+      var count = root.querySelector("[data-team-seat-count]");
+      var total = root.querySelector("[data-team-seat-total]");
+      var price = Number(root.getAttribute("data-seat-price-usd") || "4");
+      if (!input || !count || !total || !price) return;
+      function update() {
+        var seats = Number(input.value || "1");
+        if (!Number.isFinite(seats) || seats < 1) seats = 1;
+        seats = Math.floor(seats);
+        count.textContent = String(seats);
+        total.textContent = "$" + String(seats * price);
+      }
+      input.addEventListener("input", update);
+      update();
+    });
+  })();
+
+  (function () {
     var drawer = document.querySelector("[data-offcanvas]");
     var opener = document.querySelector("[data-offcanvas-open]");
     if (!drawer || !opener) return;

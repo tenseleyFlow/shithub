@@ -1158,6 +1158,15 @@ code {
 .shithub-org-setup .shithub-org-plan-kicker {
   text-align: left;
 }
+.shithub-org-seat-count small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+.shithub-org-seat-count strong {
+  color: var(--fg-default);
+}
 .shithub-org-owner-choice,
 .shithub-org-import-create {
   display: grid;

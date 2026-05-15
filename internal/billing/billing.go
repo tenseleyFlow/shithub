@@ -83,6 +83,7 @@ type SubscriptionSnapshot struct {
 	Status                   SubscriptionStatus
 	StripeSubscriptionID     string
 	StripeSubscriptionItemID string
+	LicensedSeats            int
 	CurrentPeriodStart       time.Time
 	CurrentPeriodEnd         time.Time
 	CancelAtPeriodEnd        bool
@@ -219,12 +220,16 @@ func ApplySubscriptionSnapshot(ctx context.Context, deps Deps, snap Subscription
 	if !validStatus(snap.Status) {
 		return State{}, fmt.Errorf("%w: %q", ErrInvalidStatus, snap.Status)
 	}
+	if snap.LicensedSeats < 0 {
+		return State{}, ErrInvalidSeatCount
+	}
 	row, err := billingdb.New().ApplySubscriptionSnapshot(ctx, deps.Pool, billingdb.ApplySubscriptionSnapshotParams{
 		OrgID:                    snap.OrgID,
 		Plan:                     snap.Plan,
 		SubscriptionStatus:       snap.Status,
 		StripeSubscriptionID:     pgText(snap.StripeSubscriptionID),
 		StripeSubscriptionItemID: pgText(snap.StripeSubscriptionItemID),
+		LicensedSeats:            int32(snap.LicensedSeats),
 		CurrentPeriodStart:       pgTime(snap.CurrentPeriodStart),
 		CurrentPeriodEnd:         pgTime(snap.CurrentPeriodEnd),
 		CancelAtPeriodEnd:        snap.CancelAtPeriodEnd,
@@ -537,6 +542,65 @@ func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billin
 		return billingdb.BillingSeatSnapshot{}, err
 	}
 	return billingdb.BillingSeatSnapshot(row), nil
+}
+
+func DefaultTeamCheckoutLicensedSeats(ctx context.Context, deps Deps, orgID int64) (int, error) {
+	if err := validateDeps(deps); err != nil {
+		return 0, err
+	}
+	if orgID == 0 {
+		return 0, ErrOrgIDRequired
+	}
+	state, err := GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		return 0, err
+	}
+	usage, err := ComputeTeamSeatUsage(ctx, deps, orgID)
+	if err != nil {
+		return 0, err
+	}
+	seats := int(state.LicensedSeats)
+	if seats < usage.UsedSeats {
+		seats = usage.UsedSeats
+	}
+	if seats < 1 {
+		seats = 1
+	}
+	return seats, nil
+}
+
+func RecordPendingTeamCheckoutSeats(ctx context.Context, deps Deps, orgID int64, licensedSeats int) (billingdb.BillingSeatSnapshot, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingSeatSnapshot{}, err
+	}
+	if orgID == 0 {
+		return billingdb.BillingSeatSnapshot{}, ErrOrgIDRequired
+	}
+	if licensedSeats < 1 {
+		return billingdb.BillingSeatSnapshot{}, ErrInvalidSeatCount
+	}
+	usage, err := ComputeTeamSeatUsage(ctx, deps, orgID)
+	if err != nil {
+		return billingdb.BillingSeatSnapshot{}, err
+	}
+	if licensedSeats < usage.UsedSeats {
+		return billingdb.BillingSeatSnapshot{}, ErrSeatCountBelowUsage
+	}
+	state, err := GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		return billingdb.BillingSeatSnapshot{}, err
+	}
+	subscriptionID := ""
+	if state.StripeSubscriptionID.Valid {
+		subscriptionID = state.StripeSubscriptionID.String
+	}
+	return SyncSeatSnapshot(ctx, deps, SeatSnapshot{
+		OrgID:                orgID,
+		StripeSubscriptionID: subscriptionID,
+		LicensedSeats:        licensedSeats,
+		UsedSeats:            usage.UsedSeats,
+		Source:               "checkout",
+	})
 }
 
 func ComputeTeamSeatUsage(ctx context.Context, deps Deps, orgID int64) (TeamSeatUsage, error) {

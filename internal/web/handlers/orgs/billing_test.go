@@ -476,6 +476,7 @@ func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) 
 		"metadata":             map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
 		"items": map[string]any{"data": []map[string]any{{
 			"id":                   "si_test_webhook",
+			"quantity":             int64(5),
 			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
 			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
 		}}},
@@ -514,6 +515,9 @@ func TestOrgBillingWebhookProcessesSubscriptionAndStaysIdempotent(t *testing.T) 
 	}
 	if !state.StripeSubscriptionID.Valid || state.StripeSubscriptionID.String != "sub_test" {
 		t.Fatalf("expected subscription id saved, got %+v", state.StripeSubscriptionID)
+	}
+	if state.LicensedSeats != 5 || state.UsedSeats != 1 {
+		t.Fatalf("expected subscription quantity to persist as licensed seats, got licensed=%d used=%d", state.LicensedSeats, state.UsedSeats)
 	}
 	receipt, err := billingdb.New().GetWebhookEventReceipt(ctx, pool, "evt_sub_active")
 	if err != nil {

@@ -170,6 +170,7 @@ type PrincipalSubscriptionSnapshot struct {
 	Status                   SubscriptionStatus
 	StripeSubscriptionID     string
 	StripeSubscriptionItemID string
+	LicensedSeats            int
 	CurrentPeriodStart       time.Time
 	CurrentPeriodEnd         time.Time
 	CancelAtPeriodEnd        bool
@@ -192,6 +193,9 @@ func ApplySubscriptionSnapshotForPrincipal(ctx context.Context, deps Deps, snap 
 	if !validStatus(snap.Status) {
 		return PrincipalState{}, fmt.Errorf("%w: %q", ErrInvalidStatus, snap.Status)
 	}
+	if snap.LicensedSeats < 0 {
+		return PrincipalState{}, ErrInvalidSeatCount
+	}
 	q := billingdb.New()
 	switch snap.Principal.Kind {
 	case SubjectKindOrg:
@@ -201,6 +205,7 @@ func ApplySubscriptionSnapshotForPrincipal(ctx context.Context, deps Deps, snap 
 			SubscriptionStatus:       snap.Status,
 			StripeSubscriptionID:     pgText(snap.StripeSubscriptionID),
 			StripeSubscriptionItemID: pgText(snap.StripeSubscriptionItemID),
+			LicensedSeats:            int32(snap.LicensedSeats),
 			CurrentPeriodStart:       pgTime(snap.CurrentPeriodStart),
 			CurrentPeriodEnd:         pgTime(snap.CurrentPeriodEnd),
 			CancelAtPeriodEnd:        snap.CancelAtPeriodEnd,

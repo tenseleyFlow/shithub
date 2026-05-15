@@ -130,7 +130,16 @@ func (h *Handlers) billingCheckout(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
-	sessionURL, err := h.startBillingCheckout(r, org)
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	seatCount, err := h.checkoutSeatCountFromRequest(r, org.ID)
+	if err != nil {
+		h.renderSettingsBilling(w, r, org, "Choose at least 1 licensed seat for Team.", "")
+		return
+	}
+	sessionURL, err := h.startBillingCheckout(r, org, seatCount)
 	if err != nil {
 		metrics.BillingCheckoutSessionsTotal.WithLabelValues("org", "failure").Inc()
 		h.d.Logger.ErrorContext(r.Context(), "org billing: create checkout", "org_id", org.ID, "error", err)
@@ -141,7 +150,15 @@ func (h *Handlers) billingCheckout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, sessionURL, http.StatusSeeOther)
 }
 
-func (h *Handlers) startBillingCheckout(r *http.Request, org orgsdb.Org) (string, error) {
+func (h *Handlers) checkoutSeatCountFromRequest(r *http.Request, orgID int64) (int, error) {
+	raw := strings.TrimSpace(r.PostFormValue("seat_count"))
+	if raw == "" {
+		return orgbilling.DefaultTeamCheckoutLicensedSeats(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgID)
+	}
+	return parseTeamSeatCount(raw)
+}
+
+func (h *Handlers) startBillingCheckout(r *http.Request, org orgsdb.Org, seatCount int) (string, error) {
 	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
 		return "", fmt.Errorf("load billing state: %w", err)
@@ -150,15 +167,14 @@ func (h *Handlers) startBillingCheckout(r *http.Request, org orgsdb.Org) (string
 	if err != nil {
 		return "", fmt.Errorf("ensure stripe customer: %w", err)
 	}
-	seats, err := orgbilling.CountBillableOrgMembers(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
-	if err != nil {
-		return "", fmt.Errorf("count current organization members: %w", err)
+	if _, err := orgbilling.RecordPendingTeamCheckoutSeats(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, seatCount); err != nil {
+		return "", fmt.Errorf("record pending team seats: %w", err)
 	}
 	session, err := h.d.Stripe.CreateCheckoutSession(r.Context(), stripebilling.CheckoutInput{
 		OrgID:      org.ID,
 		OrgSlug:    org.Slug,
 		CustomerID: state.StripeCustomerID.String,
-		SeatCount:  int64(seats),
+		SeatCount:  int64(seatCount),
 		SuccessURL: h.billingReturnURL(org.Slug, h.d.StripeSuccessURL, "/organizations/"+org.Slug+"/billing/success"),
 		CancelURL:  h.billingReturnURL(org.Slug, h.d.StripeCancelURL, "/organizations/"+org.Slug+"/billing/cancel"),
 	})
@@ -290,20 +306,30 @@ const (
 
 func (h *Handlers) renderBillingResult(w http.ResponseWriter, r *http.Request, org orgsdb.Org, result string) {
 	heading := "Checkout complete"
-	message := "Stripe accepted the checkout session. Team activation finishes after shithub receives and processes the signed Stripe webhook."
+	seatCount, err := orgbilling.DefaultTeamCheckoutLicensedSeats(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: load pending checkout seats", "org_id", org.ID, "error", err)
+		seatCount = 1
+	}
+	seatNoun := "seat"
+	if seatCount != 1 {
+		seatNoun = "seats"
+	}
+	message := fmt.Sprintf("Stripe accepted checkout for %d licensed %s. Team activation finishes after shithub receives and processes the signed Stripe webhook.", seatCount, seatNoun)
 	if result == billingResultCanceled {
 		heading = "Checkout canceled"
-		message = "No Team subscription was activated. The organization stays on Free until checkout is completed."
+		message = fmt.Sprintf("No Team subscription was activated. The organization stays on Free; checkout can be resumed for %d licensed %s.", seatCount, seatNoun)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/billing_result", map[string]any{
-		"Title":       heading,
-		"CSRFToken":   middleware.CSRFTokenForRequest(r),
-		"Org":         org,
-		"AvatarURL":   "/avatars/" + url.PathEscape(org.Slug),
-		"Result":      result,
-		"Heading":     heading,
-		"Message":     message,
-		"BillingPath": orgBillingSettingsPath(org.Slug),
+		"Title":            heading,
+		"CSRFToken":        middleware.CSRFTokenForRequest(r),
+		"Org":              org,
+		"AvatarURL":        "/avatars/" + url.PathEscape(org.Slug),
+		"Result":           result,
+		"Heading":          heading,
+		"Message":          message,
+		"PendingSeatCount": seatCount,
+		"BillingPath":      orgBillingSettingsPath(org.Slug),
 	})
 }
 
