@@ -19,6 +19,7 @@ import (
 
 	actionsevent "github.com/tenseleyFlow/shithub/internal/actions/event"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
+	"github.com/tenseleyFlow/shithub/internal/cache/pagecache"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -221,6 +222,19 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 				Payload:     body,
 			}); err != nil && deps.Logger != nil {
 				deps.Logger.WarnContext(ctx, "push:process: emit push event",
+					"push_event_id", event.ID, "error", err)
+			}
+		}
+
+		// F01 PR-4: tell the web process to drop any cached
+		// commits-page renders for the pre-push head OID. The cache
+		// key is (repo_id, oid, page) so post-push requests already
+		// miss the old entries naturally; this NOTIFY is the
+		// memory-recovery + belt-and-suspenders layer. Best effort —
+		// the 60s TTL on the cache is the safety net.
+		if !isZeroSHA(event.BeforeSha) {
+			if err := pagecache.Publish(ctx, deps.Pool, event.RepoID, event.BeforeSha); err != nil && deps.Logger != nil {
+				deps.Logger.WarnContext(ctx, "push:process: pagecache invalidate",
 					"push_event_id", event.ID, "error", err)
 			}
 		}

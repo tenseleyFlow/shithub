@@ -26,6 +26,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
+	"github.com/tenseleyFlow/shithub/internal/cache/pagecache"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/errrep"
@@ -218,6 +219,17 @@ func Run(ctx context.Context, opts Options) error {
 		repoH, err := buildRepoHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
 		if err != nil {
 			return fmt.Errorf("repo handlers: %w", err)
+		}
+		// F01 PR-4: subscribe the in-process commits LRU to the
+		// pagecache invalidation channel. The worker's push:process
+		// job publishes when a push lands; the listener calls
+		// InvalidateBranch on the cache held by repoH. Owned by the
+		// server lifecycle ctx so a clean shutdown stops the
+		// listener too.
+		if cache := repoH.CommitsPageCache(); cache != nil {
+			go pagecache.Listen(ctx, pool, func(repoID int64, oid string) {
+				cache.InvalidateBranch(repoID, oid)
+			}, logger)
 		}
 		// /new is wrapped in RequireUser — it requires a logged-in caller.
 		deps.RepoNewMounter = func(r chi.Router) {
