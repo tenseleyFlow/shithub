@@ -37,6 +37,7 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/templates"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -89,6 +90,14 @@ type Deps struct {
 	// save (enforce=true) or log a report-only event and proceed
 	// (PRO05 default, enforce=false).
 	BillingEnforce config.EnforceConfig
+	// CommitsPageCache is the F01 PR-3 in-process LRU on rendered
+	// /commits/{branch} HTML. nil disables caching (tests and
+	// degraded boot paths); production wires a 256-entry × 60s cache
+	// from server.go. The 60s TTL is the staleness budget that
+	// applies when push-side invalidation (PR-4) doesn't fire — the
+	// ETag layer is process-independent and stays correct
+	// regardless.
+	CommitsPageCache *httpcache.PageCache
 }
 
 // Handlers is the registered handler set. Construct via New.

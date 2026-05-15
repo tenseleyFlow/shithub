@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"bytes"
 	"errors"
 	"html/template"
 	"net/http"
@@ -93,22 +94,41 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	since := parseDateParam(sinceRaw)
 	until := parseUntilDateParam(untilRaw)
 
-	// F01 PR-2: ETag short-circuit. The cache key is (repo_id,
-	// branch_head_oid, page); filtered views (path/author/since/until)
-	// bypass the cache entirely because the same key would resolve
-	// to different content across filter variants. Bot crawls hit
-	// unfiltered pages — that's the optimization target.
+	// F01 PR-2 + PR-3: ETag short-circuit and in-process LRU. The
+	// cache key is (repo_id, branch_head_oid, page); filtered views
+	// (path/author/since/until) bypass both layers because the same
+	// key would resolve to different content across filter variants.
+	// Bot crawls hit unfiltered pages — that's the optimization
+	// target. headOID is empty when rev-parse fails or the request
+	// is filtered, in which case neither layer is active.
 	filtered := pathFilter != "" || authorFilter != "" || sinceRaw != "" || untilRaw != ""
+	var headOID string
 	if !filtered {
-		if headOID, oidErr := git.ResolveRefOID(r.Context(), gitDir, ref); oidErr == nil {
-			etag := httpcache.ETag(row.ID, headOID, page)
-			w.Header().Set("ETag", etag)
-			w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
-			w.Header().Add("Vary", "Cookie")
-			if httpcache.IfNoneMatch(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
+		var oidErr error
+		headOID, oidErr = git.ResolveRefOID(r.Context(), gitDir, ref)
+		if oidErr != nil {
+			headOID = ""
+		}
+	}
+	if headOID != "" {
+		etag := httpcache.ETag(row.ID, headOID, page)
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
+		w.Header().Add("Vary", "Cookie")
+		if httpcache.IfNoneMatch(r, etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		// LRU hit: write cached HTML and skip the full render walk.
+		// Headers above stay on the response; we only need to add
+		// Content-Type (the renderer normally would).
+		cacheKey := httpcache.PageKey{RepoID: row.ID, BranchOID: headOID, Page: page}
+		if body, ok := h.d.CommitsPageCache.Get(cacheKey); ok {
+			if w.Header().Get("Content-Type") == "" {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			}
+			_, _ = w.Write(body)
+			return
 		}
 	}
 
@@ -178,7 +198,7 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		selectedDate = since
 	}
 
-	h.d.Render.RenderPage(w, r, "repo/commits", map[string]any{
+	data := map[string]any{
 		"Title":            "Commits · " + row.Name,
 		"CSRFToken":        middleware.CSRFTokenForRequest(r),
 		"Owner":            owner.Username,
@@ -204,7 +224,30 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		"NewerHref":        newerHref,
 		"OlderHref":        olderHref,
 		"HasActiveFilters": filtered,
-	})
+	}
+
+	// F01 PR-3: when the page is cacheable, render into a buffer so
+	// we can populate the LRU after the fact. Filtered requests
+	// (where headOID is empty) write straight through. The buffer
+	// path costs one extra in-memory copy of the page bytes — small
+	// price for the cache-fill semantics.
+	if headOID != "" {
+		var buf bytes.Buffer
+		if err := h.d.Render.RenderPage(&buf, r, "repo/commits", data); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "commits: render", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		}
+		body := buf.Bytes()
+		h.d.CommitsPageCache.Set(httpcache.PageKey{RepoID: row.ID, BranchOID: headOID, Page: page}, body)
+		_, _ = w.Write(body)
+		return
+	}
+
+	_ = h.d.Render.RenderPage(w, r, "repo/commits", data)
 }
 
 // commitView renders the single-commit page: subject + body, parents,

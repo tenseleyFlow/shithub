@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -19,7 +20,17 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	repoh "github.com/tenseleyFlow/shithub/internal/web/handlers/repo"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+)
+
+// F01 PR-3 default cache sizing: 256 entries × ~50KB ≈ 12.5MB.
+// The 60s TTL matches the Cache-Control: max-age=60 the handler
+// stamps on the response so eviction is mostly timer-driven and
+// LRU only kicks in under thrashing.
+const (
+	commitsPageCacheCap = 256
+	commitsPageCacheTTL = 60 * time.Second
 )
 
 // buildRepoHandlers wires the repo-create + empty-home handlers. The
@@ -88,6 +99,7 @@ func buildRepoHandlers(
 			SSHEnabled: cfg.Auth.SSH.Enabled,
 			SSHHost:    cfg.Auth.SSH.Host,
 		},
-		BillingEnforce: cfg.Billing.Enforce,
+		BillingEnforce:   cfg.Billing.Enforce,
+		CommitsPageCache: httpcache.NewPageCache(commitsPageCacheCap, commitsPageCacheTTL),
 	})
 }

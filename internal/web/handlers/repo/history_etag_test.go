@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -154,5 +155,89 @@ func TestCommitsList_FilteredRequest_NoETagOrCacheControl(t *testing.T) {
 	}
 	if got := rw.Header().Get("Cache-Control"); got != "" {
 		t.Errorf("Cache-Control must not be set on filtered request; got %q", got)
+	}
+}
+
+func TestCommitsList_LRU_SecondRequestServedFromCache(t *testing.T) {
+	t.Parallel()
+	// PR-3 cache hit path. With a real PageCache wired, the second
+	// request without If-None-Match must serve cached bytes byte-
+	// for-byte (no full render walk). We confirm by injecting a
+	// sentinel into the cache via the handler's first request and
+	// then asserting Stats().Hits == 1 after the second.
+	f := newRepoFixture(t)
+	cache := httpcache.NewPageCache(8, time.Minute)
+	f.handlers.d.CommitsPageCache = cache
+	headOID := f.seedCommitsRepo(t, f.owner.Username, f.publicRepo.Name)
+	mux := f.commitsListMux()
+
+	path := "/" + f.owner.Username + "/" + f.publicRepo.Name + "/commits/trunk"
+
+	// First request: cold cache, full render path populates LRU.
+	req1 := httptest.NewRequest(http.MethodGet, path, nil)
+	rw1 := httptest.NewRecorder()
+	mux.ServeHTTP(rw1, req1)
+	if rw1.Code != http.StatusOK {
+		t.Fatalf("first request: status=%d, want 200; body=%s", rw1.Code, rw1.Body.String())
+	}
+	body1 := rw1.Body.Bytes()
+
+	// Cache should now have the entry.
+	key := httpcache.PageKey{RepoID: f.publicRepo.ID, BranchOID: headOID, Page: 1}
+	cached, ok := cache.Get(key)
+	if !ok {
+		t.Fatalf("after first render, cache should contain key %+v", key)
+	}
+	if string(cached) != string(body1) {
+		t.Errorf("cached body differs from rendered body")
+	}
+
+	// Reset the cache stats by snapshotting before the second hit.
+	before := cache.Stats().Hits
+
+	// Second request: should be served from cache. Same response
+	// bytes, ETag header still set.
+	req2 := httptest.NewRequest(http.MethodGet, path, nil)
+	rw2 := httptest.NewRecorder()
+	mux.ServeHTTP(rw2, req2)
+	if rw2.Code != http.StatusOK {
+		t.Fatalf("second request: status=%d, want 200; body=%s", rw2.Code, rw2.Body.String())
+	}
+	if !bytes.Equal(rw1.Body.Bytes(), rw2.Body.Bytes()) {
+		t.Errorf("cache-hit response differs from cold-render response")
+	}
+	if rw2.Header().Get("ETag") == "" {
+		t.Errorf("ETag must still be set on cache-hit response")
+	}
+	// At least one new hit accumulated (the explicit cache.Get above
+	// is +1 too; the handler's Get is another +1).
+	if got := cache.Stats().Hits; got <= before {
+		t.Errorf("expected cache hit count to grow; before=%d after=%d", before, got)
+	}
+}
+
+func TestCommitsList_LRU_FilteredRequestDoesNotPoisonCache(t *testing.T) {
+	t.Parallel()
+	// A filtered request must NOT write to the LRU; otherwise a
+	// later unfiltered visitor would receive the filter's
+	// narrower content. Confirm by hitting a filter URL and
+	// asserting the LRU stays empty for the (repo_id, head_oid, 1)
+	// key.
+	f := newRepoFixture(t)
+	cache := httpcache.NewPageCache(8, time.Minute)
+	f.handlers.d.CommitsPageCache = cache
+	headOID := f.seedCommitsRepo(t, f.owner.Username, f.publicRepo.Name)
+	mux := f.commitsListMux()
+
+	req := httptest.NewRequest(http.MethodGet, "/"+f.owner.Username+"/"+f.publicRepo.Name+"/commits/trunk?path=README.md", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("filtered request: status=%d, want 200; body=%s", rw.Code, rw.Body.String())
+	}
+
+	key := httpcache.PageKey{RepoID: f.publicRepo.ID, BranchOID: headOID, Page: 1}
+	if _, ok := cache.Get(key); ok {
+		t.Errorf("filtered request must not write to LRU; got hit for %+v", key)
 	}
 }
