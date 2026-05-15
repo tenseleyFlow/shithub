@@ -1,0 +1,84 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Saved search queries</h1>
+    <p>
+      Save a code-search query string and an optional <code>owner</code>
+      or <code>owner/repo</code> scope to re-run later. Saved queries
+      are a Pro feature — Free users still search across all their
+      accessible repos via the global search bar.
+    </p>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    {{ if not .Allowed }}
+    <p class="shithub-pins-pro-cta" data-pro-feature="{{ .FeatureKey }}">
+      <span>Saved search queries are a Pro feature.</span>
+      <a href="/settings/billing" data-pro-feature="{{ .FeatureKey }}">{{ template "pro-badge" true }} Upgrade</a>
+    </p>
+    {{ end }}
+
+    <section class="shithub-settings-section" aria-labelledby="search-queries-current">
+      <h2 id="search-queries-current">Your saved queries</h2>
+      {{ if .Rows }}
+      <ul class="shithub-saved-queries-list">
+        {{ range .Rows }}
+        <li class="shithub-saved-query">
+          <details>
+            <summary><strong>{{ .Name }}</strong> <code>{{ .QueryText }}</code>{{ if .ScopeFilter }} in <code>{{ .ScopeFilter }}</code>{{ end }}</summary>
+            <form method="POST" action="/settings/search-queries/{{ .ID }}/update" class="shithub-saved-query-form">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <label>
+                <span>Name</span>
+                <input type="text" name="name" value="{{ .Name }}" maxlength="{{ $.MaxName }}" required>
+              </label>
+              <label>
+                <span>Query text</span>
+                <input type="text" name="query_text" value="{{ .QueryText }}" maxlength="{{ $.MaxQueryText }}" required>
+              </label>
+              <label>
+                <span>Scope (optional)</span>
+                <input type="text" name="scope_filter" value="{{ .ScopeFilter }}" maxlength="{{ $.MaxScope }}" placeholder="owner or owner/repo">
+              </label>
+              <div class="shithub-saved-query-actions">
+                <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+              </div>
+            </form>
+            <form method="POST" action="/settings/search-queries/{{ .ID }}/delete" class="shithub-saved-query-delete">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+            </form>
+          </details>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-empty-note">You haven't saved any queries yet.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section" aria-labelledby="search-queries-add">
+      <h2 id="search-queries-add">Add a saved query</h2>
+      <form method="POST" action="/settings/search-queries" novalidate class="shithub-saved-query-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" maxlength="{{ .MaxName }}" required{{ if not .Allowed }} disabled aria-disabled="true"{{ end }}>
+          <small>A short label, e.g. <code>open-todos</code>.</small>
+        </label>
+        <label>
+          <span>Query text</span>
+          <input type="text" name="query_text" maxlength="{{ .MaxQueryText }}" required{{ if not .Allowed }} disabled aria-disabled="true"{{ end }}>
+        </label>
+        <label>
+          <span>Scope (optional)</span>
+          <input type="text" name="scope_filter" maxlength="{{ .MaxScope }}" placeholder="owner or owner/repo"{{ if not .Allowed }} disabled aria-disabled="true"{{ end }}>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary"{{ if not .Allowed }} disabled aria-disabled="true"{{ end }}>Save query</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

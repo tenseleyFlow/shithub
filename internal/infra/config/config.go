@@ -186,6 +186,12 @@ type EnforceConfig struct {
 	// created immediately. Off by default → report-only (the schedule
 	// honoured + logged). PRO-EXT01-07b; promoted in PRO-EXT01-17.
 	UserScheduledIssues bool `toml:"user_scheduled_issues"`
+	// UserAdvancedCodeSearch: when true, Free users are blocked from
+	// creating saved code-search queries (PRO-EXT01-08a) and from
+	// using regex query syntax (PRO-EXT01-08b). Off by default →
+	// report-only (the would-deny is logged but the action lands).
+	// Promoted in PRO-EXT01-17.
+	UserAdvancedCodeSearch bool `toml:"user_advanced_code_search"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

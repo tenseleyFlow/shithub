@@ -39,6 +39,7 @@ type Querier interface {
 	// 0 means rejected.
 	ConsumeRecoveryCode(ctx context.Context, db DBTX, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountActiveUserTokens(ctx context.Context, db DBTX, userID int64) (int64, error)
+	CountCodeSearchSavedQueriesForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountPendingScheduledIssuesForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// Drives the 3-changes-per-60d cap.
 	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
@@ -59,6 +60,7 @@ type Querier interface {
 	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) (User, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
+	DeleteCodeSearchSavedQuery(ctx context.Context, db DBTX, arg DeleteCodeSearchSavedQueryParams) error
 	// Janitor invocation: a small forensics window past expiry is fine,
 	// but eventually drop the row so the user_code index stays small.
 	DeleteExpiredDeviceAuthorizations(ctx context.Context, db DBTX) error
@@ -79,6 +81,8 @@ type Querier interface {
 	// user's reservation by id-guess.
 	DeleteUsernameReservation(ctx context.Context, db DBTX, arg DeleteUsernameReservationParams) error
 	DenyDeviceAuthorization(ctx context.Context, db DBTX, id int64) error
+	// Scoped by user_id so an id-guess from another user is a no-op.
+	GetCodeSearchSavedQuery(ctx context.Context, db DBTX, arg GetCodeSearchSavedQueryParams) (UserCodeSearchSavedQuery, error)
 	// Hot path for the polling /access_token endpoint. The middleware
 	// enforces interval_seconds via last_polled_at downstream.
 	GetDeviceAuthorizationByCodeHash(ctx context.Context, db DBTX, deviceCodeHash []byte) (DeviceAuthorization, error)
@@ -144,6 +148,10 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-08a: saved search queries.
+	InsertCodeSearchSavedQuery(ctx context.Context, db DBTX, arg InsertCodeSearchSavedQueryParams) (UserCodeSearchSavedQuery, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertDeviceAuthorization(ctx context.Context, db DBTX, arg InsertDeviceAuthorizationParams) (DeviceAuthorization, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
@@ -190,6 +198,7 @@ type Querier interface {
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
+	ListCodeSearchSavedQueriesForUser(ctx context.Context, db DBTX, userID int64) ([]UserCodeSearchSavedQuery, error)
 	ListSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) ([]UserSavedReply, error)
 	// Settings page: pending first (sorted by schedule_at), then recent
 	// non-pending. Limit prevents an unbounded scan in pathological data.
@@ -261,6 +270,7 @@ type Querier interface {
 	// /admin/users/{id}/unsuspend handler. Replaces an inline UPDATE
 	// in admin/users.go (SR2 M2).
 	UnsuspendUser(ctx context.Context, db DBTX, id int64) error
+	UpdateCodeSearchSavedQuery(ctx context.Context, db DBTX, arg UpdateCodeSearchSavedQueryParams) error
 	// Scoped by user_id; updated_at refreshed on every write so the picker
 	// can surface "most recently edited" if the UI wants to sort that way.
 	UpdateSavedReply(ctx context.Context, db DBTX, arg UpdateSavedReplyParams) error
