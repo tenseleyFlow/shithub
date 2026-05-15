@@ -213,6 +213,18 @@ type EnforceConfig struct {
 	// enforces an IP allowlist that exists on a token, regardless of
 	// enforce mode — once the user has expressed intent, we honor it.
 	UserFineGrainedPATs bool `toml:"user_fine_grained_pats"`
+	// UserActionsSecrets: when true, Free users are blocked from
+	// creating user-scoped Actions secrets / variables AND user-scoped
+	// rows are filtered out of runner-side secret resolution for Free
+	// users' workflows. Off by default → report-only (write succeeds,
+	// runners still see the rows). PRO-EXT01-12; promoted in
+	// PRO-EXT01-17.
+	//
+	// SECURITY-CRITICAL: runner secret resolution is a credential
+	// boundary. PRO-EXT01-12b wires the runner-side filter; this flag
+	// gates both the write path AND the runner-read path so a Free
+	// user can't sneak rows through during the soak window.
+	UserActionsSecrets bool `toml:"user_actions_secrets"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

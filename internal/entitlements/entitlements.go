@@ -109,6 +109,18 @@ const (
 	// 14-day soak before PRO-EXT01-17 flip (longer than the 7-day
 	// default).
 	FeatureFineGrainedPATs Feature = "fine_grained_pats"
+	// FeatureUserActionsSecrets gates personal Actions secrets +
+	// variables (PRO-EXT01-12). User-scope rows share the
+	// workflow_secrets and actions_variables tables with the existing
+	// repo/org scopes; the gate exists at the *write* path (Free users
+	// can't create user-scoped rows) and at runner-side resolution
+	// (Free users' workflows skip the user scope on lookup).
+	//
+	// SECURITY-CRITICAL — runner secret resolution is a credential-
+	// boundary surface. Ship in report-only (write gated, read returns
+	// empty) before PRO-EXT01-17 flips the enforce flag.
+	// Kinds: user only.
+	FeatureUserActionsSecrets Feature = "user_actions_secrets"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -209,6 +221,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureContributionPrivacy:      {billing.SubjectKindUser},
 	FeatureSecretScanHistory:        {billing.SubjectKindUser},
 	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
+	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
