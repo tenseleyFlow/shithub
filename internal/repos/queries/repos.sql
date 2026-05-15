@@ -411,6 +411,26 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           star_count, watcher_count, fork_count, init_status,
           last_indexed_oid, is_template;
 
+-- name: CreateRepoFromTemplate :one
+-- PRO-EXT01-06pre-b: insert a template-init shell. Mirrors
+-- CreateForkRepo's `init_status='init_pending'` semantics so the
+-- worker can flip to 'initialized' once the clone finishes, but
+-- WITHOUT setting fork_of_repo_id — the new repo is independent
+-- of the template (no alternates, no fork-count bump).
+INSERT INTO repos (
+    owner_user_id, owner_org_id, name, description, visibility,
+    default_branch, init_status
+) VALUES (
+    $1, $2, $3, $4, $5, $6, 'init_pending'
+)
+RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
+          default_branch, is_archived, archived_at, deleted_at,
+          disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+          has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+          allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+          star_count, watcher_count, fork_count, init_status,
+          last_indexed_oid, is_template;
+
 -- name: SetLastIndexedOID :exec
 -- S28 code-search: the worker writes the OID it finished indexing
 -- so the reconciler can detect drift (default_branch_oid moved but

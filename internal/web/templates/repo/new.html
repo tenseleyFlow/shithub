@@ -8,8 +8,13 @@
 
   {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
 
+  {{ if .Form.TemplateRepoID }}
+  <p class="shithub-flash shithub-flash-notice" role="status">Creating a new repository from a template. The license, README, and .gitignore options below are ignored — the template's tree initializes the repo.</p>
+  {{ end }}
+
   <form method="POST" action="/new" novalidate class="shithub-repo-new-form">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    {{ if .Form.TemplateRepoID }}<input type="hidden" name="template_repo_id" value="{{ .Form.TemplateRepoID }}">{{ end }}
 
     <div class="shithub-repo-new-step">
       <div class="shithub-repo-new-step-marker" aria-hidden="true">1</div>

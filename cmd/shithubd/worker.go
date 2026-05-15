@@ -142,6 +142,9 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindRepoForkClone, jobs.RepoForkClone(jobs.ForkCloneDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger, ShithubdPath: shithubdPath,
 		}))
+		p.Register(worker.KindRepoTemplateInit, jobs.RepoTemplateInit(jobs.TemplateInitDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger, ShithubdPath: shithubdPath,
+		}))
 
 		p.Register(worker.KindRepoIndexCode, jobs.RepoIndexCode(jobs.IndexCodeDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger,
