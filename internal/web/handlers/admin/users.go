@@ -79,7 +79,7 @@ func (h *Handlers) userSuspend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "form parse", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
 		return
 	}
 	reason := strings.TrimSpace(r.PostFormValue("reason"))
@@ -91,7 +91,7 @@ func (h *Handlers) userSuspend(w http.ResponseWriter, r *http.Request) {
 		SuspendedReason: pgtype.Text{String: reason, Valid: true},
 	}); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "admin: suspend", "error", err)
-		http.Error(w, "suspend failed", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminUserSuspended, audit.TargetUser, user.ID,
@@ -110,7 +110,7 @@ func (h *Handlers) userUnsuspend(w http.ResponseWriter, r *http.Request) {
 		SuspendedReason: pgtype.Text{Valid: false},
 	}); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "admin: unsuspend", "error", err)
-		http.Error(w, "unsuspend failed", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	// SR2 M2: was inline SQL with the comment "lean on a one-off SQL
@@ -134,14 +134,14 @@ func (h *Handlers) userToggleSiteAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if user.ID == viewer.ID && user.IsSiteAdmin {
-		http.Error(w, "you can't revoke your own admin flag — ask another admin", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "you can't revoke your own admin flag — ask another admin")
 		return
 	}
 	to := !user.IsSiteAdmin
 	if err := h.aq.SetUserSiteAdmin(r.Context(), h.d.Pool, admindb.SetUserSiteAdminParams{
 		ID: user.ID, IsSiteAdmin: to,
 	}); err != nil {
-		http.Error(w, "toggle failed", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	action := audit.ActionAdminSiteAdminGranted
@@ -161,24 +161,27 @@ func (h *Handlers) userResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !user.PrimaryEmailID.Valid {
-		http.Error(w, "user has no primary email", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "user has no primary email")
 		return
 	}
 	em, err := h.uq.GetUserEmailByID(r.Context(), h.d.Pool, user.PrimaryEmailID.Int64)
 	if err != nil {
-		http.Error(w, "primary email lookup failed", http.StatusInternalServerError)
+		h.d.Logger.WarnContext(r.Context(), "admin reset: primary email lookup", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	tokEnc, tokHash, err := token.New()
 	if err != nil {
-		http.Error(w, "token mint failed", http.StatusInternalServerError)
+		h.d.Logger.WarnContext(r.Context(), "admin reset: token mint", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	expires := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
 	if _, err := h.uq.CreatePasswordReset(r.Context(), h.d.Pool, usersdb.CreatePasswordResetParams{
 		UserID: user.ID, TokenHash: tokHash, ExpiresAt: expires,
 	}); err != nil {
-		http.Error(w, "create reset row failed", http.StatusInternalServerError)
+		h.d.Logger.WarnContext(r.Context(), "admin reset: create row", "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 
@@ -215,7 +218,7 @@ func (h *Handlers) loadUser(w http.ResponseWriter, r *http.Request) (usersdb.Use
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "bad id", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "bad id")
 		return usersdb.User{}, false
 	}
 	user, err := h.uq.GetUserIncludingDeleted(r.Context(), h.d.Pool, id)

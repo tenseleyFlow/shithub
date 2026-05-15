@@ -70,7 +70,8 @@ func (h *Handlers) jobRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.aq.AdminRetryJob(r.Context(), h.d.Pool, job.ID); err != nil {
-		http.Error(w, "retry failed", http.StatusInternalServerError)
+		h.d.Logger.WarnContext(r.Context(), "admin: retry job", "job_id", job.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminJobRetried, audit.Target("job"), job.ID,
@@ -85,7 +86,8 @@ func (h *Handlers) jobDiscard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.aq.AdminDiscardJob(r.Context(), h.d.Pool, job.ID); err != nil {
-		http.Error(w, "discard failed", http.StatusInternalServerError)
+		h.d.Logger.WarnContext(r.Context(), "admin: discard job", "job_id", job.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminJobDiscarded, audit.Target("job"), job.ID,
@@ -98,7 +100,7 @@ func (h *Handlers) loadJob(w http.ResponseWriter, r *http.Request) (admindb.Job,
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "bad id", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "bad id")
 		return admindb.Job{}, false
 	}
 	job, err := h.aq.GetJobForAdmin(r.Context(), h.d.Pool, id)
