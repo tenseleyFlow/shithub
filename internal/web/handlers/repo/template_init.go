@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,9 +12,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/templateinit"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -65,6 +69,18 @@ func (h *Handlers) newRepoFromTemplate(w http.ResponseWriter, r *http.Request, u
 	if !allowed.Allow {
 		// Existence-leak-safe: same message as not-found.
 		h.renderNewForm(w, r, form, "Template repository not found.")
+		return
+	}
+	// PRO-EXT01-06: private user-owned templates require the template's
+	// *current* owner to hold FeaturePrivateRepoTemplates. The consumer's
+	// plan is not consulted — Free users can spawn from a Pro user's
+	// private template, but if that owner lapses the template stops
+	// being usable by anyone (Pro or Free) until they resubscribe.
+	// Report-only by default; enforce flag flips after soak.
+	if denied, derr := h.privateTemplateCreateDenied(r.Context(), template); derr != nil {
+		h.d.Logger.WarnContext(r.Context(), "template-init: gate evaluation", "error", derr, "template_repo_id", template.ID)
+	} else if denied {
+		h.renderNewForm(w, r, form, "This template's owner does not currently have a Pro subscription. They will need to upgrade for the template to be usable.")
 		return
 	}
 
@@ -125,6 +141,43 @@ func (h *Handlers) newRepoFromTemplate(w http.ResponseWriter, r *http.Request, u
 	}
 
 	http.Redirect(w, r, "/"+targetOwnerSlug+"/"+res.Repo.Name, http.StatusSeeOther)
+}
+
+// privateTemplateCreateDenied reports whether the create-from-template
+// request should be blocked because the template is private + user-
+// owned + the owner does not currently hold FeaturePrivateRepoTemplates.
+// Returns (false, nil) for public templates, org-owned templates, or
+// Pro owners (the common case). When BillingEnforce.UserPrivateRepoTemplates
+// is off, denies are logged and the function returns false so the create
+// proceeds (report-only mode).
+func (h *Handlers) privateTemplateCreateDenied(ctx context.Context, template reposdb.Repo) (bool, error) {
+	if template.Visibility != reposdb.RepoVisibilityPrivate {
+		return false, nil
+	}
+	if !template.OwnerUserID.Valid {
+		return false, nil
+	}
+	principal := billing.PrincipalForUser(template.OwnerUserID.Int64)
+	decision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeaturePrivateRepoTemplates)
+	if err != nil {
+		return false, err
+	}
+	if decision.Allowed {
+		return false, nil
+	}
+	if !h.d.BillingEnforce.UserPrivateRepoTemplates {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", principal.String(),
+			"principal_kind", string(principal.Kind),
+			"principal_id", principal.ID,
+			"feature", string(entitlements.FeaturePrivateRepoTemplates),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only",
+			"surface", "create_from_template")
+		return false, nil
+	}
+	return true, nil
 }
 
 // friendlyTemplateInitError maps orchestrator-side errors to user-

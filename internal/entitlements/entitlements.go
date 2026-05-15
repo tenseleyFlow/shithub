@@ -56,6 +56,16 @@ const (
 	// handles against squatting. shithub-original (gh does not offer
 	// this). PRO-EXT01-05. Kinds: user only.
 	FeatureUsernameReservations Feature = "username_reservations"
+	// FeaturePrivateRepoTemplates gates whether a user-owned *private*
+	// repo can be marked as a template (and the resulting create-from-
+	// template flow). Public repos remain free to mark — this matches
+	// gh's posture and tightens our Pro value proposition. PRO-EXT01-06.
+	// Kinds: user only (orgs have their own template policy via
+	// existing org-tier gates). The gate consults the *current* plan
+	// of the template owner: if the owner had Pro when they flipped
+	// the flag and later lapsed, Free consumers stop being able to
+	// initialize from the template.
+	FeaturePrivateRepoTemplates Feature = "private_repo_templates"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -136,6 +146,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:            {billing.SubjectKindUser},
 	FeatureUsernameReservations:     {billing.SubjectKindUser},
+	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.

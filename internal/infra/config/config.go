@@ -170,6 +170,12 @@ type EnforceConfig struct {
 	// mode is benign, and a Free user has no way to have exceeded the
 	// cap before this knob existed.
 	UserProfilePinsBeyondFree bool `toml:"user_profile_pins_beyond_free"`
+	// UserPrivateRepoTemplates: when true, Free users cannot mark a
+	// private personal repo as a template, and create-from-template
+	// requests targeting a private template whose owner is not currently
+	// Pro are rejected. Off by default → report-only; PRO-EXT01-17 flips
+	// after the standard 7-day soak.
+	UserPrivateRepoTemplates bool `toml:"user_private_repo_templates"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
