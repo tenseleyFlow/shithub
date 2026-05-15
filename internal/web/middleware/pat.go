@@ -24,11 +24,19 @@ var patAuthKey = ctxKey{name: "pat_auth"}
 // PATAuth carries the resolved-token state for downstream handlers. When
 // the auth check passed via PAT, `Token != nil` and Scopes is the parsed
 // scope list. Pure session callers see the zero value.
+//
+// PRO-EXT01-11b: RepoBinding is the repo this token is locked to (or 0
+// for "no binding"). When non-zero, downstream repo-scoped routes MUST
+// call pat.RepoBindingAllows to verify the request's resolved repo
+// matches before serving data. Non-repo routes (e.g. /api/v1/user) are
+// not affected — the binding limits which repo the token can act on,
+// not whether the token can authenticate at all.
 type PATAuth struct {
 	UserID      int64
 	Username    string
 	TokenID     int64
 	Scopes      []string
+	RepoBinding int64
 	IsSuspended bool
 	IsSiteAdmin bool
 }
@@ -181,11 +189,16 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 			// provided scopes alongside the required scope on 403.
 			w.Header().Set("X-OAuth-Scopes", strings.Join(row.Scopes, ", "))
 
+			var repoBinding int64
+			if row.RepoID.Valid {
+				repoBinding = row.RepoID.Int64
+			}
 			ctx := context.WithValue(r.Context(), patAuthKey, PATAuth{
 				UserID:      row.UserID,
 				Username:    user.Username,
 				TokenID:     row.ID,
 				Scopes:      row.Scopes,
+				RepoBinding: repoBinding,
 				IsSuspended: user.SuspendedAt.Valid,
 				IsSiteAdmin: user.IsSiteAdmin,
 			})
