@@ -38,6 +38,7 @@ type Querier interface {
 	CountActiveUserTokens(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// Drives the 3-changes-per-60d cap.
 	CountRecentUsernameChanges(ctx context.Context, db DBTX, arg CountRecentUsernameChangesParams) (int64, error)
+	CountSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// Excludes revoked rows so the per-user cap (100) counts live keys.
 	CountUserGPGKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
@@ -59,6 +60,8 @@ type Querier interface {
 	DeleteExpiredDeviceAuthorizations(ctx context.Context, db DBTX) error
 	DeleteExpiredEmailVerifications(ctx context.Context, db DBTX) error
 	DeleteExpiredPasswordResets(ctx context.Context, db DBTX) error
+	// Scoped by user_id; idempotent on missing rows.
+	DeleteSavedReply(ctx context.Context, db DBTX, arg DeleteSavedReplyParams) error
 	// Scoped delete: caller must pass owning user_id. Refuses to delete
 	// the primary email (UI must guide the user to set a different primary first).
 	DeleteUserEmail(ctx context.Context, db DBTX, arg DeleteUserEmailParams) (int64, error)
@@ -81,6 +84,8 @@ type Querier interface {
 	GetDeviceAuthorizationByUserCode(ctx context.Context, db DBTX, userCode string) (DeviceAuthorization, error)
 	GetEmailVerificationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (EmailVerification, error)
 	GetPasswordResetByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (PasswordReset, error)
+	// Scoped by user_id so an id-guess from another user is a no-op.
+	GetSavedReply(ctx context.Context, db DBTX, arg GetSavedReplyParams) (UserSavedReply, error)
 	GetUserByID(ctx context.Context, db DBTX, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error)
 	GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error)
@@ -132,6 +137,10 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRecoveryCode(ctx context.Context, db DBTX, arg InsertRecoveryCodeParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-07a: saved replies.
+	InsertSavedReply(ctx context.Context, db DBTX, arg InsertSavedReplyParams) (UserSavedReply, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Inserts a parsed primary GPG key. Subkeys land in user_gpg_subkeys
 	// in the same transaction (see InsertUserGPGSubkey). expires_at is
 	// nullable; many keys have no expiration. revoked_at stays NULL on
@@ -164,6 +173,7 @@ type Querier interface {
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
+	ListSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) ([]UserSavedReply, error)
 	// Reads all live subkeys for one primary; used when invalidating the
 	// verification cache on primary soft-delete (every dependent subkey
 	// needs its cache rows stamped invalidated too).
@@ -229,6 +239,9 @@ type Querier interface {
 	// /admin/users/{id}/unsuspend handler. Replaces an inline UPDATE
 	// in admin/users.go (SR2 M2).
 	UnsuspendUser(ctx context.Context, db DBTX, id int64) error
+	// Scoped by user_id; updated_at refreshed on every write so the picker
+	// can surface "most recently edited" if the UI wants to sort that way.
+	UpdateSavedReply(ctx context.Context, db DBTX, arg UpdateSavedReplyParams) error
 	UpdateUserAvatarKey(ctx context.Context, db DBTX, arg UpdateUserAvatarKeyParams) error
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
 	UpdateUserPrivateContributions(ctx context.Context, db DBTX, arg UpdateUserPrivateContributionsParams) error
