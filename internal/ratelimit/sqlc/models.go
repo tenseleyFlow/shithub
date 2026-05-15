@@ -3162,6 +3162,7 @@ type UserToken struct {
 	RevokedAt   pgtype.Timestamptz
 	CreatedAt   pgtype.Timestamptz
 	IpAllowlist []string
+	RepoID      pgtype.Int8
 }
 
 type UserTotp struct {

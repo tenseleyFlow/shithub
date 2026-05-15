@@ -625,6 +625,12 @@ func actionRequiresAuth(a policy.Action) bool {
 // lookupRepoByLogin tries the user-owner path first, then the org-owner
 // path. The login string returned is whichever resolved successfully so
 // the caller can plug it into the full_name field.
+//
+// PRO-EXT01-11b: enforces PAT repo binding. If the request is
+// authenticated via a token bound to a different repo, the resolution
+// returns pgx.ErrNoRows so handlers naturally 404 — preserving the
+// "this repo doesn't exist from your perspective" semantic without
+// leaking that the binding was the actual reason.
 func lookupRepoByLogin(r *http.Request, pool reposdbPool, ownerLogin, repoName string) (reposdb.Repo, string, error) {
 	rq := reposdb.New()
 	if user, err := usersdb.New().GetUserByUsername(r.Context(), pool, ownerLogin); err == nil {
@@ -633,6 +639,9 @@ func lookupRepoByLogin(r *http.Request, pool reposdbPool, ownerLogin, repoName s
 			Name:        repoName,
 		})
 		if err == nil {
+			if !patBindingAllowsRepo(r, repo.ID) {
+				return reposdb.Repo{}, "", pgx.ErrNoRows
+			}
 			return repo, user.Username, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -645,10 +654,21 @@ func lookupRepoByLogin(r *http.Request, pool reposdbPool, ownerLogin, repoName s
 			Name:       repoName,
 		})
 		if err == nil {
+			if !patBindingAllowsRepo(r, repo.ID) {
+				return reposdb.Repo{}, "", pgx.ErrNoRows
+			}
 			return repo, string(org.Slug), nil
 		}
 	}
 	return reposdb.Repo{}, "", pgx.ErrNoRows
+}
+
+// patBindingAllowsRepo reports whether the request's PAT auth (if any)
+// permits acting on the given repo. Pure-session requests (no PAT auth)
+// always allow.
+func patBindingAllowsRepo(r *http.Request, repoID int64) bool {
+	auth := middleware.PATAuthFromContext(r.Context())
+	return pat.RepoBindingAllows(auth.RepoBinding, repoID)
 }
 
 // reposdbPool aliases the pgx DBTX interface that all sqlc-generated

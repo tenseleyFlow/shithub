@@ -17,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -31,6 +32,15 @@ func (h *Handlers) tokensList(w http.ResponseWriter, r *http.Request) {
 	h.renderTokensList(w, r, "", "", nil, "")
 }
 
+// tokenRepoChoice is a compact projection of the user's owned repos for
+// rendering the binding dropdown on /settings/tokens. Org repos are not
+// included — initial 11b scope only supports binding to user-owned
+// repos, which keeps the entitlement reasoning straightforward.
+type tokenRepoChoice struct {
+	ID   int64
+	Name string
+}
+
 func (h *Handlers) renderTokensList(
 	w http.ResponseWriter, r *http.Request,
 	createError, createName string, createScopes []string, justCreatedRaw string,
@@ -43,6 +53,7 @@ func (h *Handlers) renderTokensList(
 		return
 	}
 	fineGrainedAllowed, _, _ := h.userFineGrainedPATsAllowed(r.Context(), user.ID)
+	repoChoices := h.userTokenRepoChoices(r.Context(), user.ID)
 	h.renderPage(w, r, "settings/tokens", map[string]any{
 		"Title":              "Personal access tokens",
 		"CSRFToken":          middleware.CSRFTokenForRequest(r),
@@ -56,7 +67,26 @@ func (h *Handlers) renderTokensList(
 		"RecentAuthOK":       h.recentAuthOK(r),
 		"FineGrainedAllowed": fineGrainedAllowed,
 		"FineGrainedKey":     string(entitlements.FeatureFineGrainedPATs),
+		"RepoChoices":        repoChoices,
 	})
+}
+
+// userTokenRepoChoices fetches the user's owned repos (omitting deleted)
+// for the binding dropdown. Returns an empty slice on any error rather
+// than failing the page — the dropdown is supplementary; the rest of the
+// page must still render.
+func (h *Handlers) userTokenRepoChoices(ctx context.Context, userID int64) []tokenRepoChoice {
+	rows, err := reposdb.New().ListReposForOwnerUser(ctx, h.d.Pool,
+		pgtype.Int8{Int64: userID, Valid: true})
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "tokens: list repos for binding", "error", err)
+		return nil
+	}
+	out := make([]tokenRepoChoice, 0, len(rows))
+	for _, repo := range rows {
+		out = append(out, tokenRepoChoice{ID: repo.ID, Name: repo.Name})
+	}
+	return out
 }
 
 // userFineGrainedPATsAllowed wraps the entitlement check + logs the
@@ -110,6 +140,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 	scopes := pat.NormalizeScopes(r.PostForm["scopes"])
 	expiresIn := r.PostFormValue("expires_in")
 	ipAllowlistRaw := r.PostFormValue("ip_allowlist")
+	repoBindingRaw := strings.TrimSpace(r.PostFormValue("repo_id"))
 
 	render := func(msg string) {
 		h.renderTokensList(w, r, msg, name, scopes, "")
@@ -180,6 +211,39 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 		// request so the user's intent is recorded.
 	}
 
+	// PRO-EXT01-11b: optional repo binding. Same Pro-gate as the IP
+	// allowlist — they're both fine-grained PAT controls. Verify
+	// ownership before persisting so a user can't bind a token to a
+	// repo they don't own (the FK alone won't enforce ownership).
+	repoBinding := pgtype.Int8{}
+	if repoBindingRaw != "" {
+		rid, perr := strconv.ParseInt(repoBindingRaw, 10, 64)
+		if perr != nil || rid <= 0 {
+			render("Repo binding must be a valid repo ID.")
+			return
+		}
+		repo, gerr := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, rid)
+		if gerr != nil || !repo.OwnerUserID.Valid || repo.OwnerUserID.Int64 != user.ID {
+			// "Not yours" and "doesn't exist" collapse to the same
+			// message — we don't want to leak existence of private
+			// repos the user can't see.
+			render("Pick a repo you own.")
+			return
+		}
+		allowed, decision, derr := h.userFineGrainedPATsAllowed(r.Context(), user.ID)
+		if derr != nil {
+			h.d.Logger.ErrorContext(r.Context(), "tokens: entitlement check", "error", derr)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if !allowed && h.d.BillingEnforce.UserFineGrainedPATs {
+			banner := decision.PrincipalUpgradeBanner("PAT repo binding", billing.PrincipalForUser(user.ID), "")
+			render(banner.Message)
+			return
+		}
+		repoBinding = pgtype.Int8{Int64: rid, Valid: true}
+	}
+
 	row, err := h.q.InsertUserToken(r.Context(), h.d.Pool, usersdb.InsertUserTokenParams{
 		UserID:      user.ID,
 		Name:        name,
@@ -188,6 +252,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 		Scopes:      scopes,
 		ExpiresAt:   expiresAt,
 		IpAllowlist: ipAllowlist,
+		RepoID:      repoBinding,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "tokens: insert", "error", err)

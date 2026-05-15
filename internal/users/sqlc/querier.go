@@ -144,7 +144,8 @@ type Querier interface {
 	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)
 	// Hot path for the auth middleware. token_hash is UNIQUE; returns at
 	// most one row. Caller MUST also check revoked_at IS NULL and
-	// expires_at handling.
+	// expires_at handling. repo_id (PRO-EXT01-11b) is included so the
+	// middleware can propagate the binding to downstream route helpers.
 	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
@@ -184,6 +185,7 @@ type Querier interface {
 	// COALESCE on the ip_allowlist param so callers that don't supply it
 	// (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
 	// array default rather than a NOT NULL constraint violation.
+	// repo_id is nullable — NULL means "no binding".
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
 	// Used by the S10 username-change flow to record an old name. The
 	// redirect itself doubles as a 30-day reservation (the row stays for at
