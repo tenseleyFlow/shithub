@@ -314,7 +314,8 @@ func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billin
 			"principal_id", p.ID,
 			"feature", string(feature),
 			"reason", string(decision.Reason),
-			"required_plan", string(decision.RequiredPlan))
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only")
 		return "", nil
 	}
 	return branchProtectionNoticeCode(decision, feature, p, attemptedReviewers), nil
