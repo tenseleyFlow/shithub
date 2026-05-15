@@ -178,6 +178,9 @@ func (h *Handlers) Mount(r chi.Router) {
 			}
 			r.Get("/settings/account", h.settingsAccountForm)
 			r.Post("/settings/account/username", h.settingsAccountUsername)
+			r.Get("/settings/usernames", h.settingsUsernamesForm)
+			r.Post("/settings/usernames", h.settingsUsernameReserve)
+			r.Post("/settings/usernames/release", h.settingsUsernameRelease)
 			r.Get("/settings/password", h.settingsPasswordForm)
 			r.Post("/settings/password", h.settingsPasswordSubmit)
 			r.Get("/settings/appearance", h.settingsAppearanceForm)
@@ -275,6 +278,18 @@ func (h *Handlers) signupSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if msg := validateUsername(form.Username); msg != "" {
 		render(msg)
+		return
+	}
+	// PRO-EXT01-05: a Pro user may have reserved this handle. Reject
+	// the signup with the same shape as a system-reserved name so we
+	// don't leak who reserved it.
+	if reserved, err := h.q.IsUsernameReservedByAnother(r.Context(), h.d.Pool, usersdb.IsUsernameReservedByAnotherParams{
+		ReservedHandle: form.Username,
+		ExceptUserID:   0,
+	}); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "signup: reservation check", "error", err)
+	} else if reserved {
+		render("That username is reserved. Please choose another.")
 		return
 	}
 	if !looksLikeEmail(form.Email) {

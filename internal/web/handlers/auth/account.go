@@ -54,6 +54,20 @@ func (h *Handlers) settingsAccountUsername(w http.ResponseWriter, r *http.Reques
 		h.renderAccountForm(w, r, "That username is reserved.", "")
 		return
 	}
+	// PRO-EXT01-05: another Pro user may have reserved this handle.
+	// Exclude the current user from the check — a user converting one
+	// of their own reservations into their active handle should not be
+	// blocked by it (the reservation row is deleted by the cascade on
+	// rename below if the IDs match the existing user).
+	if reserved, err := h.q.IsUsernameReservedByAnother(r.Context(), h.d.Pool, usersdb.IsUsernameReservedByAnotherParams{
+		ReservedHandle: desired,
+		ExceptUserID:   user.ID,
+	}); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "account: reservation check", "error", err)
+	} else if reserved {
+		h.renderAccountForm(w, r, "That username is reserved.", "")
+		return
+	}
 
 	// Rate limit.
 	count, err := h.q.CountRecentUsernameChanges(r.Context(), h.d.Pool, usersdb.CountRecentUsernameChangesParams{

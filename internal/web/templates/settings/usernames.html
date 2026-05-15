@@ -1,0 +1,56 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Username reservations</h1>
+    <p>
+      Reserve up to {{ .Cap }} inactive usernames against squatting.
+      Reserved handles are blocked from signup and rename across the
+      whole instance, the same way as your previous handle is.
+    </p>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    {{ if not .ReservationsAllow }}
+    <p class="shithub-pins-pro-cta" data-pro-feature="username_reservations">
+      <span>Username reservations are a Pro feature.</span>
+      <a href="/settings/billing" data-pro-feature="username_reservations">{{ template "pro-badge" true }} Upgrade</a>
+    </p>
+    {{ end }}
+
+    <section class="shithub-settings-section" aria-labelledby="reservations-current">
+      <h2 id="reservations-current">Current reservations ({{ .Used }} / {{ .Cap }})</h2>
+      {{ if .Reservations }}
+      <ul class="shithub-reservations-list">
+        {{ range .Reservations }}
+        <li>
+          <code>{{ .ReservedHandle }}</code>
+          <form method="POST" action="/settings/usernames/release">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="reservation_id" value="{{ .ID }}">
+            <button type="submit" class="shithub-button shithub-button-danger">Release</button>
+          </form>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-empty-note">No active reservations.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section" aria-labelledby="reservations-add">
+      <h2 id="reservations-add">Reserve a handle</h2>
+      <form method="POST" action="/settings/usernames" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Handle</span>
+          <input type="text" name="handle" maxlength="39" pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?" required{{ if not .ReservationsAllow }} disabled aria-disabled="true"{{ end }}>
+          <small>1-39 characters: lowercase letters, digits, and hyphens. Same rules as a username.</small>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary"{{ if not .ReservationsAllow }} disabled aria-disabled="true"{{ end }}>Reserve</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}

@@ -9,6 +9,9 @@
       <li{{ if eq .SettingsActive "account" }} class="active"{{ end }}>
         <a href="/settings/account">Account</a>
       </li>
+      <li{{ if eq .SettingsActive "usernames" }} class="active"{{ end }}>
+        <a href="/settings/usernames">Username reservations</a>
+      </li>
       <li{{ if eq .SettingsActive "appearance" }} class="active"{{ end }}>
         <a href="/settings/appearance">Appearance</a>
       </li>

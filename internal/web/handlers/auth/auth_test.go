@@ -226,6 +226,7 @@ func authTemplatesFS() fs.FS {
 	organizationsTpl := `{{ define "page" }}<h1>Organizations</h1>USER={{.Username}};ORGS={{ range .Organizations }}{{.Slug}}:{{.RoleLabel}}:manage={{.CanManage}}:compare={{.CompareHref}};{{ end }}{{ end }}`
 	sessTpl := `{{ define "page" }}<h1>Sessions</h1>{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}<form action="/settings/sessions/logout-everywhere" method=POST><input name=csrf_token value="{{.CSRFToken}}">UA={{.UserAgent}};</form>{{ end }}`
 	dangerTpl := `{{ define "page" }}<h1>Delete</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}<form action="/settings/danger" method=POST><input name=csrf_token value="{{.CSRFToken}}">USER={{.Username}};GRACE={{.GraceWindowDays}};</form>{{ end }}`
+	usernamesTpl := `{{ define "page" }}<h1>Usernames</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}ALLOW={{.ReservationsAllow}};USED={{.Used}}/{{.Cap}};REM={{.Remaining}};RES={{ range .Reservations }}{{.ID}}:{{.ReservedHandle}};{{ end }}<form action="/settings/usernames" method=POST><input name=csrf_token value="{{.CSRFToken}}"><input name=handle></form>{{ end }}`
 	billingTpl := `{{ define "page" }}<h1>Billing</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Notice }}<p class=notice>{{.}}</p>{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{.Message}}{{ end }}{{ end }}<form action="/settings/billing/checkout" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHECKOUT={{ .CanStartCheckout }};MANAGE={{ .CanManageSubscription }};</form><form action="/settings/billing/portal" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>{{ range .Summary }}SUMMARY={{.Label}}|{{.Value}};{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }};{{ end }}{{ range .Invoices }}INVOICE={{.Number}};{{ end }}{{ end }}`
 	billingResultTpl := `{{ define "page" }}RESULT={{.Result}};HEADING={{.Heading}};USER={{.Username}};BILLING={{.BillingPath}};<input name=csrf_token value="{{.CSRFToken}}">{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
@@ -253,6 +254,7 @@ func authTemplatesFS() fs.FS {
 		"settings/organizations.html":  {Data: []byte(organizationsTpl)},
 		"settings/sessions.html":       {Data: []byte(sessTpl)},
 		"settings/danger.html":         {Data: []byte(dangerTpl)},
+		"settings/usernames.html":      {Data: []byte(usernamesTpl)},
 		"settings/billing.html":        {Data: []byte(billingTpl)},
 		"settings/billing_result.html": {Data: []byte(billingResultTpl)},
 		"errors/404.html":              {Data: []byte(errorPage)},
