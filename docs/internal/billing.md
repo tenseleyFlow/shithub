@@ -402,8 +402,8 @@ surface for Team seats:
 - `/organizations/{org}/settings/billing/seats/add` and
   `/organizations/{org}/settings/billing/seats/remove` are explicit
   confirmation flows. They show the current seat count, used seats,
-  available seats, new total, estimated monthly delta, a local
-  current-period estimate, and the next monthly total before submit.
+  available seats, new total, estimated monthly delta, a Stripe
+  current-period preview, and the next monthly total before submit.
 - Seat changes are available only for Team organizations with an
   active or trialing local subscription state and a Stripe subscription
   item ID. The handler updates Stripe subscription-item quantity first
@@ -415,10 +415,30 @@ surface for Team seats:
   seats. Pending invitations are still displayed separately and are not
   counted as used seats until invitation-seat charging is explicitly
   implemented.
-- SP16 owns exact Stripe invoice previews, explicit proration
-  collection behavior, and Stripe/local drift repair. SP15's
-  current-period amount is a local estimate for user orientation, not a
-  substitute for the SP16 Stripe preview contract.
+
+PAYMENTS SP16 starts the Stripe-correct seat-change contract:
+
+- The Stripe edge exposes explicit Team seat operations:
+  `PreviewTeamSeatChange`, `ApplyTeamSeatChange`, and
+  `FetchSubscriptionItemQuantity`. The older generic quantity update is
+  retained only for repair/backfill-style use and is not used by
+  owner-confirmed seat changes.
+- Add/remove seat pages call Stripe invoice preview for the target
+  subscription item quantity before enabling submit. The confirmation
+  POST repeats the preview and then applies the same
+  `create_prorations` subscription item update with an idempotency key.
+- shithub deliberately uses Stripe's `create_prorations` behavior: the
+  current-period charge or credit is created for the subscription and
+  appears on the next invoice, rather than forcing immediate collection
+  during the seat-change request.
+- Local licensed seats are updated only after Stripe accepts the
+  subscription-item quantity change. If Stripe rejects the change, the
+  local license count remains unchanged and the form returns an error.
+- Background member/seat usage sync updates local used-seat snapshots
+  only. It does not buy seats or change Stripe quantity without an
+  owner confirmation flow.
+- SP16 still owns exact Stripe/local drift detection and a repair
+  operation with audit logging.
 
 ## Entitlement architecture
 

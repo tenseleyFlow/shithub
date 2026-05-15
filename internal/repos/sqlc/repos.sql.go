@@ -746,6 +746,69 @@ func (q *Queries) InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTo
 	return err
 }
 
+const listActiveReposForOwnerUserByName = `-- name: ListActiveReposForOwnerUserByName :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid, is_template
+FROM repos
+WHERE owner_user_id = $1 AND deleted_at IS NULL AND is_archived = false
+ORDER BY lower(name), name
+`
+
+func (q *Queries) ListActiveReposForOwnerUserByName(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error) {
+	rows, err := db.Query(ctx, listActiveReposForOwnerUserByName, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Repo{}
+	for rows.Next() {
+		var i Repo
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.OwnerOrgID,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.DefaultBranch,
+			&i.IsArchived,
+			&i.ArchivedAt,
+			&i.DeletedAt,
+			&i.DiskUsedBytes,
+			&i.ForkOfRepoID,
+			&i.LicenseKey,
+			&i.PrimaryLanguage,
+			&i.HasIssues,
+			&i.HasPulls,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DefaultBranchOid,
+			&i.AllowSquashMerge,
+			&i.AllowRebaseMerge,
+			&i.AllowMergeCommit,
+			&i.DefaultMergeMethod,
+			&i.StarCount,
+			&i.WatcherCount,
+			&i.ForkCount,
+			&i.InitStatus,
+			&i.LastIndexedOid,
+			&i.IsTemplate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllActiveReposWithOwner = `-- name: ListAllActiveReposWithOwner :many
 SELECT
     r.id,

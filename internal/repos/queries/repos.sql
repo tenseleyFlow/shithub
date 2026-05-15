@@ -85,6 +85,18 @@ FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
 
+-- name: ListActiveReposForOwnerUserByName :many
+SELECT id, owner_user_id, owner_org_id, name, description, visibility,
+       default_branch, is_archived, archived_at, deleted_at,
+       disk_used_bytes, fork_of_repo_id, license_key, primary_language,
+       has_issues, has_pulls, created_at, updated_at, default_branch_oid,
+       allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
+       star_count, watcher_count, fork_count, init_status,
+       last_indexed_oid, is_template
+FROM repos
+WHERE owner_user_id = $1 AND deleted_at IS NULL AND is_archived = false
+ORDER BY lower(name), name;
+
 -- name: CountReposForOwnerUser :one
 SELECT count(*) FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL;

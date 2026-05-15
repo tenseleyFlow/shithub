@@ -122,6 +122,137 @@ func TestSubjectMetadataUserKindOmitsLegacyOrgKeys(t *testing.T) {
 	}
 }
 
+func TestTeamSeatPreviewParamsRequireStripeIdentifiers(t *testing.T) {
+	t.Parallel()
+	valid := TeamSeatPreviewInput{
+		CustomerID:         "cus_test",
+		SubscriptionID:     "sub_test",
+		SubscriptionItemID: "si_test",
+		NewQuantity:        3,
+		ProrationDate:      1710000000,
+	}
+	cases := []struct {
+		name string
+		mut  func(*TeamSeatPreviewInput)
+		want error
+	}{
+		{name: "customer", mut: func(in *TeamSeatPreviewInput) { in.CustomerID = "" }, want: ErrCustomerIDRequired},
+		{name: "subscription", mut: func(in *TeamSeatPreviewInput) { in.SubscriptionID = "" }, want: ErrSubscriptionID},
+		{name: "subscription item", mut: func(in *TeamSeatPreviewInput) { in.SubscriptionItemID = "" }, want: ErrSubscriptionItemID},
+		{name: "quantity", mut: func(in *TeamSeatPreviewInput) { in.NewQuantity = 0 }, want: ErrInvalidSeatQuantity},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := valid
+			tc.mut(&in)
+			if _, err := teamSeatPreviewParams(in); !errors.Is(err, tc.want) {
+				t.Fatalf("teamSeatPreviewParams err=%v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestTeamSeatPreviewParamsBuildsSubscriptionUpdatePreview(t *testing.T) {
+	t.Parallel()
+	params, err := teamSeatPreviewParams(TeamSeatPreviewInput{
+		CustomerID:         " cus_test ",
+		SubscriptionID:     " sub_test ",
+		SubscriptionItemID: " si_test ",
+		NewQuantity:        4,
+		ProrationDate:      1710000000,
+	})
+	if err != nil {
+		t.Fatalf("teamSeatPreviewParams: %v", err)
+	}
+	if params.Customer == nil || *params.Customer != "cus_test" {
+		t.Fatalf("customer param = %v", params.Customer)
+	}
+	if params.Subscription == nil || *params.Subscription != "sub_test" {
+		t.Fatalf("subscription param = %v", params.Subscription)
+	}
+	details := params.SubscriptionDetails
+	if details == nil || details.ProrationBehavior == nil || *details.ProrationBehavior != "create_prorations" {
+		t.Fatalf("subscription details missing create_prorations: %+v", details)
+	}
+	if details.ProrationDate == nil || *details.ProrationDate != 1710000000 {
+		t.Fatalf("proration date = %v", details.ProrationDate)
+	}
+	if len(details.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(details.Items))
+	}
+	item := details.Items[0]
+	if item.ID == nil || *item.ID != "si_test" || item.Quantity == nil || *item.Quantity != 4 {
+		t.Fatalf("item params = %+v", item)
+	}
+}
+
+func TestTeamSeatChangeParamsRequireExplicitIdempotency(t *testing.T) {
+	t.Parallel()
+	if _, err := teamSeatChangeParams(TeamSeatChangeInput{
+		SubscriptionItemID: "si_test",
+		NewQuantity:        4,
+	}); !errors.Is(err, ErrIdempotencyKey) {
+		t.Fatalf("teamSeatChangeParams without idempotency err=%v, want %v", err, ErrIdempotencyKey)
+	}
+	params, err := teamSeatChangeParams(TeamSeatChangeInput{
+		SubscriptionItemID: " si_test ",
+		NewQuantity:        4,
+		ProrationDate:      1710000000,
+		IdempotencyKey:     " seat-change-key ",
+	})
+	if err != nil {
+		t.Fatalf("teamSeatChangeParams: %v", err)
+	}
+	if params.Quantity == nil || *params.Quantity != 4 {
+		t.Fatalf("quantity = %v", params.Quantity)
+	}
+	if params.ProrationBehavior == nil || *params.ProrationBehavior != "create_prorations" {
+		t.Fatalf("proration behavior = %v", params.ProrationBehavior)
+	}
+	if params.ProrationDate == nil || *params.ProrationDate != 1710000000 {
+		t.Fatalf("proration date = %v", params.ProrationDate)
+	}
+	if params.IdempotencyKey == nil || *params.IdempotencyKey != "seat-change-key" {
+		t.Fatalf("idempotency key = %v", params.IdempotencyKey)
+	}
+}
+
+func TestTeamSeatPreviewFromStripeInvoiceSumsProrationLines(t *testing.T) {
+	t.Parallel()
+	preview := teamSeatPreviewFromStripeInvoice(&stripeapi.Invoice{
+		Currency:  stripeapi.Currency("usd"),
+		AmountDue: 800,
+		Subtotal:  1400,
+		Total:     1200,
+		Lines: &stripeapi.InvoiceLineItemList{Data: []*stripeapi.InvoiceLineItem{
+			{
+				Amount: 300,
+				Parent: &stripeapi.InvoiceLineItemParent{
+					SubscriptionItemDetails: &stripeapi.InvoiceLineItemParentSubscriptionItemDetails{Proration: true},
+				},
+			},
+			{
+				Amount: -100,
+				Parent: &stripeapi.InvoiceLineItemParent{
+					InvoiceItemDetails: &stripeapi.InvoiceLineItemParentInvoiceItemDetails{Proration: true},
+				},
+			},
+			{Amount: 1000},
+		}},
+	}, 1710000000)
+	if preview.Currency != "usd" || preview.AmountDue != 800 || preview.Subtotal != 1400 || preview.Total != 1200 {
+		t.Fatalf("invoice totals not copied: %+v", preview)
+	}
+	if preview.CurrentPeriodAmount != 200 {
+		t.Fatalf("CurrentPeriodAmount=%d, want 200", preview.CurrentPeriodAmount)
+	}
+	if preview.ProrationDate != 1710000000 {
+		t.Fatalf("ProrationDate=%d", preview.ProrationDate)
+	}
+}
+
 func TestVerifyWebhookUsesSigningSecret(t *testing.T) {
 	t.Parallel()
 	client, err := New(Config{
