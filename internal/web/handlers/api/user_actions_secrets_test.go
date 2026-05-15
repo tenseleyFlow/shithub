@@ -12,10 +12,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
 // PRO-EXT01-12b: integration tests for /api/v1/user/actions/secrets and
@@ -131,4 +134,124 @@ func TestUserActionsSecrets_OwnerOnlySeesOwnSecrets(t *testing.T) {
 	if len(listed) != 0 {
 		t.Errorf("bob should see no secrets; got %+v", listed)
 	}
+}
+
+// PRO-EXT_SR-01: a PAT bound to a single repo (via PRO-EXT01-11b) is
+// not authorized for user-scope endpoints. The binding restricts a
+// token to one repo; user-scope resources span every repo the user
+// owns. Honoring a bound token here silently expands its blast
+// radius beyond what the user authorized at mint time.
+
+// mintBoundPAT inserts a PAT scoped to scopes and bound to repoID.
+// Mirrors mintRunnerAPIPAT but with the RepoID field populated.
+func mintBoundPAT(t *testing.T, pool *pgxpool.Pool, userID, repoID int64, scopes ...string) string {
+	t.Helper()
+	raw, hash, prefix, err := pat.Mint()
+	if err != nil {
+		t.Fatalf("pat.Mint: %v", err)
+	}
+	if _, err := usersdb.New().InsertUserToken(context.Background(), pool, usersdb.InsertUserTokenParams{
+		UserID:      userID,
+		Name:        "bound-pat",
+		TokenHash:   hash,
+		TokenPrefix: prefix,
+		Scopes:      scopes,
+		RepoID:      pgtype.Int8{Int64: repoID, Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertUserToken (bound): %v", err)
+	}
+	return raw
+}
+
+func TestUserActionsSecrets_BoundPATRejected(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	boundToken := mintBoundPAT(t, env.pool, env.userID, env.repoID, string(pat.ScopeRepoWrite))
+
+	// LIST: a bound token should be denied even on the read path.
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
+	listReq.Header.Set("Authorization", "Bearer "+boundToken)
+	listRR := httptest.NewRecorder()
+	env.router.ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusForbidden {
+		t.Fatalf("bound PAT LIST: got %d, want 403; body=%s", listRR.Code, listRR.Body.String())
+	}
+	if !bytes.Contains(listRR.Body.Bytes(), []byte("bound to a single repo")) {
+		t.Errorf("403 message should explain the binding; got %s", listRR.Body.String())
+	}
+
+	// PUT: the security-critical surface — a bound write-token must
+	// not be able to mint a user-scope secret.
+	pk := fetchUserSecretsPublicKey(t, env)
+	putBody := sealPutBody(t, pk, []byte("should-not-land"))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/user/actions/secrets/PWNED", bytes.NewReader(putBody))
+	putReq.Header.Set("Authorization", "Bearer "+boundToken)
+	putReq.Header.Set("Content-Type", "application/json")
+	putRR := httptest.NewRecorder()
+	env.router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusForbidden {
+		t.Fatalf("bound PAT PUT: got %d, want 403; body=%s", putRR.Code, putRR.Body.String())
+	}
+
+	// DELETE: the third mutation path.
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/user/actions/secrets/ANY", nil)
+	delReq.Header.Set("Authorization", "Bearer "+boundToken)
+	delRR := httptest.NewRecorder()
+	env.router.ServeHTTP(delRR, delReq)
+	if delRR.Code != http.StatusForbidden {
+		t.Fatalf("bound PAT DELETE: got %d, want 403; body=%s", delRR.Code, delRR.Body.String())
+	}
+
+	// Public-key endpoint is also a probe surface — deny.
+	pkReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/public-key", nil)
+	pkReq.Header.Set("Authorization", "Bearer "+boundToken)
+	pkRR := httptest.NewRecorder()
+	env.router.ServeHTTP(pkRR, pkReq)
+	if pkRR.Code != http.StatusForbidden {
+		t.Fatalf("bound PAT public-key: got %d, want 403", pkRR.Code)
+	}
+}
+
+func TestUserActionsSecrets_UnboundPATAccepted(t *testing.T) {
+	// Regression guard so the bound-rejection check doesn't over-rotate
+	// and break the unbound case.
+	env := newSecretsTestEnv(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
+	req.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unbound PAT LIST: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// fetchUserSecretsPublicKey + sealPutBody are tiny test helpers — the
+// existing PutListGetDeleteRoundTrip test inlines this exact shape;
+// factoring it out keeps the new test focused.
+func fetchUserSecretsPublicKey(t *testing.T, env *secretsTestEnv) [32]byte {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/public-key", nil)
+	req.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fetch public key: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var pk apiSecretsPublicKey
+	_ = json.Unmarshal(rr.Body.Bytes(), &pk)
+	raw, _ := base64.StdEncoding.DecodeString(pk.Key)
+	var out [32]byte
+	copy(out[:], raw)
+	return out
+}
+
+func sealPutBody(t *testing.T, pubKey [32]byte, plaintext []byte) []byte {
+	t.Helper()
+	sealed, err := box.SealAnonymous(nil, plaintext, &pubKey, rand.Reader)
+	if err != nil {
+		t.Fatalf("SealAnonymous: %v", err)
+	}
+	body, _ := json.Marshal(map[string]string{
+		"encrypted_value": base64.StdEncoding.EncodeToString(sealed),
+	})
+	return body
 }
