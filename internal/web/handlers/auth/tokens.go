@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -39,18 +42,44 @@ func (h *Handlers) renderTokensList(
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	fineGrainedAllowed, _, _ := h.userFineGrainedPATsAllowed(r.Context(), user.ID)
 	h.renderPage(w, r, "settings/tokens", map[string]any{
-		"Title":          "Personal access tokens",
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"SettingsActive": "tokens",
-		"Tokens":         rows,
-		"AllScopes":      pat.AllScopes,
-		"CreateError":    createError,
-		"CreateName":     createName,
-		"CreateScopes":   createScopes,
-		"JustCreatedRaw": justCreatedRaw,
-		"RecentAuthOK":   h.recentAuthOK(r),
+		"Title":              "Personal access tokens",
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"SettingsActive":     "tokens",
+		"Tokens":             rows,
+		"AllScopes":          pat.AllScopes,
+		"CreateError":        createError,
+		"CreateName":         createName,
+		"CreateScopes":       createScopes,
+		"JustCreatedRaw":     justCreatedRaw,
+		"RecentAuthOK":       h.recentAuthOK(r),
+		"FineGrainedAllowed": fineGrainedAllowed,
+		"FineGrainedKey":     string(entitlements.FeatureFineGrainedPATs),
 	})
+}
+
+// userFineGrainedPATsAllowed wraps the entitlement check + logs the
+// would-deny. Same shape as the other Pro gates in this package.
+func (h *Handlers) userFineGrainedPATsAllowed(ctx context.Context, userID int64) (bool, entitlements.Decision, error) {
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureFineGrainedPATs)
+	if err != nil {
+		return false, entitlements.Decision{}, err
+	}
+	if !decision.Allowed {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", billing.PrincipalForUser(userID).String(),
+			"principal_kind", string(billing.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureFineGrainedPATs),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only")
+	}
+	return decision.Allowed, decision, nil
 }
 
 // recentAuthOK reports whether the session has a Recent2FAAt within the
@@ -80,6 +109,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	scopes := pat.NormalizeScopes(r.PostForm["scopes"])
 	expiresIn := r.PostFormValue("expires_in")
+	ipAllowlistRaw := r.PostFormValue("ip_allowlist")
 
 	render := func(msg string) {
 		h.renderTokensList(w, r, msg, name, scopes, "")
@@ -126,6 +156,30 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 		expiresAt = pgtype.Timestamptz{Time: time.Now().AddDate(1, 0, 0), Valid: true}
 	}
 
+	// PRO-EXT01-11a: optional IP allowlist. Parse first so a malformed
+	// entry hard-errors before we mint the token (would otherwise leave
+	// a fresh token with the user's allowlist silently dropped).
+	ipAllowlist, invalidIPs := pat.ParseAllowlist(ipAllowlistRaw)
+	if len(invalidIPs) > 0 {
+		render("Invalid IP / CIDR entries: " + strings.Join(invalidIPs, ", "))
+		return
+	}
+	if len(ipAllowlist) > 0 {
+		allowed, decision, derr := h.userFineGrainedPATsAllowed(r.Context(), user.ID)
+		if derr != nil {
+			h.d.Logger.ErrorContext(r.Context(), "tokens: entitlement check", "error", derr)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		if !allowed && h.d.BillingEnforce.UserFineGrainedPATs {
+			banner := decision.PrincipalUpgradeBanner("PAT IP allowlist", billing.PrincipalForUser(user.ID), "")
+			render(banner.Message)
+			return
+		}
+		// Report-only: log already emitted inside the helper; honor the
+		// request so the user's intent is recorded.
+	}
+
 	row, err := h.q.InsertUserToken(r.Context(), h.d.Pool, usersdb.InsertUserTokenParams{
 		UserID:      user.ID,
 		Name:        name,
@@ -133,6 +187,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 		TokenPrefix: prefix,
 		Scopes:      scopes,
 		ExpiresAt:   expiresAt,
+		IpAllowlist: ipAllowlist,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "tokens: insert", "error", err)

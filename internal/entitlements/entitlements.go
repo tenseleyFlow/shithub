@@ -98,6 +98,17 @@ const (
 	// the repo owner's entitlement before doing any work. PRO-EXT01-10b.
 	// Kinds: user only.
 	FeatureSecretScanHistory Feature = "secret_scan_history"
+	// FeatureFineGrainedPATs gates Pro-only PAT extensions: IP
+	// allowlists (PRO-EXT01-11a), single-repo binding (PRO-EXT01-11b),
+	// and — when shipped — custom-expiry / fine-grained scope syntax.
+	// SECURITY-CRITICAL: the gate enforces the *write* path (a Free
+	// user can't attach an IP allowlist to their token), but the
+	// middleware-side enforcement of the allowlist itself ALWAYS
+	// runs against any token that has one. The campaign enforce flag
+	// gates *writing* the restriction, not honoring existing ones.
+	// 14-day soak before PRO-EXT01-17 flip (longer than the 7-day
+	// default).
+	FeatureFineGrainedPATs Feature = "fine_grained_pats"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -197,6 +208,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
 	FeatureContributionPrivacy:      {billing.SubjectKindUser},
 	FeatureSecretScanHistory:        {billing.SubjectKindUser},
+	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
