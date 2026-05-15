@@ -22,6 +22,22 @@
       <span>Body (Markdown)</span>
       <textarea name="body" rows="14" maxlength="65535">{{ .FormBody }}</textarea>
     </label>
+
+    {{ if .ScheduleAllowed }}
+    <label class="shithub-form-row">
+      <span>Schedule for later <small>(UTC, optional — leave blank to open now)</small></span>
+      <input type="datetime-local" name="schedule_at">
+    </label>
+    {{ else }}
+    <div class="shithub-form-row shithub-pro-lock" data-pro-feature="{{ .ScheduleFeatureKey }}">
+      <span>Schedule for later
+        <small>Schedule an issue to open at a future date with Pro.</small>
+      </span>
+      <input type="datetime-local" name="schedule_at" disabled aria-disabled="true">
+      {{ template "pro-lock-cta" .ScheduleFeatureKey }}
+    </div>
+    {{ end }}
+
     <div class="shithub-form-actions">
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/issues" class="shithub-button">Cancel</a>
       <button type="submit" class="shithub-button shithub-button-primary">Submit new issue</button>

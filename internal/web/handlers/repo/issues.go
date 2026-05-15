@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,11 +18,15 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 // MountIssues registers the issues + labels + milestones routes under
@@ -171,20 +176,46 @@ func (h *Handlers) issueNewForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_new", map[string]any{
-		"Title":        "New issue · " + row.Name,
-		"Owner":        owner.Username,
-		"Repo":         row,
-		"CSRFToken":    middleware.CSRFTokenForRequest(r),
-		"RepoActions":  h.repoActions(r, row.ID),
-		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
-		"ActiveSubnav": "issues",
+		"Title":              "New issue · " + row.Name,
+		"Owner":              owner.Username,
+		"Repo":               row,
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"RepoActions":        h.repoActions(r, row.ID),
+		"RepoCounts":         h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":        h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":       "issues",
+		"ScheduleAllowed":    h.scheduledIssuesAllowedForViewer(r.Context(), viewer.ID),
+		"ScheduleFeatureKey": string(entitlements.FeatureScheduledIssues),
 	})
 }
 
-// issueCreate handles the new-issue POST.
+// scheduledIssuesAllowedForViewer reports whether the current viewer
+// holds FeatureScheduledIssues. Used by the new-issue form to drive
+// the locked-UI presentation of the "Schedule for later" control.
+// Anonymous viewers (id == 0) get false — the form is reachable but
+// the schedule control should render disabled with an upgrade CTA.
+func (h *Handlers) scheduledIssuesAllowedForViewer(ctx context.Context, userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureScheduledIssues)
+	if err != nil {
+		return false
+	}
+	return decision.Allowed
+}
+
+// issueCreate handles the new-issue POST. When schedule_at is supplied
+// and the viewer holds FeatureScheduledIssues, the row goes into
+// user_scheduled_issues + an enqueued worker job rather than landing
+// the issue immediately. The enforce flag is consulted for Free users:
+// report-only honours the schedule (logs the would-deny); enforce
+// silently ignores the schedule_at and creates the issue now.
 func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionIssueCreate)
 	if !ok {
@@ -197,6 +228,30 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	title := strings.TrimSpace(r.PostFormValue("title"))
 	body := r.PostFormValue("body")
+	scheduleRaw := strings.TrimSpace(r.PostFormValue("schedule_at"))
+
+	if scheduleRaw != "" {
+		scheduledAt, perr := parseScheduleAt(scheduleRaw, time.Now().UTC())
+		if perr != nil {
+			h.renderIssueCreateError(w, r, owner.Username, row, title, body, perr)
+			return
+		}
+		if h.scheduleIssueAccepted(r.Context(), viewer.ID) {
+			if redirectPath, err := h.scheduleIssueCreate(r.Context(), row, viewer.ID, owner.Username, title, body, scheduledAt); err != nil {
+				h.renderIssueCreateError(w, r, owner.Username, row, title, body, err)
+				return
+			} else if redirectPath != "" {
+				http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+				return
+			}
+			// Fall through: scheduledIssueCreate returned ("", nil) meaning
+			// "create immediately" (Free user under report-only mode is
+			// gated by allowed=false → handled below).
+		}
+		// Either feature not allowed in enforce mode, or report-only
+		// path chose to fall through. Fall through to immediate create.
+	}
+
 	created, err := issues.Create(r.Context(), h.issuesDeps(), issues.CreateParams{
 		RepoID:       row.ID,
 		AuthorUserID: viewer.ID,
@@ -220,6 +275,89 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
+// scheduleIssueAccepted reports whether the current attempt should
+// take the scheduled path. Pro users: yes. Free users with enforce off
+// (report-only): yes (the would-deny is logged but the schedule still
+// honoured; the user sees the same UX as Pro until enforce flips).
+// Free users with enforce on: no (the schedule_at is ignored and the
+// issue is created immediately).
+func (h *Handlers) scheduleIssueAccepted(ctx context.Context, userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureScheduledIssues)
+	if err != nil {
+		return false
+	}
+	if decision.Allowed {
+		return true
+	}
+	// Free user. Log the would-deny.
+	h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+		"principal", billing.PrincipalForUser(userID).String(),
+		"principal_kind", string(billing.SubjectKindUser),
+		"principal_id", userID,
+		"feature", string(entitlements.FeatureScheduledIssues),
+		"reason", string(decision.Reason),
+		"required_plan", string(decision.RequiredPlan),
+		"mode", "report_only")
+	return !h.d.BillingEnforce.UserScheduledIssues
+}
+
+// scheduleIssueCreate inserts the scheduled-issue row and enqueues
+// the worker job. Returns (redirectPath, error); the redirect lands
+// on the user's scheduled-issues settings page on success so the user
+// can see their pending row.
+func (h *Handlers) scheduleIssueCreate(ctx context.Context, row reposdb.Repo, userID int64, _ /*owner*/ string, title, body string, scheduledAt time.Time) (string, error) {
+	uq := usersdb.New()
+	inserted, err := uq.InsertScheduledIssue(ctx, h.d.Pool, usersdb.InsertScheduledIssueParams{
+		UserID:     userID,
+		RepoID:     row.ID,
+		Title:      title,
+		Body:       body,
+		ScheduleAt: pgtype.Timestamptz{Time: scheduledAt, Valid: true},
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, err := worker.Enqueue(ctx, h.d.Pool, worker.KindScheduledIssueCreate,
+		map[string]any{"scheduled_id": inserted.ID},
+		worker.EnqueueOptions{RunAt: pgtype.Timestamptz{Time: scheduledAt, Valid: true}}); err != nil {
+		h.d.Logger.ErrorContext(ctx, "scheduled-issue: enqueue", "error", err, "scheduled_id", inserted.ID)
+		return "", err
+	}
+	return "/settings/scheduled-issues", nil
+}
+
+// parseScheduleAt accepts the value from an HTML datetime-local input
+// (YYYY-MM-DDTHH:MM) and rejects times in the past or beyond a sane
+// upper bound (one year out — anything further is almost certainly a
+// typo, and locking us into a year-out commit is a recipe for orphan
+// scheduled rows). Returns time.Time in UTC.
+func parseScheduleAt(raw string, now time.Time) (time.Time, error) {
+	// datetime-local has no timezone; treat as the user's local in
+	// the spec, but the server doesn't know it. Conservative choice:
+	// interpret as UTC. The form prompt makes this explicit.
+	t, err := time.Parse("2006-01-02T15:04", raw)
+	if err != nil {
+		// Some browsers include seconds; try that fallback.
+		t, err = time.Parse("2006-01-02T15:04:05", raw)
+		if err != nil {
+			return time.Time{}, errors.New("schedule: invalid datetime — expected YYYY-MM-DDTHH:MM in UTC")
+		}
+	}
+	t = t.UTC()
+	if !t.After(now) {
+		return time.Time{}, errors.New("schedule: time must be in the future (UTC)")
+	}
+	if t.After(now.Add(365 * 24 * time.Hour)) {
+		return time.Time{}, errors.New("schedule: time cannot be more than one year out")
+	}
+	return t, nil
+}
+
 func (h *Handlers) renderIssueCreateError(w http.ResponseWriter, r *http.Request, owner string, row reposdb.Repo, title, body string, err error) {
 	msg := "Could not create the issue. Try again."
 	switch {
@@ -229,21 +367,29 @@ func (h *Handlers) renderIssueCreateError(w http.ResponseWriter, r *http.Request
 		msg = "Title is too long (max 256)."
 	case errors.Is(err, issues.ErrBodyTooLong):
 		msg = "Body is too long."
+	default:
+		if err != nil && strings.HasPrefix(err.Error(), "schedule: ") {
+			msg = strings.TrimPrefix(err.Error(), "schedule: ")
+			msg = "Schedule: " + msg
+		}
 	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_new", map[string]any{
-		"Title":        "New issue · " + row.Name,
-		"Owner":        owner,
-		"Repo":         row,
-		"FormTitle":    title,
-		"FormBody":     body,
-		"Error":        msg,
-		"CSRFToken":    middleware.CSRFTokenForRequest(r),
-		"RepoActions":  h.repoActions(r, row.ID),
-		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
-		"ActiveSubnav": "issues",
+		"Title":              "New issue · " + row.Name,
+		"Owner":              owner,
+		"Repo":               row,
+		"FormTitle":          title,
+		"FormBody":           body,
+		"Error":              msg,
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"RepoActions":        h.repoActions(r, row.ID),
+		"RepoCounts":         h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":        h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":       "issues",
+		"ScheduleAllowed":    h.scheduledIssuesAllowedForViewer(r.Context(), viewer.ID),
+		"ScheduleFeatureKey": string(entitlements.FeatureScheduledIssues),
 	})
 }
 
