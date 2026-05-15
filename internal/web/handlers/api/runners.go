@@ -1210,8 +1210,14 @@ func (h *Handlers) mergeUserSecrets(ctx context.Context, db actionsdb.DBTX, user
 }
 
 // userActionsSecretsAllowedForRunner checks the FeatureUserActionsSecrets
-// entitlement for the repo owner. Mirrors the handler-side check but
-// silent — the runner doesn't render a banner.
+// entitlement for the repo owner. Mirrors the handler-side check.
+//
+// PRO-EXT_SR-02: emits `entitlements.report_only_deny` when the
+// owner lacks the entitlement, regardless of whether enforce is on.
+// During report-only this is the only telemetry signal SREs have for
+// the soak-window evidence required before PRO-EXT01-17 flips the
+// enforce flag. After flip it stays useful as "denial would have
+// fired again" staff-review signal.
 func (h *Handlers) userActionsSecretsAllowedForRunner(ctx context.Context, userID int64) (bool, entitlements.Decision, error) {
 	decision, err := entitlements.CheckPrincipalFeature(ctx,
 		entitlements.Deps{Pool: h.d.Pool},
@@ -1219,6 +1225,17 @@ func (h *Handlers) userActionsSecretsAllowedForRunner(ctx context.Context, userI
 		entitlements.FeatureUserActionsSecrets)
 	if err != nil {
 		return false, entitlements.Decision{}, err
+	}
+	if !decision.Allowed && h.d.Logger != nil {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", orgbilling.PrincipalForUser(userID).String(),
+			"principal_kind", string(orgbilling.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureUserActionsSecrets),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only",
+			"surface", "runner")
 	}
 	return decision.Allowed, decision, nil
 }

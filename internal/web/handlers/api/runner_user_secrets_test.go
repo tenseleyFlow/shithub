@@ -3,9 +3,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -94,6 +96,45 @@ func TestResolveVisibleSecrets_EnforceFiltersUserScope(t *testing.T) {
 	}
 	if got["REPO_ONLY"] != "r" {
 		t.Errorf("repo-scope row should still flow; got=%+v", got)
+	}
+}
+
+// TestResolveVisibleSecrets_RunnerEmitsReportOnlyDeny pins that the
+// runner-side gate emits `entitlements.report_only_deny` whenever the
+// owner lacks the entitlement — regardless of whether the enforce
+// flag is set. Without this log line, an SRE flipping the enforce
+// flag in PRO-EXT01-17 has no soak-window evidence to consult. The
+// emission is the contract guarded by PRO-EXT_SR-02.
+func TestResolveVisibleSecrets_RunnerEmitsReportOnlyDeny(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	box := mustBox(t)
+	logBuf := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	h := &Handlers{d: Deps{
+		Pool:      pool,
+		SecretBox: box,
+		Logger:    logger,
+		// Enforce flag intentionally off: the log line must fire
+		// during the soak window too.
+	}}
+
+	userID := mustUser(t, pool, "alice")
+	repoID := mustRepo(t, pool, userID, "demo")
+	mustUserSecret(t, pool, box, userID, "PERSONAL", []byte("u"))
+
+	if _, err := h.resolveVisibleSecretsFromDB(context.Background(), pool, repoID, ""); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	out := logBuf.String()
+	if !strings.Contains(out, `"msg":"entitlements.report_only_deny"`) {
+		t.Errorf("expected report_only_deny log line; got=%s", out)
+	}
+	if !strings.Contains(out, `"feature":"user_actions_secrets"`) {
+		t.Errorf("log line should name the feature: %s", out)
+	}
+	if !strings.Contains(out, `"surface":"runner"`) {
+		t.Errorf("log line should tag the runner surface: %s", out)
 	}
 }
 
