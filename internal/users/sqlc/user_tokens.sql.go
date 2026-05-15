@@ -27,14 +27,15 @@ func (q *Queries) CountActiveUserTokens(ctx context.Context, db DBTX, userID int
 const getUserTokenByHash = `-- name: GetUserTokenByHash :one
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
        expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-       ip_allowlist
+       ip_allowlist, repo_id
 FROM user_tokens
 WHERE token_hash = $1
 `
 
 // Hot path for the auth middleware. token_hash is UNIQUE; returns at
 // most one row. Caller MUST also check revoked_at IS NULL and
-// expires_at handling.
+// expires_at handling. repo_id (PRO-EXT01-11b) is included so the
+// middleware can propagate the binding to downstream route helpers.
 func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error) {
 	row := db.QueryRow(ctx, getUserTokenByHash, tokenHash)
 	var i UserToken
@@ -51,17 +52,18 @@ func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []b
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.IpAllowlist,
+		&i.RepoID,
 	)
 	return i, err
 }
 
 const insertUserToken = `-- name: InsertUserToken :one
 
-INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist)
-VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::text[], '{}'::text[]))
+INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist, repo_id)
+VALUES ($1, $2, $3, $4, $5, $6, COALESCE($8::text[], '{}'::text[]), $7)
 RETURNING id, user_id, name, token_hash, token_prefix, scopes,
           expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-          ip_allowlist
+          ip_allowlist, repo_id
 `
 
 type InsertUserTokenParams struct {
@@ -71,6 +73,7 @@ type InsertUserTokenParams struct {
 	TokenPrefix string
 	Scopes      []string
 	ExpiresAt   pgtype.Timestamptz
+	RepoID      pgtype.Int8
 	IpAllowlist []string
 }
 
@@ -78,6 +81,7 @@ type InsertUserTokenParams struct {
 // COALESCE on the ip_allowlist param so callers that don't supply it
 // (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
 // array default rather than a NOT NULL constraint violation.
+// repo_id is nullable — NULL means "no binding".
 func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error) {
 	row := db.QueryRow(ctx, insertUserToken,
 		arg.UserID,
@@ -86,6 +90,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		arg.TokenPrefix,
 		arg.Scopes,
 		arg.ExpiresAt,
+		arg.RepoID,
 		arg.IpAllowlist,
 	)
 	var i UserToken
@@ -102,6 +107,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.IpAllowlist,
+		&i.RepoID,
 	)
 	return i, err
 }
@@ -109,7 +115,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 const listUserTokens = `-- name: ListUserTokens :many
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
        expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-       ip_allowlist
+       ip_allowlist, repo_id
 FROM user_tokens
 WHERE user_id = $1
 ORDER BY revoked_at IS NOT NULL, created_at DESC
@@ -137,6 +143,7 @@ func (q *Queries) ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]
 			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.IpAllowlist,
+			&i.RepoID,
 		); err != nil {
 			return nil, err
 		}
