@@ -2,7 +2,7 @@
 # Targets mirror what CI runs. The Makefile is the source of truth.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations verify-api-docs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging docs docs-serve docs-verify gen-third-party-notices audit-actions-ga audit-a11y audit-a11y-pa11y audit-a11y-axe load-test
+.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations verify-api-docs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging docs docs-serve docs-verify gen-third-party-notices audit-actions-ga audit-actions-ui audit-a11y audit-a11y-pa11y audit-a11y-axe load-test
 
 # Build metadata embedded into the binary via -ldflags.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -214,6 +214,10 @@ gen-third-party-notices: ## Regenerate THIRD_PARTY_NOTICES.md from the active go
 
 audit-actions-ga: ## Run the read-only S41h Actions pre-GA static audit packet.
 	@scripts/audit-actions-ga.sh
+
+audit-actions-ui: ## Capture S41k Actions UI parity screenshots (needs running shithub + puppeteer).
+	@command -v node >/dev/null 2>&1 || { echo "node not installed"; exit 2; }
+	node tests/actions-ui/capture-screenshots.js
 
 # --- S39 hardening ---
 audit-a11y-pa11y: ## pa11y-ci scan of anonymous routes (needs running shithub on 127.0.0.1:8080).
