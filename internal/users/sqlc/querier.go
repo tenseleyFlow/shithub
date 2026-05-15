@@ -181,6 +181,9 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertUserSSHKey(ctx context.Context, db DBTX, arg InsertUserSSHKeyParams) (UserSshKey, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// COALESCE on the ip_allowlist param so callers that don't supply it
+	// (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
+	// array default rather than a NOT NULL constraint violation.
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
 	// Used by the S10 username-change flow to record an old name. The
 	// redirect itself doubles as a 30-day reservation (the row stays for at
@@ -290,6 +293,10 @@ type Querier interface {
 	// this query trusts its arguments.
 	UpdateUserProfileVanity(ctx context.Context, db DBTX, arg UpdateUserProfileVanityParams) error
 	UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error
+	// Scoped by user_id so a hijacked handler can't reach into someone
+	// else's token row. Pro-feature gate is enforced in the handler;
+	// this query is dumb plumbing.
+	UpdateUserTokenIPAllowlist(ctx context.Context, db DBTX, arg UpdateUserTokenIPAllowlistParams) error
 	// Idempotent on (user_id, repo_id); a duplicate insert is a no-op.
 	UpsertContributionOptout(ctx context.Context, db DBTX, arg UpsertContributionOptoutParams) error
 	UpsertUserNotificationPref(ctx context.Context, db DBTX, arg UpsertUserNotificationPrefParams) error

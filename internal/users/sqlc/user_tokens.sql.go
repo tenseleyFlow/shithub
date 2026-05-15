@@ -26,7 +26,8 @@ func (q *Queries) CountActiveUserTokens(ctx context.Context, db DBTX, userID int
 
 const getUserTokenByHash = `-- name: GetUserTokenByHash :one
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
-       expires_at, last_used_at, last_used_ip, revoked_at, created_at
+       expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+       ip_allowlist
 FROM user_tokens
 WHERE token_hash = $1
 `
@@ -49,16 +50,18 @@ func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []b
 		&i.LastUsedIp,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.IpAllowlist,
 	)
 	return i, err
 }
 
 const insertUserToken = `-- name: InsertUserToken :one
 
-INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist)
+VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::text[], '{}'::text[]))
 RETURNING id, user_id, name, token_hash, token_prefix, scopes,
-          expires_at, last_used_at, last_used_ip, revoked_at, created_at
+          expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+          ip_allowlist
 `
 
 type InsertUserTokenParams struct {
@@ -68,9 +71,13 @@ type InsertUserTokenParams struct {
 	TokenPrefix string
 	Scopes      []string
 	ExpiresAt   pgtype.Timestamptz
+	IpAllowlist []string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// COALESCE on the ip_allowlist param so callers that don't supply it
+// (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
+// array default rather than a NOT NULL constraint violation.
 func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error) {
 	row := db.QueryRow(ctx, insertUserToken,
 		arg.UserID,
@@ -79,6 +86,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		arg.TokenPrefix,
 		arg.Scopes,
 		arg.ExpiresAt,
+		arg.IpAllowlist,
 	)
 	var i UserToken
 	err := row.Scan(
@@ -93,13 +101,15 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		&i.LastUsedIp,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.IpAllowlist,
 	)
 	return i, err
 }
 
 const listUserTokens = `-- name: ListUserTokens :many
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
-       expires_at, last_used_at, last_used_ip, revoked_at, created_at
+       expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+       ip_allowlist
 FROM user_tokens
 WHERE user_id = $1
 ORDER BY revoked_at IS NOT NULL, created_at DESC
@@ -126,6 +136,7 @@ func (q *Queries) ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]
 			&i.LastUsedIp,
 			&i.RevokedAt,
 			&i.CreatedAt,
+			&i.IpAllowlist,
 		); err != nil {
 			return nil, err
 		}
@@ -184,5 +195,25 @@ type TouchUserTokenLastUsedParams struct {
 
 func (q *Queries) TouchUserTokenLastUsed(ctx context.Context, db DBTX, arg TouchUserTokenLastUsedParams) error {
 	_, err := db.Exec(ctx, touchUserTokenLastUsed, arg.ID, arg.LastUsedIp)
+	return err
+}
+
+const updateUserTokenIPAllowlist = `-- name: UpdateUserTokenIPAllowlist :exec
+UPDATE user_tokens
+SET ip_allowlist = $3
+WHERE id = $1 AND user_id = $2
+`
+
+type UpdateUserTokenIPAllowlistParams struct {
+	ID          int64
+	UserID      int64
+	IpAllowlist []string
+}
+
+// Scoped by user_id so a hijacked handler can't reach into someone
+// else's token row. Pro-feature gate is enforced in the handler;
+// this query is dumb plumbing.
+func (q *Queries) UpdateUserTokenIPAllowlist(ctx context.Context, db DBTX, arg UpdateUserTokenIPAllowlistParams) error {
+	_, err := db.Exec(ctx, updateUserTokenIPAllowlist, arg.ID, arg.UserID, arg.IpAllowlist)
 	return err
 }

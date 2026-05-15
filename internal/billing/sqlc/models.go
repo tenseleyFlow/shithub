@@ -3161,6 +3161,7 @@ type UserToken struct {
 	LastUsedIp  *netip.Addr
 	RevokedAt   pgtype.Timestamptz
 	CreatedAt   pgtype.Timestamptz
+	IpAllowlist []string
 }
 
 type UserTotp struct {

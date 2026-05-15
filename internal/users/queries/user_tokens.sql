@@ -1,14 +1,27 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 
 -- name: InsertUserToken :one
-INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+-- COALESCE on the ip_allowlist param so callers that don't supply it
+-- (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
+-- array default rather than a NOT NULL constraint violation.
+INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist)
+VALUES ($1, $2, $3, $4, $5, $6, COALESCE(sqlc.arg(ip_allowlist)::text[], '{}'::text[]))
 RETURNING id, user_id, name, token_hash, token_prefix, scopes,
-          expires_at, last_used_at, last_used_ip, revoked_at, created_at;
+          expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+          ip_allowlist;
+
+-- name: UpdateUserTokenIPAllowlist :exec
+-- Scoped by user_id so a hijacked handler can't reach into someone
+-- else's token row. Pro-feature gate is enforced in the handler;
+-- this query is dumb plumbing.
+UPDATE user_tokens
+SET ip_allowlist = $3
+WHERE id = $1 AND user_id = $2;
 
 -- name: ListUserTokens :many
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
-       expires_at, last_used_at, last_used_ip, revoked_at, created_at
+       expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+       ip_allowlist
 FROM user_tokens
 WHERE user_id = $1
 ORDER BY revoked_at IS NOT NULL, created_at DESC;
@@ -35,7 +48,8 @@ WHERE user_id = $1 AND revoked_at IS NULL;
 -- most one row. Caller MUST also check revoked_at IS NULL and
 -- expires_at handling.
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
-       expires_at, last_used_at, last_used_ip, revoked_at, created_at
+       expires_at, last_used_at, last_used_ip, revoked_at, created_at,
+       ip_allowlist
 FROM user_tokens
 WHERE token_hash = $1;
 
