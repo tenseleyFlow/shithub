@@ -26,6 +26,10 @@ type resolvedAuth struct {
 	ViaPAT             bool
 	ViaRunnerCheckout  bool
 	RunnerCheckoutRepo int64
+	// PATRepoBinding is the repo this PAT is locked to (PRO-EXT01-11b)
+	// or 0 if the token is unbound. Callers MUST compare against the
+	// request's resolved repo before serving data when ViaPAT is true.
+	PATRepoBinding int64
 }
 
 // errBadCredentials is the catch-all for "creds were sent but didn't
@@ -132,8 +136,13 @@ func (h *Handlers) resolveViaPAT(ctx context.Context, raw string) (resolvedAuth,
 	if err != nil || user.SuspendedAt.Valid {
 		return resolvedAuth{}, errBadCredentials
 	}
+	var binding int64
+	if row.RepoID.Valid {
+		binding = row.RepoID.Int64
+	}
 	return resolvedAuth{
 		UserID: user.ID, Username: user.Username, ViaPAT: true,
+		PATRepoBinding: binding,
 	}, nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/git/protocol"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -168,6 +169,14 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 			return reposdb.Repo{}, false
 		}
 		return row, true
+	}
+
+	// PRO-EXT01-11b: a PAT bound to a single repo can ONLY act on that
+	// repo. Mirror the runner-checkout shape: respond 404 so we don't
+	// leak that the repo exists from a different token's perspective.
+	if auth.ViaPAT && !pat.RepoBindingAllows(auth.PATRepoBinding, row.ID) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return reposdb.Repo{}, false
 	}
 
 	// Build the policy actor and ask Can(). Owner identity, collab role,
