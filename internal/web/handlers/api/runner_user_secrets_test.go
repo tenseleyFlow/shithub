@@ -7,14 +7,17 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -138,6 +141,77 @@ func TestResolveVisibleSecrets_RunnerEmitsReportOnlyDeny(t *testing.T) {
 	}
 }
 
+// TestResolveVisibleSecrets_ProUserMergesUnderEnforce pins the
+// positive case the audit flagged as missing: a Pro user owns the
+// repo, enforce is ON, and user-scope rows MUST still flow through.
+// Without this test, a refactor that denied all principals
+// (regardless of plan) would silently break Pro users' workflows
+// and only get caught in production.
+func TestResolveVisibleSecrets_ProUserMergesUnderEnforce(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	box := mustBox(t)
+
+	h := &Handlers{d: Deps{
+		Pool:      pool,
+		SecretBox: box,
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		BillingEnforce: config.EnforceConfig{
+			UserActionsSecrets: true,
+		},
+	}}
+
+	userID := mustUser(t, pool, "alice")
+	mustUpgradeUserToPro(t, pool, userID)
+	repoID := mustRepo(t, pool, userID, "demo")
+	mustUserSecret(t, pool, box, userID, "PRO_KEY", []byte("pro-value"))
+	mustRepoSecret(t, pool, box, repoID, "REPO_KEY", []byte("repo-value"))
+
+	got, err := h.resolveVisibleSecretsFromDB(context.Background(), pool, repoID, "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got["PRO_KEY"] != "pro-value" {
+		t.Errorf("Pro user user-scope row should merge under enforce; got %q", got["PRO_KEY"])
+	}
+	if got["REPO_KEY"] != "repo-value" {
+		t.Errorf("repo-scope row should always merge; got %q", got["REPO_KEY"])
+	}
+}
+
+// TestResolveVisibleSecrets_FreeUserReportOnlyMergesUserScope pins
+// the second missing-cell from the audit: Free user, enforce OFF
+// (the default soak-window state). The gate is report-only, so the
+// merge must complete — the soak's whole point is observing what
+// WOULD have been denied while still serving the user's intent.
+func TestResolveVisibleSecrets_FreeUserReportOnlyMergesUserScope(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	box := mustBox(t)
+
+	h := &Handlers{d: Deps{
+		Pool:      pool,
+		SecretBox: box,
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// Enforce flag OFF — the campaign's default soak-window state.
+	}}
+
+	userID := mustUser(t, pool, "alice")
+	// No upgradeUserToPro — alice stays Free.
+	repoID := mustRepo(t, pool, userID, "demo")
+	mustUserSecret(t, pool, box, userID, "REPORT_ONLY_KEY", []byte("ro-value"))
+	mustRepoSecret(t, pool, box, repoID, "REPO_KEY", []byte("repo-value"))
+
+	got, err := h.resolveVisibleSecretsFromDB(context.Background(), pool, repoID, "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got["REPORT_ONLY_KEY"] != "ro-value" {
+		t.Errorf("report-only must honor user-scope rows; got %q", got["REPORT_ONLY_KEY"])
+	}
+	if got["REPO_KEY"] != "repo-value" {
+		t.Errorf("repo-scope row should always merge; got %q", got["REPO_KEY"])
+	}
+}
+
 // ─── helpers ────────────────────────────────────────────────────────
 
 func mustBox(t *testing.T) *secretbox.Box {
@@ -208,5 +282,26 @@ func mustRepoSecret(t *testing.T, pool *pgxpool.Pool, box *secretbox.Box, repoID
 		Nonce:      nonce,
 	}); err != nil {
 		t.Fatalf("UpsertRepoSecret: %v", err)
+	}
+}
+
+// mustUpgradeUserToPro promotes the test user to an active Pro
+// subscription via the canonical entitlements snapshot path. Mirrors
+// the api_test-package helper (upgradeUserToActivePro in
+// user_plan_test.go) but is reachable from this in-package file.
+func mustUpgradeUserToPro(t *testing.T, pool *pgxpool.Pool, userID int64) {
+	t.Helper()
+	now := time.Now().UTC()
+	suffix := strconv.FormatInt(userID, 10)
+	if _, err := billingdb.New().ApplyUserSubscriptionSnapshot(context.Background(), pool, billingdb.ApplyUserSubscriptionSnapshotParams{
+		UserID:               userID,
+		Plan:                 billingdb.UserPlanPro,
+		SubscriptionStatus:   billingdb.BillingSubscriptionStatusActive,
+		StripeSubscriptionID: pgtype.Text{String: "sub_runner_pro_" + suffix, Valid: true},
+		CurrentPeriodStart:   pgtype.Timestamptz{Time: now.Add(-time.Hour), Valid: true},
+		CurrentPeriodEnd:     pgtype.Timestamptz{Time: now.Add(30 * 24 * time.Hour), Valid: true},
+		LastWebhookEventID:   "evt_runner_pro_" + suffix,
+	}); err != nil {
+		t.Fatalf("ApplyUserSubscriptionSnapshot: %v", err)
 	}
 }
