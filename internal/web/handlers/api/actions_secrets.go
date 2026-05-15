@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -46,6 +48,11 @@ func (h *Handlers) mountActionsSecrets(r chi.Router) {
 		r.Get("/api/v1/orgs/{org}/actions/secrets/public-key", h.actionsSecretsPublicKeyOrg)
 		r.Get("/api/v1/orgs/{org}/actions/secrets", h.actionsSecretsListOrg)
 		r.Get("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsGetOrg)
+		// PRO-EXT01-12b: user-scope secrets — read paths use repo:read
+		// because the PAT model already gates write surfaces here.
+		r.Get("/api/v1/user/actions/secrets/public-key", h.actionsSecretsPublicKeyUser)
+		r.Get("/api/v1/user/actions/secrets", h.actionsSecretsListUser)
+		r.Get("/api/v1/user/actions/secrets/{name}", h.actionsSecretsGetUser)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoWrite))
@@ -53,6 +60,8 @@ func (h *Handlers) mountActionsSecrets(r chi.Router) {
 		r.Delete("/api/v1/repos/{owner}/{repo}/actions/secrets/{name}", h.actionsSecretsDeleteRepo)
 		r.Put("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsPutOrg)
 		r.Delete("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsDeleteOrg)
+		r.Put("/api/v1/user/actions/secrets/{name}", h.actionsSecretsPutUser)
+		r.Delete("/api/v1/user/actions/secrets/{name}", h.actionsSecretsDeleteUser)
 	})
 }
 
@@ -320,4 +329,115 @@ func writeSecretsError(w http.ResponseWriter, err error) {
 	default:
 		writeAPIError(w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// ─── user scope (PRO-EXT01-12b) ─────────────────────────────────────
+
+// requireUserPATAuth returns the authenticated user's id, or writes
+// 401 and returns 0. The /api/v1/user/* surface requires a PAT —
+// anonymous requests have nothing to scope against.
+func (h *Handlers) requireUserPATAuth(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	auth := middleware.PATAuthFromContext(r.Context())
+	if auth.UserID == 0 {
+		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
+		return 0, false
+	}
+	return auth.UserID, true
+}
+
+// userActionsSecretsAPIGate gates the user-scope WRITE path on
+// FeatureUserActionsSecrets when the enforce flag is set. Identical
+// shape to the web handler's gate. Returns true to allow, false (and
+// writes 402-style 403) to deny.
+func (h *Handlers) userActionsSecretsAPIGate(ctx context.Context, w http.ResponseWriter, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		orgbilling.PrincipalForUser(userID),
+		entitlements.FeatureUserActionsSecrets)
+	if err != nil {
+		h.d.Logger.ErrorContext(ctx, "api: user actions secrets entitlement", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "entitlement check failed")
+		return false
+	}
+	if !decision.Allowed && h.d.BillingEnforce.UserActionsSecrets {
+		writeAPIError(w, http.StatusForbidden, "personal Actions secrets require a Pro subscription")
+		return false
+	}
+	return true
+}
+
+func (h *Handlers) actionsSecretsPublicKeyUser(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireUserPATAuth(w, r); !ok {
+		return
+	}
+	h.writeSecretsPublicKey(w, r)
+}
+
+func (h *Handlers) actionsSecretsListUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserPATAuth(w, r)
+	if !ok {
+		return
+	}
+	rows, err := h.secretsDeps().List(r.Context(), secrets.UserScope(userID))
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list user secrets", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	out := make([]secretMetaResponse, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, presentSecretMeta(m))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handlers) actionsSecretsGetUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserPATAuth(w, r)
+	if !ok {
+		return
+	}
+	name := chi.URLParam(r, "name")
+	rows, err := h.secretsDeps().List(r.Context(), secrets.UserScope(userID))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	for _, m := range rows {
+		if m.Name == name {
+			writeJSON(w, http.StatusOK, presentSecretMeta(m))
+			return
+		}
+	}
+	writeAPIError(w, http.StatusNotFound, "secret not found")
+}
+
+func (h *Handlers) actionsSecretsPutUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserPATAuth(w, r)
+	if !ok {
+		return
+	}
+	if !h.userActionsSecretsAPIGate(r.Context(), w, userID) {
+		return
+	}
+	plaintext, ok := h.decodeSecretBody(w, r)
+	if !ok {
+		return
+	}
+	if err := h.secretsDeps().Set(r.Context(), secrets.UserScope(userID), chi.URLParam(r, "name"), plaintext, userID); err != nil {
+		writeSecretsError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) actionsSecretsDeleteUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserPATAuth(w, r)
+	if !ok {
+		return
+	}
+	if err := h.secretsDeps().Delete(r.Context(), secrets.UserScope(userID), chi.URLParam(r, "name")); err != nil {
+		writeSecretsError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
