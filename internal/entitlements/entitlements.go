@@ -73,6 +73,12 @@ const (
 	// unlimited for everyone, but shithub's Pro pitch puts a small
 	// productivity-feature pack behind the gate.
 	FeatureSavedRepliesUnlimited Feature = "saved_replies_unlimited"
+	// FeatureScheduledIssues lets a Pro user prepare an issue and pick
+	// a future datetime; a worker materializes the real issue at that
+	// time. shithub-original. PRO-EXT01-07b. Kinds: user only. The
+	// Free user sees the schedule control rendered as a disabled
+	// pro-lock; clicking the lock CTA routes to /settings/billing.
+	FeatureScheduledIssues Feature = "scheduled_issues"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -168,6 +174,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureUsernameReservations:     {billing.SubjectKindUser},
 	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
 	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
+	FeatureScheduledIssues:          {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
