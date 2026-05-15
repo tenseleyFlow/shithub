@@ -12491,3 +12491,34 @@ button.shithub-repo-action {
   font-family: var(--shithub-mono, ui-monospace, SFMono-Regular, monospace);
   word-break: break-all;
 }
+
+/* ----- Pro pill + pro-lock primitive (PRO-EXT01-01) ----- */
+.shithub-pill-pro {
+  background: rgba(193, 154, 91, 0.18);
+  border-color: rgba(193, 154, 91, 0.55);
+  color: #c19a5b;
+}
+.shithub-pro-lock {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.shithub-pro-lock > :disabled,
+.shithub-pro-lock [aria-disabled="true"] {
+  pointer-events: none;
+}
+.shithub-pro-lock-cta {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.shithub-pro-lock-cta:focus-visible {
+  outline: 2px solid var(--accent-fg, #58a6ff);
+  outline-offset: 2px;
+  border-radius: 999px;
+}

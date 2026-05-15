@@ -193,6 +193,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"User":                       user,
 		"DisplayName":                displayName,
 		"IsSelf":                     isSelf,
+		"ProfileOwnerIsPro":          user.Plan == usersdb.UserPlanPro,
 		"AvatarURL":                  avatarURL,
 		"OGTitle":                    displayName + " (@" + user.Username + ")",
 		"OGDescription":              ogDescription(user),
