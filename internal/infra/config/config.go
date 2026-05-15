@@ -192,6 +192,11 @@ type EnforceConfig struct {
 	// report-only (the would-deny is logged but the action lands).
 	// Promoted in PRO-EXT01-17.
 	UserAdvancedCodeSearch bool `toml:"user_advanced_code_search"`
+	// UserContributionPrivacy: when true, Free users are blocked from
+	// adding per-repo opt-outs to their contribution graph. Off by
+	// default → report-only (the opt-out lands but the would-deny is
+	// logged). PRO-EXT01-09; promoted in PRO-EXT01-17.
+	UserContributionPrivacy bool `toml:"user_contribution_privacy"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

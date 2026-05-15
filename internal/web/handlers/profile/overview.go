@@ -253,6 +253,13 @@ func (h *Handlers) contributionCalendar(ctx context.Context, user usersdb.User, 
 	windowEnd := windowEndDay.Add(24 * time.Hour)
 	activityMonth := time.Date(windowEndDay.Year(), windowEndDay.Month(), 1, 0, 0, 0, 0, time.UTC)
 	repos := h.profileContributionRepos(ctx, user, viewer, user.IncludePrivateContributions)
+	// PRO-EXT01-09: drop repos the profile owner has opted out of from
+	// their contribution graph. Free users have an empty set (the gate
+	// rejects the writes in enforce mode; in report-only mode any
+	// opt-outs that did land still take effect — there's no point
+	// "logging" but ignoring user-set state, and the profile owner is
+	// expressing intent).
+	repos = h.filterContributionOptouts(ctx, user.ID, repos)
 	activity := newProfileActivityBuilder()
 
 	counts := map[string]int{}
@@ -627,6 +634,34 @@ func (h *Handlers) addProfileThreadActivity(ctx context.Context, user usersdb.Us
 		}
 		activity.addThread(row.CreatedAt.Time, kind, row.OwnerSlug, row.RepoName, state)
 	}
+}
+
+// filterContributionOptouts removes repos the profile owner has marked
+// as opt-outs (PRO-EXT01-09). The query is a single indexed lookup on
+// (user_id, repo_id) so it doesn't materially impact the calendar
+// query's p95. Returns the input slice unchanged when the owner has
+// no opt-outs (the common case for now).
+func (h *Handlers) filterContributionOptouts(ctx context.Context, userID int64, repos []profileContributionRepo) []profileContributionRepo {
+	ids, err := usersdb.New().ListContributionOptoutRepoIDsForUser(ctx, h.d.Pool, userID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "profile overview: list optouts", "user_id", userID, "error", err)
+		return repos
+	}
+	if len(ids) == 0 {
+		return repos
+	}
+	skip := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		skip[id] = struct{}{}
+	}
+	out := repos[:0]
+	for _, r := range repos {
+		if _, dropped := skip[r.Repo.ID]; dropped {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 func (h *Handlers) profileContributionRepos(ctx context.Context, user usersdb.User, viewer middleware.CurrentUser, includePrivate bool) []profileContributionRepo {

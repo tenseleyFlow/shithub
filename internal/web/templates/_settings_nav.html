@@ -27,6 +27,9 @@
       <li{{ if eq .SettingsActive "search-queries" }} class="active"{{ end }}>
         <a href="/settings/search-queries">Saved search queries</a>
       </li>
+      <li{{ if eq .SettingsActive "contributions" }} class="active"{{ end }}>
+        <a href="/settings/contributions">Contribution privacy</a>
+      </li>
       <li{{ if eq .SettingsActive "billing" }} class="active"{{ end }}>
         <a href="/settings/billing">Billing and plans</a>
       </li>
