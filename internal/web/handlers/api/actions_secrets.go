@@ -360,6 +360,11 @@ func (h *Handlers) requireUserPATAuth(w http.ResponseWriter, r *http.Request) (i
 // FeatureUserActionsSecrets when the enforce flag is set. Identical
 // shape to the web handler's gate. Returns true to allow, false (and
 // writes 402-style 403) to deny.
+//
+// PRO-EXT_SR-02: emits `entitlements.report_only_deny` whenever the
+// caller lacks the entitlement — regardless of whether the enforce
+// flag is set. The log line is the campaign's soak-window evidence
+// for PRO-EXT01-17.
 func (h *Handlers) userActionsSecretsAPIGate(ctx context.Context, w http.ResponseWriter, userID int64) bool {
 	decision, err := entitlements.CheckPrincipalFeature(ctx,
 		entitlements.Deps{Pool: h.d.Pool},
@@ -369,6 +374,21 @@ func (h *Handlers) userActionsSecretsAPIGate(ctx context.Context, w http.Respons
 		h.d.Logger.ErrorContext(ctx, "api: user actions secrets entitlement", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "entitlement check failed")
 		return false
+	}
+	if !decision.Allowed && h.d.Logger != nil {
+		mode := "report_only"
+		if h.d.BillingEnforce.UserActionsSecrets {
+			mode = "enforce"
+		}
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", orgbilling.PrincipalForUser(userID).String(),
+			"principal_kind", string(orgbilling.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureUserActionsSecrets),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", mode,
+			"surface", "api")
 	}
 	if !decision.Allowed && h.d.BillingEnforce.UserActionsSecrets {
 		writeAPIError(w, http.StatusForbidden, "personal Actions secrets require a Pro subscription")
