@@ -117,6 +117,26 @@ type TeamLicenseState struct {
 	SeatSnapshotAt           pgtype.Timestamptz
 }
 
+func IsTeamPlan(plan Plan) bool {
+	return plan == PlanTeam
+}
+
+func IsTeamState(state State) bool {
+	return IsTeamPlan(state.Plan)
+}
+
+func IsTeamLicenseState(state TeamLicenseState) bool {
+	return IsTeamPlan(state.Plan)
+}
+
+func IsUserPlanUnset(plan UserPlan) bool {
+	return plan == ""
+}
+
+func IsProUserPlan(plan UserPlan) bool {
+	return plan == UserPlanPro
+}
+
 type WebhookEvent struct {
 	ProviderEventID string
 	EventType       string

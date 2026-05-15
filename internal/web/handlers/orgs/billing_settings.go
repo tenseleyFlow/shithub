@@ -524,7 +524,7 @@ func (h *Handlers) renderBillingSeatChange(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	if state.Plan != orgbilling.PlanTeam {
+	if !orgbilling.IsTeamState(state) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
@@ -1057,7 +1057,7 @@ func (h *Handlers) teamSeatChangeState(r *http.Request, org orgsdb.Org) (orgbill
 	if err != nil {
 		return orgbilling.State{}, orgbilling.TeamLicenseState{}, err
 	}
-	if state.Plan != orgbilling.PlanTeam {
+	if !orgbilling.IsTeamState(state) {
 		return orgbilling.State{}, orgbilling.TeamLicenseState{}, orgbilling.ErrTeamPlanRequired
 	}
 	if !billingSeatManagementAvailable(state) {
@@ -1111,7 +1111,7 @@ func billingSeatActionMenuForOrg(slug string, state orgbilling.State, licenseSta
 	switch {
 	case !canManage:
 		menu.DisabledNote = "Only organization owners can manage licensed seats."
-	case state.Plan != orgbilling.PlanTeam:
+	case !orgbilling.IsTeamState(state):
 		menu.DisabledNote = "Upgrade to Team before managing licensed seats."
 	case !billingSeatManagementAvailable(state):
 		menu.DisabledNote = "Seat changes are unavailable until this subscription is active."
@@ -1228,7 +1228,7 @@ func billingSeatChangeFormForOrg(slug, mode string, delta int, state orgbilling.
 }
 
 func billingSeatManagementAvailable(state orgbilling.State) bool {
-	if state.Plan != orgbilling.PlanTeam || state.LockedAt.Valid {
+	if !orgbilling.IsTeamState(state) || state.LockedAt.Valid {
 		return false
 	}
 	switch state.SubscriptionStatus {

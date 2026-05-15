@@ -585,7 +585,7 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 		licenseState, err := orgbilling.GetTeamLicenseState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 		if err != nil {
 			h.d.Logger.WarnContext(r.Context(), "orgs: team seat check before invite", "org_id", org.ID, "error", err)
-		} else if licenseState.Plan == orgbilling.PlanTeam && licenseState.AvailableSeats <= 0 {
+		} else if orgbilling.IsTeamLicenseState(licenseState) && licenseState.AvailableSeats <= 0 {
 			http.Redirect(w, r, "/"+org.Slug+"/people?notice=team-seat-limit", http.StatusSeeOther)
 			return
 		}

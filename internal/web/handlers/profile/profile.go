@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/avatars"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
@@ -188,13 +189,14 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 	if displayName == "" {
 		displayName = user.Username
 	}
+	profileOwnerIsPro := billing.IsProUserPlan(billing.UserPlan(user.Plan))
 	data := map[string]any{
 		"Title":                      displayName,
 		"User":                       user,
 		"DisplayName":                displayName,
 		"IsSelf":                     isSelf,
-		"ProfileOwnerIsPro":          user.Plan == usersdb.UserPlanPro,
-		"ShowProPinCTA":              isSelf && user.Plan != usersdb.UserPlanPro,
+		"ProfileOwnerIsPro":          profileOwnerIsPro,
+		"ShowProPinCTA":              isSelf && !profileOwnerIsPro,
 		"ProfileAccentHex":           user.ProfileAccentHex,
 		"ProfileLayout":              user.ProfileLayout,
 		"AvatarURL":                  avatarURL,
