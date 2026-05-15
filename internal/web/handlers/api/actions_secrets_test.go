@@ -28,6 +28,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
@@ -58,7 +59,18 @@ type secretsTestEnv struct {
 	tokenRW   string
 }
 
+// secretsTestEnvOptions threads test-only configuration into
+// newSecretsTestEnvOpts. PRO-EXT_SR-05 added BillingEnforce so the
+// user-scope gate's enforce branches are reachable.
+type secretsTestEnvOptions struct {
+	BillingEnforce config.EnforceConfig
+}
+
 func newSecretsTestEnv(t *testing.T) *secretsTestEnv {
+	return newSecretsTestEnvOpts(t, secretsTestEnvOptions{})
+}
+
+func newSecretsTestEnvOpts(t *testing.T, opts secretsTestEnvOptions) *secretsTestEnv {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 	rfs, err := storage.NewRepoFS(t.TempDir())
@@ -95,6 +107,7 @@ func newSecretsTestEnv(t *testing.T) *secretsTestEnv {
 			AnonPerHour:   60,
 			Logger:        logger,
 		},
+		BillingEnforce: opts.BillingEnforce,
 	})
 	if err != nil {
 		t.Fatalf("apih.New: %v", err)
@@ -270,7 +283,8 @@ func TestActionsSecrets_PutGetDeleteRoundTrip(t *testing.T) {
 	// Runner-side decryption confirms the round-trip lands the actual
 	// plaintext at rest in workflow_secrets.
 	dec, err := secrets.Deps{Pool: env.pool, Box: env.secretBox}.Get(
-		context.Background(), secrets.RepoScope(env.repoID), "MY_TOKEN")
+		context.Background(), secrets.RepoScope(env.repoID), "MY_TOKEN",
+	)
 	if err != nil {
 		t.Fatalf("orchestrator Get: %v", err)
 	}
