@@ -5,9 +5,12 @@ package auth
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -33,7 +36,27 @@ type profileForm struct {
 	Website     string
 	Company     string
 	Pronouns    string
+	// PRO-EXT01-04: Pro-only vanity controls. Free users see these
+	// inputs as pro-locked in the template; the handler still parses
+	// them so a Pro user round-trips on validation errors and the
+	// initial Free-page render carries the current (likely empty)
+	// values for display.
+	AccentHex string
+	Layout    string
 }
+
+// accentHexRe matches the strict #rrggbb shape allowed by the
+// users.profile_accent_hex CHECK constraint. The handler rejects
+// anything else with a friendly message; this is also defense-in-depth
+// against CSS injection — the value lands in a `style="--var: $hex"`
+// attribute on the profile page.
+var accentHexRe = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+// profileLayoutKnown is the closed set the users.profile_layout CHECK
+// constraint enforces. Adding a new layout means: extending this set,
+// adding the CSS class branch in the template, and shipping a
+// migration that widens the constraint.
+var profileLayoutKnown = map[string]bool{"list": true, "featured": true}
 
 // settingsProfileForm renders GET /settings/profile prefilled from the DB.
 func (h *Handlers) settingsProfileForm(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +74,8 @@ func (h *Handlers) settingsProfileForm(w http.ResponseWriter, r *http.Request) {
 		Website:     row.Website,
 		Company:     row.Company,
 		Pronouns:    row.Pronouns,
+		AccentHex:   row.ProfileAccentHex,
+		Layout:      row.ProfileLayout,
 	}, "", "")
 }
 
@@ -68,6 +93,8 @@ func (h *Handlers) settingsProfileSubmit(w http.ResponseWriter, r *http.Request)
 		Website:     strings.TrimSpace(r.PostFormValue("website")),
 		Company:     strings.TrimSpace(r.PostFormValue("company")),
 		Pronouns:    strings.TrimSpace(r.PostFormValue("pronouns")),
+		AccentHex:   strings.ToLower(strings.TrimSpace(r.PostFormValue("accent_hex"))),
+		Layout:      strings.TrimSpace(r.PostFormValue("profile_layout")),
 	}
 	if msg := validateProfile(&form); msg != "" {
 		h.renderProfileForm(w, r, form, msg, "")
@@ -88,7 +115,52 @@ func (h *Handlers) settingsProfileSubmit(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// PRO-EXT01-04: vanity write is gated. A Free user submitting the
+	// form keeps the rest of the profile update but drops the vanity
+	// payload silently — the inputs are pro-locked in the template, so
+	// the only way to send non-default values is to bypass the UI. We
+	// don't error on bypass to keep Free profile saves frictionless;
+	// the values just don't persist.
+	if h.userVanityAllowed(r, user.ID) {
+		if err := h.q.UpdateUserProfileVanity(r.Context(), h.d.Pool, usersdb.UpdateUserProfileVanityParams{
+			ID:               user.ID,
+			ProfileAccentHex: form.AccentHex,
+			ProfileLayout:    form.Layout,
+		}); err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "settings/profile: vanity update", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+	}
+
 	h.renderProfileForm(w, r, form, "", "Profile updated.")
+}
+
+// userVanityAllowed checks the FeatureProfileVanity gate. Returns
+// false on any error (defensive — a degraded entitlements path can't
+// silently promote a Free user). Logs the would-deny when a Free user
+// attempts the write so PRO-EXT01-17's telemetry can attribute
+// upgrade-driving traffic.
+func (h *Handlers) userVanityAllowed(r *http.Request, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureProfileVanity)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "settings/profile: vanity entitlement check", "user_id", userID, "error", err)
+		return false
+	}
+	if !decision.Allowed {
+		h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
+			"principal", billing.PrincipalForUser(userID).String(),
+			"principal_kind", string(billing.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureProfileVanity),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only")
+	}
+	return decision.Allowed
 }
 
 // renderProfileForm is the shared render path. errMsg / successMsg are
@@ -109,6 +181,7 @@ func (h *Handlers) renderProfileForm(w http.ResponseWriter, r *http.Request, for
 		"Success":             successMsg,
 		"AvatarUploadEnabled": h.d.ObjectStore != nil,
 		"HasAvatar":           hasAvatar,
+		"VanityAllowed":       h.userVanityAllowed(r, user.ID),
 	})
 }
 
@@ -148,6 +221,15 @@ func validateProfile(f *profileForm) string {
 		strings.ContainsAny(f.Company, "\r\n") ||
 		strings.ContainsAny(f.Pronouns, "\r\n") {
 		return "Single-line fields cannot contain newlines."
+	}
+	if f.AccentHex != "" && !accentHexRe.MatchString(f.AccentHex) {
+		return "Accent color must be a #rrggbb hex value."
+	}
+	if f.Layout == "" {
+		f.Layout = "list"
+	}
+	if !profileLayoutKnown[f.Layout] {
+		return "Unknown profile layout."
 	}
 	return ""
 }

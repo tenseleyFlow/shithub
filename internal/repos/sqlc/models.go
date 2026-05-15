@@ -2848,6 +2848,8 @@ type User struct {
 	IsSiteAdmin                 bool
 	IncludePrivateContributions bool
 	Plan                        UserPlan
+	ProfileAccentHex            string
+	ProfileLayout               string
 }
 
 type UserBillingState struct {

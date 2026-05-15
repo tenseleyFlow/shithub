@@ -12542,3 +12542,60 @@ button.shithub-repo-action {
   white-space: nowrap;
 }
 .shithub-pins-pro-cta a:hover { text-decoration: underline; }
+
+/* ----- profile vanity (PRO-EXT01-04) ----- */
+/* The --shithub-profile-accent CSS variable is set inline on the
+   profile <section> element when the owner has stored a custom accent.
+   Specific surfaces opt-in by reading the variable with a sensible
+   fallback. */
+.shithub-user-profile {
+  --shithub-profile-accent: var(--accent-fg, #58a6ff);
+}
+.shithub-user-profile .shithub-button-block,
+.shithub-user-profile .shithub-button-primary {
+  background-color: var(--shithub-profile-accent);
+  border-color: var(--shithub-profile-accent);
+}
+.shithub-user-profile .shithub-profile-handle::before {
+  /* Subtle dot rendered in accent color before the handle. */
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background-color: var(--shithub-profile-accent);
+  vertical-align: middle;
+}
+
+/* Featured pin layout: first pinned card spans both grid columns.
+   Falls through to the default 3-col grid for everything beyond the
+   first card. */
+.shithub-user-profile-featured .shithub-profile-pinned-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.shithub-user-profile-featured .shithub-profile-pinned-grid > li:first-child {
+  grid-column: 1 / -1;
+}
+
+/* Settings → Profile vanity fieldset. */
+.shithub-profile-vanity {
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-profile-vanity legend {
+  font-weight: 600;
+  padding: 0 0.5rem;
+}
+.shithub-profile-vanity input[type="color"] {
+  height: 2rem;
+  width: 4rem;
+  padding: 0;
+}
+.shithub-profile-vanity input:disabled,
+.shithub-profile-vanity select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

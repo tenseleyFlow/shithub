@@ -1,5 +1,5 @@
 {{ define "page" -}}
-<section class="shithub-user-profile">
+<section class="shithub-user-profile{{ if eq .ProfileLayout "featured" }} shithub-user-profile-featured{{ end }}"{{ if .ProfileAccentHex }} style="--shithub-profile-accent: {{ .ProfileAccentHex }};"{{ end }}>
   <div class="shithub-profile-tabs-shell">
     {{ template "profile-tabs" . }}
   </div>

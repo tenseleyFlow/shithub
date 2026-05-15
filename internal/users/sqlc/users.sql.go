@@ -53,7 +53,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (username, display_name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan
+RETURNING id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout
 `
 
 type CreateUserParams struct {
@@ -92,12 +92,14 @@ func (q *Queries) CreateUser(ctx context.Context, db DBTX, arg CreateUserParams)
 		&i.IsSiteAdmin,
 		&i.IncludePrivateContributions,
 		&i.Plan,
+		&i.ProfileAccentHex,
+		&i.ProfileLayout,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout
 FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -131,12 +133,14 @@ func (q *Queries) GetUserByID(ctx context.Context, db DBTX, id int64) (User, err
 		&i.IsSiteAdmin,
 		&i.IncludePrivateContributions,
 		&i.Plan,
+		&i.ProfileAccentHex,
+		&i.ProfileLayout,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout
 FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
@@ -170,12 +174,14 @@ func (q *Queries) GetUserByUsername(ctx context.Context, db DBTX, username strin
 		&i.IsSiteAdmin,
 		&i.IncludePrivateContributions,
 		&i.Plan,
+		&i.ProfileAccentHex,
+		&i.ProfileLayout,
 	)
 	return i, err
 }
 
 const getUserByUsernameIncludingDeleted = `-- name: GetUserByUsernameIncludingDeleted :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan FROM users WHERE username = $1
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX, username string) (User, error) {
@@ -207,12 +213,14 @@ func (q *Queries) GetUserByUsernameIncludingDeleted(ctx context.Context, db DBTX
 		&i.IsSiteAdmin,
 		&i.IncludePrivateContributions,
 		&i.Plan,
+		&i.ProfileAccentHex,
+		&i.ProfileLayout,
 	)
 	return i, err
 }
 
 const getUserIncludingDeleted = `-- name: GetUserIncludingDeleted :one
-SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan FROM users WHERE id = $1
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout FROM users WHERE id = $1
 `
 
 // Like GetUserByID but returns the row even when deleted_at IS NOT NULL.
@@ -245,6 +253,8 @@ func (q *Queries) GetUserIncludingDeleted(ctx context.Context, db DBTX, id int64
 		&i.IsSiteAdmin,
 		&i.IncludePrivateContributions,
 		&i.Plan,
+		&i.ProfileAccentHex,
+		&i.ProfileLayout,
 	)
 	return i, err
 }
@@ -454,6 +464,28 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUser
 		arg.Company,
 		arg.Pronouns,
 	)
+	return err
+}
+
+const updateUserProfileVanity = `-- name: UpdateUserProfileVanity :exec
+UPDATE users
+SET profile_accent_hex = $2,
+    profile_layout     = $3
+WHERE id = $1
+`
+
+type UpdateUserProfileVanityParams struct {
+	ID               int64
+	ProfileAccentHex string
+	ProfileLayout    string
+}
+
+// PRO-EXT01-04: writes the Pro-tier vanity settings (accent color +
+// pin layout). Handler guards the write behind FeatureProfileVanity;
+// inputs are pre-validated against the column CHECK constraints so
+// this query trusts its arguments.
+func (q *Queries) UpdateUserProfileVanity(ctx context.Context, db DBTX, arg UpdateUserProfileVanityParams) error {
+	_, err := db.Exec(ctx, updateUserProfileVanity, arg.ID, arg.ProfileAccentHex, arg.ProfileLayout)
 	return err
 }
 

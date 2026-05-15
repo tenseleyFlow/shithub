@@ -45,6 +45,12 @@ const (
 	// parser ships in a later sprint and only then does Allowed flip.
 	// PRO07 keeps the enforce path a no-op for both kinds. Kinds: user, org.
 	FeatureCodeOwnersReview Feature = "codeowners_review"
+	// FeatureProfileVanity gates Pro-tier profile customization: custom
+	// accent color + Pro-curated pin layout. PRO-EXT01-04 ratified this
+	// as a single umbrella feature rather than per-control sub-features
+	// because the settings UI groups them and product copy reads cleanly
+	// as one "make your profile yours" affordance. Kinds: user only.
+	FeatureProfileVanity Feature = "profile_vanity"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -118,6 +124,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureActionsMinutesQuota:      {billing.SubjectKindOrg}, // user pending SP08
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
+	FeatureProfileVanity:            {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.

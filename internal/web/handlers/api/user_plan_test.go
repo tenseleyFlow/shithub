@@ -68,7 +68,7 @@ func TestUserPlan_FreeAccountReturnsLockedFeatures(t *testing.T) {
 	if resp.Limits["profile_pins"] != 6 {
 		t.Errorf("limits.profile_pins: got %d, want 6", resp.Limits["profile_pins"])
 	}
-	for _, feature := range []string{"profile_pins_beyond_free", "required_reviewers", "advanced_branch_protection"} {
+	for _, feature := range []string{"profile_pins_beyond_free", "required_reviewers", "advanced_branch_protection", "profile_vanity"} {
 		entry, ok := resp.Features[feature]
 		if !ok {
 			t.Errorf("features.%s missing from response: %s", feature, rr.Body.String())
@@ -114,7 +114,7 @@ func TestUserPlan_ProAccountUnlocksFeatures(t *testing.T) {
 	if resp.Limits["profile_pins"] != 100 {
 		t.Errorf("limits.profile_pins: got %d, want 100", resp.Limits["profile_pins"])
 	}
-	for _, feature := range []string{"profile_pins_beyond_free", "required_reviewers", "advanced_branch_protection"} {
+	for _, feature := range []string{"profile_pins_beyond_free", "required_reviewers", "advanced_branch_protection", "profile_vanity"} {
 		entry, ok := resp.Features[feature]
 		if !ok {
 			t.Errorf("features.%s missing from response: %s", feature, rr.Body.String())
