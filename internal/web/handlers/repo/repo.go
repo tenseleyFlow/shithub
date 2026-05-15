@@ -111,6 +111,16 @@ type Handlers struct {
 	submoduleBackfills singleflight.Group
 }
 
+// CommitsPageCache exposes the in-process LRU on rendered
+// commits-list HTML (F01 PR-3). The wiring layer subscribes to
+// the pagecache invalidation channel and calls
+// PageCache.InvalidateBranch via this handle so the listener
+// goroutine can be owned by the server lifecycle, not the
+// handler builder.
+func (h *Handlers) CommitsPageCache() *httpcache.PageCache {
+	return h.d.CommitsPageCache
+}
+
 // New constructs the handler set, validating Deps.
 func New(d Deps) (*Handlers, error) {
 	if d.Render == nil {
