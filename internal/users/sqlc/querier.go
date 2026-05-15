@@ -219,6 +219,11 @@ type Querier interface {
 	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) error
 	UpdateUserPrivateContributions(ctx context.Context, db DBTX, arg UpdateUserPrivateContributionsParams) error
 	UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error
+	// PRO-EXT01-04: writes the Pro-tier vanity settings (accent color +
+	// pin layout). Handler guards the write behind FeatureProfileVanity;
+	// inputs are pre-validated against the column CHECK constraints so
+	// this query trusts its arguments.
+	UpdateUserProfileVanity(ctx context.Context, db DBTX, arg UpdateUserProfileVanityParams) error
 	UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error
 	UpsertUserNotificationPref(ctx context.Context, db DBTX, arg UpsertUserNotificationPrefParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later

@@ -79,6 +79,16 @@ UPDATE users
 SET avatar_object_key = $2
 WHERE id = $1;
 
+-- name: UpdateUserProfileVanity :exec
+-- PRO-EXT01-04: writes the Pro-tier vanity settings (accent color +
+-- pin layout). Handler guards the write behind FeatureProfileVanity;
+-- inputs are pre-validated against the column CHECK constraints so
+-- this query trusts its arguments.
+UPDATE users
+SET profile_accent_hex = $2,
+    profile_layout     = $3
+WHERE id = $1;
+
 -- name: RenameUser :exec
 -- Wrapped by the username-change flow inside a tx that also writes
 -- username_redirects, so the old name becomes a redirect target atomically.
