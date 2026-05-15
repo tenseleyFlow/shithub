@@ -12522,3 +12522,23 @@ button.shithub-repo-action {
   outline-offset: 2px;
   border-radius: 999px;
 }
+.shithub-pins-pro-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(193, 154, 91, 0.4);
+  border-radius: 6px;
+  background: rgba(193, 154, 91, 0.08);
+  font-size: 0.875rem;
+}
+.shithub-pins-pro-cta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.shithub-pins-pro-cta a:hover { text-decoration: underline; }

@@ -7,6 +7,12 @@
       <button type="button" class="shithub-icon-button shithub-pins-close" data-pins-close aria-label="Close">{{ octicon "x" }}</button>
     </div>
     <p class="shithub-pins-help">Select up to {{ .MaxPins }} public repositories you'd like to show to anyone.</p>
+    {{ if .ShowProPinCTA }}
+    <p class="shithub-pins-pro-cta" data-pro-feature="profile_pins_beyond_free">
+      <span>Pro accounts can pin up to 100 repositories.</span>
+      <a href="/settings/billing" data-pro-feature="profile_pins_beyond_free">{{ template "pro-badge" true }} Upgrade</a>
+    </p>
+    {{ end }}
     <form method="post" action="{{ .PinsAction }}" data-pins-form>
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
       <label class="shithub-pins-filter">

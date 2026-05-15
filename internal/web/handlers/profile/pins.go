@@ -157,7 +157,8 @@ func (h *Handlers) updateUserPins(w http.ResponseWriter, r *http.Request, rawNam
 			"feature", string(entitlements.FeatureProfilePinsBeyondFree),
 			"reason", string(entitlements.ReasonUpgradeRequired),
 			"required_plan", "pro",
-			"pin_count", len(repoIDs))
+			"pin_count", len(repoIDs),
+			"mode", "report_only")
 	}
 	if err := h.saveUserPins(ctx, user.ID, repoIDs); err != nil {
 		h.d.Logger.ErrorContext(ctx, "profile pins: save user pins", "user_id", user.ID, "error", err)
