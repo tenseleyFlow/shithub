@@ -54,6 +54,9 @@
       <li{{ if eq .SettingsActive "tokens" }} class="active"{{ end }}>
         <a href="/settings/tokens">Personal access tokens</a>
       </li>
+      <li{{ if eq .SettingsActive "actions-secrets" }} class="active"{{ end }}>
+        <a href="/settings/actions/secrets">Actions secrets &amp; variables</a>
+      </li>
       <li{{ if eq .SettingsActive "sessions" }} class="active"{{ end }}>
         <a href="/settings/sessions">Sessions</a>
       </li>
