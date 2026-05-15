@@ -55,6 +55,14 @@ const (
 	KindRepoForkClone Kind = "repo:fork_clone"
 )
 
+// PRO-EXT01-06pre-b template-repo init. template_init runs
+// `git clone --bare` (NOT --shared) so the new repo is independent
+// of the template — no alternates, no fork relationship. Mirrors
+// fork_clone otherwise: init_pending → initialized lifecycle.
+const (
+	KindRepoTemplateInit Kind = "repo:template_init"
+)
+
 // S28 code-search kinds. index_code re-indexes a repo's default
 // branch (paths + content). Enqueued by push:process when the
 // default branch advances; also by index_reconcile when drift
