@@ -1,0 +1,53 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Contribution privacy</h1>
+    <p>
+      Choose which of your repositories show up in your public
+      contribution graph. By default every repo you commit to counts;
+      opt a repo out and its commits stop adding to the heatmap and
+      activity feed. Per-repo opt-outs are a Pro feature; the master
+      "show private contributions" toggle is still on the
+      <a href="/settings/account">Account</a> page and free for
+      everyone.
+    </p>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    {{ if not .Allowed }}
+    <p class="shithub-pins-pro-cta" data-pro-feature="{{ .FeatureKey }}">
+      <span>Per-repo contribution opt-outs are a Pro feature.</span>
+      <a href="/settings/billing" data-pro-feature="{{ .FeatureKey }}">{{ template "pro-badge" true }} Upgrade</a>
+    </p>
+    {{ end }}
+
+    <section class="shithub-settings-section" aria-labelledby="contributions-list">
+      <h2 id="contributions-list">Your repositories</h2>
+      <form method="POST" action="/settings/contributions" novalidate class="shithub-contributions-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        {{ if .Repos }}
+        <ul class="shithub-contributions-list">
+          {{ range .Repos }}
+          <li class="shithub-contributions-row">
+            <label>
+              <input type="checkbox" name="optout_repo_id" value="{{ .ID }}"{{ if .OptOut }} checked{{ end }}{{ if not $.Allowed }} disabled aria-disabled="true"{{ end }}>
+              <span>
+                <strong>{{ .Name }}</strong>
+                {{ if not .Public }}<span class="shithub-pill shithub-pill-private">Private</span>{{ end }}
+              </span>
+            </label>
+          </li>
+          {{ end }}
+        </ul>
+        <p class="shithub-muted">Checked = excluded from your public contribution graph.</p>
+        <button type="submit" class="shithub-button shithub-button-primary"{{ if not .Allowed }} disabled aria-disabled="true"{{ end }}>Save</button>
+        {{ else }}
+        <p class="shithub-empty-note">You don't own any repos yet. Once you do, they'll show up here.</p>
+        {{ end }}
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}
