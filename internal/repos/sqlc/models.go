@@ -1140,6 +1140,50 @@ func (ns NullRepoVisibility) Value() (driver.Value, error) {
 	return string(ns.RepoVisibility), nil
 }
 
+type ScheduledIssueStatus string
+
+const (
+	ScheduledIssueStatusPending   ScheduledIssueStatus = "pending"
+	ScheduledIssueStatusCancelled ScheduledIssueStatus = "cancelled"
+	ScheduledIssueStatusCreated   ScheduledIssueStatus = "created"
+	ScheduledIssueStatusFailed    ScheduledIssueStatus = "failed"
+)
+
+func (e *ScheduledIssueStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScheduledIssueStatus(s)
+	case string:
+		*e = ScheduledIssueStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScheduledIssueStatus: %T", src)
+	}
+	return nil
+}
+
+type NullScheduledIssueStatus struct {
+	ScheduledIssueStatus ScheduledIssueStatus
+	Valid                bool // Valid is true if ScheduledIssueStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScheduledIssueStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScheduledIssueStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScheduledIssueStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScheduledIssueStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScheduledIssueStatus), nil
+}
+
 type TeamPrivacy string
 
 const (
@@ -2946,6 +2990,20 @@ type UserSavedReply struct {
 	Body      string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type UserScheduledIssue struct {
+	ID             int64
+	UserID         int64
+	RepoID         int64
+	Title          string
+	Body           string
+	ScheduleAt     pgtype.Timestamptz
+	Status         ScheduledIssueStatus
+	CreatedIssueID pgtype.Int8
+	FailureReason  pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type UserSshKey struct {
