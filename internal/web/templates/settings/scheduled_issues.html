@@ -1,0 +1,53 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Scheduled issues</h1>
+    <p>
+      Issues you've queued to open at a future time. Pending rows
+      land at their scheduled UTC time; cancel before then to drop
+      them.
+    </p>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    {{ if .Rows }}
+    <table class="shithub-table shithub-scheduled-issues-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Scheduled (UTC)</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Rows }}
+        <tr>
+          <td><strong>{{ .Title }}</strong></td>
+          <td><time datetime="{{ .ScheduleAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ .ScheduleAt.Time.Format "2006-01-02 15:04 UTC" }}</time></td>
+          <td>
+            <span class="shithub-pill shithub-pill-status-{{ .Status }}">{{ .Status }}</span>
+            {{ if and (eq (printf "%s" .Status) "failed") .FailureReason.Valid }}
+            <small>{{ .FailureReason.String }}</small>
+            {{ end }}
+          </td>
+          <td>
+            {{ if eq (printf "%s" .Status) "pending" }}
+            <form method="POST" action="/settings/scheduled-issues/{{ .ID }}/cancel" class="shithub-inline-form">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Cancel</button>
+            </form>
+            {{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="shithub-empty-note">No scheduled issues. Use the "Schedule for later" field on any new-issue form to queue one.</p>
+    {{ end }}
+  </div>
+</div>
+{{- end }}

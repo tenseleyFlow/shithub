@@ -181,6 +181,11 @@ type EnforceConfig struct {
 	// Off by default → report-only (the would-deny is logged and the
 	// insert lands). PRO-EXT01-07a; promoted in PRO-EXT01-17.
 	UserSavedRepliesUnlimited bool `toml:"user_saved_replies_unlimited"`
+	// UserScheduledIssues: when true, Free users attempting to schedule
+	// an issue have the schedule_at field ignored and the issue is
+	// created immediately. Off by default → report-only (the schedule
+	// honoured + logged). PRO-EXT01-07b; promoted in PRO-EXT01-17.
+	UserScheduledIssues bool `toml:"user_scheduled_issues"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
