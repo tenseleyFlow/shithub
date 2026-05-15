@@ -13,6 +13,11 @@ Scopes:
 The org variants live under `/orgs/{org}/actions/...` and follow the
 same scope rules.
 
+The user variants live under `/api/v1/user/actions/...`, store
+personal workflow secrets for the authenticated PAT owner, and use the
+same sealed-box request/response shapes. Writes may be denied when the
+instance enforces the Pro-only personal Actions secrets gate.
+
 ## Sealed-box (secrets only)
 
 shithub never accepts plaintext secret values over REST. Clients
@@ -64,6 +69,12 @@ GET    /api/v1/orgs/{org}/actions/secrets
 GET    /api/v1/orgs/{org}/actions/secrets/{name}
 PUT    /api/v1/orgs/{org}/actions/secrets/{name}
 DELETE /api/v1/orgs/{org}/actions/secrets/{name}
+
+GET    /api/v1/user/actions/secrets/public-key
+GET    /api/v1/user/actions/secrets
+GET    /api/v1/user/actions/secrets/{name}
+PUT    /api/v1/user/actions/secrets/{name}
+DELETE /api/v1/user/actions/secrets/{name}
 ```
 
 ### List + Get response
