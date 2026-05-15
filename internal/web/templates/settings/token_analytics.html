@@ -1,0 +1,54 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Analytics — {{ .Token.Name }}</h1>
+    <p><a href="/settings/tokens">&larr; All tokens</a></p>
+
+    {{ if .IsPreview }}
+    <div class="shithub-flash shithub-flash-info shithub-pro-lock" data-pro-feature="{{ .FineGrainedKey }}" role="status">
+      <strong>Preview only.</strong>
+      <p>{{ .UpgradeBanner }}</p>
+      {{ template "pro-lock-cta" .FineGrainedKey }}
+    </div>
+    {{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Last 30 days</h2>
+      <p><strong>Total requests:</strong> {{ .TotalRequests }}{{ if .IsPreview }} <em>(sample)</em>{{ end }}</p>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Activity by day</h2>
+      {{ if .DailyCounts }}
+      <table class="shithub-table">
+        <thead><tr><th scope="col">Day</th><th scope="col">Requests</th></tr></thead>
+        <tbody>
+        {{ range .DailyCounts }}
+          <tr><td>{{ .Day }}</td><td>{{ .Count }}</td></tr>
+        {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-key-empty">No activity yet.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Top routes</h2>
+      {{ if .TopRoutes }}
+      <table class="shithub-table">
+        <thead><tr><th scope="col">Method</th><th scope="col">Route</th><th scope="col">Requests</th></tr></thead>
+        <tbody>
+        {{ range .TopRoutes }}
+          <tr><td>{{ .Method }}</td><td><code>{{ .RoutePrefix }}</code></td><td>{{ .EventCount }}</td></tr>
+        {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-key-empty">No routes recorded yet.</p>
+      {{ end }}
+    </section>
+  </div>
+</div>
+{{- end }}

@@ -26,12 +26,15 @@
             <div class="shithub-token-scopes">{{ range .Scopes }}<span>{{ . }}</span>{{ end }}</div>
             {{ if .LastUsedAt.Valid }}<span class="shithub-key-last">last used {{ .LastUsedAt.Time.Format "2006-01-02 15:04" }}</span>{{ end }}
           </div>
-          {{ if not .RevokedAt.Valid }}
-          <form method="POST" action="/settings/tokens/{{ .ID }}/revoke" novalidate>
-            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-            <button type="submit" class="shithub-button shithub-button-danger">Revoke</button>
-          </form>
-          {{ end }}
+          <div class="shithub-token-actions">
+            <a class="shithub-button" href="/settings/tokens/{{ .ID }}/analytics">Analytics</a>
+            {{ if not .RevokedAt.Valid }}
+            <form method="POST" action="/settings/tokens/{{ .ID }}/revoke" novalidate>
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Revoke</button>
+            </form>
+            {{ end }}
+          </div>
         </li>
         {{ end }}
       </ul>
