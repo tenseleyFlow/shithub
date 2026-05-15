@@ -2973,6 +2973,12 @@ type UserCodeSearchSavedQuery struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+type UserContributionRepoOptout struct {
+	UserID    int64
+	RepoID    int64
+	CreatedAt pgtype.Timestamptz
+}
+
 type UserEmail struct {
 	ID                    int64
 	UserID                int64
