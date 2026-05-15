@@ -203,6 +203,7 @@ func buildAuthHandlers(
 		ObjectStore:              objectStore,
 		OrgBillingEnabled:        cfg.Billing.Enabled,
 		BillingEnabled:           cfg.Billing.Enabled,
+		BillingEnforce:           cfg.Billing.Enforce,
 		BillingGracePeriod:       cfg.Billing.GracePeriod,
 		Stripe:                   stripeRemote,
 		StripeSuccessURL:         cfg.Billing.Stripe.SuccessURL,

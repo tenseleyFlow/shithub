@@ -47,6 +47,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/auth/token"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/passwords"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
@@ -99,7 +100,12 @@ type Deps struct {
 	// renders a "paid plans not configured on this instance" page;
 	// checkout / portal routes return 404. Operators flip this once
 	// they've configured a Stripe secret + Pro price.
-	BillingEnabled        bool
+	BillingEnabled bool
+	// BillingEnforce carries PRO07's per-feature enforcement flags. Mirrors
+	// the matching field in profile/repo Deps; the auth handlers consult it
+	// to switch the report-only vs enforce behaviour of Pro gates that live
+	// in user-settings pages.
+	BillingEnforce        config.EnforceConfig
 	BillingGracePeriod    time.Duration
 	Stripe                stripebilling.Remote
 	StripeSuccessURL      string
@@ -181,6 +187,10 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Get("/settings/usernames", h.settingsUsernamesForm)
 			r.Post("/settings/usernames", h.settingsUsernameReserve)
 			r.Post("/settings/usernames/release", h.settingsUsernameRelease)
+			r.Get("/settings/saved-replies", h.settingsSavedRepliesForm)
+			r.Post("/settings/saved-replies", h.settingsSavedReplyCreate)
+			r.Post("/settings/saved-replies/{id}/update", h.settingsSavedReplyUpdate)
+			r.Post("/settings/saved-replies/{id}/delete", h.settingsSavedReplyDelete)
 			r.Get("/settings/password", h.settingsPasswordForm)
 			r.Post("/settings/password", h.settingsPasswordSubmit)
 			r.Get("/settings/appearance", h.settingsAppearanceForm)
