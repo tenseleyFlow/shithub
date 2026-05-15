@@ -61,6 +61,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	CreateUserEmail(ctx context.Context, db DBTX, arg CreateUserEmailParams) (UserEmail, error)
 	DeleteCodeSearchSavedQuery(ctx context.Context, db DBTX, arg DeleteCodeSearchSavedQueryParams) error
+	DeleteContributionOptout(ctx context.Context, db DBTX, arg DeleteContributionOptoutParams) error
 	// Janitor invocation: a small forensics window past expiry is fine,
 	// but eventually drop the row so the user_code index stays small.
 	DeleteExpiredDeviceAuthorizations(ctx context.Context, db DBTX) error
@@ -199,6 +200,11 @@ type Querier interface {
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
 	ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAuditLogForTargetParams) ([]AuthAuditLog, error)
 	ListCodeSearchSavedQueriesForUser(ctx context.Context, db DBTX, userID int64) ([]UserCodeSearchSavedQuery, error)
+	ListContributionOptoutRepoIDsForUser(ctx context.Context, db DBTX, userID int64) ([]int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-09: per-repo contribution-graph opt-outs.
+	ListContributionOptoutsForUser(ctx context.Context, db DBTX, userID int64) ([]UserContributionRepoOptout, error)
 	ListSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) ([]UserSavedReply, error)
 	// Settings page: pending first (sorted by schedule_at), then recent
 	// non-pending. Limit prevents an unbounded scan in pathological data.
@@ -284,6 +290,8 @@ type Querier interface {
 	// this query trusts its arguments.
 	UpdateUserProfileVanity(ctx context.Context, db DBTX, arg UpdateUserProfileVanityParams) error
 	UpdateUserTheme(ctx context.Context, db DBTX, arg UpdateUserThemeParams) error
+	// Idempotent on (user_id, repo_id); a duplicate insert is a no-op.
+	UpsertContributionOptout(ctx context.Context, db DBTX, arg UpsertContributionOptoutParams) error
 	UpsertUserNotificationPref(ctx context.Context, db DBTX, arg UpsertUserNotificationPrefParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Inserts a new pending TOTP row, or replaces an existing pending row for
