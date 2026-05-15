@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -69,6 +70,14 @@ func newRepoFixture(t *testing.T) *repoFixture {
 // Deps. PRO07 tests pass a config with the relevant user-kind flag
 // flipped to true to exercise the enforce path.
 func newRepoFixtureWithEnforce(t *testing.T, enforce config.EnforceConfig) *repoFixture {
+	return newRepoFixtureWithRenderFS(t, enforce, minimalTemplatesFS(), render.Options{})
+}
+
+func newRepoFixtureWithTemplates(t *testing.T, templates fs.FS, opts render.Options) *repoFixture {
+	return newRepoFixtureWithRenderFS(t, config.EnforceConfig{}, templates, opts)
+}
+
+func newRepoFixtureWithRenderFS(t *testing.T, enforce config.EnforceConfig, templates fs.FS, opts render.Options) *repoFixture {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 
@@ -76,7 +85,7 @@ func newRepoFixtureWithEnforce(t *testing.T, enforce config.EnforceConfig) *repo
 	if err != nil {
 		t.Fatalf("NewRepoFS: %v", err)
 	}
-	rr, err := render.New(minimalTemplatesFS(), render.Options{})
+	rr, err := render.New(templates, opts)
 	if err != nil {
 		t.Fatalf("render.New: %v", err)
 	}
