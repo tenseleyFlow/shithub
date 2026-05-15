@@ -88,6 +88,8 @@ type authTestOptions struct {
 	EnforceSavedRepliesUnlimited bool
 	// EnforceAdvancedCodeSearch flips the PRO-EXT01-08a enforce knob.
 	EnforceAdvancedCodeSearch bool
+	// EnforceContributionPrivacy flips the PRO-EXT01-09 enforce knob.
+	EnforceContributionPrivacy bool
 }
 
 // newTestServerWithPool is identical to newTestServer but also exposes
@@ -152,6 +154,7 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 		BillingEnforce: config.EnforceConfig{
 			UserSavedRepliesUnlimited: opts.EnforceSavedRepliesUnlimited,
 			UserAdvancedCodeSearch:    opts.EnforceAdvancedCodeSearch,
+			UserContributionPrivacy:   opts.EnforceContributionPrivacy,
 		},
 		BillingGracePeriod:    14 * 24 * time.Hour,
 		Stripe:                opts.Stripe,
@@ -240,6 +243,7 @@ func authTemplatesFS() fs.FS {
 	usernamesTpl := `{{ define "page" }}<h1>Usernames</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}ALLOW={{.ReservationsAllow}};USED={{.Used}}/{{.Cap}};REM={{.Remaining}};RES={{ range .Reservations }}{{.ID}}:{{.ReservedHandle}};{{ end }}<form action="/settings/usernames" method=POST><input name=csrf_token value="{{.CSRFToken}}"><input name=handle></form>{{ end }}`
 	savedRepliesTpl := `{{ define "page" }}<h1>Saved replies</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}USED={{.Used}}/{{.Cap}};FREECAP={{.FreeCap}};AT_FREE_CAP={{.AtFreeCap}};REM={{.Remaining}};REPLIES={{ range .Replies }}{{.ID}}:{{.Name}};{{ end }}<form action="/settings/saved-replies" method=POST><input name=csrf_token value="{{.CSRFToken}}"><input name=name><textarea name=body></textarea></form>{{ end }}`
 	searchQueriesTpl := `{{ define "page" }}<h1>Saved search queries</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}ALLOWED={{.Allowed}};ROWS={{ range .Rows }}{{.ID}}:{{.Name}}:{{.QueryText}};{{ end }}<form action="/settings/search-queries" method=POST><input name=csrf_token value="{{.CSRFToken}}"><input name=name><input name=query_text></form>{{ end }}`
+	contributionsTpl := `{{ define "page" }}<h1>Contribution privacy</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Success }}<p class=notice>{{.}}</p>{{ end }}ALLOWED={{.Allowed}};REPOS={{ range .Repos }}{{.ID}}:{{.Name}}:{{.OptOut}};{{ end }}<form action="/settings/contributions" method=POST><input name=csrf_token value="{{.CSRFToken}}">{{ range .Repos }}<input type=checkbox name=optout_repo_id value="{{.ID}}">{{ end }}</form>{{ end }}`
 	billingTpl := `{{ define "page" }}<h1>Billing</h1>{{ with .Error }}<p class=error>{{.}}</p>{{ end }}{{ with .Notice }}<p class=notice>{{.}}</p>{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{.Message}}{{ end }}{{ end }}<form action="/settings/billing/checkout" method=POST><input name=csrf_token value="{{.CSRFToken}}">CHECKOUT={{ .CanStartCheckout }};MANAGE={{ .CanManageSubscription }};</form><form action="/settings/billing/portal" method=POST><input name=csrf_token value="{{.CSRFToken}}"></form>{{ range .Summary }}SUMMARY={{.Label}}|{{.Value}};{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }};{{ end }}{{ range .Invoices }}INVOICE={{.Number}};{{ end }}{{ end }}`
 	billingResultTpl := `{{ define "page" }}RESULT={{.Result}};HEADING={{.Heading}};USER={{.Username}};BILLING={{.BillingPath}};<input name=csrf_token value="{{.CSRFToken}}">{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
@@ -270,6 +274,7 @@ func authTemplatesFS() fs.FS {
 		"settings/usernames.html":      {Data: []byte(usernamesTpl)},
 		"settings/saved_replies.html":  {Data: []byte(savedRepliesTpl)},
 		"settings/search_queries.html": {Data: []byte(searchQueriesTpl)},
+		"settings/contributions.html":  {Data: []byte(contributionsTpl)},
 		"settings/billing.html":        {Data: []byte(billingTpl)},
 		"settings/billing_result.html": {Data: []byte(billingResultTpl)},
 		"errors/404.html":              {Data: []byte(errorPage)},
