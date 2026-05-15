@@ -194,25 +194,45 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}", h.repoHome)
 }
 
-// newRepoForm renders GET /new.
+// newRepoForm renders GET /new. When ?template_repo_id=N is present
+// (the "Use this template" button hands off through this query
+// param), the renderer loads the template's owner/name for a banner
+// + a hidden template_repo_id input that the submit handler reads to
+// route into newRepoFromTemplate. Invalid / unreadable template ids
+// are silently dropped to existence-leak-safe — the form renders
+// without the banner and the user falls back to a normal create.
 func (h *Handlers) newRepoForm(w http.ResponseWriter, r *http.Request) {
-	h.renderNewForm(w, r, formState{
+	form := formState{
 		Owner:      strings.TrimSpace(r.URL.Query().Get("owner")),
 		Visibility: "public",
-	}, "")
+	}
+	if rawID := strings.TrimSpace(r.URL.Query().Get("template_repo_id")); rawID != "" {
+		if id, err := strconv.ParseInt(rawID, 10, 64); err == nil && id > 0 {
+			if tpl, err := h.rq.GetRepoByID(r.Context(), h.d.Pool, id); err == nil && tpl.IsTemplate {
+				viewer := middleware.CurrentUserFromContext(r.Context())
+				actor := viewer.PolicyActor()
+				if policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoRead, policy.NewRepoRefFromRepo(tpl)).Allow {
+					form.TemplateRepoID = id
+					form.Visibility = string(tpl.Visibility)
+				}
+			}
+		}
+	}
+	h.renderNewForm(w, r, form, "")
 }
 
 // formState mirrors the new-repo form so a re-render after a validation
 // error can repopulate the user's input.
 type formState struct {
-	Owner        string // "user:<id>" or "org:<id>"
-	Name         string
-	Description  string
-	Visibility   string
-	SourceRemote string
-	InitReadme   bool
-	License      string
-	Gitignore    string
+	Owner          string // "user:<id>" or "org:<id>"
+	Name           string
+	Description    string
+	Visibility     string
+	SourceRemote   string
+	InitReadme     bool
+	License        string
+	Gitignore      string
+	TemplateRepoID int64 // PRO-EXT01-06pre-b: non-zero routes the submit through newRepoFromTemplate
 }
 
 // ownerOption is one entry the new-repo owner picker shows.
@@ -232,6 +252,14 @@ func (h *Handlers) newRepoSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := middleware.CurrentUserFromContext(r.Context())
+	// PRO-EXT01-06pre-b: if template_repo_id is present, the create
+	// takes the create-from-template branch entirely (different
+	// orchestrator, different worker job, no License/Readme init
+	// applied — the template's tree is what initializes the repo).
+	if rawTemplateID := strings.TrimSpace(r.PostFormValue("template_repo_id")); rawTemplateID != "" {
+		h.newRepoFromTemplate(w, r, user, rawTemplateID)
+		return
+	}
 	form := formState{
 		Owner:        strings.TrimSpace(r.PostFormValue("owner")),
 		Name:         repos.NormalizeName(r.PostFormValue("name")),

@@ -41,6 +41,12 @@
         <span class="shithub-repo-action-label">Fork</span>
         <span class="shithub-counter">{{ $root.Repo.ForkCount }}</span>
       </button>
+      {{ if $root.Repo.IsTemplate }}
+      <a href="/new?template_repo_id={{ $root.Repo.ID }}" class="shithub-repo-action" aria-label="Create a new repository from this template">
+        {{ octicon "repo" }}
+        <span class="shithub-repo-action-label">Use this template</span>
+      </a>
+      {{ end }}
       <form method="post" action="/{{ $root.Owner }}/{{ $root.Repo.Name }}/{{ if .Starred }}unstar{{ else }}star{{ end }}" class="shithub-repo-action-form">
         <input type="hidden" name="csrf_token" value="{{ $root.CSRFToken }}">
         <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
