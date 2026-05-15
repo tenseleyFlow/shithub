@@ -194,6 +194,7 @@ func (h *Handlers) serveProfile(w http.ResponseWriter, r *http.Request) {
 		"DisplayName":                displayName,
 		"IsSelf":                     isSelf,
 		"ProfileOwnerIsPro":          user.Plan == usersdb.UserPlanPro,
+		"ShowProPinCTA":              isSelf && user.Plan != usersdb.UserPlanPro,
 		"AvatarURL":                  avatarURL,
 		"OGTitle":                    displayName + " (@" + user.Username + ")",
 		"OGDescription":              ogDescription(user),

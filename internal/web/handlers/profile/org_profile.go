@@ -150,6 +150,7 @@ func (h *Handlers) serveOrgProfile(w http.ResponseWriter, r *http.Request, orgID
 		"IsOwner":            isOwner,
 		"IsMember":           isMember,
 		"CanCustomizePins":   isOwner,
+		"ShowProPinCTA":      false,
 		"PinsAction":         "/" + url.PathEscape(org.Slug) + "/pins",
 		"CanCreateRepo":      isOwner || (isMember && org.AllowMemberRepoCreate),
 	}
