@@ -16,6 +16,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	policydb "github.com/tenseleyFlow/shithub/internal/auth/policy/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -49,17 +50,42 @@ func (h *Handlers) settingsGeneral(w http.ResponseWriter, r *http.Request) {
 	topics, _ := h.rq.ListRepoTopics(r.Context(), h.d.Pool, row.ID)
 	sourceRemote, _ := h.repoSourceRemote(r.Context(), row.ID)
 	notice := r.URL.Query().Get("notice")
+	privateTemplateLocked := h.privateTemplateLocked(r.Context(), row)
 	h.d.Render.RenderPage(w, r, "repo/settings_general", map[string]any{
-		"Title":          "General · " + row.Name,
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"Owner":          owner.Username,
-		"Repo":           row,
-		"Topics":         topics,
-		"TopicsCSV":      strings.Join(topics, ", "),
-		"SourceRemote":   sourceRemote,
-		"SettingsActive": "general",
-		"Notice":         settingsNoticeMessage(notice),
+		"Title":                 "General · " + row.Name,
+		"CSRFToken":             middleware.CSRFTokenForRequest(r),
+		"Owner":                 owner.Username,
+		"Repo":                  row,
+		"Topics":                topics,
+		"TopicsCSV":             strings.Join(topics, ", "),
+		"SourceRemote":          sourceRemote,
+		"SettingsActive":        "general",
+		"Notice":                settingsNoticeMessage(notice),
+		"PrivateTemplateLocked": privateTemplateLocked,
 	})
+}
+
+// privateTemplateLocked reports whether the General-tab "Template repository"
+// toggle should render in its locked-UI variant. Returns true only when the
+// repo is user-owned + private + the owner does not currently hold
+// FeaturePrivateRepoTemplates. Public repos, org-owned repos, and Pro owners
+// always see the standard control.
+func (h *Handlers) privateTemplateLocked(ctx context.Context, row reposdb.Repo) bool {
+	if row.Visibility != reposdb.RepoVisibilityPrivate {
+		return false
+	}
+	if !row.OwnerUserID.Valid {
+		return false
+	}
+	principal, ok := principalFromRepo(row)
+	if !ok {
+		return false
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeaturePrivateRepoTemplates)
+	if err != nil {
+		return false
+	}
+	return !decision.Allowed
 }
 
 // settingsGeneralUpdate persists Description / HasIssues / HasPulls / Topics.
@@ -81,6 +107,31 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 	hasPulls := r.PostFormValue("has_pulls") == "on"
 	isTemplate := r.PostFormValue("is_template") == "on"
 	topicsRaw := splitCommaList(r.PostFormValue("topics"))
+
+	// PRO-EXT01-06: gate is_template writes on user-owned PRIVATE repos.
+	// Public repos remain free to mark. Report-only by default; the
+	// operator flips Billing.Enforce.UserPrivateRepoTemplates after soak.
+	templateGateNotice := ""
+	if isTemplate && row.Visibility == reposdb.RepoVisibilityPrivate && row.OwnerUserID.Valid {
+		if principal, ok := principalFromRepo(row); ok {
+			decision, derr := entitlements.CheckPrincipalFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeaturePrivateRepoTemplates)
+			if derr == nil && !decision.Allowed {
+				if h.d.BillingEnforce.UserPrivateRepoTemplates {
+					isTemplate = false
+					templateGateNotice = "private-template-upgrade-pro"
+				} else {
+					h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
+						"principal", principal.String(),
+						"principal_kind", string(principal.Kind),
+						"principal_id", principal.ID,
+						"feature", string(entitlements.FeaturePrivateRepoTemplates),
+						"reason", string(decision.Reason),
+						"required_plan", string(decision.RequiredPlan),
+						"mode", "report_only")
+				}
+			}
+		}
+	}
 
 	if err := h.rq.UpdateRepoGeneralSettings(r.Context(), h.d.Pool, reposdb.UpdateRepoGeneralSettingsParams{
 		ID: row.ID, Description: description, HasIssues: hasIssues, HasPulls: hasPulls, IsTemplate: isTemplate,
@@ -109,7 +160,11 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 		audit.ActionRepoCreated, audit.TargetRepo, row.ID,
 		auditMeta)
 
-	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice=saved", http.StatusSeeOther)
+	notice := "saved"
+	if templateGateNotice != "" {
+		notice = templateGateNotice
+	}
+	http.Redirect(w, r, "/"+owner.Username+"/"+row.Name+"/settings/general?notice="+notice, http.StatusSeeOther)
 }
 
 // settingsSourceRemoteUpdate persists the repo's public source remote and
@@ -473,6 +528,8 @@ func settingsNoticeMessage(code string) string {
 		return "Source remote fetched."
 	case "source-remote-save-failed":
 		return "Repository was created, but the source remote could not be saved."
+	case "private-template-upgrade-pro":
+		return "Private repositories can only be marked as templates on Pro. Upgrade to enable this feature."
 	case "":
 		return ""
 	default:

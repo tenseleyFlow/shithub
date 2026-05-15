@@ -29,12 +29,21 @@
             <input type="checkbox" name="has_pulls" {{ if .Repo.HasPulls }}checked{{ end }}>
             <span>Pull requests</span>
           </label>
+          {{ if .PrivateTemplateLocked }}
+          <label class="shithub-settings-checkbox shithub-pro-lock" data-pro-feature="private_repo_templates">
+            <input type="checkbox" name="is_template" disabled aria-disabled="true">
+            <span>Template repository {{ template "pro-lock-cta" "private_repo_templates" }}
+              <small>Marking a private repository as a template is a Pro feature. Upgrade to enable.</small>
+            </span>
+          </label>
+          {{ else }}
           <label class="shithub-settings-checkbox">
             <input type="checkbox" name="is_template" {{ if .Repo.IsTemplate }}checked{{ end }}>
             <span>Template repository
               <small>Mark this repository as a template so others can create new repos initialized from its contents.</small>
             </span>
           </label>
+          {{ end }}
         </fieldset>
         <button type="submit" class="shithub-button shithub-button-primary">Save</button>
       </form>
