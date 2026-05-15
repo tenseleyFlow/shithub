@@ -1,0 +1,147 @@
+# Pro feature enforce-flag flip
+
+Every personal-tier Pro feature ships with a per-feature
+operator flag in `config.EnforceConfig` that gates whether the
+deny path is **active** or **report-only**. PRO07 ratified this
+as the one-way phased-rollout pattern; PRO-EXT01 every sprint
+since adds more features under it.
+
+This runbook documents the soak-then-flip sequence operators
+follow when promoting a Pro feature from report-only to live
+enforcement.
+
+## When to use this
+
+After a sprint that adds a new gated Pro feature merges and
+deploys to production, the gate ships in report-only mode by
+default. Reaching the deny path emits an
+`entitlements.report_only_deny` log line with structured
+fields:
+
+- `feature` — the `Feature*` constant slug, e.g.
+  `required_reviewers`, `profile_pins_beyond_free`.
+- `principal_kind` + `principal_id` — who hit the gate.
+- `reason` — `upgrade_required`, `billing_action_needed`, etc.
+- `required_plan` — the plan the user would need.
+- `mode` — `report_only`. (PRO-EXT01-02 added this field; older
+  log entries from PRO07 do not carry it.)
+
+The flag stays `false` until the operator has visibility into
+the would-deny rate via these logs, then flips it via a
+config change + redeploy.
+
+## Soak window
+
+- **Default: 7 days** of report-only logs in production.
+- **Security-critical features: 14 days minimum** — anything
+  in PRO-EXT01-11 (fine-grained PATs / IP allowlist) needs the
+  longer window because a deny-path bug there is a credential
+  escalation, not a UX papercut.
+
+Per-feature soaks run independently. Flipping
+`UserRequiredReviewers` to enforce does not affect
+`UserAdvancedBranchProtection` or any other flag.
+
+## Soak procedure
+
+1. **Confirm deploy.** The feature must be live in the
+   embedded binary and the operator config must have the new
+   flag field. Check with:
+
+   ```
+   ssh root@shithub.sh "sudo -u shithub /opt/shithub/bin/shithubd config-dump | grep -i enforce"
+   ```
+
+   The expected default for every PRO-EXT01 enforce flag is
+   `false`.
+
+2. **Wait the soak window.** During the window, query the log
+   shipper for `entitlements.report_only_deny` entries with
+   `feature=<the-feature>`. PRO-EXT01-17 will ship a Prometheus
+   counter (`shithub_pro_gate_total{feature, outcome}`); until
+   then, log aggregation is the source of truth.
+
+3. **Review the report-only sample.** Look for:
+   - Expected hits (real Free users trying the gated action).
+   - Surprising hits (e.g. a Pro user denied — that's an
+     entitlements bug, NOT a flip candidate).
+   - High-volume noise (a single user repeatedly hitting the
+     gate — suggests a confusing UI or an automated client).
+
+   If anything looks wrong, **do not flip**. File the issue and
+   fix in code first.
+
+## Flip procedure
+
+When the soak passes:
+
+1. **Update operator config.** In the production Ansible
+   inventory, set the per-feature flag to `true`. Example:
+
+   ```yaml
+   shithub_billing_enforce:
+     user_required_reviewers: true     # PRO07 - flip
+     user_advanced_branch_protection: false  # still soaking
+     user_profile_pins_beyond_free: false    # still soaking
+   ```
+
+2. **Redeploy.** Use the standard deploy procedure — the new
+   binary picks up the changed config at startup.
+
+   ```
+   make deploy ANSIBLE_INVENTORY=production
+   ```
+
+3. **Confirm the flip landed.**
+
+   ```
+   ssh root@shithub.sh "sudo -u shithub /opt/shithub/bin/shithubd config-dump | grep <flag>"
+   ```
+
+4. **Monitor for one hour.** Watch the error log for:
+   - `entitlements.deny` — the new logged deny path (added by
+     PRO-EXT01-17; until then, denies surface via the HTTP
+     response, not a dedicated log line).
+   - HTTP 402 + 4xx spikes on the relevant endpoint.
+   - User support tickets about "I can't do X anymore."
+
+   If something breaks badly, see the rollback section.
+
+## Rollback
+
+The enforce flag is technically reversible at the config level
+— a redeploy with the flag back to `false` returns the gate
+to report-only mode. **Do not treat this as routine, however.**
+The PRO07 contract framed the flip as one-way; once a flag is
+live, customers expect Pro to actually gate the feature.
+Reverting it ships a "Pro feature became free again" signal.
+
+Justification bar for reverting:
+
+- **A real production bug** (e.g. Pro users being incorrectly
+  denied) — yes, revert + fix.
+- **Customer complaints about the gate itself** — no, the
+  gate is the product. Adjust copy / messaging instead.
+
+If reverting:
+
+1. Set the flag back to `false` in Ansible.
+2. Redeploy.
+3. File the regression issue immediately and assign an owner.
+
+## Adding a new feature to this runbook
+
+Each PRO-EXT01-NN sprint that adds a `Feature*` constant
+should also add the corresponding `EnforceConfig` field. After
+the sprint merges, add a one-line entry to the feature table
+in `docs/internal/billing.md` so the soak status is visible at
+a glance.
+
+## See also
+
+- `internal/infra/config/config.go` — `EnforceConfig` struct.
+- `internal/entitlements/entitlements.go` — `Feature*`
+  constants and `featureKinds`.
+- `docs/internal/billing.md` — Pro tier feature matrix.
+- `.docs/sprints/PAYMENTS/PRO-EXT01-README.md` — campaign
+  overview (note: gitignored).
