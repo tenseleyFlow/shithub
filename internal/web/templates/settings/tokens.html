@@ -75,6 +75,21 @@
           </label>
           {{ end }}
         </fieldset>
+        {{ if .FineGrainedAllowed }}
+        <label>
+          <span>IP allowlist <small>(optional, one CIDR or address per line)</small></span>
+          <textarea name="ip_allowlist" rows="3" placeholder="203.0.113.0/24&#10;198.51.100.5"></textarea>
+          <small>Leave blank for no IP restriction. Requests from outside the allowlist will be rejected at auth time.</small>
+        </label>
+        {{ else }}
+        <div class="shithub-form-row shithub-pro-lock" data-pro-feature="{{ .FineGrainedKey }}">
+          <span>IP allowlist
+            <small>Restrict this token to specific source IPs with Pro.</small>
+          </span>
+          <textarea name="ip_allowlist" rows="3" disabled aria-disabled="true" placeholder="203.0.113.0/24"></textarea>
+          {{ template "pro-lock-cta" .FineGrainedKey }}
+        </div>
+        {{ end }}
         <button type="submit" class="shithub-button shithub-button-primary">Create token</button>
       </form>
     </section>
