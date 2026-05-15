@@ -284,6 +284,40 @@ func (r *RepoFS) CloneBareShared(ctx context.Context, src, dst string) error {
 	return nil
 }
 
+// CloneBareIndependent clones src → dst as a bare repo with NO
+// object alternates. Unlike CloneBareShared (used by the fork path),
+// the result is a fully independent repo: objects are copied, not
+// referenced. PRO-EXT01-06pre-b uses this for create-from-template
+// since templates are one-shot copies — the new repo has no
+// relationship to the template after init.
+//
+// Both paths must be contained in r.root. On failure the dst is
+// removed so a retry sees a clean slate.
+func (r *RepoFS) CloneBareIndependent(ctx context.Context, src, dst string) error {
+	if err := r.containedInRoot(src); err != nil {
+		return err
+	}
+	if err := r.containedInRoot(dst); err != nil {
+		return err
+	}
+	if entries, err := os.ReadDir(dst); err == nil && len(entries) > 0 {
+		return fmt.Errorf("%w: %s", ErrAlreadyExists, dst)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o2750); err != nil {
+		return fmt.Errorf("storage: repofs: mkdir parent: %w", err)
+	}
+	// No --shared flag → no alternates link. core.sharedRepository=group
+	// matches the perms contract InitBare establishes.
+	// G204: src/dst are RepoPath-derived, both verified under r.root.
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.sharedRepository=group", "clone", "--bare", src, dst) //nolint:gosec
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = os.RemoveAll(dst)
+		return fmt.Errorf("storage: repofs: git clone --bare: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // RepairSharedPerms brings an existing bare repo to the
 // `--shared=group` contract InitBare now produces from byte zero
 // (SR2 #287). Idempotent: a repo already at the contract is left
