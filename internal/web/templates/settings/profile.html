@@ -38,6 +38,33 @@
             <span>Location</span>
             <input type="text" name="location" maxlength="80" value="{{ .Form.Location }}">
           </label>
+
+          <fieldset class="shithub-profile-vanity">
+            <legend>
+              Profile customization
+              {{ if not .VanityAllowed }}{{ template "pro-badge" true }}{{ end }}
+            </legend>
+            {{ if not .VanityAllowed }}
+            <p class="shithub-pins-pro-cta" data-pro-feature="profile_vanity">
+              <span>Personalize your profile with a custom accent color and pin layout.</span>
+              <a href="/settings/billing" data-pro-feature="profile_vanity">{{ template "pro-badge" true }} Upgrade</a>
+            </p>
+            {{ end }}
+            <label>
+              <span>Accent color</span>
+              <input type="color" name="accent_hex" value="{{ if .Form.AccentHex }}{{ .Form.AccentHex }}{{ else }}#c19a5b{{ end }}"{{ if not .VanityAllowed }} disabled aria-disabled="true"{{ end }}>
+              <small>Used as the highlight color on your profile page. Leave default to disable.</small>
+            </label>
+            <label>
+              <span>Pinned repository layout</span>
+              <select name="profile_layout"{{ if not .VanityAllowed }} disabled aria-disabled="true"{{ end }}>
+                <option value="list"{{ if or (eq .Form.Layout "list") (eq .Form.Layout "") }} selected{{ end }}>Default list</option>
+                <option value="featured"{{ if eq .Form.Layout "featured" }} selected{{ end }}>Pro-curated (featured first pin)</option>
+              </select>
+              <small>The featured layout renders your first pinned repo as a wider hero card.</small>
+            </label>
+          </fieldset>
+
           <button type="submit" class="shithub-button shithub-button-primary">Update profile</button>
         </form>
       </section>

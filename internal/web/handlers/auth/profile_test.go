@@ -3,11 +3,18 @@
 package auth_test
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 )
 
 func loginProfileUser(t *testing.T) *client {
@@ -111,3 +118,103 @@ func TestProfileEditor_TooLongBio(t *testing.T) {
 		t.Fatalf("expected bio length error, got: %s", body)
 	}
 }
+
+// PRO-EXT01-04: vanity write is gated on FeatureProfileVanity. Free
+// user submits accent/layout values → handler drops them silently and
+// the DB row keeps its defaults. Pro user submits the same values →
+// they persist.
+func TestProfileEditor_VanityValuesGatedOnPro(t *testing.T) {
+	t.Parallel()
+	srv, pool, captor := newTestServerWithPool(t, false)
+	cli, userID := newBillingTestUser(t, srv, pool, captor, "vanityalice")
+
+	// Free attempt — values must NOT persist.
+	csrf := cli.extractCSRF(t, "/settings/profile")
+	resp := cli.post(t, "/settings/profile", url.Values{
+		"csrf_token":     {csrf},
+		"display_name":   {"Alice"},
+		"accent_hex":     {"#ff00ff"},
+		"profile_layout": {"featured"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Free POST: %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	assertVanityValues(t, pool, userID, "", "list")
+
+	// Upgrade to Pro and retry — values should persist.
+	upgradeProfileTestUserToPro(t, pool, userID)
+	csrf = cli.extractCSRF(t, "/settings/profile")
+	resp = cli.post(t, "/settings/profile", url.Values{
+		"csrf_token":     {csrf},
+		"display_name":   {"Alice"},
+		"accent_hex":     {"#ff00ff"},
+		"profile_layout": {"featured"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Pro POST: %d %s", resp.StatusCode, body)
+	}
+	_ = resp.Body.Close()
+	assertVanityValues(t, pool, userID, "#ff00ff", "featured")
+}
+
+// TestProfileEditor_VanityRejectsMalformedAccent — a Pro user posting
+// a bogus accent hex must fail validation with a friendly message
+// (defense-in-depth against the DB CHECK constraint).
+func TestProfileEditor_VanityRejectsMalformedAccent(t *testing.T) {
+	t.Parallel()
+	srv, pool, captor := newTestServerWithPool(t, false)
+	cli, userID := newBillingTestUser(t, srv, pool, captor, "badcoloralice")
+	upgradeProfileTestUserToPro(t, pool, userID)
+
+	csrf := cli.extractCSRF(t, "/settings/profile")
+	resp := cli.post(t, "/settings/profile", url.Values{
+		"csrf_token":     {csrf},
+		"accent_hex":     {"red"}, // not a #rrggbb
+		"profile_layout": {"list"},
+	})
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "Accent color must be") {
+		t.Fatalf("expected accent error, got: %s", body)
+	}
+}
+
+func assertVanityValues(t *testing.T, pool *pgxpool.Pool, userID int64, wantAccent, wantLayout string) {
+	t.Helper()
+	var gotAccent, gotLayout string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT profile_accent_hex, profile_layout FROM users WHERE id = $1`, userID,
+	).Scan(&gotAccent, &gotLayout); err != nil {
+		t.Fatalf("read vanity values: %v", err)
+	}
+	if gotAccent != wantAccent {
+		t.Errorf("accent: got %q, want %q", gotAccent, wantAccent)
+	}
+	if gotLayout != wantLayout {
+		t.Errorf("layout: got %q, want %q", gotLayout, wantLayout)
+	}
+}
+
+func upgradeProfileTestUserToPro(t *testing.T, pool *pgxpool.Pool, userID int64) {
+	t.Helper()
+	now := time.Now().UTC()
+	_, err := billingdb.New().ApplyUserSubscriptionSnapshot(context.Background(), pool, billingdb.ApplyUserSubscriptionSnapshotParams{
+		UserID:               userID,
+		Plan:                 billingdb.UserPlanPro,
+		SubscriptionStatus:   billingdb.BillingSubscriptionStatusActive,
+		StripeSubscriptionID: billingPgText("sub_vanity_pro_test"),
+		CurrentPeriodStart:   billingPgTime(now.Add(-time.Hour)),
+		CurrentPeriodEnd:     billingPgTime(now.Add(30 * 24 * time.Hour)),
+		LastWebhookEventID:   "evt_vanity_pro_test",
+	})
+	if err != nil {
+		t.Fatalf("ApplyUserSubscriptionSnapshot: %v", err)
+	}
+}
+
+// Suppress unused-import nag when httptest type isn't referenced
+// (the import is required for *httptest.Server in newBillingTestUser
+// signatures consumed via helper).
+var _ = httptest.NewServer
