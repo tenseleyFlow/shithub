@@ -133,6 +133,13 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 		}
 
 		sq := secretscandb.New()
+
+		// Pre-load the allowlist as a (pattern, path) set so the per-
+		// finding skip check is an in-memory map lookup rather than a
+		// round-trip. Allowlist sizes are bounded by user intent;
+		// loading the whole repo's list at scan start is fine.
+		allowSet := loadAllowlistSet(ctx, sq, deps.Pool, repo.ID, deps.Logger)
+
 		totalFindings := 0
 		for _, path := range paths {
 			if shouldSkipPath(path) {
@@ -146,6 +153,9 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 				MaxBytes: secretScanMaxFileBytes,
 			})
 			for _, f := range findings {
+				if _, skip := allowSet[allowlistKey{Pattern: f.Pattern, Path: path}]; skip {
+					continue
+				}
 				excerpt := f.Excerpt
 				if len(excerpt) > 400 {
 					excerpt = excerpt[:400]
@@ -180,4 +190,28 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 			"repo_id", repo.ID, "findings", totalFindings, "oid", oid)
 		return nil
 	}
+}
+
+// allowlistKey is the (pattern, path) tuple that the per-repo
+// allowlist set is keyed on inside the worker.
+type allowlistKey struct {
+	Pattern string
+	Path    string
+}
+
+// loadAllowlistSet returns the repo's allowlist as a map for cheap
+// per-finding skip checks. Errors return an empty set + a warn log;
+// failing closed (scanning everything) is the safer default than
+// failing open (skipping everything).
+func loadAllowlistSet(ctx context.Context, sq *secretscandb.Queries, pool *pgxpool.Pool, repoID int64, logger *slog.Logger) map[allowlistKey]struct{} {
+	rows, err := sq.ListSecretScanAllowlistForRepo(ctx, pool, repoID)
+	if err != nil {
+		logger.WarnContext(ctx, "secret-scan: load allowlist", "repo_id", repoID, "error", err)
+		return map[allowlistKey]struct{}{}
+	}
+	out := make(map[allowlistKey]struct{}, len(rows))
+	for _, r := range rows {
+		out[allowlistKey{Pattern: r.Pattern, Path: r.Path}] = struct{}{}
+	}
+	return out
 }
