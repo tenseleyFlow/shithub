@@ -9,8 +9,20 @@ import (
 )
 
 type Querier interface {
+	// Sweeps existing open findings against the allowlist after an entry
+	// is added: any matching (pattern, path) flips to status='allowlisted'.
+	ApplyAllowlistToFindings(ctx context.Context, db DBTX, arg ApplyAllowlistToFindingsParams) error
 	CountSecretScanFindingsForRepo(ctx context.Context, db DBTX, arg CountSecretScanFindingsForRepoParams) (int64, error)
+	DeleteSecretScanAllowlist(ctx context.Context, db DBTX, arg DeleteSecretScanAllowlistParams) error
 	GetSecretScanFinding(ctx context.Context, db DBTX, arg GetSecretScanFindingParams) (SecretScanFinding, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-10c: secret-scan allowlist queries.
+	// Idempotent on (repo, pattern, path) — re-allowlisting an already-
+	// allowlisted finding just updates the reason via the UPSERT.
+	InsertSecretScanAllowlist(ctx context.Context, db DBTX, arg InsertSecretScanAllowlistParams) (SecretScanAllowlist, error)
+	IsSecretScanAllowlisted(ctx context.Context, db DBTX, arg IsSecretScanAllowlistedParams) (bool, error)
+	ListSecretScanAllowlistForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanAllowlist, error)
 	// Status-filterable list for the UI in 10c. Filter is optional;
 	// empty string lists everything.
 	ListSecretScanFindingsForRepo(ctx context.Context, db DBTX, arg ListSecretScanFindingsForRepoParams) ([]SecretScanFinding, error)

@@ -106,6 +106,32 @@ func TestSecretScanHistory_IdempotentRescan(t *testing.T) {
 	}
 }
 
+// TestSecretScanHistory_AllowlistSkipsMatch confirms that a
+// (pattern, path) row in secret_scan_allowlist prevents the worker
+// from writing a corresponding finding.
+func TestSecretScanHistory_AllowlistSkipsMatch(t *testing.T) {
+	t.Parallel()
+	env := setupSecretScanEnv(t, false, true)
+	seedRepoFile(t, env.gitDir, "config.json", "AWS_KEY="+"AKIAIOSFODNN7EXAMPLE\n", "Initial commit")
+
+	// Pre-seed the allowlist so the scan that follows is gated.
+	if _, err := env.pool.Exec(
+		context.Background(),
+		`INSERT INTO secret_scan_allowlist (repo_id, pattern, path, reason)
+		 VALUES ($1, 'aws-access-key-id', 'config.json', 'fixture')`,
+		env.repoID,
+	); err != nil {
+		t.Fatalf("seed allowlist: %v", err)
+	}
+
+	if err := env.run(); err != nil {
+		t.Fatalf("worker: %v", err)
+	}
+	if count := countFindings(t, env.pool, env.repoID, ""); count != 0 {
+		t.Errorf("allowlisted (pattern, path) should yield 0 findings, got %d", count)
+	}
+}
+
 // TestSecretScanHistory_RedactedExcerptStored asserts the excerpt
 // column never carries the raw matched bytes. This is the single most
 // important invariant of the finding storage.
