@@ -3165,6 +3165,15 @@ type UserToken struct {
 	RepoID      pgtype.Int8
 }
 
+type UserTokenUsageEvent struct {
+	ID          int64
+	TokenID     int64
+	OccurredAt  pgtype.Timestamptz
+	Method      string
+	RoutePrefix string
+	StatusCode  int16
+}
+
 type UserTotp struct {
 	ID              int64
 	UserID          int64

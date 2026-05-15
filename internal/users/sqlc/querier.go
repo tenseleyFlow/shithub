@@ -49,6 +49,9 @@ type Querier interface {
 	CountUserGPGKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeysByKind(ctx context.Context, db DBTX, arg CountUserSSHKeysByKindParams) (int64, error)
+	// Total request count for the token since `since`. Used for the
+	// analytics summary card.
+	CountUserTokenUsageSince(ctx context.Context, db DBTX, arg CountUserTokenUsageSinceParams) (int64, error)
 	CountUsernameReservationsForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
 	CountVerifiedUserEmails(ctx context.Context, db DBTX, userID int64) (int64, error)
@@ -147,6 +150,9 @@ type Querier interface {
 	// expires_at handling. repo_id (PRO-EXT01-11b) is included so the
 	// middleware can propagate the binding to downstream route helpers.
 	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error)
+	// Scoped fetch: only returns the row if it belongs to user_id. Used by
+	// the analytics handler to verify ownership before rendering.
+	GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -187,6 +193,10 @@ type Querier interface {
 	// array default rather than a NOT NULL constraint violation.
 	// repo_id is nullable — NULL means "no binding".
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// Fire-and-forget from the PAT middleware. Non-fatal: a failed insert
+	// never affects request authorization.
+	InsertUserTokenUsageEvent(ctx context.Context, db DBTX, arg InsertUserTokenUsageEventParams) error
 	// Used by the S10 username-change flow to record an old name. The
 	// redirect itself doubles as a 30-day reservation (the row stays for at
 	// least that long).
@@ -229,6 +239,14 @@ type Querier interface {
 	// ListUserSSHKeys so callers can swap between them without observing a
 	// reshuffle.
 	ListUserSSHKeysByKind(ctx context.Context, db DBTX, arg ListUserSSHKeysByKindParams) ([]UserSshKey, error)
+	// Top N (method, route_prefix) tuples by request count over a window.
+	// Drives the "where this token is being used" table on the analytics
+	// page.
+	ListUserTokenTopRoutes(ctx context.Context, db DBTX, arg ListUserTokenTopRoutesParams) ([]ListUserTokenTopRoutesRow, error)
+	// Day-bucketed counts for the analytics chart. Returns at most one
+	// row per day; gaps mean zero traffic that day (the renderer fills
+	// them in).
+	ListUserTokenUsageByDay(ctx context.Context, db DBTX, arg ListUserTokenUsageByDayParams) ([]ListUserTokenUsageByDayRow, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
 	ListUsernameReservationsForUser(ctx context.Context, db DBTX, userID int64) ([]UserUsernameReservation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later

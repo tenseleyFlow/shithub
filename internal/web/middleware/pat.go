@@ -202,9 +202,68 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 				IsSuspended: user.SuspendedAt.Valid,
 				IsSiteAdmin: user.IsSiteAdmin,
 			})
-			next.ServeHTTP(w, r.WithContext(ctx))
+
+			// PRO-EXT01-11c: record this request for the per-token
+			// analytics view. We wrap the writer so we can capture the
+			// downstream status, then fire-and-forget the insert from a
+			// detached goroutine after the handler returns.
+			recorder := &patUsageRecorder{ResponseWriter: w, status: http.StatusOK}
+			tokenID := row.ID
+			method := r.Method
+			path := r.URL.Path
+			next.ServeHTTP(recorder, r.WithContext(ctx))
+			recordPATUsage(q, cfg, tokenID, method, path, recorder.status)
 		})
 	}
+}
+
+// patUsageRecorder is the minimal ResponseWriter wrapper that captures
+// the first WriteHeader call so the analytics insert can record the
+// outbound status code. It's intentionally not a hijacker/flusher
+// pass-through — the PAT middleware only fronts /api/v1/* + git-over-
+// HTTPS, neither of which hijack.
+type patUsageRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (p *patUsageRecorder) WriteHeader(code int) {
+	if !p.wroteHeader {
+		p.status = code
+		p.wroteHeader = true
+	}
+	p.ResponseWriter.WriteHeader(code)
+}
+
+func (p *patUsageRecorder) Write(b []byte) (int, error) {
+	if !p.wroteHeader {
+		// Implicit 200 if handler wrote without WriteHeader first.
+		p.wroteHeader = true
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+// recordPATUsage inserts one usage event for this request. Best-effort:
+// the goroutine has its own short timeout and any error is logged at
+// warn level, never surfaced to the user.
+func recordPATUsage(q usersdb.Querier, cfg PATConfig, tokenID int64, method, path string, status int) {
+	if cfg.Pool == nil {
+		return
+	}
+	prefix := pat.RoutePrefix(path)
+	go func() { //nolint:gosec
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		if err := q.InsertUserTokenUsageEvent(ctx, cfg.Pool, usersdb.InsertUserTokenUsageEventParams{
+			TokenID:     tokenID,
+			Method:      method,
+			RoutePrefix: prefix,
+			StatusCode:  int16(status),
+		}); err != nil && cfg.Logger != nil {
+			cfg.Logger.WarnContext(ctx, "pat: insert usage event", "error", err)
+		}
+	}()
 }
 
 // RequireScope rejects with 403 if the request was authenticated via PAT

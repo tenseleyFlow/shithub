@@ -235,6 +235,7 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Get("/settings/tokens", h.tokensList)
 			r.Post("/settings/tokens", h.tokensCreate)
 			r.Post("/settings/tokens/{id}/revoke", h.tokensRevoke)
+			r.Get("/settings/tokens/{id}/analytics", h.tokenAnalytics)
 			if h.d.SecretBox != nil {
 				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
 				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)
