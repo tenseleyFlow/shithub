@@ -334,12 +334,23 @@ func writeSecretsError(w http.ResponseWriter, err error) {
 // ─── user scope (PRO-EXT01-12b) ─────────────────────────────────────
 
 // requireUserPATAuth returns the authenticated user's id, or writes
-// 401 and returns 0. The /api/v1/user/* surface requires a PAT —
-// anonymous requests have nothing to scope against.
+// the appropriate error and returns 0. The /api/v1/user/* surface
+// requires a PAT — anonymous requests have nothing to scope against.
+//
+// PRO-EXT_SR-01: a PAT bound to a single repo (PRO-EXT01-11b) is
+// rejected here because user-scope resources (personal Actions
+// secrets, etc.) span every repo the user owns. Honoring a bound
+// token on a cross-repo endpoint would silently expand its blast
+// radius beyond what the user authorized when they minted it.
 func (h *Handlers) requireUserPATAuth(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	auth := middleware.PATAuthFromContext(r.Context())
 	if auth.UserID == 0 {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
+		return 0, false
+	}
+	if auth.RepoBinding != 0 {
+		writeAPIError(w, http.StatusForbidden,
+			"this token is bound to a single repo and cannot manage user-scope resources")
 		return 0, false
 	}
 	return auth.UserID, true
