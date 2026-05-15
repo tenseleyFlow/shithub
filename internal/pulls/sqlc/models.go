@@ -2141,6 +2141,7 @@ type ActionsVariable struct {
 	CreatedByUserID pgtype.Int8
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	UserID          pgtype.Int8
 }
 
 type AuthAuditLog struct {
@@ -3408,6 +3409,7 @@ type WorkflowSecret struct {
 	CreatedByUserID pgtype.Int8
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	UserID          pgtype.Int8
 }
 
 type WorkflowStep struct {

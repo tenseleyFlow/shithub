@@ -90,6 +90,8 @@ type authTestOptions struct {
 	EnforceAdvancedCodeSearch bool
 	// EnforceContributionPrivacy flips the PRO-EXT01-09 enforce knob.
 	EnforceContributionPrivacy bool
+	// EnforceUserActionsSecrets flips the PRO-EXT01-12 enforce knob.
+	EnforceUserActionsSecrets bool
 }
 
 // newTestServerWithPool is identical to newTestServer but also exposes
@@ -155,6 +157,7 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 			UserSavedRepliesUnlimited: opts.EnforceSavedRepliesUnlimited,
 			UserAdvancedCodeSearch:    opts.EnforceAdvancedCodeSearch,
 			UserContributionPrivacy:   opts.EnforceContributionPrivacy,
+			UserActionsSecrets:        opts.EnforceUserActionsSecrets,
 		},
 		BillingGracePeriod:    14 * 24 * time.Hour,
 		Stripe:                opts.Stripe,
@@ -248,6 +251,8 @@ func authTemplatesFS() fs.FS {
 	billingResultTpl := `{{ define "page" }}RESULT={{.Result}};HEADING={{.Heading}};USER={{.Username}};BILLING={{.BillingPath}};<input name=csrf_token value="{{.CSRFToken}}">{{ end }}`
 	//nolint:gosec // G101 false positive: HTML test fixture, not a credential.
 	tokenAnalyticsTpl := `{{ define "page" }}<h1>Analytics — {{.Token.Name}}</h1>TOTAL={{.TotalRequests}};PREVIEW={{.IsPreview}};DAILY={{ range .DailyCounts }}{{.Day}}:{{.Count}};{{ end }}TOP={{ range .TopRoutes }}{{.Method}}:{{.RoutePrefix}}:{{.EventCount}};{{ end }}{{ end }}`
+	//nolint:gosec // G101 false positive: HTML test fixture, not a credential.
+	actionsSecretsTpl := `{{ define "page" }}<h1>Personal Actions</h1>{{ with .CreateError }}<p class=error>{{.}}</p>{{ end }}ALLOWED={{.Allowed}};SECRETS={{ range .Secrets }}{{.Name}};{{ end }}VARS={{ range .Variables }}{{.Name}}={{.Value}};{{ end }}<form method=POST action=/settings/actions/secrets><input name=csrf_token value="{{.CSRFToken}}"><input name=name><input name=value></form><form method=POST action=/settings/actions/variables><input name=csrf_token value="{{.CSRFToken}}"><input name=name><input name=value></form>{{ end }}`
 	errorPage := `{{ define "page" }}<h1>{{.Status}} {{.StatusText}}</h1><p>{{.Message}}</p>{{ end }}`
 	return fstest.MapFS{
 		"_layout.html":                  {Data: []byte(layout)},
@@ -265,6 +270,7 @@ func authTemplatesFS() fs.FS {
 		"settings/keys_gpg_add.html":    {Data: []byte(gpgAddTpl)},
 		"settings/tokens.html":          {Data: []byte(tokensTpl)},
 		"settings/token_analytics.html": {Data: []byte(tokenAnalyticsTpl)},
+		"settings/actions_secrets.html": {Data: []byte(actionsSecretsTpl)},
 		"settings/profile.html":         {Data: []byte(profileTpl)},
 		"settings/account.html":         {Data: []byte(accountTpl)},
 		"settings/password.html":        {Data: []byte(pwTpl)},

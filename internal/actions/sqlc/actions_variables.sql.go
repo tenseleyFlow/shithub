@@ -39,6 +39,20 @@ func (q *Queries) DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRep
 	return err
 }
 
+const deleteUserVariable = `-- name: DeleteUserVariable :exec
+DELETE FROM actions_variables WHERE user_id = $1 AND name = $2
+`
+
+type DeleteUserVariableParams struct {
+	UserID pgtype.Int8
+	Name   string
+}
+
+func (q *Queries) DeleteUserVariable(ctx context.Context, db DBTX, arg DeleteUserVariableParams) error {
+	_, err := db.Exec(ctx, deleteUserVariable, arg.UserID, arg.Name)
+	return err
+}
+
 const getOrgVariable = `-- name: GetOrgVariable :one
 SELECT id, name, value, created_by_user_id, created_at, updated_at
 FROM actions_variables
@@ -96,6 +110,40 @@ type GetRepoVariableRow struct {
 func (q *Queries) GetRepoVariable(ctx context.Context, db DBTX, arg GetRepoVariableParams) (GetRepoVariableRow, error) {
 	row := db.QueryRow(ctx, getRepoVariable, arg.RepoID, arg.Name)
 	var i GetRepoVariableRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Value,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserVariable = `-- name: GetUserVariable :one
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE user_id = $1 AND name = $2
+`
+
+type GetUserVariableParams struct {
+	UserID pgtype.Int8
+	Name   string
+}
+
+type GetUserVariableRow struct {
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserVariable(ctx context.Context, db DBTX, arg GetUserVariableParams) (GetUserVariableRow, error) {
+	row := db.QueryRow(ctx, getUserVariable, arg.UserID, arg.Name)
+	var i GetUserVariableRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -193,6 +241,49 @@ func (q *Queries) ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.
 	return items, nil
 }
 
+const listUserVariables = `-- name: ListUserVariables :many
+SELECT id, name, value, created_by_user_id, created_at, updated_at
+FROM actions_variables
+WHERE user_id = $1
+ORDER BY name ASC
+`
+
+type ListUserVariablesRow struct {
+	ID              int64
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListUserVariables(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserVariablesRow, error) {
+	rows, err := db.Query(ctx, listUserVariables, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserVariablesRow{}
+	for rows.Next() {
+		var i ListUserVariablesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Value,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertOrgVariable = `-- name: UpsertOrgVariable :one
 INSERT INTO actions_variables (org_id, name, value, created_by_user_id)
 VALUES ($1, $2, $3, $4)
@@ -209,14 +300,25 @@ type UpsertOrgVariableParams struct {
 	CreatedByUserID pgtype.Int8
 }
 
-func (q *Queries) UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error) {
+type UpsertOrgVariableRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (UpsertOrgVariableRow, error) {
 	row := db.QueryRow(ctx, upsertOrgVariable,
 		arg.OrgID,
 		arg.Name,
 		arg.Value,
 		arg.CreatedByUserID,
 	)
-	var i ActionsVariable
+	var i UpsertOrgVariableRow
 	err := row.Scan(
 		&i.ID,
 		&i.RepoID,
@@ -247,15 +349,77 @@ type UpsertRepoVariableParams struct {
 	CreatedByUserID pgtype.Int8
 }
 
+type UpsertRepoVariableRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
-func (q *Queries) UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (ActionsVariable, error) {
+func (q *Queries) UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (UpsertRepoVariableRow, error) {
 	row := db.QueryRow(ctx, upsertRepoVariable,
 		arg.RepoID,
 		arg.Name,
 		arg.Value,
 		arg.CreatedByUserID,
 	)
-	var i ActionsVariable
+	var i UpsertRepoVariableRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.OrgID,
+		&i.Name,
+		&i.Value,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertUserVariable = `-- name: UpsertUserVariable :one
+
+INSERT INTO actions_variables (user_id, name, value, created_by_user_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (user_id, name) WHERE user_id IS NOT NULL DO UPDATE
+SET value = EXCLUDED.value, updated_at = now()
+RETURNING id, repo_id, org_id, name, value, created_by_user_id,
+          created_at, updated_at
+`
+
+type UpsertUserVariableParams struct {
+	UserID          pgtype.Int8
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+}
+
+type UpsertUserVariableRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Value           string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// PRO-EXT01-12: personal Actions variables. Same shape as repo/org;
+// the XOR is extended in migration 0094.
+func (q *Queries) UpsertUserVariable(ctx context.Context, db DBTX, arg UpsertUserVariableParams) (UpsertUserVariableRow, error) {
+	row := db.QueryRow(ctx, upsertUserVariable,
+		arg.UserID,
+		arg.Name,
+		arg.Value,
+		arg.CreatedByUserID,
+	)
+	var i UpsertUserVariableRow
 	err := row.Scan(
 		&i.ID,
 		&i.RepoID,

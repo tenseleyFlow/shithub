@@ -30,11 +30,13 @@ type Deps struct {
 }
 
 // Scope identifies which `actions_variables` row family a call targets.
-// Construct via RepoScope or OrgScope; RepoID and OrgID are mutually
-// exclusive (the table CHECK constraint enforces this server-side).
+// Construct via RepoScope, OrgScope, or UserScope; the three IDs are
+// mutually exclusive (the table CHECK constraint enforces this
+// server-side).
 type Scope struct {
 	RepoID int64
 	OrgID  int64
+	UserID int64 // PRO-EXT01-12
 }
 
 // RepoScope returns a repo-scoped Scope. Repo variables are visible only
@@ -45,11 +47,18 @@ func RepoScope(id int64) Scope { return Scope{RepoID: id} }
 // workflows running in any repo owned by the org.
 func OrgScope(id int64) Scope { return Scope{OrgID: id} }
 
-// IsRepo reports whether the scope addresses a repo. Mutex with IsOrg.
-func (s Scope) IsRepo() bool { return s.RepoID != 0 && s.OrgID == 0 }
+// UserScope returns a user-scoped Scope. User variables are visible to
+// workflows running in any repo owned by that user (PRO-EXT01-12).
+func UserScope(id int64) Scope { return Scope{UserID: id} }
 
-// IsOrg reports whether the scope addresses an org. Mutex with IsRepo.
-func (s Scope) IsOrg() bool { return s.OrgID != 0 && s.RepoID == 0 }
+// IsRepo reports whether the scope addresses a repo. Mutex with IsOrg + IsUser.
+func (s Scope) IsRepo() bool { return s.RepoID != 0 && s.OrgID == 0 && s.UserID == 0 }
+
+// IsOrg reports whether the scope addresses an org. Mutex with IsRepo + IsUser.
+func (s Scope) IsOrg() bool { return s.OrgID != 0 && s.RepoID == 0 && s.UserID == 0 }
+
+// IsUser reports whether the scope addresses a user. Mutex with IsRepo + IsOrg.
+func (s Scope) IsUser() bool { return s.UserID != 0 && s.RepoID == 0 && s.OrgID == 0 }
 
 // Variable is the public listing/lookup shape. Values are intentionally
 // present because variables are not secrets; use the secrets package for
@@ -101,7 +110,7 @@ func validateValue(value string) error {
 // `${{ vars.MISSING }}` already resolves to empty string, and operators may
 // intentionally pin the same value explicitly.
 func (d Deps) Set(ctx context.Context, scope Scope, name, value string, createdBy int64) error {
-	if !scope.IsRepo() && !scope.IsOrg() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
 		return ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -133,13 +142,23 @@ func (d Deps) Set(ctx context.Context, scope Scope, name, value string, createdB
 		if err != nil {
 			return fmt.Errorf("variables: upsert org: %w", err)
 		}
+	case scope.IsUser():
+		_, err := q.UpsertUserVariable(ctx, d.Pool, actionsdb.UpsertUserVariableParams{
+			UserID:          pgtype.Int8{Int64: scope.UserID, Valid: true},
+			Name:            name,
+			Value:           value,
+			CreatedByUserID: creator,
+		})
+		if err != nil {
+			return fmt.Errorf("variables: upsert user: %w", err)
+		}
 	}
 	return nil
 }
 
 // Get returns one plaintext variable by name.
 func (d Deps) Get(ctx context.Context, scope Scope, name string) (Variable, error) {
-	if !scope.IsRepo() && !scope.IsOrg() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
 		return Variable{}, ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -179,6 +198,22 @@ func (d Deps) Get(ctx context.Context, scope Scope, name string) (Variable, erro
 			CreatedAt:       row.CreatedAt,
 			UpdatedAt:       row.UpdatedAt,
 		}, nil
+	case scope.IsUser():
+		row, err := q.GetUserVariable(ctx, d.Pool, actionsdb.GetUserVariableParams{
+			UserID: pgtype.Int8{Int64: scope.UserID, Valid: true},
+			Name:   name,
+		})
+		if err != nil {
+			return Variable{}, mapGetErr(err)
+		}
+		return Variable{
+			ID:              row.ID,
+			Name:            row.Name,
+			Value:           row.Value,
+			CreatedByUserID: int64ValueOrZero(row.CreatedByUserID),
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+		}, nil
 	}
 	return Variable{}, ErrInvalidScope
 }
@@ -186,7 +221,7 @@ func (d Deps) Get(ctx context.Context, scope Scope, name string) (Variable, erro
 // List returns every variable in scope, sorted ascending for stable UI
 // rendering.
 func (d Deps) List(ctx context.Context, scope Scope) ([]Variable, error) {
-	if !scope.IsRepo() && !scope.IsOrg() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
 		return nil, ErrInvalidScope
 	}
 	q := actionsdb.New()
@@ -225,6 +260,23 @@ func (d Deps) List(ctx context.Context, scope Scope) ([]Variable, error) {
 			}
 		}
 		return out, nil
+	case scope.IsUser():
+		rows, err := q.ListUserVariables(ctx, d.Pool, pgtype.Int8{Int64: scope.UserID, Valid: true})
+		if err != nil {
+			return nil, fmt.Errorf("variables: list user: %w", err)
+		}
+		out := make([]Variable, len(rows))
+		for i, r := range rows {
+			out[i] = Variable{
+				ID:              r.ID,
+				Name:            r.Name,
+				Value:           r.Value,
+				CreatedByUserID: int64ValueOrZero(r.CreatedByUserID),
+				CreatedAt:       r.CreatedAt,
+				UpdatedAt:       r.UpdatedAt,
+			}
+		}
+		return out, nil
 	}
 	return nil, ErrInvalidScope
 }
@@ -232,7 +284,7 @@ func (d Deps) List(ctx context.Context, scope Scope) ([]Variable, error) {
 // Delete removes a variable. Missing rows are treated as success so callers
 // can use Delete for cleanup without a read-before-write race.
 func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
-	if !scope.IsRepo() && !scope.IsOrg() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
 		return ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -249,6 +301,11 @@ func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
 		return q.DeleteOrgVariable(ctx, d.Pool, actionsdb.DeleteOrgVariableParams{
 			OrgID: pgtype.Int8{Int64: scope.OrgID, Valid: true},
 			Name:  name,
+		})
+	case scope.IsUser():
+		return q.DeleteUserVariable(ctx, d.Pool, actionsdb.DeleteUserVariableParams{
+			UserID: pgtype.Int8{Int64: scope.UserID, Valid: true},
+			Name:   name,
 		})
 	}
 	return ErrInvalidScope
