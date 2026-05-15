@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -254,4 +255,58 @@ func sealPutBody(t *testing.T, pubKey [32]byte, plaintext []byte) []byte {
 		"encrypted_value": base64.StdEncoding.EncodeToString(sealed),
 	})
 	return body
+}
+
+// PRO-EXT_SR-05: the userActionsSecretsAPIGate's enforce-on / deny
+// branch and Pro-user / accept branch were never exercised because
+// the test env always set BillingEnforce.UserActionsSecrets=false.
+// These tests pin all three combinations of (plan × enforce) the
+// PUT path's gate must distinguish.
+
+// putSealedUserSecret is the boilerplate the SR-05 tests share:
+// fetch public key, seal the plaintext, PUT.
+func putSealedUserSecret(t *testing.T, env *secretsTestEnv, name string, plaintext []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	pk := fetchUserSecretsPublicKey(t, env)
+	body := sealPutBody(t, pk, plaintext)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/user/actions/secrets/"+name, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestUserActionsSecrets_FreeUserPUTRejectedUnderEnforce(t *testing.T) {
+	env := newSecretsTestEnvOpts(t, secretsTestEnvOptions{
+		BillingEnforce: config.EnforceConfig{UserActionsSecrets: true},
+	})
+	rr := putSealedUserSecret(t, env, "SR05_FREE_ENFORCE", []byte("should-not-land"))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("Free + enforce-on PUT: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("Pro")) {
+		t.Errorf("error body should mention Pro upgrade: %s", rr.Body.String())
+	}
+}
+
+func TestUserActionsSecrets_ProUserPUTAcceptedUnderEnforce(t *testing.T) {
+	env := newSecretsTestEnvOpts(t, secretsTestEnvOptions{
+		BillingEnforce: config.EnforceConfig{UserActionsSecrets: true},
+	})
+	upgradeUserToActivePro(t, env.pool, env.userID)
+	rr := putSealedUserSecret(t, env, "SR05_PRO_ENFORCE", []byte("pro-value"))
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("Pro + enforce-on PUT: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUserActionsSecrets_FreeUserPUTAcceptedUnderReportOnly(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	// BillingEnforce.UserActionsSecrets stays false (the campaign's
+	// default soak-window state).
+	rr := putSealedUserSecret(t, env, "SR05_FREE_REPORTONLY", []byte("ro-value"))
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("Free + report-only PUT: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
 }
