@@ -13,6 +13,7 @@
         <h1>
           <span class="shithub-profile-name">{{ .DisplayName }}</span>
           <span class="shithub-profile-handle">{{ .User.Username }}</span>
+          {{ template "pro-badge" .ProfileOwnerIsPro }}
         </h1>
         {{ if .User.Pronouns }}<span class="shithub-profile-pronouns">{{ .User.Pronouns }}</span>{{ end }}
       </div>

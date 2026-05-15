@@ -74,7 +74,7 @@ func setupProfileEnvWithDepsAndEnforce(t *testing.T, objectStore storage.ObjectS
 	tmplFS := fstest.MapFS{
 		"_layout.html":                  {Data: []byte(`{{ define "layout" }}<html><head><title>{{ .Title }}</title></head><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"hello.html":                    {Data: []byte(`{{ define "page" }}home{{ end }}`)},
-		"profile/view.html":             {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} ACTIVITY={{len .Contributions.Activity}} HASMORE={{.Contributions.HasMoreActivity}} ACTIVITYITEMS={{range .Contributions.Activity}}{{.Label}}:{{range .Items}}{{.Kind}}={{.Total}}/{{len .Repos}};{{end}}{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} CANDIDATENAMES={{range .PinCandidates}}{{.OwnerSlug}}/{{.Name}};{{end}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
+		"profile/view.html":             {Data: []byte(`{{ define "page" }}USER={{.User.Username}} DISPLAY={{.User.DisplayName}}{{ if .IsSelf }} SELF=1{{ end }}{{ if .ProfileOwnerIsPro }} PRO=1{{ end }}{{ if .IsFollowing }} FOLLOWING=1{{ end }} FOLLOWERS={{.FollowersCount}} FOLLOWINGCOUNT={{.FollowingCount}} BIO={{.User.Bio}} VISIBLE={{.VisibleRepoCount}} ORGS={{len .Orgs}} README={{.HasProfileReadme}} CONTRIB={{.Contributions.Total}} PERIOD={{.Contributions.Period}} PRIVATE={{.Contributions.IncludePrivateContributions}} WEEKS={{len .Contributions.Weeks}} YEARS={{len .Contributions.Years}} YEARLINKS={{range .Contributions.Years}}{{.Year}}:{{.Active}}:{{.Href}};{{end}} ACTIVITY={{len .Contributions.Activity}} HASMORE={{.Contributions.HasMoreActivity}} ACTIVITYITEMS={{range .Contributions.Activity}}{{.Label}}:{{range .Items}}{{.Kind}}={{.Total}}/{{len .Repos}};{{end}}{{end}} PINS={{len .PinnedRepos}} PINNAMES={{range .PinnedRepos}}{{.Name}};{{end}} CANDIDATES={{len .PinCandidates}} CANDIDATENAMES={{range .PinCandidates}}{{.OwnerSlug}}/{{.Name}};{{end}} SELECTED={{range .PinCandidates}}{{if .IsPinned}}{{.Name}};{{end}}{{end}}{{ if .CanCustomizePins }} CUSTOMIZE=1 ACTION={{.ContributionSettingsAction}} RETURN={{.ContributionSettingsReturn}}{{ end }}{{ end }}`)},
 		"profile/follows_tab.html":      {Data: []byte(`{{ define "page" }}FOLLOWTAB={{.ActiveTab}} USER={{.User.Username}} TOTAL={{len .Items}} ITEMS={{range .Items}}{{.Kind}}:{{.Username}};{{end}}{{ end }}`)},
 		"profile/repositories_tab.html": {Data: []byte(`{{ define "page" }}REPOSTAB={{.ActiveTab}} USER={{.User.Username}} DISPLAY={{.DisplayName}} TOTAL={{.RepoTotal}} FILTERED={{.FilteredCount}} PAGE={{.Page}}/{{.PageCount}} HASNEXT={{.HasNext}} HASPREV={{.HasPrev}} REPOS={{len .Repos}} TYPE={{.SelectedType}} LANG={{.SelectedLanguage}} SORT={{.SelectedSort}} TYPELABEL={{.SelectedTypeLabel}} LANGLABEL={{.SelectedLanguageLabel}} SORTLABEL={{.SelectedSortLabel}} CANNEW={{.CanCreateRepo}} ITEMS={{range .Repos}}{{.Name}}:{{.PrimaryLanguage}}:{{.StarCount}};{{end}} LANGS={{range .LanguageFilters}}{{.Label}}={{.Count}};{{end}}{{ end }}`)},
 		"profile/stars_tab.html":        {Data: []byte(`{{ define "page" }}STARSTAB={{.ActiveTab}} USER={{.User.Username}} DISPLAY={{.DisplayName}} TOTAL={{.StarTotal}} FILTERED={{.FilteredCount}} PAGE={{.Page}} HASNEXT={{.HasNext}} HASPREV={{.HasPrev}} STARS={{len .Stars}} ITEMS={{range .Stars}}{{.OwnerName}}/{{.RepoName}}:{{.PrimaryLanguage}}:{{.StarCount}};{{end}} LANGS={{range .LanguageOptions}}{{.}};{{end}} FILTERS={{.StarFilters.Query}}/{{.StarFilters.Type}}/{{.StarFilters.Language}}/{{.StarFilters.Sort}}{{ end }}`)},
@@ -455,6 +455,25 @@ func TestProfile_RendersForExistingUser(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
+	}
+	if strings.Contains(string(body), "PRO=1") {
+		t.Errorf("free account should not surface PRO=1; body: %s", body)
+	}
+}
+
+func TestProfile_ProBadgeShownForProAccount(t *testing.T) {
+	t.Parallel()
+	env := setupProfileEnv(t)
+	alice := env.insertUser(t, "alice", "Alice", "")
+	if _, err := env.pool.Exec(context.Background(),
+		"UPDATE users SET plan = 'pro' WHERE id = $1", alice.ID,
+	); err != nil {
+		t.Fatalf("set pro plan: %v", err)
+	}
+
+	body := env.getAs(t, "/alice", alice)
+	if !strings.Contains(body, "PRO=1") {
+		t.Errorf("Pro account should surface PRO=1; body: %s", body)
 	}
 }
 
