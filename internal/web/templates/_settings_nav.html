@@ -24,6 +24,9 @@
       <li{{ if eq .SettingsActive "scheduled-issues" }} class="active"{{ end }}>
         <a href="/settings/scheduled-issues">Scheduled issues</a>
       </li>
+      <li{{ if eq .SettingsActive "search-queries" }} class="active"{{ end }}>
+        <a href="/settings/search-queries">Saved search queries</a>
+      </li>
       <li{{ if eq .SettingsActive "billing" }} class="active"{{ end }}>
         <a href="/settings/billing">Billing and plans</a>
       </li>
