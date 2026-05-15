@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -140,7 +141,7 @@ func (h *Handlers) renderContributionsForm(w http.ResponseWriter, r *http.Reques
 		rows = append(rows, repoRow{
 			ID:     repo.ID,
 			Name:   repo.Name,
-			Public: repo.Visibility == reposdb.RepoVisibilityPublic,
+			Public: policy.NewRepoRefFromRepo(repo).IsPublic(),
 			OptOut: optoutSet[repo.ID],
 		})
 	}
@@ -179,23 +180,15 @@ func (h *Handlers) contributionPrivacyAllowed(ctx context.Context, userID int64)
 	return decision.Allowed, decision, nil
 }
 
-// userOwnedReposListForContributions returns the user's owned repos
-// (any visibility) sorted by name. Excludes deleted + archived (no
-// commits land there anyway) so the picker stays useful.
+// userOwnedReposListForContributions returns the user's active owned repos
+// (any visibility) sorted by name so the picker stays useful.
 func (h *Handlers) userOwnedReposListForContributions(ctx context.Context, userID int64) []reposdb.Repo {
-	rows, err := reposdb.New().ListReposForOwnerUser(ctx, h.d.Pool, pgtype.Int8{Int64: userID, Valid: true})
+	rows, err := reposdb.New().ListActiveReposForOwnerUserByName(ctx, h.d.Pool, pgtype.Int8{Int64: userID, Valid: true})
 	if err != nil {
 		h.d.Logger.WarnContext(ctx, "settings/contributions: list own repos", "user_id", userID, "error", err)
 		return nil
 	}
-	out := make([]reposdb.Repo, 0, len(rows))
-	for _, r := range rows {
-		if r.DeletedAt.Valid || r.IsArchived {
-			continue
-		}
-		out = append(out, r)
-	}
-	return out
+	return rows
 }
 
 // userOwnedRepoIDSet is the set version of userOwnedReposListForContributions

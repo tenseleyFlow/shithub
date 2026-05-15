@@ -108,6 +108,7 @@ type Querier interface {
 	// SoftDeleteSubkeysForGPGKey so the cache and the keyring stay in
 	// sync. The next read of an invalidated row triggers a re-verify.
 	InvalidateVerificationsForSubkey(ctx context.Context, db DBTX, signerSubkeyID pgtype.Int8) error
+	ListActiveReposForOwnerUserByName(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]Repo, error)
 	// Used by the GPG verification backfill (S51) to enumerate every
 	// active repo system-wide. Unlike ListAllRepoFullNames this query
 	// handles BOTH user-owned and org-owned repos via a COALESCE between
