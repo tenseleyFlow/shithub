@@ -1,15 +1,18 @@
 # Actions UI Parity Audit
 
-This document records the S41k-6 audit harness for the repository Actions UI.
+This document records the S41k audit harness for the repository Actions UI.
 S41k is the product/UI parity track; it does not replace the runner safety
 controls documented in `actions-public-runners.md`.
 
+For the closeout verdict, remaining parity gaps, and recommended follow-up
+sequence, see [actions-ui-parity-closeout.md](./actions-ui-parity-closeout.md).
+
 ## Current Status
 
-Status: **audit harness in place**.
+Status: **audit harness in place; closeout packet added in S41k-8**.
 
 The Actions product surface remains server-rendered Go templates with a small
-vanilla JavaScript island for the run graph. S41k-6 did not introduce React or a
+vanilla JavaScript island for the run graph. S41k did not introduce React or a
 frontend build pipeline. The current UI complexity is still bounded enough that
 server templates plus focused JS keep the security, CSP, dependency, and deploy
 surface smaller than a React island would.
@@ -27,6 +30,8 @@ Focused Go tests render the production templates for:
 - runners
 - usage metrics
 - performance metrics
+- Code-surface check/status indicators are covered by focused Code-tab tests
+  from S41k-7 rather than this screenshot-oriented Actions page harness
 
 The tests assert the main GitHub-parity landmarks: sidebar navigation, run
 filters, graph toolbar and popover shell, step-log download controls, management
@@ -71,6 +76,7 @@ node counts, log-output presence, and a basic horizontal-overflow check.
   keyboard manipulation parity with GitHub.
 - Add visual diffs only after a deterministic seed repo and browser baseline
   exist in CI.
-- Continue a follow-up for pull request list/detail status affordances if we
-  want GitHub's full Checks-tab cross-link density. S41k-7 covers tree, commit
-  list/detail, branches, and compare Code-tab surfaces.
+- Continue follow-ups from the S41k-8 closeout packet for workflow authoring,
+  pinning, cache management, attestations, runner management UI, richer metrics,
+  log folding/permalinks, PR/checks parity, classic Statuses API compatibility,
+  and marketplace/toolchain parity.
