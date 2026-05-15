@@ -35,6 +35,7 @@ var userPlanFeatures = []entitlements.Feature{
 	entitlements.FeatureScheduledIssues,
 	entitlements.FeatureAdvancedCodeSearch,
 	entitlements.FeatureContributionPrivacy,
+	entitlements.FeatureSecretScanHistory,
 }
 
 // userPlanResponse is the JSON shape for GET /api/v1/user/plan.

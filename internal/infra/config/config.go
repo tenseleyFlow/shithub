@@ -197,6 +197,11 @@ type EnforceConfig struct {
 	// default → report-only (the opt-out lands but the would-deny is
 	// logged). PRO-EXT01-09; promoted in PRO-EXT01-17.
 	UserContributionPrivacy bool `toml:"user_contribution_privacy"`
+	// UserSecretScanHistory: when true, secret-scan worker jobs queued
+	// against a Free user's repo short-circuit without scanning. Off by
+	// default → report-only (the would-deny is logged + the scan runs).
+	// PRO-EXT01-10b; promoted in PRO-EXT01-17.
+	UserSecretScanHistory bool `toml:"user_secret_scan_history"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

@@ -1226,6 +1226,50 @@ func (ns NullScheduledIssueStatus) Value() (driver.Value, error) {
 	return string(ns.ScheduledIssueStatus), nil
 }
 
+type SecretScanFindingStatus string
+
+const (
+	SecretScanFindingStatusOpen        SecretScanFindingStatus = "open"
+	SecretScanFindingStatusResolved    SecretScanFindingStatus = "resolved"
+	SecretScanFindingStatusAllowlisted SecretScanFindingStatus = "allowlisted"
+	SecretScanFindingStatusStale       SecretScanFindingStatus = "stale"
+)
+
+func (e *SecretScanFindingStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SecretScanFindingStatus(s)
+	case string:
+		*e = SecretScanFindingStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SecretScanFindingStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSecretScanFindingStatus struct {
+	SecretScanFindingStatus SecretScanFindingStatus
+	Valid                   bool // Valid is true if SecretScanFindingStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSecretScanFindingStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SecretScanFindingStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SecretScanFindingStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSecretScanFindingStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SecretScanFindingStatus), nil
+}
+
 type TeamPrivacy string
 
 const (
@@ -2845,6 +2889,22 @@ type RunnerToken struct {
 	ExpiresAt pgtype.Timestamptz
 	RevokedAt pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type SecretScanFinding struct {
+	ID             int64
+	RepoID         int64
+	Pattern        string
+	Path           string
+	LineNo         int32
+	Excerpt        string
+	Status         SecretScanFindingStatus
+	FirstSeenOid   string
+	LastSeenOid    string
+	FirstSeenAt    pgtype.Timestamptz
+	LastSeenAt     pgtype.Timestamptz
+	ResolvedAt     pgtype.Timestamptz
+	ResolutionNote pgtype.Text
 }
 
 type SignupIpThrottle struct {

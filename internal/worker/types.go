@@ -73,6 +73,15 @@ const (
 	KindScheduledIssueCreate Kind = "scheduled_issue:create"
 )
 
+// PRO-EXT01-10b secret-scan kind. secret_scan:history walks a repo's
+// default-branch tree, runs the curated pattern engine over each text
+// blob, and writes findings. The worker checks the repo owner's
+// FeatureSecretScanHistory entitlement before doing any work so Free
+// users' repos don't consume scan cycles.
+const (
+	KindSecretScanHistory Kind = "secret_scan:history"
+)
+
 // S28 code-search kinds. index_code re-indexes a repo's default
 // branch (paths + content). Enqueued by push:process when the
 // default branch advances; also by index_reconcile when drift
