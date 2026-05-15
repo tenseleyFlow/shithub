@@ -13,7 +13,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid;
+          last_indexed_oid, is_template;
 
 -- name: LockRepoOwnerName :exec
 -- Serializes DB + filesystem operations for one logical owner/name
@@ -29,7 +29,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE id = $1;
 
@@ -50,7 +50,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -61,7 +61,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -80,7 +80,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
@@ -100,7 +100,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -115,7 +115,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1
   AND visibility = 'public'
@@ -139,7 +139,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -150,7 +150,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -169,7 +169,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
@@ -183,7 +183,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -202,7 +202,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1
   AND visibility = 'public'
@@ -262,10 +262,15 @@ LIMIT $1;
 -- S32: General-tab settings persist via this single query so each
 -- form post is one round-trip. The merge-method toggles are kept
 -- separate from the repo create flow because they're admin-only.
+--
+-- PRO-EXT01-06pre: is_template added; the column is unconstrained at
+-- the DB level so PRO-EXT01-06 can layer a handler-side gate that
+-- restricts private templates to Pro users without a migration.
 UPDATE repos
    SET description       = $2,
        has_issues        = $3,
        has_pulls         = $4,
+       is_template       = $5,
        updated_at        = now()
  WHERE id = $1;
 
@@ -404,7 +409,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid;
+          last_indexed_oid, is_template;
 
 -- name: SetLastIndexedOID :exec
 -- S28 code-search: the worker writes the OID it finished indexing

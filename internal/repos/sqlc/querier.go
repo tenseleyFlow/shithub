@@ -223,6 +223,10 @@ type Querier interface {
 	// S32: General-tab settings persist via this single query so each
 	// form post is one round-trip. The merge-method toggles are kept
 	// separate from the repo create flow because they're admin-only.
+	//
+	// PRO-EXT01-06pre: is_template added; the column is unconstrained at
+	// the DB level so PRO-EXT01-06 can layer a handler-side gate that
+	// restricts private templates to Pro users without a migration.
 	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
 	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)

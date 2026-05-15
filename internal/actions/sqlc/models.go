@@ -2683,6 +2683,7 @@ type Repo struct {
 	ForkCount          int64
 	InitStatus         RepoInitStatus
 	LastIndexedOid     pgtype.Text
+	IsTemplate         bool
 }
 
 type RepoCollaborator struct {

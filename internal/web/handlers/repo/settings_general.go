@@ -79,10 +79,11 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 	}
 	hasIssues := r.PostFormValue("has_issues") == "on"
 	hasPulls := r.PostFormValue("has_pulls") == "on"
+	isTemplate := r.PostFormValue("is_template") == "on"
 	topicsRaw := splitCommaList(r.PostFormValue("topics"))
 
 	if err := h.rq.UpdateRepoGeneralSettings(r.Context(), h.d.Pool, reposdb.UpdateRepoGeneralSettingsParams{
-		ID: row.ID, Description: description, HasIssues: hasIssues, HasPulls: hasPulls,
+		ID: row.ID, Description: description, HasIssues: hasIssues, HasPulls: hasPulls, IsTemplate: isTemplate,
 	}); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "settings: general update", "error", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)

@@ -29,6 +29,12 @@
             <input type="checkbox" name="has_pulls" {{ if .Repo.HasPulls }}checked{{ end }}>
             <span>Pull requests</span>
           </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="is_template" {{ if .Repo.IsTemplate }}checked{{ end }}>
+            <span>Template repository
+              <small>Mark this repository as a template so others can create new repos initialized from its contents.</small>
+            </span>
+          </label>
         </fieldset>
         <button type="submit" class="shithub-button shithub-button-primary">Save</button>
       </form>

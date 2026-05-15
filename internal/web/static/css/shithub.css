@@ -2560,6 +2560,7 @@ button.shithub-contrib-setting-item:hover {
   font-weight: 600;
 }
 .shithub-pill-primary { background: rgba(56, 139, 253, 0.15); border-color: rgba(56, 139, 253, 0.4); }
+.shithub-pill-template { background: rgba(165, 78, 232, 0.15); border-color: rgba(165, 78, 232, 0.4); color: #a54ee8; }
 .shithub-pill-verified { background: rgba(63, 185, 80, 0.15); border-color: rgba(63, 185, 80, 0.4); }
 .shithub-pill-unverified { background: rgba(187, 128, 9, 0.15); border-color: rgba(187, 128, 9, 0.4); }
 

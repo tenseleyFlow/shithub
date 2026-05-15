@@ -5,6 +5,7 @@
       <span class="shithub-repo-title-icon">{{ octicon "repo" }}</span>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}" class="shithub-repo-name">{{ .Repo.Name }}</a>
       {{ if eq (printf "%s" .Repo.Visibility) "private" }}<span class="shithub-pill shithub-pill-private">Private</span>{{ else }}<span class="shithub-pill">Public</span>{{ end }}
+      {{ if .Repo.IsTemplate }}<span class="shithub-pill shithub-pill-template" title="Template repository">Template</span>{{ end }}
     </h1>
     {{ $root := . }}
     <div class="shithub-repo-actions" aria-label="Repository actions">

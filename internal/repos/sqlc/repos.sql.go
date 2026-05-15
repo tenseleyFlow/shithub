@@ -102,7 +102,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid
+          last_indexed_oid, is_template
 `
 
 type CreateForkRepoParams struct {
@@ -160,6 +160,7 @@ func (q *Queries) CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRep
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -178,7 +179,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid
+          last_indexed_oid, is_template
 `
 
 type CreateRepoParams struct {
@@ -234,6 +235,7 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -316,7 +318,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE id = $1
 `
@@ -353,6 +355,7 @@ func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, err
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -364,7 +367,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -409,6 +412,7 @@ func (q *Queries) GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg Get
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -420,7 +424,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -462,6 +466,7 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -530,7 +535,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -574,6 +579,7 @@ func (q *Queries) GetSoftDeletedRepoByOwnerOrgAndName(ctx context.Context, db DB
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -585,7 +591,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -629,6 +635,7 @@ func (q *Queries) GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db D
 		&i.ForkCount,
 		&i.InitStatus,
 		&i.LastIndexedOid,
+		&i.IsTemplate,
 	)
 	return i, err
 }
@@ -857,7 +864,7 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 }
 
 const listProfilePinCandidateReposForUser = `-- name: ListProfilePinCandidateReposForUser :many
-SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
 FROM repos r
 LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
 LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
@@ -928,6 +935,7 @@ func (q *Queries) ListProfilePinCandidateReposForUser(ctx context.Context, db DB
 			&i.Repo.ForkCount,
 			&i.Repo.InitStatus,
 			&i.Repo.LastIndexedOid,
+			&i.Repo.IsTemplate,
 			&i.OwnerSlug,
 		); err != nil {
 			return nil, err
@@ -973,7 +981,7 @@ func (q *Queries) ListProfilePinsForSet(ctx context.Context, db DBTX, setID int6
 }
 
 const listPublicContributionRepos = `-- name: ListPublicContributionRepos :many
-SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, COALESCE(u.username, o.slug)::text AS owner_slug
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, COALESCE(u.username, o.slug)::text AS owner_slug
 FROM repos r
 LEFT JOIN users u ON u.id = r.owner_user_id
 LEFT JOIN orgs o ON o.id = r.owner_org_id
@@ -1030,6 +1038,7 @@ func (q *Queries) ListPublicContributionRepos(ctx context.Context, db DBTX, limi
 			&i.Repo.ForkCount,
 			&i.Repo.InitStatus,
 			&i.Repo.LastIndexedOid,
+			&i.Repo.IsTemplate,
 			&i.OwnerSlug,
 		); err != nil {
 			return nil, err
@@ -1049,7 +1058,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1
   AND visibility = 'public'
@@ -1104,6 +1113,7 @@ func (q *Queries) ListPublicReposForOwnerOrg(ctx context.Context, db DBTX, arg L
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1122,7 +1132,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1
   AND visibility = 'public'
@@ -1177,6 +1187,7 @@ func (q *Queries) ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg 
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1221,7 +1232,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1265,6 +1276,7 @@ func (q *Queries) ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID 
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1283,7 +1295,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1336,6 +1348,7 @@ func (q *Queries) ListReposForOwnerOrgPaged(ctx context.Context, db DBTX, arg Li
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1354,7 +1367,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1398,6 +1411,7 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1416,7 +1430,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid
+       last_indexed_oid, is_template
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1471,6 +1485,7 @@ func (q *Queries) ListReposForOwnerUserPaged(ctx context.Context, db DBTX, arg L
 			&i.ForkCount,
 			&i.InitStatus,
 			&i.LastIndexedOid,
+			&i.IsTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -1634,6 +1649,7 @@ UPDATE repos
    SET description       = $2,
        has_issues        = $3,
        has_pulls         = $4,
+       is_template       = $5,
        updated_at        = now()
  WHERE id = $1
 `
@@ -1643,17 +1659,23 @@ type UpdateRepoGeneralSettingsParams struct {
 	Description string
 	HasIssues   bool
 	HasPulls    bool
+	IsTemplate  bool
 }
 
 // S32: General-tab settings persist via this single query so each
 // form post is one round-trip. The merge-method toggles are kept
 // separate from the repo create flow because they're admin-only.
+//
+// PRO-EXT01-06pre: is_template added; the column is unconstrained at
+// the DB level so PRO-EXT01-06 can layer a handler-side gate that
+// restricts private templates to Pro users without a migration.
 func (q *Queries) UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error {
 	_, err := db.Exec(ctx, updateRepoGeneralSettings,
 		arg.ID,
 		arg.Description,
 		arg.HasIssues,
 		arg.HasPulls,
+		arg.IsTemplate,
 	)
 	return err
 }
