@@ -17,6 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	srch "github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -33,6 +36,11 @@ type Deps struct {
 	// request, so without a limiter a single client can hammer the
 	// DB. Optional in tests; required in production wiring.
 	Limiter *ratelimit.Limiter
+	// BillingEnforce carries PRO07's per-feature enforcement flags.
+	// PRO-EXT01-08b consults UserAdvancedCodeSearch to decide whether
+	// a regex query by a Free viewer is honoured (report-only logs +
+	// proceeds) or refused with the upgrade banner.
+	BillingEnforce config.EnforceConfig
 }
 
 // Handlers is the registered handler set. Construct via New.
@@ -100,6 +108,56 @@ func (h *Handlers) deps() srch.Deps {
 	return srch.Deps{Pool: h.d.Pool, Logger: h.d.Logger}
 }
 
+// regexCodeSearchAllowed reports whether the viewer can run regex
+// code search (PRO-EXT01-08b) and returns a UI affordance hint —
+// "" when no affordance is needed (Pro user or anonymous on a path
+// that doesn't surface the toggle), or a non-empty key when the
+// toggle should render with the pro-lock variant. Report-only mode
+// (the default) still allows the regex to run for a Free user; the
+// affordance is shown regardless so the gate is discoverable.
+func (h *Handlers) regexCodeSearchAllowed(ctx context.Context, actor policy.Actor) (bool, string) {
+	if actor.IsAnonymous {
+		// Anonymous viewers don't have a plan; suppress the affordance
+		// to avoid suggesting they "upgrade" before they sign in.
+		return false, "anonymous"
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(actor.UserID),
+		entitlements.FeatureAdvancedCodeSearch)
+	if err != nil {
+		return false, "anonymous"
+	}
+	if decision.Allowed {
+		return true, ""
+	}
+	// Free user. In enforce mode, refuse to run the regex; in report-
+	// only mode, log the would-deny and run it anyway. The affordance
+	// always shows so the gate is visible.
+	if h.d.BillingEnforce.UserAdvancedCodeSearch {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", billing.PrincipalForUser(actor.UserID).String(),
+			"principal_kind", string(billing.SubjectKindUser),
+			"principal_id", actor.UserID,
+			"feature", string(entitlements.FeatureAdvancedCodeSearch),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "enforce",
+			"surface", "regex_code_search")
+		return false, "upgrade"
+	}
+	h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+		"principal", billing.PrincipalForUser(actor.UserID).String(),
+		"principal_kind", string(billing.SubjectKindUser),
+		"principal_id", actor.UserID,
+		"feature", string(entitlements.FeatureAdvancedCodeSearch),
+		"reason", string(decision.Reason),
+		"required_plan", string(decision.RequiredPlan),
+		"mode", "report_only",
+		"surface", "regex_code_search")
+	return true, "upgrade"
+}
+
 func (h *Handlers) actor(r *http.Request) policy.Actor {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
@@ -112,21 +170,27 @@ func (h *Handlers) actor(r *http.Request) policy.Actor {
 func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 	rawQ := r.URL.Query().Get("q")
 	tab := normalizeSearchTab(r.URL.Query().Get("type"))
+	regexMode := r.URL.Query().Get("regex") == "on"
 	page := pageFromRequest(r)
 
 	parsed := srch.ParseQuery(rawQ)
 	actor := h.actor(r)
 	deps := h.deps()
+	regexAllowed, regexAffordance := h.regexCodeSearchAllowed(r.Context(), actor)
 
 	data := map[string]any{
-		"Title":             "Search",
-		"Query":             rawQ,
-		"GlobalSearchQuery": rawQ,
-		"Tab":               tab,
-		"Page":              page,
-		"Parsed":            parsed,
-		"PageSize":          srch.PageSize,
-		"SearchProTip":      searchProTip(tab),
+		"Title":               "Search",
+		"Query":               rawQ,
+		"GlobalSearchQuery":   rawQ,
+		"Tab":                 tab,
+		"Page":                page,
+		"Parsed":              parsed,
+		"PageSize":            srch.PageSize,
+		"SearchProTip":        searchProTip(tab),
+		"RegexMode":           regexMode,
+		"RegexAllowed":        regexAllowed,
+		"RegexFeatureKey":     string(entitlements.FeatureAdvancedCodeSearch),
+		"RegexLockAffordance": regexAffordance,
 	}
 
 	if !parsed.HasContent() {
@@ -171,6 +235,31 @@ func (h *Handlers) results(w http.ResponseWriter, r *http.Request) {
 		data["Total"] = total
 		data["HasNext"] = int64(page*srch.PageSize) < total
 	case "code":
+		if regexMode && regexAllowed {
+			rows, total, err := srch.SearchCodeRegex(r.Context(), deps, actor, srch.CodeRegexParams{
+				RegexPattern: rawQ,
+				RepoFilter:   parsed.RepoFilter,
+			}, srch.PageSize, offset)
+			if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
+				if errors.Is(err, srch.ErrRegexInvalid) {
+					data["RegexError"] = "Invalid regex pattern."
+				} else {
+					h.d.Logger.ErrorContext(r.Context(), "search code regex", "error", err)
+				}
+			}
+			data["Code"] = rows
+			data["Total"] = total
+			data["HasNext"] = int64(page*srch.PageSize) < total
+			break
+		}
+		if regexMode && !regexAllowed {
+			// Free user attempted regex with enforce on (or no
+			// entitlement at all). We surface the affordance — the
+			// regular search still runs so the user gets *some*
+			// result for their query string, but the regex toggle
+			// is presented as a Pro feature.
+			data["RegexBlocked"] = true
+		}
 		rows, total, err := srch.SearchCode(r.Context(), deps, actor, parsed, srch.PageSize, offset)
 		if err != nil && !errors.Is(err, srch.ErrEmptyQuery) {
 			h.d.Logger.ErrorContext(r.Context(), "search code", "error", err)
