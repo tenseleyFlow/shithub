@@ -29,6 +29,8 @@ WITH seat_counts AS (
     SELECT count(*)::integer AS used_seats
     FROM org_members
     WHERE org_id = sqlc.arg(org_id)::bigint
+), requested_license AS (
+    SELECT NULLIF(sqlc.arg(licensed_seats)::integer, 0) AS licensed_seats
 ), state AS (
     INSERT INTO org_billing_states (
         org_id,
@@ -58,11 +60,17 @@ WITH seat_counts AS (
         sqlc.arg(plan)::org_plan,
         sqlc.arg(subscription_status)::billing_subscription_status,
         CASE
-            WHEN sqlc.arg(plan)::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            WHEN sqlc.arg(plan)::org_plan = 'team' THEN COALESCE(
+                (SELECT licensed_seats FROM requested_license),
+                GREATEST((SELECT used_seats FROM seat_counts), 1)
+            )
             ELSE 0
         END,
         CASE
-            WHEN sqlc.arg(plan)::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            WHEN sqlc.arg(plan)::org_plan = 'team' THEN COALESCE(
+                (SELECT licensed_seats FROM requested_license),
+                GREATEST((SELECT used_seats FROM seat_counts), 1)
+            )
             ELSE 0
         END,
         (SELECT used_seats FROM seat_counts),
@@ -87,20 +95,26 @@ WITH seat_counts AS (
        SET plan = EXCLUDED.plan,
            subscription_status = EXCLUDED.subscription_status,
            billable_seats = CASE
-               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
-                   org_billing_states.billable_seats,
-                   org_billing_states.licensed_seats,
-                   EXCLUDED.used_seats,
-                   1
+               WHEN EXCLUDED.plan = 'team' THEN COALESCE(
+                   (SELECT licensed_seats FROM requested_license),
+                   GREATEST(
+                       org_billing_states.billable_seats,
+                       org_billing_states.licensed_seats,
+                       EXCLUDED.used_seats,
+                       1
+                   )
                )
                ELSE 0
            END,
            licensed_seats = CASE
-               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
-                   org_billing_states.licensed_seats,
-                   org_billing_states.billable_seats,
-                   EXCLUDED.used_seats,
-                   1
+               WHEN EXCLUDED.plan = 'team' THEN COALESCE(
+                   (SELECT licensed_seats FROM requested_license),
+                   GREATEST(
+                       org_billing_states.licensed_seats,
+                       org_billing_states.billable_seats,
+                       EXCLUDED.used_seats,
+                       1
+                   )
                )
                ELSE 0
            END,

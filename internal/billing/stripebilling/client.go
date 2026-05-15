@@ -28,6 +28,7 @@ const (
 	MetadataSubjectKind  = "shithub_subject_kind"
 	MetadataSubjectID    = "shithub_subject_id"
 	MetadataSubjectLabel = "shithub_subject_label" // human-readable, e.g. org slug or username
+	MetadataSeatCount    = "shithub_seat_count"
 )
 
 // SubjectKind mirrors billing.SubjectKind without taking a hard
@@ -231,6 +232,9 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, in CheckoutInput) (C
 		return CheckoutSession{}, fmt.Errorf("%w: %q", ErrInvalidSubjectKind, kind)
 	}
 	metadata := subjectMetadata(kind, subjectID, label, in.OrgID, in.OrgSlug)
+	if kind == SubjectKindOrg {
+		metadata[MetadataSeatCount] = strconv.FormatInt(quantity, 10)
+	}
 	mode := string(stripeapi.CheckoutSessionModeSubscription)
 	paymentMethodCollection := string(stripeapi.CheckoutSessionPaymentMethodCollectionAlways)
 	billingAddressCollection := string(stripeapi.CheckoutSessionBillingAddressCollectionAuto)

@@ -284,12 +284,14 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		return nil
 	}
 	itemID := stripeSubscriptionItemID(sub.Items)
+	licensedSeats := stripeSubscriptionItemQuantity(sub.Items)
 	periodStart, periodEnd := stripeSubscriptionPeriod(sub.Items)
 	if _, err := orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.PrincipalSubscriptionSnapshot{
 		Principal:                principal,
 		Status:                   status,
 		StripeSubscriptionID:     strings.TrimSpace(sub.ID),
 		StripeSubscriptionItemID: itemID,
+		LicensedSeats:            licensedSeats,
 		CurrentPeriodStart:       periodStart,
 		CurrentPeriodEnd:         periodEnd,
 		CancelAtPeriodEnd:        sub.CancelAtPeriodEnd,
@@ -613,6 +615,16 @@ func stripeSubscriptionItemID(items *stripeapi.SubscriptionItemList) string {
 		return ""
 	}
 	return strings.TrimSpace(items.Data[0].ID)
+}
+
+func stripeSubscriptionItemQuantity(items *stripeapi.SubscriptionItemList) int {
+	if items == nil || len(items.Data) == 0 || items.Data[0] == nil {
+		return 0
+	}
+	if items.Data[0].Quantity < 1 {
+		return 0
+	}
+	return int(items.Data[0].Quantity)
 }
 
 func stripeSubscriptionPeriod(items *stripeapi.SubscriptionItemList) (time.Time, time.Time) {

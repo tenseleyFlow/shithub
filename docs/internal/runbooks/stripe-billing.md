@@ -48,23 +48,22 @@ Complete this checklist before flipping live-mode billing:
 
 1. Create a Product named `shithub Team`.
 2. Create a recurring monthly Price:
-   - Billing scheme: per unit.
+   - Pricing model: Flat rate.
    - Currency: USD.
    - Unit amount: `400`.
-   - Usage: licensed quantity.
+   - Include usage: No.
+   - Billing period: Monthly.
 3. Copy the Price ID, for example `price_...`.
 
-This Price must bill by quantity. shithub creates Team Checkout
-Sessions with `Quantity=<active org members>` and later updates the
-Stripe subscription item quantity from the seat-sync worker. If the
-Dashboard Price was created as a fixed flat-rate subscription, extra
-seats will not bill correctly. Stripe Prices are immutable in the
-fields that matter here; create a new Team Price and replace
-`SHITHUB_BILLING__STRIPE__TEAM_PRICE_ID`.
+This Price must be reusable with a Checkout line-item quantity. In the
+Stripe Dashboard, Flat rate is the correct pricing model for a
+per-seat recurring Price; shithub passes `Quantity=<licensed seats>`,
+so Stripe bills `unit amount * quantity`. Do not create a metered or
+usage-based Team Price for v1.
 
 Do not let customers edit Team quantity in the Billing Portal. shithub
-owns Team quantity through organization membership, so Dashboard/Portal
-quantity edits create subscription drift.
+owns Team quantity through its license-management flow, so
+Dashboard/Portal quantity edits create subscription drift.
 
 ### Pro price
 
@@ -142,8 +141,9 @@ the subscription quantity.
 1. Sign in as an owner.
 2. Visit `/organizations/plan`.
 3. Confirm the plan picker appears.
-4. Choose Team, create a test organization, and confirm redirect to
-   hosted Stripe Checkout.
+4. Choose Team, enter a licensed-seat count greater than one, create a
+   test organization, and confirm redirect to hosted Stripe Checkout.
+   The Stripe Checkout total must equal `$4 * selected seats`.
 5. Complete Stripe Checkout with a test card.
 6. Confirm Stripe redirects back to shithub.
 7. Confirm `/organizations/<org>/settings/billing` eventually shows:
@@ -187,7 +187,7 @@ exist.
 | Checkout creation fails | secret key, Team Price ID, Stripe Tax, or network reachability. |
 | Webhook returns 400 | wrong `billing.stripe.webhook_secret` or non-Stripe request. |
 | Subscription stays Free | missing subscription webhook events or unmapped customer/subscription metadata. |
-| Seat count stale | worker not running, seat-sync jobs failing, or Stripe key lacks Subscription Item update permission. |
+| Seat count stale | worker not running, seat-sync jobs failing, webhook subscription quantity missing, or a manual Stripe quantity edit drifted from shithub. |
 | Billing portal unavailable | the organization has no Stripe customer yet; start Checkout first. |
 
 ## Billing alerts

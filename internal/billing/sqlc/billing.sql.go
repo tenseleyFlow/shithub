@@ -16,6 +16,8 @@ WITH seat_counts AS (
     SELECT count(*)::integer AS used_seats
     FROM org_members
     WHERE org_id = $1::bigint
+), requested_license AS (
+    SELECT NULLIF($2::integer, 0) AS licensed_seats
 ), state AS (
     INSERT INTO org_billing_states (
         org_id,
@@ -42,28 +44,34 @@ WITH seat_counts AS (
     VALUES (
         $1::bigint,
         'stripe',
-        $2::org_plan,
-        $3::billing_subscription_status,
+        $3::org_plan,
+        $4::billing_subscription_status,
         CASE
-            WHEN $2::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            WHEN $3::org_plan = 'team' THEN COALESCE(
+                (SELECT licensed_seats FROM requested_license),
+                GREATEST((SELECT used_seats FROM seat_counts), 1)
+            )
             ELSE 0
         END,
         CASE
-            WHEN $2::org_plan = 'team' THEN GREATEST((SELECT used_seats FROM seat_counts), 1)
+            WHEN $3::org_plan = 'team' THEN COALESCE(
+                (SELECT licensed_seats FROM requested_license),
+                GREATEST((SELECT used_seats FROM seat_counts), 1)
+            )
             ELSE 0
         END,
         (SELECT used_seats FROM seat_counts),
         now(),
-        $4::text,
         $5::text,
-        $6::timestamptz,
+        $6::text,
         $7::timestamptz,
-        $8::boolean,
-        $9::timestamptz,
+        $8::timestamptz,
+        $9::boolean,
         $10::timestamptz,
-        $11::text,
+        $11::timestamptz,
+        $12::text,
         CASE
-            WHEN $3::billing_subscription_status = 'past_due' THEN now()
+            WHEN $4::billing_subscription_status = 'past_due' THEN now()
             ELSE NULL
         END,
         NULL,
@@ -74,20 +82,26 @@ WITH seat_counts AS (
        SET plan = EXCLUDED.plan,
            subscription_status = EXCLUDED.subscription_status,
            billable_seats = CASE
-               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
-                   org_billing_states.billable_seats,
-                   org_billing_states.licensed_seats,
-                   EXCLUDED.used_seats,
-                   1
+               WHEN EXCLUDED.plan = 'team' THEN COALESCE(
+                   (SELECT licensed_seats FROM requested_license),
+                   GREATEST(
+                       org_billing_states.billable_seats,
+                       org_billing_states.licensed_seats,
+                       EXCLUDED.used_seats,
+                       1
+                   )
                )
                ELSE 0
            END,
            licensed_seats = CASE
-               WHEN EXCLUDED.plan = 'team' THEN GREATEST(
-                   org_billing_states.licensed_seats,
-                   org_billing_states.billable_seats,
-                   EXCLUDED.used_seats,
-                   1
+               WHEN EXCLUDED.plan = 'team' THEN COALESCE(
+                   (SELECT licensed_seats FROM requested_license),
+                   GREATEST(
+                       org_billing_states.licensed_seats,
+                       org_billing_states.billable_seats,
+                       EXCLUDED.used_seats,
+                       1
+                   )
                )
                ELSE 0
            END,
@@ -133,7 +147,7 @@ WITH seat_counts AS (
     RETURNING org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id, plan, subscription_status, billable_seats, seat_snapshot_at, current_period_start, current_period_end, cancel_at_period_end, trial_end, past_due_at, canceled_at, locked_at, lock_reason, grace_until, last_webhook_event_id, created_at, updated_at, last_event_at, licensed_seats, used_seats
 ), org_update AS (
     UPDATE orgs
-       SET plan = $2::org_plan,
+       SET plan = $3::org_plan,
            updated_at = now()
      WHERE id = $1::bigint
     RETURNING id
@@ -143,6 +157,7 @@ SELECT org_id, provider, stripe_customer_id, stripe_subscription_id, stripe_subs
 
 type ApplySubscriptionSnapshotParams struct {
 	OrgID                    int64
+	LicensedSeats            int32
 	Plan                     OrgPlan
 	SubscriptionStatus       BillingSubscriptionStatus
 	StripeSubscriptionID     pgtype.Text
@@ -185,6 +200,7 @@ type ApplySubscriptionSnapshotRow struct {
 func (q *Queries) ApplySubscriptionSnapshot(ctx context.Context, db DBTX, arg ApplySubscriptionSnapshotParams) (ApplySubscriptionSnapshotRow, error) {
 	row := db.QueryRow(ctx, applySubscriptionSnapshot,
 		arg.OrgID,
+		arg.LicensedSeats,
 		arg.Plan,
 		arg.SubscriptionStatus,
 		arg.StripeSubscriptionID,

@@ -8,6 +8,14 @@
     <input type="hidden" name="plan" value="{{ .Form.SelectedTier }}">
     {{ if eq .Form.SelectedTier "team" }}
     <p class="shithub-auth-aside">This creates the organization first, then hands off to billing so you can start the Team subscription.</p>
+    <label class="shithub-org-seat-count" data-team-seat-calculator data-seat-price-usd="4">
+      <span>Licensed seats</span>
+      <input type="number" name="seat_count" min="1" step="1" inputmode="numeric" value="{{ if .Form.SeatCount }}{{ .Form.SeatCount }}{{ else }}1{{ end }}" data-team-seat-input>
+      <small>
+        $4 x <span data-team-seat-count>{{ .SeatPreview.CountText }}</span> {{ .SeatPreview.SeatNoun }}
+        = <strong data-team-seat-total>{{ .SeatPreview.TotalText }}</strong> per month.
+      </small>
+    </label>
     {{ end }}
     <label>
       <span>Slug</span>

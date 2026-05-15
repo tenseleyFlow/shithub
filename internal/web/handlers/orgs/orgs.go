@@ -28,6 +28,7 @@ package orgs
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -226,7 +227,11 @@ func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 		h.renderPlanSelection(w, r, "Enterprise organizations are contact-sales only today.")
 		return
 	}
-	h.renderNewForm(w, r, orgCreateForm{SelectedTier: plan}, "")
+	form := orgCreateForm{SelectedTier: plan}
+	if plan == orgCreatePlanTeam {
+		form.SeatCount = "1"
+	}
+	h.renderNewForm(w, r, form, "")
 }
 
 type orgCreateForm struct {
@@ -234,6 +239,7 @@ type orgCreateForm struct {
 	Slug         string
 	DisplayName  string
 	BillingEmail string
+	SeatCount    string
 	GitHubOrg    string
 	GitHubToken  string
 	AcceptTerms  bool
@@ -254,6 +260,7 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 		Slug:         strings.TrimSpace(r.PostFormValue("slug")),
 		DisplayName:  strings.TrimSpace(r.PostFormValue("display_name")),
 		BillingEmail: strings.TrimSpace(r.PostFormValue("billing_email")),
+		SeatCount:    strings.TrimSpace(r.PostFormValue("seat_count")),
 		GitHubOrg:    strings.TrimSpace(r.PostFormValue("github_org")),
 		GitHubToken:  strings.TrimSpace(r.PostFormValue("github_token")),
 		AcceptTerms:  r.PostFormValue("accept_terms") != "",
@@ -265,6 +272,15 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 	if !form.AcceptTerms {
 		h.renderNewForm(w, r, form.withoutToken(), "You must accept the terms to create an organization.")
 		return
+	}
+	seatCount := 0
+	if form.SelectedTier == orgCreatePlanTeam {
+		var err error
+		seatCount, err = parseTeamSeatCount(form.SeatCount)
+		if err != nil {
+			h.renderNewForm(w, r, form.withoutToken(), "Choose at least 1 licensed seat for Team.")
+			return
+		}
 	}
 	if form.GitHubOrg != "" {
 		if _, err := orgs.NormalizeGitHubOrg(form.GitHubOrg); err != nil {
@@ -300,21 +316,21 @@ func (h *Handlers) createSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
-			h.redirectToTeamCheckout(w, r, row)
+			h.redirectToTeamCheckout(w, r, row, seatCount)
 			return
 		}
 		http.Redirect(w, r, "/organizations/"+row.Slug+"/imports/"+strconv.FormatInt(imp.ID, 10), http.StatusSeeOther)
 		return
 	}
 	if form.SelectedTier == orgCreatePlanTeam && h.billingConfigured() {
-		h.redirectToTeamCheckout(w, r, row)
+		h.redirectToTeamCheckout(w, r, row, seatCount)
 		return
 	}
 	http.Redirect(w, r, "/"+row.Slug, http.StatusSeeOther)
 }
 
-func (h *Handlers) redirectToTeamCheckout(w http.ResponseWriter, r *http.Request, org orgsdb.Org) {
-	sessionURL, err := h.startBillingCheckout(r, org)
+func (h *Handlers) redirectToTeamCheckout(w http.ResponseWriter, r *http.Request, org orgsdb.Org, seatCount int) {
+	sessionURL, err := h.startBillingCheckout(r, org, seatCount)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: start team checkout after create", "org_id", org.ID, "error", err)
 		http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=team-checkout-failed", http.StatusSeeOther)
@@ -329,12 +345,14 @@ func (f orgCreateForm) withoutToken() orgCreateForm {
 }
 
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form orgCreateForm, errMsg string) {
+	seatPreview := orgCreateTeamSeatPreview(form.SeatCount)
 	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
-		"Title":     orgCreateTitle(form.SelectedTier),
-		"CSRFToken": middleware.CSRFTokenForRequest(r),
-		"Slug":      form.Slug,
-		"Form":      form,
-		"Error":     errMsg,
+		"Title":       orgCreateTitle(form.SelectedTier),
+		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Slug":        form.Slug,
+		"Form":        form,
+		"SeatPreview": seatPreview,
+		"Error":       errMsg,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
 	}
@@ -374,6 +392,47 @@ func orgCreateTitle(plan string) string {
 		return "Set up your organization"
 	}
 	return "New organization"
+}
+
+const teamSeatMonthlyPriceUSD = 4
+
+type orgCreateSeatPreview struct {
+	Count     int
+	CountText string
+	TotalText string
+	SeatNoun  string
+}
+
+func orgCreateTeamSeatPreview(raw string) orgCreateSeatPreview {
+	count, err := parseTeamSeatCount(raw)
+	if err != nil {
+		count = 1
+	}
+	seatNoun := "seat"
+	if count != 1 {
+		seatNoun = "seats"
+	}
+	return orgCreateSeatPreview{
+		Count:     count,
+		CountText: strconv.Itoa(count),
+		TotalText: fmt.Sprintf("$%d", count*teamSeatMonthlyPriceUSD),
+		SeatNoun:  seatNoun,
+	}
+}
+
+func parseTeamSeatCount(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("seat count must be at least 1")
+	}
+	return n, nil
 }
 
 func (h *Handlers) renderPlanSelection(w http.ResponseWriter, r *http.Request, errMsg string) {

@@ -363,6 +363,19 @@ func TestTeamLicenseStateSeparatesCapacityFromUsage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SyncSeatSnapshot free: %v", err)
 	}
+	pending, err := billing.RecordPendingTeamCheckoutSeats(ctx, deps, org.ID, 3)
+	if err != nil {
+		t.Fatalf("RecordPendingTeamCheckoutSeats: %v", err)
+	}
+	if pending.LicensedSeats != 3 || pending.UsedSeats != 1 || pending.AvailableSeats != 2 || pending.Source != "checkout" {
+		t.Fatalf("pending checkout snapshot: %+v", pending)
+	}
+	if defaultSeats, err := billing.DefaultTeamCheckoutLicensedSeats(ctx, deps, org.ID); err != nil || defaultSeats != 3 {
+		t.Fatalf("DefaultTeamCheckoutLicensedSeats=%d err=%v, want 3 nil", defaultSeats, err)
+	}
+	if _, err := billing.RecordPendingTeamCheckoutSeats(ctx, deps, org.ID, 0); !errors.Is(err, billing.ErrInvalidSeatCount) {
+		t.Fatalf("RecordPendingTeamCheckoutSeats zero err=%v, want ErrInvalidSeatCount", err)
+	}
 
 	start := time.Now().UTC().Truncate(time.Second)
 	if _, err := billing.ApplySubscriptionSnapshot(ctx, deps, billing.SubscriptionSnapshot{
@@ -381,8 +394,8 @@ func TestTeamLicenseStateSeparatesCapacityFromUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrgBillingState activated: %v", err)
 	}
-	if activated.LicensedSeats != 1 || activated.UsedSeats != 1 {
-		t.Fatalf("activation should seed license capacity from current usage: %+v", activated)
+	if activated.LicensedSeats != 3 || activated.UsedSeats != 1 {
+		t.Fatalf("activation should preserve pending checkout license capacity: %+v", activated)
 	}
 
 	licensed, err := billing.SetTeamLicensedSeats(ctx, deps, org.ID, 3, "checkout")

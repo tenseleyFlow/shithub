@@ -15,8 +15,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	stripeapi "github.com/stripe/stripe-go/v85"
 
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
@@ -92,7 +92,7 @@ func TestOrgNewFormRendersSetupForSelectedTeamPlan(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "FORM_PLAN=team") {
+	if !strings.Contains(string(body), "FORM_PLAN=team") || !strings.Contains(string(body), "SEATS=1") || !strings.Contains(string(body), "TOTAL=$4") {
 		t.Fatalf("expected team setup form, got: %s", body)
 	}
 }
@@ -141,7 +141,20 @@ func TestOrgCreateRequiresTermsAcceptance(t *testing.T) {
 
 func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 	t.Parallel()
-	srv, pool := newOrgCreateServer(t, true)
+	var checkoutSeats int64
+	remote := &fakeStripeRemote{
+		createCustomerFn: func(_ context.Context, in stripebilling.CustomerInput) (stripebilling.Customer, error) {
+			if in.OrgSlug != "acme" {
+				t.Fatalf("customer org slug=%q, want acme", in.OrgSlug)
+			}
+			return stripebilling.Customer{ID: "cus_test_org_create"}, nil
+		},
+		createCheckoutFn: func(_ context.Context, in stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error) {
+			checkoutSeats = in.SeatCount
+			return stripebilling.CheckoutSession{ID: "cs_test_org_create", URL: "https://checkout.stripe.test/org-create"}, nil
+		},
+	}
+	srv, pool := newOrgCreateServerWithStripe(t, true, remote)
 	t.Cleanup(srv.Close)
 
 	cli := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -152,6 +165,7 @@ func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 		"slug":          {"acme"},
 		"display_name":  {"Acme"},
 		"billing_email": {"billing@example.com"},
+		"seat_count":    {"5"},
 		"accept_terms":  {"1"},
 	})
 	if err != nil {
@@ -164,6 +178,9 @@ func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 	if got := resp.Header.Get("Location"); got != "https://checkout.stripe.test/org-create" {
 		t.Fatalf("redirect location=%q", got)
 	}
+	if checkoutSeats != 5 {
+		t.Fatalf("checkout seats=%d, want 5", checkoutSeats)
+	}
 
 	org, err := orgsdb.New().GetOrgBySlug(context.Background(), pool, "acme")
 	if err != nil {
@@ -172,9 +189,53 @@ func TestOrgCreateTeamPlanRedirectsToCheckout(t *testing.T) {
 	if org.DisplayName != "Acme" || org.BillingEmail != "billing@example.com" {
 		t.Fatalf("unexpected org: %#v", org)
 	}
+	state, err := orgbilling.GetOrgBillingState(context.Background(), orgbilling.Deps{Pool: pool}, org.ID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState: %v", err)
+	}
+	if state.Plan != orgbilling.PlanFree || state.LicensedSeats != 5 || state.UsedSeats != 1 {
+		t.Fatalf("expected pending free billing state with 5 licensed / 1 used seats, got: %+v", state)
+	}
+}
+
+func TestOrgCreateTeamPlanRejectsInvalidSeatCount(t *testing.T) {
+	t.Parallel()
+	srv, _ := newOrgCreateServer(t, true)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().PostForm(srv.URL+"/organizations", url.Values{
+		"plan":         {"team"},
+		"slug":         {"acme"},
+		"display_name": {"Acme"},
+		"seat_count":   {"0"},
+		"accept_terms": {"1"},
+	})
+	if err != nil {
+		t.Fatalf("POST organizations: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "ERROR=Choose at least 1 licensed seat for Team.") {
+		t.Fatalf("expected invalid seats error, got: %s", body)
+	}
 }
 
 func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *pgxpool.Pool) {
+	t.Helper()
+	return newOrgCreateServerWithStripe(t, billingEnabled, &fakeStripeRemote{
+		createCustomerFn: func(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error) {
+			return stripebilling.Customer{ID: "cus_test_org_create"}, nil
+		},
+		createCheckoutFn: func(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error) {
+			return stripebilling.CheckoutSession{ID: "cs_test_org_create", URL: "https://checkout.stripe.test/org-create"}, nil
+		},
+	})
+}
+
+func newOrgCreateServerWithStripe(t *testing.T, billingEnabled bool, remote stripebilling.Remote) (*httptest.Server, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.NewTestDB(t)
 	viewerID := insertOrgAvatarUser(t, pool, "mfwolffe")
@@ -182,7 +243,7 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 	tmplFS := fstest.MapFS{
 		"_layout.html":       {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/new_plan.html": {Data: []byte(`{{ define "page" }}PLAN_PAGE;CONFIGURED={{ .BillingConfigured }}{{ with .Error }};ERROR={{ . }}{{ end }};FREE=/organizations/new?plan=free;TEAM=/organizations/new?plan=team;ENTERPRISE=/organizations/new?plan=enterprise{{ end }}`)},
-		"orgs/new.html":      {Data: []byte(`{{ define "page" }}FORM_PLAN={{ .Form.SelectedTier }};ACTION=/organizations{{ with .Error }};ERROR={{ . }}{{ end }}{{ end }}`)},
+		"orgs/new.html":      {Data: []byte(`{{ define "page" }}FORM_PLAN={{ .Form.SelectedTier }};SEATS={{ .Form.SeatCount }};TOTAL={{ .SeatPreview.TotalText }};ACTION=/organizations{{ with .Error }};ERROR={{ . }}{{ end }}{{ end }}`)},
 		"errors/403.html":    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
@@ -200,7 +261,7 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 		BillingEnabled: billingEnabled,
 	}
 	if billingEnabled {
-		deps.Stripe = noOpStripeRemote{}
+		deps.Stripe = remote
 	}
 	h, err := orgsh.New(deps)
 	if err != nil {
@@ -217,26 +278,4 @@ func newOrgCreateServer(t *testing.T, billingEnabled bool) (*httptest.Server, *p
 	h.MountCreate(r)
 	srv := httptest.NewServer(r)
 	return srv, pool
-}
-
-type noOpStripeRemote struct{}
-
-func (noOpStripeRemote) CreateCustomer(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error) {
-	return stripebilling.Customer{ID: "cus_test_org_create"}, nil
-}
-
-func (noOpStripeRemote) CreateCheckoutSession(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error) {
-	return stripebilling.CheckoutSession{ID: "cs_test_org_create", URL: "https://checkout.stripe.test/org-create"}, nil
-}
-
-func (noOpStripeRemote) CreatePortalSession(context.Context, stripebilling.PortalInput) (stripebilling.PortalSession, error) {
-	return stripebilling.PortalSession{}, nil
-}
-
-func (noOpStripeRemote) UpdateSubscriptionItemQuantity(context.Context, stripebilling.SeatQuantityInput) error {
-	return nil
-}
-
-func (noOpStripeRemote) VerifyWebhook([]byte, string) (stripeapi.Event, error) {
-	return stripeapi.Event{}, nil
 }

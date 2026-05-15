@@ -34,8 +34,10 @@ Initial decisions:
 - PayPal, manual invoices, SAML, SCIM, LDAP, enterprise account
   hierarchy, and contracts are deferred.
 - Self-serve organization creation presents `/organizations/plan` as
-  the canonical plan selector. Choosing Team creates the organization
-  and immediately redirects the owner to hosted Stripe Checkout.
+  the canonical plan selector. Choosing Team collects a licensed-seat
+  count, shows the monthly total, creates the organization, records the
+  pending seat intent, and redirects the owner to hosted Stripe
+  Checkout with that quantity.
 
 The fairness rule is explicit: public/open-source collaboration should
 stay generous. Paid gates focus on private collaboration, hosted cost,
@@ -238,13 +240,14 @@ PAYMENTS SP04 adds the self-serve onboarding flow:
 
 - `/organizations/plan` is the canonical plan picker.
 - Free setup creates the organization locally without Stripe.
-- Team setup creates the organization, creates or reuses the Stripe
-  customer, and redirects directly to hosted Stripe Checkout. Before
-  SP14, checkout quantity is still derived from current members; SP14
-  replaces that with an explicit licensed-seat picker.
+- Team setup asks for a licensed-seat count, shows `$4 x N seats`, creates
+  the organization, records a pending checkout seat snapshot, creates or
+  reuses the Stripe customer, and redirects directly to hosted Stripe
+  Checkout with `Quantity=N`.
 - Checkout success and cancel returns render shithub pages. Success
-  tells the owner that activation waits for webhook processing; cancel
-  keeps the organization on Free and offers a retry path.
+  tells the owner that activation waits for webhook processing and shows
+  the intended seat count; cancel keeps the organization on Free and
+  offers a retry path with that same count.
 
 PAYMENTS SP05 adds the local entitlement boundary. Product code must ask
 `internal/entitlements` for feature decisions instead of inspecting
@@ -363,11 +366,10 @@ PAYMENTS SP08 starts hosted-cost metering:
 
 PAYMENTS SP10 makes paid launch operationally supportable:
 
-- Team billing requires a Stripe recurring per-unit/licensed Price.
-  shithub sends active member quantity at Checkout and updates the
-  subscription item quantity from membership changes. A fixed flat-rate
-  Team Price is a Stripe configuration error because extra seats would
-  not bill correctly.
+- Team billing requires a Stripe recurring monthly Flat rate Price that
+  accepts line-item quantity. shithub sends licensed-seat quantity at
+  Checkout and later through explicit license-management flows; ordinary
+  membership changes only update local used-seat accounting.
 - Pro billing uses a separate recurring single-seat Price. If
   `billing.stripe.pro_price_id` is empty, personal-account checkout is
   unavailable even when Team billing is enabled.

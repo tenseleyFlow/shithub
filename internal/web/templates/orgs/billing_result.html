@@ -13,6 +13,7 @@
       {{ else }}
       <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/checkout">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <input type="hidden" name="seat_count" value="{{ .PendingSeatCount }}">
         <button type="submit" class="shithub-button shithub-button-primary">Continue with Team</button>
       </form>
       <a href="{{ .BillingPath }}" class="shithub-button">Keep Free for now</a>
