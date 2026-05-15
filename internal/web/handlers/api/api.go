@@ -140,6 +140,11 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Use(middleware.RequireScope(pat.ScopeUserRead))
 			r.Get("/api/v1/user", h.userMe)
 		})
+		// PRO-EXT01-03 — GET /api/v1/user/plan: plan + entitlement read
+		// so CLIs can render their own locked UI. Lives in its own
+		// mount group so the route + scope decoration are colocated
+		// with the handler. user:read scope.
+		h.mountUserPlan(r)
 		// S24 check-runs / check-suites — RequireScope is per-route
 		// inside the helper since reads need repo:read but writes need
 		// repo:write.

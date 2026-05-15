@@ -135,6 +135,7 @@ func normalizeStripeBillingEventType(eventType string) string {
 		"customer.subscription.created",
 		"customer.subscription.updated",
 		"customer.subscription.deleted",
+		"customer.subscription.resumed",
 		"invoice.finalized",
 		"invoice.payment_succeeded",
 		"invoice.payment_failed",
@@ -152,7 +153,13 @@ func (h *Handlers) processStripeWebhook(ctx context.Context, event stripeapi.Eve
 	switch string(event.Type) {
 	case "checkout.session.completed":
 		return h.applyStripeCheckoutCompleted(ctx, event)
-	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted":
+	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.resumed":
+		// PRO-EXT01-03: customer.subscription.resumed fires when a paused
+		// subscription is reactivated (Stripe Dashboard "Resume" action).
+		// Stripe also emits a paired customer.subscription.updated so the
+		// existing snapshot path would handle the state transition either
+		// way — routing resumed here makes the audit log honest about which
+		// event triggered the apply.
 		return h.applyStripeSubscriptionEvent(ctx, event)
 	case "invoice.finalized", "invoice.payment_succeeded", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible":
 		return h.applyStripeInvoiceEvent(ctx, event)
