@@ -15,6 +15,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -223,7 +224,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		repo, gerr := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, rid)
-		if gerr != nil || !repo.OwnerUserID.Valid || repo.OwnerUserID.Int64 != user.ID {
+		if gerr != nil || !policy.NewRepoRefFromRepo(repo).IsOwnedByUser(user.ID) {
 			// "Not yours" and "doesn't exist" collapse to the same
 			// message — we don't want to leak existence of private
 			// repos the user can't see.
