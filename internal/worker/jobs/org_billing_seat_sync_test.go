@@ -158,6 +158,18 @@ func (f *fakeSeatSyncStripeRemote) CreatePortalSession(context.Context, stripebi
 	return stripebilling.PortalSession{}, errors.New("unexpected CreatePortalSession call")
 }
 
+func (f *fakeSeatSyncStripeRemote) PreviewTeamSeatChange(context.Context, stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+	return stripebilling.TeamSeatPreview{}, errors.New("unexpected PreviewTeamSeatChange call")
+}
+
+func (f *fakeSeatSyncStripeRemote) ApplyTeamSeatChange(context.Context, stripebilling.TeamSeatChangeInput) error {
+	return errors.New("unexpected ApplyTeamSeatChange call")
+}
+
+func (f *fakeSeatSyncStripeRemote) FetchSubscriptionItemQuantity(context.Context, string) (int64, error) {
+	return 0, errors.New("unexpected FetchSubscriptionItemQuantity call")
+}
+
 func (f *fakeSeatSyncStripeRemote) UpdateSubscriptionItemQuantity(ctx context.Context, in stripebilling.SeatQuantityInput) error {
 	if f.updateQuantityFn == nil {
 		return nil

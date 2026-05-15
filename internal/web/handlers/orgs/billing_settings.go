@@ -536,6 +536,18 @@ func (h *Handlers) renderBillingSeatChange(w http.ResponseWriter, r *http.Reques
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
+	if form.CanSubmit {
+		preview, err := h.previewTeamSeatChange(r, state, licenseState, form.NewTotal, time.Now().UTC().Unix())
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "org billing: preview seat change", "org_id", org.ID, "mode", mode, "new_total", form.NewTotal, "error", err)
+			form.CanSubmit = false
+			if errMsg == "" {
+				errMsg = "Could not preview this seat change with Stripe right now."
+			}
+		} else {
+			applyTeamSeatPreviewLabels(&form, preview)
+		}
+	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing_seats", map[string]any{
 		"Title":             form.Title,
 		"CSRFToken":         middleware.CSRFTokenForRequest(r),
@@ -1034,17 +1046,21 @@ func (h *Handlers) applyTeamSeatChange(r *http.Request, org orgsdb.Org, delta in
 	if newTotal < 1 {
 		return orgbilling.ErrInvalidSeatCount
 	}
-	subscriptionItemID := strings.TrimSpace(licenseState.StripeSubscriptionItemID)
-	if subscriptionItemID == "" && state.StripeSubscriptionItemID.Valid {
-		subscriptionItemID = strings.TrimSpace(state.StripeSubscriptionItemID.String)
+	prorationDate := time.Now().UTC().Unix()
+	preview, err := h.previewTeamSeatChange(r, state, licenseState, newTotal, prorationDate)
+	if err != nil {
+		return err
 	}
-	if subscriptionItemID == "" {
-		return stripebilling.ErrSubscriptionItemID
+	if preview.ProrationDate > 0 {
+		prorationDate = preview.ProrationDate
 	}
-	if err := h.d.Stripe.UpdateSubscriptionItemQuantity(r.Context(), stripebilling.SeatQuantityInput{
+	subscriptionItemID := teamSeatSubscriptionItemID(state, licenseState)
+	if err := h.d.Stripe.ApplyTeamSeatChange(r.Context(), stripebilling.TeamSeatChangeInput{
 		OrgID:              org.ID,
 		SubscriptionItemID: subscriptionItemID,
-		Quantity:           int64(newTotal),
+		NewQuantity:        int64(newTotal),
+		ProrationDate:      prorationDate,
+		IdempotencyKey:     stripebilling.TeamSeatChangeIdempotencyKey(org.ID, subscriptionItemID, int64(newTotal), prorationDate),
 	}); err != nil {
 		return err
 	}
@@ -1070,6 +1086,36 @@ func (h *Handlers) teamSeatChangeState(r *http.Request, org orgsdb.Org) (orgbill
 	return state, licenseState, nil
 }
 
+func (h *Handlers) previewTeamSeatChange(r *http.Request, state orgbilling.State, licenseState orgbilling.TeamLicenseState, newTotal int, prorationDate int64) (stripebilling.TeamSeatPreview, error) {
+	customerID := strings.TrimSpace(pgTextString(state.StripeCustomerID))
+	if customerID == "" {
+		return stripebilling.TeamSeatPreview{}, stripebilling.ErrCustomerIDRequired
+	}
+	subscriptionID := strings.TrimSpace(pgTextString(state.StripeSubscriptionID))
+	if subscriptionID == "" {
+		return stripebilling.TeamSeatPreview{}, stripebilling.ErrSubscriptionID
+	}
+	subscriptionItemID := teamSeatSubscriptionItemID(state, licenseState)
+	if subscriptionItemID == "" {
+		return stripebilling.TeamSeatPreview{}, stripebilling.ErrSubscriptionItemID
+	}
+	return h.d.Stripe.PreviewTeamSeatChange(r.Context(), stripebilling.TeamSeatPreviewInput{
+		CustomerID:         customerID,
+		SubscriptionID:     subscriptionID,
+		SubscriptionItemID: subscriptionItemID,
+		NewQuantity:        int64(newTotal),
+		ProrationDate:      prorationDate,
+	})
+}
+
+func teamSeatSubscriptionItemID(state orgbilling.State, licenseState orgbilling.TeamLicenseState) string {
+	subscriptionItemID := strings.TrimSpace(licenseState.StripeSubscriptionItemID)
+	if subscriptionItemID == "" && state.StripeSubscriptionItemID.Valid {
+		subscriptionItemID = strings.TrimSpace(state.StripeSubscriptionItemID.String)
+	}
+	return subscriptionItemID
+}
+
 func parsePositiveSeatDelta(raw string) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1088,6 +1134,8 @@ func billingSeatChangeError(err error, mode string) string {
 		return "Upgrade this organization to Team before changing licensed seats."
 	case errors.Is(err, orgbilling.ErrSeatCountBelowUsage):
 		return "Licensed seats cannot be reduced below the number of people consuming seats."
+	case errors.Is(err, stripebilling.ErrCustomerIDRequired), errors.Is(err, stripebilling.ErrSubscriptionID):
+		return "Seat changes are unavailable until Stripe has attached a Team subscription."
 	case errors.Is(err, stripebilling.ErrSubscriptionItemID):
 		return "Seat changes are unavailable until Stripe has attached a Team subscription item."
 	case errors.Is(err, errSeatChangeUnavailable):
@@ -1225,6 +1273,24 @@ func billingSeatChangeFormForOrg(slug, mode string, delta int, state orgbilling.
 		form.CanSubmit = false
 	}
 	return form
+}
+
+func applyTeamSeatPreviewLabels(form *billingSeatChangeForm, preview stripebilling.TeamSeatPreview) {
+	currency := strings.TrimSpace(preview.Currency)
+	if currency == "" {
+		currency = "usd"
+	}
+	switch {
+	case preview.CurrentPeriodAmount > 0:
+		form.ProrationLabel = formatCurrencyAmount(currency, preview.CurrentPeriodAmount) + " prorated charge, added to the next invoice"
+	case preview.CurrentPeriodAmount < 0:
+		form.ProrationLabel = formatCurrencyAmount(currency, -preview.CurrentPeriodAmount) + " prorated credit, applied to the next invoice"
+	default:
+		form.ProrationLabel = formatCurrencyAmount(currency, 0) + " current-period adjustment"
+	}
+	if preview.AmountDue > 0 {
+		form.ProrationLabel += "; preview amount due " + formatCurrencyAmount(currency, preview.AmountDue)
+	}
 }
 
 func billingSeatManagementAvailable(state orgbilling.State) bool {

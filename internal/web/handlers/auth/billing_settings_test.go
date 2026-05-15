@@ -64,6 +64,18 @@ func (f *fakeUserStripeRemote) CreatePortalSession(ctx context.Context, in strip
 	return f.createPortalFn(ctx, in)
 }
 
+func (f *fakeUserStripeRemote) PreviewTeamSeatChange(context.Context, stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+	return stripebilling.TeamSeatPreview{}, nil
+}
+
+func (f *fakeUserStripeRemote) ApplyTeamSeatChange(context.Context, stripebilling.TeamSeatChangeInput) error {
+	return nil
+}
+
+func (f *fakeUserStripeRemote) FetchSubscriptionItemQuantity(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeUserStripeRemote) UpdateSubscriptionItemQuantity(_ context.Context, _ stripebilling.SeatQuantityInput) error {
 	return nil
 }

@@ -5,6 +5,7 @@ package orgs_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -256,6 +257,9 @@ func TestOrgBillingAddSeatsUpdatesStripeQuantity(t *testing.T) {
 	ownerID := insertOrgAvatarUser(t, pool, "owner")
 	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
 	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_add"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
 	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
 		OrgID:                    orgID,
 		Plan:                     orgbilling.PlanTeam,
@@ -268,13 +272,21 @@ func TestOrgBillingAddSeatsUpdatesStripeQuantity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
-	var updated int64
+	var previewed int64
+	var applied stripebilling.TeamSeatChangeInput
 	fake := &fakeStripeRemote{
-		updateQuantityFn: func(_ context.Context, in stripebilling.SeatQuantityInput) error {
+		previewSeatChangeFn: func(_ context.Context, in stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+			if in.CustomerID != "cus_add" || in.SubscriptionID != "sub_add" || in.SubscriptionItemID != "si_add" {
+				t.Fatalf("preview identifiers = %+v", in)
+			}
+			previewed = in.NewQuantity
+			return stripebilling.TeamSeatPreview{Currency: "usd", CurrentPeriodAmount: 533, AmountDue: 533, ProrationDate: in.ProrationDate}, nil
+		},
+		applySeatChangeFn: func(_ context.Context, in stripebilling.TeamSeatChangeInput) error {
 			if in.SubscriptionItemID != "si_add" {
 				t.Fatalf("subscription item = %q", in.SubscriptionItemID)
 			}
-			updated = in.Quantity
+			applied = in
 			return nil
 		},
 	}
@@ -291,8 +303,17 @@ func TestOrgBillingAddSeatsUpdatesStripeQuantity(t *testing.T) {
 	if got := resp.Header().Get("Location"); got != "/organizations/acme/settings/billing/licensing?notice=seats-added" {
 		t.Fatalf("add redirect=%q", got)
 	}
-	if updated != 4 {
-		t.Fatalf("stripe quantity = %d, want 4", updated)
+	if previewed != 4 {
+		t.Fatalf("preview quantity = %d, want 4", previewed)
+	}
+	if applied.NewQuantity != 4 {
+		t.Fatalf("stripe quantity = %d, want 4", applied.NewQuantity)
+	}
+	if applied.IdempotencyKey == "" {
+		t.Fatal("apply should include an idempotency key")
+	}
+	if applied.ProrationDate == 0 {
+		t.Fatal("apply should use the preview proration date")
 	}
 	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
 	if err != nil {
@@ -300,6 +321,58 @@ func TestOrgBillingAddSeatsUpdatesStripeQuantity(t *testing.T) {
 	}
 	if state.LicensedSeats != 4 || state.UsedSeats != 1 || state.AvailableSeats != 3 {
 		t.Fatalf("unexpected license state: %+v", state)
+	}
+}
+
+func TestOrgBillingAddSeatsStripeFailureLeavesLocalSeatsUnchanged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_add_failed"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_add_failed",
+		StripeSubscriptionItemID: "si_add_failed",
+		LicensedSeats:            2,
+		CurrentPeriodStart:       start,
+		CurrentPeriodEnd:         start.Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		previewSeatChangeFn: func(_ context.Context, in stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+			return stripebilling.TeamSeatPreview{Currency: "usd", CurrentPeriodAmount: 533, ProrationDate: in.ProrationDate}, nil
+		},
+		applySeatChangeFn: func(context.Context, stripebilling.TeamSeatChangeInput) error {
+			return errors.New("stripe rejected quantity update")
+		},
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, fake)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/billing/seats/add", url.Values{
+		"additional_seats": {"2"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("add seats failure status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "ERROR=Could not add seats right now.") {
+		t.Fatalf("failure did not render add-seat error: %s", resp.Body.String())
+	}
+	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState: %v", err)
+	}
+	if state.LicensedSeats != 2 || state.AvailableSeats != 1 {
+		t.Fatalf("local seats changed after Stripe failure: %+v", state)
 	}
 }
 
@@ -314,6 +387,9 @@ func TestOrgBillingRemoveSeatsRejectsBelowUsedAndHidesWhenUnavailable(t *testing
 		t.Fatalf("insert member: %v", err)
 	}
 	start := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := orgbilling.SetStripeCustomer(ctx, orgbilling.Deps{Pool: pool}, orgID, "cus_remove"); err != nil {
+		t.Fatalf("SetStripeCustomer: %v", err)
+	}
 	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
 		OrgID:                    orgID,
 		Plan:                     orgbilling.PlanTeam,
@@ -326,12 +402,20 @@ func TestOrgBillingRemoveSeatsRejectsBelowUsedAndHidesWhenUnavailable(t *testing
 	}); err != nil {
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
-	var updateCalls int
+	var previewCalls int
+	var applyCalls int
 	fake := &fakeStripeRemote{
-		updateQuantityFn: func(_ context.Context, in stripebilling.SeatQuantityInput) error {
-			updateCalls++
-			if in.Quantity != 2 {
-				t.Fatalf("stripe quantity = %d, want 2", in.Quantity)
+		previewSeatChangeFn: func(_ context.Context, in stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+			previewCalls++
+			if in.NewQuantity != 2 {
+				t.Fatalf("preview quantity = %d, want 2", in.NewQuantity)
+			}
+			return stripebilling.TeamSeatPreview{Currency: "usd", CurrentPeriodAmount: -350, ProrationDate: in.ProrationDate}, nil
+		},
+		applySeatChangeFn: func(_ context.Context, in stripebilling.TeamSeatChangeInput) error {
+			applyCalls++
+			if in.NewQuantity != 2 {
+				t.Fatalf("stripe quantity = %d, want 2", in.NewQuantity)
 			}
 			return nil
 		},
@@ -349,7 +433,7 @@ func TestOrgBillingRemoveSeatsRejectsBelowUsedAndHidesWhenUnavailable(t *testing
 	if !strings.Contains(resp.Body.String(), "ERROR=Licensed seats cannot be reduced below the number of people consuming seats.") {
 		t.Fatalf("invalid remove did not explain used-seat floor: %s", resp.Body.String())
 	}
-	if updateCalls != 0 {
+	if previewCalls != 0 || applyCalls != 0 {
 		t.Fatalf("stripe update called for invalid removal")
 	}
 
@@ -361,8 +445,8 @@ func TestOrgBillingRemoveSeatsRejectsBelowUsedAndHidesWhenUnavailable(t *testing
 	if resp.Code != http.StatusSeeOther {
 		t.Fatalf("valid remove status=%d body=%s", resp.Code, resp.Body.String())
 	}
-	if updateCalls != 1 {
-		t.Fatalf("stripe update calls = %d, want 1", updateCalls)
+	if previewCalls != 1 || applyCalls != 1 {
+		t.Fatalf("stripe calls preview=%d apply=%d, want 1/1", previewCalls, applyCalls)
 	}
 
 	resp = httptest.NewRecorder()
@@ -957,11 +1041,14 @@ func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testin
 }
 
 type fakeStripeRemote struct {
-	createCustomerFn func(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error)
-	createCheckoutFn func(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error)
-	createPortalFn   func(context.Context, stripebilling.PortalInput) (stripebilling.PortalSession, error)
-	updateQuantityFn func(context.Context, stripebilling.SeatQuantityInput) error
-	verifyWebhookFn  func([]byte, string) (stripeapi.Event, error)
+	createCustomerFn    func(context.Context, stripebilling.CustomerInput) (stripebilling.Customer, error)
+	createCheckoutFn    func(context.Context, stripebilling.CheckoutInput) (stripebilling.CheckoutSession, error)
+	createPortalFn      func(context.Context, stripebilling.PortalInput) (stripebilling.PortalSession, error)
+	previewSeatChangeFn func(context.Context, stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error)
+	applySeatChangeFn   func(context.Context, stripebilling.TeamSeatChangeInput) error
+	fetchSeatQuantityFn func(context.Context, string) (int64, error)
+	updateQuantityFn    func(context.Context, stripebilling.SeatQuantityInput) error
+	verifyWebhookFn     func([]byte, string) (stripeapi.Event, error)
 }
 
 func (f *fakeStripeRemote) CreateCustomer(ctx context.Context, in stripebilling.CustomerInput) (stripebilling.Customer, error) {
@@ -983,6 +1070,27 @@ func (f *fakeStripeRemote) CreatePortalSession(ctx context.Context, in stripebil
 		return stripebilling.PortalSession{}, nil
 	}
 	return f.createPortalFn(ctx, in)
+}
+
+func (f *fakeStripeRemote) PreviewTeamSeatChange(ctx context.Context, in stripebilling.TeamSeatPreviewInput) (stripebilling.TeamSeatPreview, error) {
+	if f.previewSeatChangeFn == nil {
+		return stripebilling.TeamSeatPreview{Currency: "usd", ProrationDate: in.ProrationDate}, nil
+	}
+	return f.previewSeatChangeFn(ctx, in)
+}
+
+func (f *fakeStripeRemote) ApplyTeamSeatChange(ctx context.Context, in stripebilling.TeamSeatChangeInput) error {
+	if f.applySeatChangeFn == nil {
+		return nil
+	}
+	return f.applySeatChangeFn(ctx, in)
+}
+
+func (f *fakeStripeRemote) FetchSubscriptionItemQuantity(ctx context.Context, subscriptionItemID string) (int64, error) {
+	if f.fetchSeatQuantityFn == nil {
+		return 0, nil
+	}
+	return f.fetchSeatQuantityFn(ctx, subscriptionItemID)
 }
 
 func (f *fakeStripeRemote) UpdateSubscriptionItemQuantity(ctx context.Context, in stripebilling.SeatQuantityInput) error {

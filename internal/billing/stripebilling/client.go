@@ -47,7 +47,10 @@ var (
 	ErrTeamPriceRequired     = errors.New("stripe billing: team price id is required")
 	ErrProPriceRequired      = errors.New("stripe billing: pro price id is required")
 	ErrCustomerIDRequired    = errors.New("stripe billing: customer id is required")
+	ErrSubscriptionID        = errors.New("stripe billing: subscription id is required")
 	ErrSubscriptionItemID    = errors.New("stripe billing: subscription item id is required")
+	ErrInvalidSeatQuantity   = errors.New("stripe billing: seat quantity must be positive")
+	ErrIdempotencyKey        = errors.New("stripe billing: idempotency key is required")
 	ErrURLRequired           = errors.New("stripe billing: redirect url is required")
 	ErrInvalidSubjectKind    = errors.New("stripe billing: invalid subject kind")
 )
@@ -64,6 +67,9 @@ type Remote interface {
 	CreateCustomer(context.Context, CustomerInput) (Customer, error)
 	CreateCheckoutSession(context.Context, CheckoutInput) (CheckoutSession, error)
 	CreatePortalSession(context.Context, PortalInput) (PortalSession, error)
+	PreviewTeamSeatChange(context.Context, TeamSeatPreviewInput) (TeamSeatPreview, error)
+	ApplyTeamSeatChange(context.Context, TeamSeatChangeInput) error
+	FetchSubscriptionItemQuantity(context.Context, string) (int64, error)
 	UpdateSubscriptionItemQuantity(context.Context, SeatQuantityInput) error
 	VerifyWebhook(payload []byte, signatureHeader string) (stripeapi.Event, error)
 }
@@ -128,6 +134,31 @@ type SeatQuantityInput struct {
 	OrgID              int64
 	SubscriptionItemID string
 	Quantity           int64
+}
+
+type TeamSeatPreviewInput struct {
+	CustomerID         string
+	SubscriptionID     string
+	SubscriptionItemID string
+	NewQuantity        int64
+	ProrationDate      int64
+}
+
+type TeamSeatPreview struct {
+	Currency            string
+	CurrentPeriodAmount int64
+	AmountDue           int64
+	Total               int64
+	Subtotal            int64
+	ProrationDate       int64
+}
+
+type TeamSeatChangeInput struct {
+	OrgID              int64
+	SubscriptionItemID string
+	NewQuantity        int64
+	ProrationDate      int64
+	IdempotencyKey     string
 }
 
 func New(cfg Config) (*Client, error) {
@@ -288,6 +319,39 @@ func (c *Client) CreatePortalSession(ctx context.Context, in PortalInput) (Porta
 	return PortalSession{ID: session.ID, URL: session.URL}, nil
 }
 
+func (c *Client) PreviewTeamSeatChange(ctx context.Context, in TeamSeatPreviewInput) (TeamSeatPreview, error) {
+	params, err := teamSeatPreviewParams(in)
+	if err != nil {
+		return TeamSeatPreview{}, err
+	}
+	invoice, err := c.stripe.V1Invoices.CreatePreview(ctx, params)
+	if err != nil {
+		return TeamSeatPreview{}, err
+	}
+	return teamSeatPreviewFromStripeInvoice(invoice, in.ProrationDate), nil
+}
+
+func (c *Client) ApplyTeamSeatChange(ctx context.Context, in TeamSeatChangeInput) error {
+	params, err := teamSeatChangeParams(in)
+	if err != nil {
+		return err
+	}
+	_, err = c.stripe.V1SubscriptionItems.Update(ctx, strings.TrimSpace(in.SubscriptionItemID), params)
+	return err
+}
+
+func (c *Client) FetchSubscriptionItemQuantity(ctx context.Context, subscriptionItemID string) (int64, error) {
+	subscriptionItemID = strings.TrimSpace(subscriptionItemID)
+	if subscriptionItemID == "" {
+		return 0, ErrSubscriptionItemID
+	}
+	item, err := c.stripe.V1SubscriptionItems.Retrieve(ctx, subscriptionItemID, nil)
+	if err != nil {
+		return 0, err
+	}
+	return item.Quantity, nil
+}
+
 func (c *Client) UpdateSubscriptionItemQuantity(ctx context.Context, in SeatQuantityInput) error {
 	in.SubscriptionItemID = strings.TrimSpace(in.SubscriptionItemID)
 	if in.SubscriptionItemID == "" {
@@ -302,6 +366,100 @@ func (c *Client) UpdateSubscriptionItemQuantity(ctx context.Context, in SeatQuan
 	params.SetIdempotencyKey(idempotencyKey("seat-sync", in.OrgID, in.SubscriptionItemID, strconv.FormatInt(in.Quantity, 10)))
 	_, err := c.stripe.V1SubscriptionItems.Update(ctx, in.SubscriptionItemID, params)
 	return err
+}
+
+func TeamSeatChangeIdempotencyKey(orgID int64, subscriptionItemID string, newQuantity, prorationDate int64) string {
+	return idempotencyKey("team-seat-change", orgID, subscriptionItemID, strconv.FormatInt(newQuantity, 10), strconv.FormatInt(prorationDate, 10))
+}
+
+func teamSeatPreviewParams(in TeamSeatPreviewInput) (*stripeapi.InvoiceCreatePreviewParams, error) {
+	in.CustomerID = strings.TrimSpace(in.CustomerID)
+	if in.CustomerID == "" {
+		return nil, ErrCustomerIDRequired
+	}
+	in.SubscriptionID = strings.TrimSpace(in.SubscriptionID)
+	if in.SubscriptionID == "" {
+		return nil, ErrSubscriptionID
+	}
+	in.SubscriptionItemID = strings.TrimSpace(in.SubscriptionItemID)
+	if in.SubscriptionItemID == "" {
+		return nil, ErrSubscriptionItemID
+	}
+	if in.NewQuantity < 1 {
+		return nil, ErrInvalidSeatQuantity
+	}
+	params := &stripeapi.InvoiceCreatePreviewParams{
+		Customer:     stripeapi.String(in.CustomerID),
+		Subscription: stripeapi.String(in.SubscriptionID),
+		SubscriptionDetails: &stripeapi.InvoiceCreatePreviewSubscriptionDetailsParams{
+			Items: []*stripeapi.InvoiceCreatePreviewSubscriptionDetailsItemParams{{
+				ID:       stripeapi.String(in.SubscriptionItemID),
+				Quantity: stripeapi.Int64(in.NewQuantity),
+			}},
+			ProrationBehavior: stripeapi.String("create_prorations"),
+		},
+	}
+	if in.ProrationDate > 0 {
+		params.SubscriptionDetails.ProrationDate = stripeapi.Int64(in.ProrationDate)
+	}
+	return params, nil
+}
+
+func teamSeatChangeParams(in TeamSeatChangeInput) (*stripeapi.SubscriptionItemUpdateParams, error) {
+	in.SubscriptionItemID = strings.TrimSpace(in.SubscriptionItemID)
+	if in.SubscriptionItemID == "" {
+		return nil, ErrSubscriptionItemID
+	}
+	if in.NewQuantity < 1 {
+		return nil, ErrInvalidSeatQuantity
+	}
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	if in.IdempotencyKey == "" {
+		return nil, ErrIdempotencyKey
+	}
+	params := &stripeapi.SubscriptionItemUpdateParams{
+		Quantity:          stripeapi.Int64(in.NewQuantity),
+		ProrationBehavior: stripeapi.String("create_prorations"),
+	}
+	if in.ProrationDate > 0 {
+		params.ProrationDate = stripeapi.Int64(in.ProrationDate)
+	}
+	params.SetIdempotencyKey(in.IdempotencyKey)
+	return params, nil
+}
+
+func teamSeatPreviewFromStripeInvoice(invoice *stripeapi.Invoice, prorationDate int64) TeamSeatPreview {
+	if invoice == nil {
+		return TeamSeatPreview{ProrationDate: prorationDate}
+	}
+	return TeamSeatPreview{
+		Currency:            string(invoice.Currency),
+		CurrentPeriodAmount: invoiceProrationAmount(invoice),
+		AmountDue:           invoice.AmountDue,
+		Total:               invoice.Total,
+		Subtotal:            invoice.Subtotal,
+		ProrationDate:       prorationDate,
+	}
+}
+
+func invoiceProrationAmount(invoice *stripeapi.Invoice) int64 {
+	if invoice == nil || invoice.Lines == nil {
+		return 0
+	}
+	var total int64
+	for _, line := range invoice.Lines.Data {
+		if line == nil || line.Parent == nil {
+			continue
+		}
+		if line.Parent.InvoiceItemDetails != nil && line.Parent.InvoiceItemDetails.Proration {
+			total += line.Amount
+			continue
+		}
+		if line.Parent.SubscriptionItemDetails != nil && line.Parent.SubscriptionItemDetails.Proration {
+			total += line.Amount
+		}
+	}
+	return total
 }
 
 func (c *Client) VerifyWebhook(payload []byte, signatureHeader string) (stripeapi.Event, error) {
