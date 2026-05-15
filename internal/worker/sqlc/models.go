@@ -368,6 +368,48 @@ func (ns NullCheckStatus) Value() (driver.Value, error) {
 	return string(ns.CheckStatus), nil
 }
 
+type CodeSearchQueryKind string
+
+const (
+	CodeSearchQueryKindPlain CodeSearchQueryKind = "plain"
+	CodeSearchQueryKindRegex CodeSearchQueryKind = "regex"
+)
+
+func (e *CodeSearchQueryKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CodeSearchQueryKind(s)
+	case string:
+		*e = CodeSearchQueryKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CodeSearchQueryKind: %T", src)
+	}
+	return nil
+}
+
+type NullCodeSearchQueryKind struct {
+	CodeSearchQueryKind CodeSearchQueryKind
+	Valid               bool // Valid is true if CodeSearchQueryKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCodeSearchQueryKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.CodeSearchQueryKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CodeSearchQueryKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCodeSearchQueryKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CodeSearchQueryKind), nil
+}
+
 type CollabRole string
 
 const (
@@ -2918,6 +2960,17 @@ type UserBillingState struct {
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
 	LastEventAt              pgtype.Timestamptz
+}
+
+type UserCodeSearchSavedQuery struct {
+	ID          int64
+	UserID      int64
+	Name        string
+	QueryText   string
+	Kind        CodeSearchQueryKind
+	ScopeFilter string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
 }
 
 type UserEmail struct {
