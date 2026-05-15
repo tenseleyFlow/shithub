@@ -93,6 +93,11 @@ const (
 	// heatmap. PRO-EXT01-09. Kinds: user only. The existing
 	// users.include_private_contributions toggle remains Free.
 	FeatureContributionPrivacy Feature = "contribution_privacy"
+	// FeatureSecretScanHistory gates the Pro-only historical secret
+	// scan across a user's repos. The on-demand scan worker consults
+	// the repo owner's entitlement before doing any work. PRO-EXT01-10b.
+	// Kinds: user only.
+	FeatureSecretScanHistory Feature = "secret_scan_history"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -191,6 +196,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureScheduledIssues:          {billing.SubjectKindUser},
 	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
 	FeatureContributionPrivacy:      {billing.SubjectKindUser},
+	FeatureSecretScanHistory:        {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
