@@ -148,6 +148,9 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindScheduledIssueCreate, jobs.ScheduledIssueCreate(jobs.ScheduledIssueCreateDeps{
 			Pool: pool, Logger: logger, Audit: auditRecorder(), IssuesLimiter: throttle.NewLimiter(),
 		}))
+		p.Register(worker.KindSecretScanHistory, jobs.SecretScanHistory(jobs.SecretScanHistoryDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger, Enforce: cfg.Billing.Enforce,
+		}))
 
 		p.Register(worker.KindRepoIndexCode, jobs.RepoIndexCode(jobs.IndexCodeDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger,
