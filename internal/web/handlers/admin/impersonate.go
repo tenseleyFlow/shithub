@@ -25,11 +25,11 @@ func (h *Handlers) impersonateStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if target.IsSiteAdmin {
-		http.Error(w, "can't impersonate another site admin", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "can't impersonate another site admin")
 		return
 	}
 	if target.DeletedAt.Valid {
-		http.Error(w, "can't impersonate a deleted account", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "can't impersonate a deleted account")
 		return
 	}
 	store := h.sessionStoreOrFail(w, r)
@@ -38,14 +38,14 @@ func (h *Handlers) impersonateStart(w http.ResponseWriter, r *http.Request) {
 	}
 	s, err := store.Load(r)
 	if err != nil || s == nil {
-		http.Error(w, "session load", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	s.ImpersonatedUserID = target.ID
 	s.ImpersonateWriteOK = false
 	s.ImpersonationStartedAt = time.Now().Unix()
 	if err := store.Save(w, r, s); err != nil {
-		http.Error(w, "session save", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminImpersonateStarted, audit.TargetUser, target.ID,
@@ -61,7 +61,7 @@ func (h *Handlers) impersonateStop(w http.ResponseWriter, r *http.Request) {
 	}
 	s, err := store.Load(r)
 	if err != nil || s == nil {
-		http.Error(w, "session load", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	target := s.ImpersonatedUserID
@@ -69,7 +69,7 @@ func (h *Handlers) impersonateStop(w http.ResponseWriter, r *http.Request) {
 	s.ImpersonateWriteOK = false
 	s.ImpersonationStartedAt = 0
 	if err := store.Save(w, r, s); err != nil {
-		http.Error(w, "session save", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	if target != 0 {
@@ -82,7 +82,7 @@ func (h *Handlers) impersonateStop(w http.ResponseWriter, r *http.Request) {
 // confirm. The admin types the target username; mismatch denies.
 func (h *Handlers) impersonateEnableWrites(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "form parse", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
 		return
 	}
 	confirm := strings.TrimSpace(r.PostFormValue("confirm"))
@@ -92,25 +92,25 @@ func (h *Handlers) impersonateEnableWrites(w http.ResponseWriter, r *http.Reques
 	}
 	s, err := store.Load(r)
 	if err != nil || s == nil {
-		http.Error(w, "session load", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	if s.ImpersonatedUserID == 0 {
-		http.Error(w, "no active impersonation", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "no active impersonation")
 		return
 	}
 	target, err := h.uq.GetUserByID(r.Context(), h.d.Pool, s.ImpersonatedUserID)
 	if err != nil {
-		http.Error(w, "target lookup failed", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	if confirm != target.Username {
-		http.Error(w, "confirmation didn't match the target's username", http.StatusBadRequest)
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "confirmation didn't match the target's username")
 		return
 	}
 	s.ImpersonateWriteOK = true
 	if err := store.Save(w, r, s); err != nil {
-		http.Error(w, "session save", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
 	h.recordAdminAction(r, audit.ActionAdminImpersonateWriteOn, audit.TargetUser, target.ID, nil)
@@ -123,7 +123,7 @@ func (h *Handlers) impersonateEnableWrites(w http.ResponseWriter, r *http.Reques
 func (h *Handlers) sessionStoreOrFail(w http.ResponseWriter, r *http.Request) session.Store {
 	store := middleware.SessionStoreFromContext(r.Context())
 	if store == nil {
-		http.Error(w, "no session store in context", http.StatusInternalServerError)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return nil
 	}
 	return store
