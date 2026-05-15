@@ -125,6 +125,36 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 				return
 			}
 
+			// PRO-EXT01-11a: IP allowlist enforcement.
+			//
+			// Semantics:
+			//   - Empty allowlist → no restriction (Free + un-restricted Pro tokens).
+			//   - Non-empty allowlist → request IP must match a CIDR.
+			//
+			// We ALWAYS honor an existing allowlist regardless of the
+			// PRO07 enforce flag — the flag gates the *write* path
+			// (whether a user can attach an allowlist), not whether
+			// we honor one the user already attached. Once intent is
+			// expressed, denying access to an IP outside the allowlist
+			// is the security contract.
+			if len(row.IpAllowlist) > 0 {
+				clientIP := remoteAddrFromRequest(r)
+				if clientIP == nil || !pat.IPMatch(row.IpAllowlist, *clientIP) {
+					if cfg.Logger != nil {
+						clientIPStr := "unknown"
+						if clientIP != nil {
+							clientIPStr = clientIP.String()
+						}
+						cfg.Logger.WarnContext(r.Context(), "pat: ip_allowlist deny",
+							"token_id", row.ID,
+							"user_id", row.UserID,
+							"client_ip", clientIPStr)
+					}
+					writePATChallenge(w, cfg.Realm, "token not authorized from this address")
+					return
+				}
+			}
+
 			// Debounced last-used update — never blocks the request.
 			// G118: we INTENTIONALLY detach from r.Context() so the
 			// update survives client disconnect (a debounced touch is
