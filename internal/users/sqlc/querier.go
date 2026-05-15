@@ -43,6 +43,7 @@ type Querier interface {
 	CountUserGPGKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeys(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUserSSHKeysByKind(ctx context.Context, db DBTX, arg CountUserSSHKeysByKindParams) (int64, error)
+	CountUsernameReservationsForUser(ctx context.Context, db DBTX, userID int64) (int64, error)
 	CountUsers(ctx context.Context, db DBTX) (int64, error)
 	CountVerifiedUserEmails(ctx context.Context, db DBTX, userID int64) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -67,6 +68,9 @@ type Querier interface {
 	// handler can never delete keys it doesn't own.
 	DeleteUserSSHKey(ctx context.Context, db DBTX, arg DeleteUserSSHKeyParams) (int64, error)
 	DeleteUserTOTP(ctx context.Context, db DBTX, userID int64) error
+	// Scoped by user_id so a misaddressed request can't delete another
+	// user's reservation by id-guess.
+	DeleteUsernameReservation(ctx context.Context, db DBTX, arg DeleteUsernameReservationParams) error
 	DenyDeviceAuthorization(ctx context.Context, db DBTX, id int64) error
 	// Hot path for the polling /access_token endpoint. The middleware
 	// enforces interval_seconds via last_polled_at downstream.
@@ -147,6 +151,15 @@ type Querier interface {
 	// redirect itself doubles as a 30-day reservation (the row stays for at
 	// least that long).
 	InsertUsernameRedirect(ctx context.Context, db DBTX, arg InsertUsernameRedirectParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-05: vanity username reservations.
+	InsertUsernameReservation(ctx context.Context, db DBTX, arg InsertUsernameReservationParams) (UserUsernameReservation, error)
+	// Returns true when the handle is reserved by a user OTHER than the
+	// caller. Used at signup time (`except_user_id = 0` matches all rows)
+	// and at rename time (the caller's own reservation is the one they're
+	// about to convert, so it should not block them).
+	IsUsernameReservedByAnother(ctx context.Context, db DBTX, arg IsUsernameReservedByAnotherParams) (bool, error)
 	// Sets the FK only. Does NOT flip users.email_verified — that happens via
 	// MarkUserEmailPrimaryVerified after the user clicks the verification link.
 	LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUserPrimaryEmailParams) error
@@ -167,6 +180,7 @@ type Querier interface {
 	// reshuffle.
 	ListUserSSHKeysByKind(ctx context.Context, db DBTX, arg ListUserSSHKeysByKindParams) ([]UserSshKey, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
+	ListUsernameReservationsForUser(ctx context.Context, db DBTX, userID int64) ([]UserUsernameReservation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Resolve an old username to the current username via the user_id FK.
 	// Returns ErrNoRows when no redirect exists.

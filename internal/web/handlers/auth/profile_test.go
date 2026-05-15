@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -200,14 +201,15 @@ func assertVanityValues(t *testing.T, pool *pgxpool.Pool, userID int64, wantAcce
 func upgradeProfileTestUserToPro(t *testing.T, pool *pgxpool.Pool, userID int64) {
 	t.Helper()
 	now := time.Now().UTC()
+	suffix := strconv.FormatInt(userID, 10)
 	_, err := billingdb.New().ApplyUserSubscriptionSnapshot(context.Background(), pool, billingdb.ApplyUserSubscriptionSnapshotParams{
 		UserID:               userID,
 		Plan:                 billingdb.UserPlanPro,
 		SubscriptionStatus:   billingdb.BillingSubscriptionStatusActive,
-		StripeSubscriptionID: billingPgText("sub_vanity_pro_test"),
+		StripeSubscriptionID: billingPgText("sub_vanity_pro_test_" + suffix),
 		CurrentPeriodStart:   billingPgTime(now.Add(-time.Hour)),
 		CurrentPeriodEnd:     billingPgTime(now.Add(30 * 24 * time.Hour)),
-		LastWebhookEventID:   "evt_vanity_pro_test",
+		LastWebhookEventID:   "evt_vanity_pro_test_" + suffix,
 	})
 	if err != nil {
 		t.Fatalf("ApplyUserSubscriptionSnapshot: %v", err)

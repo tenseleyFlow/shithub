@@ -2977,6 +2977,13 @@ type UserTotp struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type UserUsernameReservation struct {
+	ID             int64
+	UserID         int64
+	ReservedHandle string
+	CreatedAt      pgtype.Timestamptz
+}
+
 type UsernameRedirect struct {
 	OldUsername string
 	UserID      int64

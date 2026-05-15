@@ -51,6 +51,11 @@ const (
 	// because the settings UI groups them and product copy reads cleanly
 	// as one "make your profile yours" affordance. Kinds: user only.
 	FeatureProfileVanity Feature = "profile_vanity"
+	// FeatureUsernameReservations gates Pro-tier vanity reservations: a
+	// Pro user can reserve up to ProUsernameReservationsCap inactive
+	// handles against squatting. shithub-original (gh does not offer
+	// this). PRO-EXT01-05. Kinds: user only.
+	FeatureUsernameReservations Feature = "username_reservations"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -83,6 +88,11 @@ const (
 	// bounded for DB sanity per PRO01. A Pro user who pins 100 repos is
 	// the upper bound — beyond that the request errors at the cap.
 	ProProfilePinsCap int64 = 100
+
+	// ProUsernameReservationsCap caps how many inactive handles a Pro
+	// user can reserve against squatting. PRO-EXT01-05. Free is 0
+	// (the FeatureUsernameReservations gate denies the write entirely).
+	ProUsernameReservationsCap int64 = 3
 
 	LimitPrivateCollaboration Limit = "private_collaboration_limit"
 	LimitStorageQuota         Limit = "storage_quota"
@@ -125,6 +135,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:            {billing.SubjectKindUser},
+	FeatureUsernameReservations:     {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
