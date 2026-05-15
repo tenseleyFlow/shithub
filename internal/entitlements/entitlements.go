@@ -66,6 +66,13 @@ const (
 	// the flag and later lapsed, Free consumers stop being able to
 	// initialize from the template.
 	FeaturePrivateRepoTemplates Feature = "private_repo_templates"
+	// FeatureSavedRepliesUnlimited lifts the Free saved-replies cap.
+	// Free users can keep FreeSavedRepliesCap (3) entries; Pro users
+	// get unlimited (DB sanity cap only). PRO-EXT01-07a. Kinds: user
+	// only. The Free cap is the visible-locked surface — gh ships
+	// unlimited for everyone, but shithub's Pro pitch puts a small
+	// productivity-feature pack behind the gate.
+	FeatureSavedRepliesUnlimited Feature = "saved_replies_unlimited"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -103,6 +110,19 @@ const (
 	// user can reserve against squatting. PRO-EXT01-05. Free is 0
 	// (the FeatureUsernameReservations gate denies the write entirely).
 	ProUsernameReservationsCap int64 = 3
+
+	// FreeSavedRepliesCap is the Free-tier ceiling for saved replies.
+	// Pro lifts the cap via FeatureSavedRepliesUnlimited; the absolute
+	// Pro ceiling lives in ProSavedRepliesCap for DB sanity. PRO-EXT01-07a.
+	FreeSavedRepliesCap int64 = 3
+	// ProSavedRepliesCap bounds the "unlimited" upper edge to keep one
+	// runaway client from filling the table. Quoted as "effectively
+	// unlimited" in product copy; a Pro user who hits 500 has a script
+	// that's misbehaving.
+	ProSavedRepliesCap int64 = 500
+
+	LimitSavedRepliesFreeCap Limit = "saved_replies_free_cap"
+	LimitSavedRepliesProCap  Limit = "saved_replies_pro_cap"
 
 	LimitPrivateCollaboration Limit = "private_collaboration_limit"
 	LimitStorageQuota         Limit = "storage_quota"
@@ -147,6 +167,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureProfileVanity:            {billing.SubjectKindUser},
 	FeatureUsernameReservations:     {billing.SubjectKindUser},
 	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
+	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.

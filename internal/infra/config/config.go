@@ -176,6 +176,11 @@ type EnforceConfig struct {
 	// Pro are rejected. Off by default → report-only; PRO-EXT01-17 flips
 	// after the standard 7-day soak.
 	UserPrivateRepoTemplates bool `toml:"user_private_repo_templates"`
+	// UserSavedRepliesUnlimited: when true, Free users hitting the
+	// FreeSavedRepliesCap are blocked from creating an N+1 reply.
+	// Off by default → report-only (the would-deny is logged and the
+	// insert lands). PRO-EXT01-07a; promoted in PRO-EXT01-17.
+	UserSavedRepliesUnlimited bool `toml:"user_saved_replies_unlimited"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

@@ -2939,6 +2939,15 @@ type UserRecoveryCode struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type UserSavedReply struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type UserSshKey struct {
 	ID                int64
 	UserID            int64
