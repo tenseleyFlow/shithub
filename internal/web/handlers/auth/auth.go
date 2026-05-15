@@ -236,6 +236,11 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/tokens", h.tokensCreate)
 			r.Post("/settings/tokens/{id}/revoke", h.tokensRevoke)
 			r.Get("/settings/tokens/{id}/analytics", h.tokenAnalytics)
+			r.Get("/settings/actions/secrets", h.settingsActionsSecretsForm)
+			r.Post("/settings/actions/secrets", h.settingsActionsSecretCreate)
+			r.Post("/settings/actions/secrets/{name}/delete", h.settingsActionsSecretDelete)
+			r.Post("/settings/actions/variables", h.settingsActionsVariableCreate)
+			r.Post("/settings/actions/variables/{name}/delete", h.settingsActionsVariableDelete)
 			if h.d.SecretBox != nil {
 				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
 				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)
