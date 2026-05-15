@@ -197,6 +197,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/search-queries", h.settingsSearchQueryCreate)
 			r.Post("/settings/search-queries/{id}/update", h.settingsSearchQueryUpdate)
 			r.Post("/settings/search-queries/{id}/delete", h.settingsSearchQueryDelete)
+			r.Get("/settings/contributions", h.settingsContributionsForm)
+			r.Post("/settings/contributions", h.settingsContributionsSubmit)
 			r.Get("/settings/password", h.settingsPasswordForm)
 			r.Post("/settings/password", h.settingsPasswordSubmit)
 			r.Get("/settings/appearance", h.settingsAppearanceForm)
