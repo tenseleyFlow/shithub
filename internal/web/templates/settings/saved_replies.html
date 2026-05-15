@@ -1,0 +1,74 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Saved replies</h1>
+    <p>
+      Canned responses for issue and pull-request comments. Free
+      accounts can keep up to {{ .FreeCap }} saved replies. Pro lifts
+      the cap so you can build a full library.
+    </p>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section" aria-labelledby="saved-replies-current">
+      <h2 id="saved-replies-current">Your saved replies ({{ .Used }} / {{ if eq .Cap 500 }}∞{{ else }}{{ .Cap }}{{ end }})</h2>
+      {{ if .Replies }}
+      <ul class="shithub-saved-replies-list">
+        {{ range .Replies }}
+        <li class="shithub-saved-reply">
+          <details>
+            <summary><strong>{{ .Name }}</strong></summary>
+            <form method="POST" action="/settings/saved-replies/{{ .ID }}/update" class="shithub-saved-reply-form">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <label>
+                <span>Name</span>
+                <input type="text" name="name" value="{{ .Name }}" maxlength="{{ $.MaxNameChars }}" required>
+              </label>
+              <label>
+                <span>Body</span>
+                <textarea name="body" maxlength="{{ $.MaxBodyChars }}" rows="6" required>{{ .Body }}</textarea>
+              </label>
+              <div class="shithub-saved-reply-actions">
+                <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+              </div>
+            </form>
+            <form method="POST" action="/settings/saved-replies/{{ .ID }}/delete" class="shithub-saved-reply-delete">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+            </form>
+          </details>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-empty-note">You haven't added any saved replies yet.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section" aria-labelledby="saved-replies-add">
+      <h2 id="saved-replies-add">Add a saved reply</h2>
+      {{ if .AtFreeCap }}
+      <p class="shithub-pins-pro-cta" data-pro-feature="saved_replies_unlimited">
+        <span>You've used all {{ .FreeCap }} Free saved replies. Upgrade to Pro for unlimited.</span>
+        <a href="/settings/billing" data-pro-feature="saved_replies_unlimited">{{ template "pro-badge" true }} Upgrade</a>
+      </p>
+      {{ end }}
+      <form method="POST" action="/settings/saved-replies" novalidate class="shithub-saved-reply-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" maxlength="{{ .MaxNameChars }}" required{{ if .AtFreeCap }} disabled aria-disabled="true"{{ end }}>
+          <small>A short label, e.g. <code>lgtm</code> or <code>needs-tests</code>.</small>
+        </label>
+        <label>
+          <span>Body</span>
+          <textarea name="body" maxlength="{{ .MaxBodyChars }}" rows="6" required{{ if .AtFreeCap }} disabled aria-disabled="true"{{ end }}></textarea>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary"{{ if .AtFreeCap }} disabled aria-disabled="true"{{ end }}>Add reply</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}
