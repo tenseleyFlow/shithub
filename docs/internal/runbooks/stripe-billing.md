@@ -296,19 +296,17 @@ seat counts.
 
 2. Enqueue or run `org:billing_seat_sync` for the org to refresh local
    used-seat state.
-3. If `licensed_seats < actual_used_seats`, do not silently change
-   Stripe from the worker. Have an owner add seats through the explicit
-   seat-management flow once SP16 is live, or perform an operator repair
-   that updates both Stripe quantity and local licensed-seat state.
-4. Audit manual repairs:
-
-   ```sql
-   INSERT INTO auth_audit_log (actor_id, action, target_type, target_id, meta)
-   VALUES (<operator_user_id>, 'billing.manual_seat_repair', 'org', <org_id>,
-           jsonb_build_object('stripe_subscription_item_id', '<si_...>',
-                              'quantity', <actual_seats>,
-                              'reason', '<ticket/url>'));
-   ```
+3. Open `/organizations/<org>/settings/billing` as a site admin. The
+   Site admin billing debug panel fetches the live Stripe subscription
+   item quantity and shows whether it matches local licensed seats.
+4. If Stripe and local licensed seats differ, use **Repair local seats
+   from Stripe**. The repair copies Stripe's live quantity into local
+   entitlement state, records `admin_org_billing_seats_repaired`, and
+   does not modify Stripe billing.
+5. If Stripe reports fewer seats than the org is currently using, do
+   not repair local state downward. Have an owner add seats through the
+   explicit seat-management flow or fix the Stripe subscription item
+   first, then retry the local repair.
 
 ## Manual downgrade or upgrade
 

@@ -136,6 +136,7 @@ func (h *Handlers) MountCreate(r chi.Router) {
 		r.Post("/organizations/{org}/settings/billing/seats/remove", h.billingSeatsRemoveSubmit)
 		r.Post("/organizations/{org}/billing/checkout", h.billingCheckout)
 		r.Post("/organizations/{org}/billing/portal", h.billingPortal)
+		r.Post("/organizations/{org}/billing/seat-drift/repair", h.billingSeatDriftRepair)
 		r.Post("/organizations/{org}/billing/quota-overrides", h.billingQuotaOverrideSave)
 		r.Post("/organizations/{org}/billing/quota-overrides/delete", h.billingQuotaOverrideDelete)
 		r.Get("/organizations/{org}/billing/success", h.billingSuccess)

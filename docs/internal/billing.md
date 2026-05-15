@@ -437,8 +437,16 @@ PAYMENTS SP16 starts the Stripe-correct seat-change contract:
 - Background member/seat usage sync updates local used-seat snapshots
   only. It does not buy seats or change Stripe quantity without an
   owner confirmation flow.
-- SP16 still owns exact Stripe/local drift detection and a repair
-  operation with audit logging.
+- Site admins see a Stripe/local seat quantity drift check in the
+  billing debug panel. When Stripe's live subscription-item quantity
+  differs from local licensed seats, the debug panel offers a repair
+  action that copies Stripe's quantity into local entitlement state,
+  refuses repairs below current used seats, and records
+  `admin_org_billing_seats_repaired` audit metadata. The repair action
+  never changes Stripe billing.
+- SP16 still owns webhook reconciliation hardening for delayed
+  subscription quantity updates and clearer seat-change invoice
+  surfacing.
 
 ## Entitlement architecture
 
