@@ -289,7 +289,7 @@ func Run(ctx context.Context, opts Options) error {
 		// /search/quick (audit 2026-05-10 H4). Independent instance
 		// from auth's RateLimiter; both share DB-backed counter
 		// state, segregated by Policy.Scope.
-		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger, ratelimit.New(pool))
+		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger, ratelimit.New(pool), cfg.Billing.Enforce)
 		if err != nil {
 			return fmt.Errorf("search handlers: %w", err)
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	searchhandlers "github.com/tenseleyFlow/shithub/internal/web/handlers/search"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -25,6 +26,7 @@ func buildSearchHandlers(
 	tmplFS fs.FS,
 	logger *slog.Logger,
 	limiter *ratelimit.Limiter,
+	enforce config.EnforceConfig,
 ) (*searchhandlers.Handlers, error) {
 	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
 	if err != nil {
@@ -32,5 +34,6 @@ func buildSearchHandlers(
 	}
 	return searchhandlers.New(searchhandlers.Deps{
 		Logger: logger, Render: rr, Pool: pool, Limiter: limiter,
+		BillingEnforce: enforce,
 	})
 }
