@@ -395,6 +395,61 @@ func (q *Queries) ListCheckRunsForCommit(ctx context.Context, db DBTX, arg ListC
 	return items, nil
 }
 
+const listCheckRunsForCommits = `-- name: ListCheckRunsForCommits :many
+SELECT id, suite_id, repo_id, head_sha, name, status, conclusion, started_at, completed_at, details_url, output, external_id, created_at, updated_at FROM (
+    SELECT DISTINCT ON (head_sha, name) id, suite_id, repo_id, head_sha, name, status, conclusion, started_at, completed_at, details_url, output, external_id, created_at, updated_at
+    FROM check_runs
+    WHERE repo_id = $1 AND head_sha = ANY($2::text[])
+    ORDER BY head_sha, name, created_at DESC, id DESC
+) latest
+ORDER BY head_sha, name
+`
+
+type ListCheckRunsForCommitsParams struct {
+	RepoID   int64
+	HeadShas []string
+}
+
+// Batch form for Code-tab status indicators. Callers render commit lists,
+// compare rows, and branch lists without issuing one check_runs query per
+// displayed commit. Code surfaces show the latest row for each check name so
+// re-runs replace stale failures instead of permanently poisoning the commit
+// rollup.
+func (q *Queries) ListCheckRunsForCommits(ctx context.Context, db DBTX, arg ListCheckRunsForCommitsParams) ([]CheckRun, error) {
+	rows, err := db.Query(ctx, listCheckRunsForCommits, arg.RepoID, arg.HeadShas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CheckRun{}
+	for rows.Next() {
+		var i CheckRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.SuiteID,
+			&i.RepoID,
+			&i.HeadSha,
+			&i.Name,
+			&i.Status,
+			&i.Conclusion,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.DetailsUrl,
+			&i.Output,
+			&i.ExternalID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCheckSuiteIDsForHead = `-- name: ListCheckSuiteIDsForHead :many
 SELECT id FROM check_suites
 WHERE repo_id = $1 AND head_sha = $2 AND status <> 'completed'

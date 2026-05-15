@@ -67,6 +67,7 @@ type compareState struct {
 	Behind       int
 
 	Commits     []repogit.Commit
+	CommitRows  []compareCommitRow
 	DiffHTML    string
 	Stats       compareStats
 	MergeState  compareMergeState
@@ -76,6 +77,11 @@ type compareState struct {
 	BaseMenu compareRefMenu
 	HeadMenu compareRefMenu
 	Examples []compareExample
+}
+
+type compareCommitRow struct {
+	Commit repogit.Commit
+	Checks codeCommitCheckSummary
 }
 
 func (h *Handlers) repoPageChrome(r *http.Request, owner string, row reposdb.Repo, activeSubnav string) map[string]any {
@@ -135,6 +141,7 @@ func (h *Handlers) buildCompareState(r *http.Request, owner string, row reposdb.
 		state.CommitsErr = true
 	}
 	state.Commits = commits
+	state.CommitRows = h.compareCommitRows(r.Context(), owner, row.Name, row.ID, commits)
 
 	ahead, behind, abErr := repogit.AheadBehind(r.Context(), gitDir, base, head)
 	if abErr != nil {
@@ -173,6 +180,25 @@ func (h *Handlers) buildCompareState(r *http.Request, owner string, row reposdb.
 	state.CanOpenPull = true
 	state.MergeState = probeCompareMerge(r.Context(), gitDir, base, head)
 	return state
+}
+
+func (h *Handlers) compareCommitRows(ctx context.Context, owner, repoName string, repoID int64, commits []repogit.Commit) []compareCommitRow {
+	rows := make([]compareCommitRow, 0, len(commits))
+	if len(commits) == 0 {
+		return rows
+	}
+	oids := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		oids = append(oids, commit.OID)
+	}
+	checkSummaries := h.codeCommitCheckSummaries(ctx, owner, repoName, repoID, oids)
+	for _, commit := range commits {
+		rows = append(rows, compareCommitRow{
+			Commit: commit,
+			Checks: checkSummaries[commit.OID],
+		})
+	}
+	return rows
 }
 
 func buildCompareMenus(owner, repo, defaultBranch, base, head string, refs repogit.RefListing, target compareMenuTarget) (compareRefMenu, compareRefMenu) {

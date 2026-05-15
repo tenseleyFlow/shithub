@@ -71,5 +71,6 @@ node counts, log-output presence, and a basic horizontal-overflow check.
   keyboard manipulation parity with GitHub.
 - Add visual diffs only after a deterministic seed repo and browser baseline
   exist in CI.
-- Continue S41k-7 for Code-tab status indicators across tree, commit, compare,
-  and pull request surfaces.
+- Continue a follow-up for pull request list/detail status affordances if we
+  want GitHub's full Checks-tab cross-link density. S41k-7 covers tree, commit
+  list/detail, branches, and compare Code-tab surfaces.

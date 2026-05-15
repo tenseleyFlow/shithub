@@ -113,6 +113,29 @@ a schema change. The current page renders the listing immediately.
 **Deferred to S18 (commits-per-entry)** — the spec calls out this
 deferral path; the tree template has the column slot ready.
 
+## Check status indicators
+
+The Code tab mirrors GitHub's commit-check muscle memory for commits
+that have check-run data:
+
+- the tree header shows the check rollup for the displayed head commit;
+- commit list rows show the rollup beside the short SHA;
+- commit detail pages show a linked check summary under the subject;
+- branch and compare surfaces show matching rollups where they already
+  render commit heads.
+
+Handlers load status through `codeCommitCheckSummaries`, which batches
+by `(repo_id, head_sha[])` and never queries from templates. The batch
+query returns the latest check-run row per check name for each commit,
+so a rerun replaces stale historical failures in the visible rollup.
+
+Status priority is: failure/timed-out/action-required, pending,
+cancelled, success, skipped, then neutral/stale. Indicators link to a
+safe local `details_url` when present, otherwise to the repository
+Actions list. Private repositories keep the surrounding page's
+existence-leak-safe 404 behavior; no workflow names or runner details
+are rendered before `repo:read` authorization succeeds.
+
 ## File view
 
 `codeBlob` walks four cases:

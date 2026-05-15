@@ -109,6 +109,13 @@ private repos the actor can't see).
 `external_id` makes retries safe: when set, repeating the same POST
 returns the existing run instead of inserting a duplicate.
 
+shithub Actions creates check runs with a local `details_url` pointing
+at the workflow run page (`/{owner}/{repo}/actions/runs/{run_index}`).
+Code-tab status indicators use that safe local URL when available; API
+clients may still provide external CI URLs through the public check-run
+API, but repo Code surfaces intentionally do not render external
+redirect targets as status links.
+
 ### PATCH request body
 
 Every field is optional. Omitted fields keep their current value.
