@@ -39,6 +39,11 @@ GET  /organizations/{org}/settings/import
 POST /organizations/{org}/settings/import
 GET  /organizations/{org}/imports/{importID}
 GET  /organizations/{org}/settings/billing
+GET  /organizations/{org}/settings/billing/licensing
+GET  /organizations/{org}/settings/billing/seats/add
+POST /organizations/{org}/settings/billing/seats/add
+GET  /organizations/{org}/settings/billing/seats/remove
+POST /organizations/{org}/settings/billing/seats/remove
 POST /organizations/{org}/billing/checkout
 POST /organizations/{org}/billing/portal
 GET  /organizations/{org}/billing/success
@@ -213,6 +218,14 @@ Billing routes are mounted only when Stripe Billing is configured.
 When billing is disabled, local billing rows remain in the database but
 paid onboarding links stay unavailable. The durable product and
 implementation contract is tracked in [`billing.md`](./billing.md).
+
+Team seat management lives in shithub, not in Stripe Portal:
+`/settings/billing/licensing` shows licensed, used, and available
+seats plus the member list consuming those seats. Owners add or remove
+licensed seats through explicit confirmation pages that update Stripe
+subscription quantity before changing local license state. Team member
+invitations redirect back to People with an Add seats action when the
+organization has no available seats.
 
 ## What we deferred from the spec
 

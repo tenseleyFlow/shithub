@@ -1499,6 +1499,49 @@ func (q *Queries) ListSeatSnapshotsForOrg(ctx context.Context, db DBTX, arg List
 	return items, nil
 }
 
+const listTeamSeatConsumers = `-- name: ListTeamSeatConsumers :many
+SELECT m.user_id, u.username, u.display_name, m.role, m.joined_at
+FROM org_members m
+JOIN users u ON u.id = m.user_id
+WHERE m.org_id = $1
+  AND u.deleted_at IS NULL
+ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.username ASC
+`
+
+type ListTeamSeatConsumersRow struct {
+	UserID      int64
+	Username    string
+	DisplayName string
+	Role        OrgRole
+	JoinedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) ListTeamSeatConsumers(ctx context.Context, db DBTX, orgID int64) ([]ListTeamSeatConsumersRow, error) {
+	rows, err := db.Query(ctx, listTeamSeatConsumers, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeamSeatConsumersRow{}
+	for rows.Next() {
+		var i ListTeamSeatConsumersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Username,
+			&i.DisplayName,
+			&i.Role,
+			&i.JoinedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCanceled = `-- name: MarkCanceled :one
 WITH state AS (
     UPDATE org_billing_states

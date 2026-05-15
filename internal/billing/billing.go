@@ -710,6 +710,16 @@ func CountBillableOrgMembers(ctx context.Context, deps Deps, orgID int64) (int, 
 	return int(n), nil
 }
 
+func ListTeamSeatConsumers(ctx context.Context, deps Deps, orgID int64) ([]billingdb.ListTeamSeatConsumersRow, error) {
+	if err := validateDeps(deps); err != nil {
+		return nil, err
+	}
+	if orgID == 0 {
+		return nil, ErrOrgIDRequired
+	}
+	return billingdb.New().ListTeamSeatConsumers(ctx, deps.Pool, orgID)
+}
+
 func CountPendingOrgInvitations(ctx context.Context, deps Deps, orgID int64) (int, error) {
 	if err := validateDeps(deps); err != nil {
 		return 0, err

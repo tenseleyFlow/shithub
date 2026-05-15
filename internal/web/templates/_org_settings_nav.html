@@ -16,9 +16,9 @@
     <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
     <h2>Access</h2>
     {{ if .BillingEnabled }}
-    <a{{ if eq .OrgSettingsActive "billing" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/billing">{{ octicon "credit-card" }} Billing and plans</a>
+    <a{{ if eq .OrgSettingsActive "billing" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/billing">{{ octicon "credit-card" }} Billing and licensing</a>
     {{ else }}
-    <span aria-disabled="true">{{ octicon "credit-card" }} Billing and plans</span>
+    <span aria-disabled="true">{{ octicon "credit-card" }} Billing and licensing</span>
     {{ end }}
     <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
     <span aria-disabled="true">{{ octicon "history" }} Audit log</span>

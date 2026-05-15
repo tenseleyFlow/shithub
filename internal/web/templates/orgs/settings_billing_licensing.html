@@ -1,0 +1,139 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+      {{ with .BillingAlert }}{{ if .Message }}
+      <p class="shithub-flash {{ .Class }}" role="status">
+        {{ .Message }}
+        {{ if .ActionHref }}<a href="{{ .ActionHref }}">{{ .ActionText }}</a>{{ end }}
+      </p>
+      {{ end }}{{ end }}
+
+      <nav class="shithub-billing-breadcrumb" aria-label="Billing">
+        <a href="{{ .BillingPath }}">Billing and licensing</a>
+        <span>/</span>
+        <strong>Licensing</strong>
+      </nav>
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Licensing</h2>
+      </div>
+
+      <section class="Box shithub-license-banner" aria-labelledby="team-license-heading">
+        <div class="Box-body">
+          <div class="shithub-license-banner-main">
+            <p class="shithub-license-plan">{{ .CurrentPlan }}</p>
+            <h3 id="team-license-heading">Team seats</h3>
+            <p>{{ .SubscriptionStatus }} · {{ .Seats.SnapshotLabel }}</p>
+          </div>
+          {{ if .SeatMenu.CanManage }}
+          <details class="shithub-license-edit-menu">
+            <summary class="shithub-button">Edit</summary>
+            <div class="shithub-license-edit-popover">
+              {{ if .SeatMenu.CanAddSeats }}
+              <a href="{{ .SeatMenu.AddHref }}">Add seats</a>
+              {{ else }}
+              <span aria-disabled="true">Add seats</span>
+              {{ end }}
+              {{ if .SeatMenu.CanRemove }}
+              <a href="{{ .SeatMenu.RemoveHref }}">Remove seats</a>
+              {{ else }}
+              <span aria-disabled="true">Remove seats</span>
+              {{ end }}
+            </div>
+          </details>
+          {{ end }}
+        </div>
+      </section>
+      {{ with .SeatMenu.DisabledNote }}<p class="shithub-empty-note">{{ . }}</p>{{ end }}
+
+      <section class="shithub-org-settings-section" aria-labelledby="license-counts-heading">
+        <h3 id="license-counts-heading" class="sr-only">Seat counts</h3>
+        <div class="shithub-license-count-grid">
+          <div class="Box shithub-org-billing-card">
+            <div class="Box-header"><h4 class="Box-title">Licensed seats</h4></div>
+            <div class="Box-body"><p class="shithub-org-billing-card-value">{{ .Seats.LicensedSeats }}</p></div>
+          </div>
+          <div class="Box shithub-org-billing-card">
+            <div class="Box-header"><h4 class="Box-title">Used seats</h4></div>
+            <div class="Box-body"><p class="shithub-org-billing-card-value">{{ .Seats.UsedSeats }}</p></div>
+          </div>
+          <div class="Box shithub-org-billing-card">
+            <div class="Box-header"><h4 class="Box-title">Available seats</h4></div>
+            <div class="Box-body"><p class="shithub-org-billing-card-value">{{ .Seats.AvailableSeats }}</p></div>
+          </div>
+          <div class="Box shithub-org-billing-card">
+            <div class="Box-header"><h4 class="Box-title">Pending invitations</h4></div>
+            <div class="Box-body"><p class="shithub-org-billing-card-value">{{ .Seats.PendingInvites }}</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="seat-consumers-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="seat-consumers-heading" class="Subhead-heading">People consuming seats</h2>
+        </div>
+        <div class="Box">
+          {{ if .Consumers }}
+          <ul class="shithub-license-people-list">
+            {{ range .Consumers }}
+            <li class="shithub-license-person">
+              <img src="{{ .AvatarURL }}" alt="" width="32" height="32">
+              <div>
+                <a href="/{{ .Username }}">{{ .DisplayName }}</a>
+                <span>@{{ .Username }}</span>
+              </div>
+              <span class="shithub-pill">{{ .RoleLabel }}</span>
+              <span>{{ .StatusLabel }}</span>
+              <small>{{ .StatusDetail }}</small>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="Box-body"><p class="shithub-empty-note">No people are currently consuming seats.</p></div>
+          {{ end }}
+        </div>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="pending-seat-invites-heading">
+        <div class="Subhead Subhead--spacious border-bottom-0 mb-0 tmp-mb-0">
+          <h2 id="pending-seat-invites-heading" class="Subhead-heading">Pending invitations</h2>
+        </div>
+        <div class="Box">
+          {{ if .PendingInvites }}
+          <ul class="shithub-license-people-list">
+            {{ range .PendingInvites }}
+            <li class="shithub-license-person">
+              <div class="shithub-license-invite-avatar">{{ octicon "mail" }}</div>
+              <div>
+                <span>{{ .Target }}</span>
+                {{ if .InvitedBy }}<span>Invited by @{{ .InvitedBy }}</span>{{ end }}
+              </div>
+              <span class="shithub-pill">{{ .RoleLabel }}</span>
+              <span>{{ .StatusLabel }}</span>
+              <small>{{ .StatusDetail }}</small>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="Box-body"><p class="shithub-empty-note">No pending invitations.</p></div>
+          {{ end }}
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

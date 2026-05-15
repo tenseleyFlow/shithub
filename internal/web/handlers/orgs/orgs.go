@@ -42,6 +42,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	authemail "github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -128,6 +129,11 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/variables/actions/{name}/delete", h.settingsActionsVariableDelete)
 	if h.billingConfigured() {
 		r.Get("/organizations/{org}/settings/billing", h.settingsBilling)
+		r.Get("/organizations/{org}/settings/billing/licensing", h.settingsBillingLicensing)
+		r.Get("/organizations/{org}/settings/billing/seats/add", h.billingSeatsAdd)
+		r.Post("/organizations/{org}/settings/billing/seats/add", h.billingSeatsAddSubmit)
+		r.Get("/organizations/{org}/settings/billing/seats/remove", h.billingSeatsRemove)
+		r.Post("/organizations/{org}/settings/billing/seats/remove", h.billingSeatsRemoveSubmit)
 		r.Post("/organizations/{org}/billing/checkout", h.billingCheckout)
 		r.Post("/organizations/{org}/billing/portal", h.billingPortal)
 		r.Post("/organizations/{org}/billing/quota-overrides", h.billingQuotaOverrideSave)
@@ -403,6 +409,12 @@ type orgCreateSeatPreview struct {
 	SeatNoun  string
 }
 
+type peopleNotice struct {
+	Message    string
+	ActionText string
+	ActionHref string
+}
+
 func orgCreateTeamSeatPreview(raw string) orgCreateSeatPreview {
 	count, err := parseTeamSeatCount(raw)
 	if err != nil {
@@ -471,34 +483,48 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
+	notice := peopleNoticeMessage(r.URL.Query().Get("notice"), org.Slug, h.billingConfigured())
 	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
-		"Title":           org.Slug + " · people",
-		"CSRFToken":       middleware.CSRFTokenForRequest(r),
-		"Org":             org,
-		"AvatarURL":       "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav":    "people",
-		"RepoCount":       navCounts.RepoCount,
-		"Members":         filteredMembers,
-		"MemberCount":     navCounts.MemberCount,
-		"TeamCount":       navCounts.TeamCount,
-		"Pending":         pending,
-		"PendingCount":    len(pending),
-		"Query":           query,
-		"HasQuery":        query != "",
-		"IsOwner":         isOwner,
-		"CanManagePeople": isOwner,
-		"Notice":          peopleNoticeMessage(r.URL.Query().Get("notice")),
+		"Title":            org.Slug + " · people",
+		"CSRFToken":        middleware.CSRFTokenForRequest(r),
+		"Org":              org,
+		"AvatarURL":        "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":     "people",
+		"RepoCount":        navCounts.RepoCount,
+		"Members":          filteredMembers,
+		"MemberCount":      navCounts.MemberCount,
+		"TeamCount":        navCounts.TeamCount,
+		"Pending":          pending,
+		"PendingCount":     len(pending),
+		"Query":            query,
+		"HasQuery":         query != "",
+		"IsOwner":          isOwner,
+		"CanManagePeople":  isOwner,
+		"Notice":           notice.Message,
+		"NoticeActionText": notice.ActionText,
+		"NoticeActionHref": notice.ActionHref,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
 	}
 }
 
-func peopleNoticeMessage(code string) string {
+func peopleNoticeMessage(code, orgSlug string, billingConfigured bool) peopleNotice {
 	switch code {
 	case "private-collab-upgrade":
-		return "Free organizations can have up to 3 private collaborators. Upgrade to Team to add more private collaborators."
+		notice := peopleNotice{Message: "Free organizations can have up to 3 private collaborators. Upgrade to Team to add more private collaborators."}
+		if billingConfigured {
+			notice.ActionText = "Manage billing"
+			notice.ActionHref = "/organizations/" + orgSlug + "/settings/billing"
+		}
+		return notice
+	case "team-seat-limit":
+		return peopleNotice{
+			Message:    "This Team organization has no available seats for another member.",
+			ActionText: "Add seats",
+			ActionHref: orgBillingSeatAddPath(orgSlug),
+		}
 	default:
-		return ""
+		return peopleNotice{}
 	}
 }
 
@@ -554,6 +580,15 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 		OrgID:           org.ID,
 		InvitedByUserID: viewer.ID,
 		Role:            role,
+	}
+	if h.billingConfigured() {
+		licenseState, err := orgbilling.GetTeamLicenseState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "orgs: team seat check before invite", "org_id", org.ID, "error", err)
+		} else if licenseState.Plan == orgbilling.PlanTeam && licenseState.AvailableSeats <= 0 {
+			http.Redirect(w, r, "/"+org.Slug+"/people?notice=team-seat-limit", http.StatusSeeOther)
+			return
+		}
 	}
 	if strings.Contains(target, "@") {
 		p.TargetEmail = target

@@ -312,6 +312,14 @@ SELECT count(*)::integer
 FROM org_members
 WHERE org_id = $1;
 
+-- name: ListTeamSeatConsumers :many
+SELECT m.user_id, u.username, u.display_name, m.role, m.joined_at
+FROM org_members m
+JOIN users u ON u.id = m.user_id
+WHERE m.org_id = $1
+  AND u.deleted_at IS NULL
+ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.username ASC;
+
 -- name: CountPendingOrgInvitations :one
 SELECT count(*)::integer
 FROM org_invitations

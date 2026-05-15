@@ -49,6 +49,56 @@ type billingSeatBreakdown struct {
 	SnapshotLabel  string
 }
 
+type billingSeatConsumerView struct {
+	Username     string
+	DisplayName  string
+	AvatarURL    string
+	RoleLabel    string
+	JoinedLabel  string
+	StatusLabel  string
+	StatusDetail string
+}
+
+type billingPendingSeatInviteView struct {
+	Target       string
+	RoleLabel    string
+	InvitedBy    string
+	CreatedLabel string
+	StatusLabel  string
+	StatusDetail string
+}
+
+type billingSeatActionMenu struct {
+	CanManage    bool
+	CanAddSeats  bool
+	CanRemove    bool
+	AddHref      string
+	RemoveHref   string
+	DisabledNote string
+}
+
+type billingSeatChangeForm struct {
+	Mode               string
+	Title              string
+	Heading            string
+	Description        string
+	Action             string
+	InputName          string
+	InputLabel         string
+	InputHelp          string
+	SubmitLabel        string
+	CurrentSeats       int
+	UsedSeats          int
+	AvailableSeats     int
+	ChangeSeats        int
+	NewTotal           int
+	ProrationLabel     string
+	NextBillLabel      string
+	MonthlyDeltaLabel  string
+	CanSubmit          bool
+	SubscriptionStatus string
+}
+
 type billingPrivateCollaborationBreakdown struct {
 	Count      int64
 	LimitLabel string
@@ -88,6 +138,8 @@ type billingQuotaOverrideView struct {
 	UpdatedAt string
 }
 
+var errSeatChangeUnavailable = errors.New("org billing: seat changes unavailable")
+
 type billingQuotaOverrideForm struct {
 	KindValue  string
 	KindLabel  string
@@ -119,6 +171,72 @@ func (h *Handlers) settingsBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.renderSettingsBilling(w, r, org, "", billingNotice(r.URL.Query().Get("notice")))
+}
+
+func (h *Handlers) settingsBillingLicensing(w http.ResponseWriter, r *http.Request) {
+	org, _, ok := h.loadOrgBillingSettingsViewer(w, r)
+	if !ok {
+		return
+	}
+	h.renderBillingLicensing(w, r, org, "", billingLicensingNotice(r.URL.Query().Get("notice")))
+}
+
+func (h *Handlers) billingSeatsAdd(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.loadOrgSettingsOwner(w, r)
+	if !ok {
+		return
+	}
+	h.renderBillingSeatChange(w, r, org, "add", 1, "", "")
+}
+
+func (h *Handlers) billingSeatsAddSubmit(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.loadOrgSettingsOwner(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	added, err := parsePositiveSeatDelta(r.PostFormValue("additional_seats"))
+	if err != nil {
+		h.renderBillingSeatChange(w, r, org, "add", 1, "Enter at least 1 seat to add.", "")
+		return
+	}
+	if err := h.applyTeamSeatChange(r, org, added, "add"); err != nil {
+		h.renderBillingSeatChange(w, r, org, "add", added, billingSeatChangeError(err, "add"), "")
+		return
+	}
+	http.Redirect(w, r, orgBillingLicensingPath(org.Slug)+"?notice=seats-added", http.StatusSeeOther)
+}
+
+func (h *Handlers) billingSeatsRemove(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.loadOrgSettingsOwner(w, r)
+	if !ok {
+		return
+	}
+	h.renderBillingSeatChange(w, r, org, "remove", 1, "", "")
+}
+
+func (h *Handlers) billingSeatsRemoveSubmit(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.loadOrgSettingsOwner(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "")
+		return
+	}
+	removed, err := parsePositiveSeatDelta(r.PostFormValue("remove_seats"))
+	if err != nil {
+		h.renderBillingSeatChange(w, r, org, "remove", 1, "Enter at least 1 seat to remove.", "")
+		return
+	}
+	if err := h.applyTeamSeatChange(r, org, removed, "remove"); err != nil {
+		h.renderBillingSeatChange(w, r, org, "remove", removed, billingSeatChangeError(err, "remove"), "")
+		return
+	}
+	http.Redirect(w, r, orgBillingLicensingPath(org.Slug)+"?notice=seats-removed", http.StatusSeeOther)
 }
 
 func (h *Handlers) billingCheckout(w http.ResponseWriter, r *http.Request) {
@@ -358,12 +476,89 @@ func (h *Handlers) loadOrgBillingSettingsViewer(w http.ResponseWriter, r *http.R
 	return org, viewer, true
 }
 
-func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
+func (h *Handlers) renderBillingLicensing(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
+	state, licenseState, ok := h.loadBillingLicenseState(w, r, org)
+	if !ok {
+		return
+	}
+	consumers, err := orgbilling.ListTeamSeatConsumers(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: list seat consumers", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	pending, err := orgsdb.New().ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: list pending invitations for licensing", "org_id", org.ID, "error", err)
+		pending = nil
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	canManageBilling := false
+	if !viewer.IsAnonymous() {
+		canManageBilling, _ = orgdomain.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing_licensing", map[string]any{
+		"Title":              org.Slug + " - billing and licensing",
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"Org":                org,
+		"AvatarURL":          "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":       "settings",
+		"OrgSettingsActive":  "billing",
+		"BillingEnabled":     h.d.BillingEnabled,
+		"Error":              errMsg,
+		"Notice":             notice,
+		"BillingAlert":       billingAlertForState(state, org.Slug),
+		"CurrentPlan":        billingPlanLabel(state.Plan),
+		"SubscriptionStatus": billingStatusLabel(state.SubscriptionStatus),
+		"Seats":              billingSeatBreakdown{UsedSeats: licenseState.UsedSeats, LicensedSeats: int64(licenseState.LicensedSeats), AvailableSeats: int64(licenseState.AvailableSeats), PendingInvites: len(pending), SnapshotLabel: billingSeatDetail(licenseState)},
+		"SeatMenu":           billingSeatActionMenuForOrg(org.Slug, state, licenseState, canManageBilling),
+		"Consumers":          billingSeatConsumerViews(consumers),
+		"PendingInvites":     billingPendingSeatInviteViews(pending),
+		"BillingPath":        orgBillingSettingsPath(org.Slug),
+		"LicensingPath":      orgBillingLicensingPath(org.Slug),
+	})
+}
+
+func (h *Handlers) renderBillingSeatChange(w http.ResponseWriter, r *http.Request, org orgsdb.Org, mode string, delta int, errMsg, notice string) {
+	state, licenseState, ok := h.loadBillingLicenseState(w, r, org)
+	if !ok {
+		return
+	}
+	if state.Plan != orgbilling.PlanTeam {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	if delta < 1 {
+		delta = 1
+	}
+	form := billingSeatChangeFormForOrg(org.Slug, mode, delta, state, licenseState)
+	if mode == "remove" && licenseState.AvailableSeats <= 0 {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing_seats", map[string]any{
+		"Title":             form.Title,
+		"CSRFToken":         middleware.CSRFTokenForRequest(r),
+		"Org":               org,
+		"AvatarURL":         "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":      "settings",
+		"OrgSettingsActive": "billing",
+		"BillingEnabled":    h.d.BillingEnabled,
+		"Error":             errMsg,
+		"Notice":            notice,
+		"BillingAlert":      billingAlertForState(state, org.Slug),
+		"Form":              form,
+		"BillingPath":       orgBillingSettingsPath(org.Slug),
+		"LicensingPath":     orgBillingLicensingPath(org.Slug),
+	})
+}
+
+func (h *Handlers) loadBillingLicenseState(w http.ResponseWriter, r *http.Request, org orgsdb.Org) (orgbilling.State, orgbilling.TeamLicenseState, bool) {
 	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "org billing: load state", "org_id", org.ID, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
+		return orgbilling.State{}, orgbilling.TeamLicenseState{}, false
 	}
 	licenseState, err := orgbilling.GetTeamLicenseState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
@@ -380,6 +575,14 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 			AvailableSeats: available,
 			SeatSnapshotAt: state.SeatSnapshotAt,
 		}
+	}
+	return state, licenseState, true
+}
+
+func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request, org orgsdb.Org, errMsg, notice string) {
+	state, licenseState, ok := h.loadBillingLicenseState(w, r, org)
+	if !ok {
+		return
 	}
 	pendingInviteCount, err := orgbilling.CountPendingOrgInvitations(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
 	if err != nil {
@@ -637,6 +840,18 @@ func orgBillingSettingsPath(slug string) string {
 	return "/organizations/" + slug + "/settings/billing"
 }
 
+func orgBillingLicensingPath(slug string) string {
+	return orgBillingSettingsPath(slug) + "/licensing"
+}
+
+func orgBillingSeatAddPath(slug string) string {
+	return orgBillingSettingsPath(slug) + "/seats/add"
+}
+
+func orgBillingSeatRemovePath(slug string) string {
+	return orgBillingSettingsPath(slug) + "/seats/remove"
+}
+
 func billingNotice(code string) string {
 	switch code {
 	case "checkout-success":
@@ -653,6 +868,17 @@ func billingNotice(code string) string {
 		return "Quota override saved."
 	case "quota-override-cleared":
 		return "Quota override cleared."
+	default:
+		return ""
+	}
+}
+
+func billingLicensingNotice(code string) string {
+	switch code {
+	case "seats-added":
+		return "Seats added. Stripe will finalize invoices and webhook state as events arrive."
+	case "seats-removed":
+		return "Seats removed. Stripe will apply any billing adjustment according to the subscription schedule."
 	default:
 		return ""
 	}
@@ -786,6 +1012,266 @@ func billingQuotaOverrideForms(overrides []orgbilling.QuotaOverride) []billingQu
 		forms[i].Note = strings.TrimSpace(override.Note)
 	}
 	return forms
+}
+
+func (h *Handlers) applyTeamSeatChange(r *http.Request, org orgsdb.Org, delta int, mode string) error {
+	state, licenseState, err := h.teamSeatChangeState(r, org)
+	if err != nil {
+		return err
+	}
+	if delta < 1 {
+		return orgbilling.ErrInvalidSeatCount
+	}
+	newTotal := licenseState.LicensedSeats + delta
+	source := "owner_add"
+	if mode == "remove" {
+		newTotal = licenseState.LicensedSeats - delta
+		source = "owner_remove"
+	}
+	if newTotal < licenseState.UsedSeats {
+		return orgbilling.ErrSeatCountBelowUsage
+	}
+	if newTotal < 1 {
+		return orgbilling.ErrInvalidSeatCount
+	}
+	subscriptionItemID := strings.TrimSpace(licenseState.StripeSubscriptionItemID)
+	if subscriptionItemID == "" && state.StripeSubscriptionItemID.Valid {
+		subscriptionItemID = strings.TrimSpace(state.StripeSubscriptionItemID.String)
+	}
+	if subscriptionItemID == "" {
+		return stripebilling.ErrSubscriptionItemID
+	}
+	if err := h.d.Stripe.UpdateSubscriptionItemQuantity(r.Context(), stripebilling.SeatQuantityInput{
+		OrgID:              org.ID,
+		SubscriptionItemID: subscriptionItemID,
+		Quantity:           int64(newTotal),
+	}); err != nil {
+		return err
+	}
+	_, err = orgbilling.SetTeamLicensedSeats(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, newTotal, source)
+	return err
+}
+
+func (h *Handlers) teamSeatChangeState(r *http.Request, org orgsdb.Org) (orgbilling.State, orgbilling.TeamLicenseState, error) {
+	state, err := orgbilling.GetOrgBillingState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		return orgbilling.State{}, orgbilling.TeamLicenseState{}, err
+	}
+	if state.Plan != orgbilling.PlanTeam {
+		return orgbilling.State{}, orgbilling.TeamLicenseState{}, orgbilling.ErrTeamPlanRequired
+	}
+	if !billingSeatManagementAvailable(state) {
+		return orgbilling.State{}, orgbilling.TeamLicenseState{}, errSeatChangeUnavailable
+	}
+	licenseState, err := orgbilling.GetTeamLicenseState(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID)
+	if err != nil {
+		return orgbilling.State{}, orgbilling.TeamLicenseState{}, err
+	}
+	return state, licenseState, nil
+}
+
+func parsePositiveSeatDelta(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, orgbilling.ErrInvalidSeatCount
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, orgbilling.ErrInvalidSeatCount
+	}
+	return n, nil
+}
+
+func billingSeatChangeError(err error, mode string) string {
+	switch {
+	case errors.Is(err, orgbilling.ErrTeamPlanRequired):
+		return "Upgrade this organization to Team before changing licensed seats."
+	case errors.Is(err, orgbilling.ErrSeatCountBelowUsage):
+		return "Licensed seats cannot be reduced below the number of people consuming seats."
+	case errors.Is(err, stripebilling.ErrSubscriptionItemID):
+		return "Seat changes are unavailable until Stripe has attached a Team subscription item."
+	case errors.Is(err, errSeatChangeUnavailable):
+		return "Seat changes are unavailable until this subscription is active."
+	default:
+		if mode == "remove" {
+			return "Could not remove seats right now."
+		}
+		return "Could not add seats right now."
+	}
+}
+
+func billingSeatActionMenuForOrg(slug string, state orgbilling.State, licenseState orgbilling.TeamLicenseState, canManage bool) billingSeatActionMenu {
+	menu := billingSeatActionMenu{
+		CanManage:   canManage,
+		AddHref:     orgBillingSeatAddPath(slug),
+		RemoveHref:  orgBillingSeatRemovePath(slug),
+		CanAddSeats: canManage && billingSeatManagementAvailable(state) && licenseState.StripeSubscriptionItemID != "",
+		CanRemove:   canManage && billingSeatManagementAvailable(state) && licenseState.StripeSubscriptionItemID != "" && licenseState.AvailableSeats > 0,
+	}
+	switch {
+	case !canManage:
+		menu.DisabledNote = "Only organization owners can manage licensed seats."
+	case state.Plan != orgbilling.PlanTeam:
+		menu.DisabledNote = "Upgrade to Team before managing licensed seats."
+	case !billingSeatManagementAvailable(state):
+		menu.DisabledNote = "Seat changes are unavailable until this subscription is active."
+	case licenseState.StripeSubscriptionItemID == "":
+		menu.DisabledNote = "Stripe has not attached a Team subscription item yet."
+	case licenseState.AvailableSeats <= 0:
+		menu.DisabledNote = "No unassigned seats are available to remove."
+	}
+	return menu
+}
+
+func billingSeatConsumerViews(rows []billingdb.ListTeamSeatConsumersRow) []billingSeatConsumerView {
+	items := make([]billingSeatConsumerView, 0, len(rows))
+	for _, row := range rows {
+		displayName := strings.TrimSpace(row.DisplayName)
+		if displayName == "" {
+			displayName = row.Username
+		}
+		items = append(items, billingSeatConsumerView{
+			Username:     row.Username,
+			DisplayName:  displayName,
+			AvatarURL:    "/avatars/" + url.PathEscape(row.Username),
+			RoleLabel:    billingOrgRoleLabel(string(row.Role)),
+			JoinedLabel:  formatOptionalTime(row.JoinedAt),
+			StatusLabel:  "Consumed",
+			StatusDetail: "Organization members, including owners, consume Team seats.",
+		})
+	}
+	return items
+}
+
+func billingPendingSeatInviteViews(rows []orgsdb.ListPendingInvitationsForOrgRow) []billingPendingSeatInviteView {
+	items := make([]billingPendingSeatInviteView, 0, len(rows))
+	for _, row := range rows {
+		target := "Pending invite"
+		if row.TargetUsername.Valid {
+			target = "@" + row.TargetUsername.String
+		} else if row.TargetEmail.Valid {
+			target = row.TargetEmail.String
+		}
+		invitedBy := ""
+		if row.InvitedByUsername.Valid {
+			invitedBy = row.InvitedByUsername.String
+		}
+		items = append(items, billingPendingSeatInviteView{
+			Target:       target,
+			RoleLabel:    billingOrgRoleLabel(string(row.Role)),
+			InvitedBy:    invitedBy,
+			CreatedLabel: formatOptionalTime(row.CreatedAt),
+			StatusLabel:  "Pending",
+			StatusDetail: "Pending invitations are shown separately; shithub reserves billing enforcement for acceptance until invitation-seat charging is enabled.",
+		})
+	}
+	return items
+}
+
+func billingOrgRoleLabel(role string) string {
+	if role == "owner" {
+		return "Owner"
+	}
+	return "Member"
+}
+
+func billingSeatChangeFormForOrg(slug, mode string, delta int, state orgbilling.State, licenseState orgbilling.TeamLicenseState) billingSeatChangeForm {
+	if delta < 1 {
+		delta = 1
+	}
+	form := billingSeatChangeForm{
+		Mode:               mode,
+		CurrentSeats:       licenseState.LicensedSeats,
+		UsedSeats:          licenseState.UsedSeats,
+		AvailableSeats:     licenseState.AvailableSeats,
+		ChangeSeats:        delta,
+		SubscriptionStatus: billingStatusLabel(state.SubscriptionStatus),
+		CanSubmit:          billingSeatManagementAvailable(state) && licenseState.StripeSubscriptionItemID != "",
+	}
+	switch mode {
+	case "remove":
+		form.Title = slug + " - remove seats"
+		form.Heading = "Remove seats"
+		form.Description = "Remove unassigned Team seats from this organization."
+		form.Action = orgBillingSeatRemovePath(slug)
+		form.InputName = "remove_seats"
+		form.InputLabel = "Seats to remove"
+		form.InputHelp = "You can remove only seats that are not assigned to members."
+		form.SubmitLabel = "Remove seats"
+		form.NewTotal = licenseState.LicensedSeats - delta
+		if form.NewTotal < 0 {
+			form.NewTotal = 0
+		}
+	default:
+		form.Mode = "add"
+		form.Title = slug + " - add seats"
+		form.Heading = "Add seats"
+		form.Description = "Add licensed Team seats before inviting more members."
+		form.Action = orgBillingSeatAddPath(slug)
+		form.InputName = "additional_seats"
+		form.InputLabel = "Seats to add"
+		form.InputHelp = "New seats are available after Stripe accepts the subscription quantity change."
+		form.SubmitLabel = "Add seats"
+		form.NewTotal = licenseState.LicensedSeats + delta
+	}
+	deltaForCost := form.NewTotal - licenseState.LicensedSeats
+	form.MonthlyDeltaLabel = billingSeatMonthlyDeltaLabel(deltaForCost)
+	form.NextBillLabel = formatCurrencyAmount("usd", int64(form.NewTotal*teamSeatMonthlyPriceUSD*100)) + " per month"
+	form.ProrationLabel = billingSeatProrationLabel(state, deltaForCost, time.Now().UTC())
+	if mode == "remove" && delta > licenseState.AvailableSeats {
+		form.CanSubmit = false
+	}
+	if form.NewTotal < licenseState.UsedSeats {
+		form.CanSubmit = false
+	}
+	return form
+}
+
+func billingSeatManagementAvailable(state orgbilling.State) bool {
+	if state.Plan != orgbilling.PlanTeam || state.LockedAt.Valid {
+		return false
+	}
+	switch state.SubscriptionStatus {
+	case orgbilling.SubscriptionStatusActive, orgbilling.SubscriptionStatusTrialing:
+		return true
+	default:
+		return false
+	}
+}
+
+func billingSeatMonthlyDeltaLabel(deltaSeats int) string {
+	cents := int64(deltaSeats * teamSeatMonthlyPriceUSD * 100)
+	if cents == 0 {
+		return "$0.00 USD per month"
+	}
+	if cents > 0 {
+		return "+" + formatCurrencyAmount("usd", cents) + " per month"
+	}
+	return "-" + formatCurrencyAmount("usd", -cents) + " per month"
+}
+
+func billingSeatProrationLabel(state orgbilling.State, deltaSeats int, now time.Time) string {
+	if deltaSeats == 0 {
+		return "$0.00 USD estimated for the current period"
+	}
+	if !state.CurrentPeriodStart.Valid || !state.CurrentPeriodEnd.Valid {
+		return "Stripe will calculate the current-period adjustment."
+	}
+	start := state.CurrentPeriodStart.Time
+	end := state.CurrentPeriodEnd.Time
+	if !end.After(start) || !end.After(now) {
+		return "Stripe will calculate the current-period adjustment."
+	}
+	total := end.Sub(start)
+	remaining := end.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	cents := int64(deltaSeats*teamSeatMonthlyPriceUSD*100) * int64(remaining) / int64(total)
+	if cents >= 0 {
+		return formatCurrencyAmount("usd", cents) + " estimated charge for the current period"
+	}
+	return formatCurrencyAmount("usd", -cents) + " estimated credit for the current period"
 }
 
 func billingSummary(state orgbilling.State, licenseState orgbilling.TeamLicenseState) []billingSummaryItem {
