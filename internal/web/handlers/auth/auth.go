@@ -191,6 +191,8 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/saved-replies", h.settingsSavedReplyCreate)
 			r.Post("/settings/saved-replies/{id}/update", h.settingsSavedReplyUpdate)
 			r.Post("/settings/saved-replies/{id}/delete", h.settingsSavedReplyDelete)
+			r.Get("/settings/scheduled-issues", h.settingsScheduledIssuesForm)
+			r.Post("/settings/scheduled-issues/{id}/cancel", h.settingsScheduledIssueCancel)
 			r.Get("/settings/password", h.settingsPasswordForm)
 			r.Post("/settings/password", h.settingsPasswordSubmit)
 			r.Get("/settings/appearance", h.settingsAppearanceForm)
