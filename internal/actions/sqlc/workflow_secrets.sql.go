@@ -39,6 +39,20 @@ func (q *Queries) DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoS
 	return err
 }
 
+const deleteUserSecret = `-- name: DeleteUserSecret :exec
+DELETE FROM workflow_secrets WHERE user_id = $1 AND name = $2
+`
+
+type DeleteUserSecretParams struct {
+	UserID pgtype.Int8
+	Name   string
+}
+
+func (q *Queries) DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) error {
+	_, err := db.Exec(ctx, deleteUserSecret, arg.UserID, arg.Name)
+	return err
+}
+
 const getOrgSecret = `-- name: GetOrgSecret :one
 SELECT id, name, ciphertext, nonce
 FROM workflow_secrets
@@ -90,6 +104,36 @@ type GetRepoSecretRow struct {
 func (q *Queries) GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error) {
 	row := db.QueryRow(ctx, getRepoSecret, arg.RepoID, arg.Name)
 	var i GetRepoSecretRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Ciphertext,
+		&i.Nonce,
+	)
+	return i, err
+}
+
+const getUserSecret = `-- name: GetUserSecret :one
+SELECT id, name, ciphertext, nonce
+FROM workflow_secrets
+WHERE user_id = $1 AND name = $2
+`
+
+type GetUserSecretParams struct {
+	UserID pgtype.Int8
+	Name   string
+}
+
+type GetUserSecretRow struct {
+	ID         int64
+	Name       string
+	Ciphertext []byte
+	Nonce      []byte
+}
+
+func (q *Queries) GetUserSecret(ctx context.Context, db DBTX, arg GetUserSecretParams) (GetUserSecretRow, error) {
+	row := db.QueryRow(ctx, getUserSecret, arg.UserID, arg.Name)
+	var i GetUserSecretRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -181,6 +225,47 @@ func (q *Queries) ListRepoSecrets(ctx context.Context, db DBTX, repoID pgtype.In
 	return items, nil
 }
 
+const listUserSecrets = `-- name: ListUserSecrets :many
+SELECT id, name, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE user_id = $1
+ORDER BY name ASC
+`
+
+type ListUserSecretsRow struct {
+	ID              int64
+	Name            string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListUserSecrets(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserSecretsRow, error) {
+	rows, err := db.Query(ctx, listUserSecrets, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserSecretsRow{}
+	for rows.Next() {
+		var i ListUserSecretsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertOrgSecret = `-- name: UpsertOrgSecret :one
 INSERT INTO workflow_secrets (org_id, name, ciphertext, nonce, created_by_user_id)
 VALUES ($1, $2, $3, $4, $5)
@@ -200,7 +285,19 @@ type UpsertOrgSecretParams struct {
 	CreatedByUserID pgtype.Int8
 }
 
-func (q *Queries) UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error) {
+type UpsertOrgSecretRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (UpsertOrgSecretRow, error) {
 	row := db.QueryRow(ctx, upsertOrgSecret,
 		arg.OrgID,
 		arg.Name,
@@ -208,7 +305,7 @@ func (q *Queries) UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSec
 		arg.Nonce,
 		arg.CreatedByUserID,
 	)
-	var i WorkflowSecret
+	var i UpsertOrgSecretRow
 	err := row.Scan(
 		&i.ID,
 		&i.RepoID,
@@ -243,8 +340,20 @@ type UpsertRepoSecretParams struct {
 	CreatedByUserID pgtype.Int8
 }
 
+type UpsertRepoSecretRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
-func (q *Queries) UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (WorkflowSecret, error) {
+func (q *Queries) UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (UpsertRepoSecretRow, error) {
 	row := db.QueryRow(ctx, upsertRepoSecret,
 		arg.RepoID,
 		arg.Name,
@@ -252,7 +361,65 @@ func (q *Queries) UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoS
 		arg.Nonce,
 		arg.CreatedByUserID,
 	)
-	var i WorkflowSecret
+	var i UpsertRepoSecretRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.OrgID,
+		&i.Name,
+		&i.Ciphertext,
+		&i.Nonce,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertUserSecret = `-- name: UpsertUserSecret :one
+
+INSERT INTO workflow_secrets (user_id, name, ciphertext, nonce, created_by_user_id)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id, name) WHERE user_id IS NOT NULL DO UPDATE
+SET ciphertext = EXCLUDED.ciphertext,
+    nonce      = EXCLUDED.nonce,
+    updated_at = now()
+RETURNING id, repo_id, org_id, name, ciphertext, nonce,
+          created_by_user_id, created_at, updated_at
+`
+
+type UpsertUserSecretParams struct {
+	UserID          pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+}
+
+type UpsertUserSecretRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// PRO-EXT01-12: personal Actions secrets. User-scoped rows mirror the
+// (repo_id, org_id) variants — same encrypted storage, same XOR
+// discriminator (now 3-way), separate partial unique index per scope.
+func (q *Queries) UpsertUserSecret(ctx context.Context, db DBTX, arg UpsertUserSecretParams) (UpsertUserSecretRow, error) {
+	row := db.QueryRow(ctx, upsertUserSecret,
+		arg.UserID,
+		arg.Name,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.CreatedByUserID,
+	)
+	var i UpsertUserSecretRow
 	err := row.Scan(
 		&i.ID,
 		&i.RepoID,

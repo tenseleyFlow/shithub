@@ -33,6 +33,8 @@ type Querier interface {
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
+	DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) error
+	DeleteUserVariable(ctx context.Context, db DBTX, arg DeleteUserVariableParams) error
 	DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
 	DeleteWorkflowCacheByID(ctx context.Context, db DBTX, arg DeleteWorkflowCacheByIDParams) (int64, error)
@@ -78,6 +80,8 @@ type Querier interface {
 	GetRunnerByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (GetRunnerByTokenHashRow, error)
 	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
 	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
+	GetUserSecret(ctx context.Context, db DBTX, arg GetUserSecretParams) (GetUserSecretRow, error)
+	GetUserVariable(ctx context.Context, db DBTX, arg GetUserVariableParams) (GetUserVariableRow, error)
 	GetWorkflowCacheByID(ctx context.Context, db DBTX, id int64) (WorkflowCache, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	GetWorkflowJobSecretMask(ctx context.Context, db DBTX, jobID int64) (WorkflowJobSecretMask, error)
@@ -141,6 +145,8 @@ type Querier interface {
 	ListRunnersForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListRunnersForRepoRow, error)
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
+	ListUserSecrets(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserSecretsRow, error)
+	ListUserVariables(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserVariablesRow, error)
 	ListWorkflowAnnotationsForRun(ctx context.Context, db DBTX, runID int64) ([]ListWorkflowAnnotationsForRunRow, error)
 	ListWorkflowAnnotationsForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowAnnotation, error)
 	// Paginated list filtered optionally by ref + key. NULL params skip
@@ -183,12 +189,19 @@ type Querier interface {
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
 	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)
 	UpsertActionsRepoPolicy(ctx context.Context, db DBTX, arg UpsertActionsRepoPolicyParams) (ActionsRepoPolicy, error)
-	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (WorkflowSecret, error)
-	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (ActionsVariable, error)
+	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (UpsertOrgSecretRow, error)
+	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (UpsertOrgVariableRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
-	UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (WorkflowSecret, error)
+	UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (UpsertRepoSecretRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
-	UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (ActionsVariable, error)
+	UpsertRepoVariable(ctx context.Context, db DBTX, arg UpsertRepoVariableParams) (UpsertRepoVariableRow, error)
+	// PRO-EXT01-12: personal Actions secrets. User-scoped rows mirror the
+	// (repo_id, org_id) variants — same encrypted storage, same XOR
+	// discriminator (now 3-way), separate partial unique index per scope.
+	UpsertUserSecret(ctx context.Context, db DBTX, arg UpsertUserSecretParams) (UpsertUserSecretRow, error)
+	// PRO-EXT01-12: personal Actions variables. Same shape as repo/org;
+	// the XOR is extended in migration 0094.
+	UpsertUserVariable(ctx context.Context, db DBTX, arg UpsertUserVariableParams) (UpsertUserVariableRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertWorkflowAnnotation(ctx context.Context, db DBTX, arg UpsertWorkflowAnnotationParams) (WorkflowAnnotation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
