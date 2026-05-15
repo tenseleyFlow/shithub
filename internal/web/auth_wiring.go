@@ -108,7 +108,8 @@ func buildAPIHandlers(
 			AnonPerHour:   cfg.RateLimit.API.AnonPerHour,
 			Logger:        logger,
 		},
-		WebhookSSRF: webhook.DefaultSSRFConfig(),
+		WebhookSSRF:    webhook.DefaultSSRFConfig(),
+		BillingEnforce: cfg.Billing.Enforce,
 	})
 }
 

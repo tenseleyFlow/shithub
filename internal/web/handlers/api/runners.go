@@ -1156,6 +1156,23 @@ func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretRes
 			return nil, err
 		}
 	}
+	// PRO-EXT01-12b: user-scoped secrets layer between org/user and repo.
+	// For a user-owned repo, the repo's owner has personal secrets that
+	// apply to every workflow they run. Gated on FeatureUserActionsSecrets
+	// — when the gate denies AND the enforce flag is set, the user-layer
+	// is empty (so a Free user's workflows can't see user-scope rows
+	// even if the write path slipped during the soak window).
+	if repo.OwnerUserID.Valid {
+		allowed, _, derr := h.userActionsSecretsAllowedForRunner(ctx, repo.OwnerUserID.Int64)
+		if derr != nil {
+			return nil, derr
+		}
+		if allowed || !h.d.BillingEnforce.UserActionsSecrets {
+			if err := h.mergeUserSecrets(ctx, db, repo.OwnerUserID.Int64, out); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err := h.mergeRepoSecrets(ctx, db, repo.ID, out); err != nil {
 		return nil, err
 	}
@@ -1163,6 +1180,47 @@ func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretRes
 		return nil, nil
 	}
 	return out, nil
+}
+
+// mergeUserSecrets layers user-scope secrets into out. Same shape as
+// mergeRepoSecrets/mergeOrgSecrets — repo-scope rows (resolved after
+// this call) shadow user-scope rows with the same name, matching the
+// repo-shadows-org precedence already in place.
+func (h *Handlers) mergeUserSecrets(ctx context.Context, db actionsdb.DBTX, userID int64, out map[string]string) error {
+	q := actionsdb.New()
+	items, err := q.ListUserSecrets(ctx, db, pgtype.Int8{Int64: userID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		row, err := q.GetUserSecret(ctx, db, actionsdb.GetUserSecretParams{
+			UserID: pgtype.Int8{Int64: userID, Valid: true},
+			Name:   item.Name,
+		})
+		if err != nil {
+			return err
+		}
+		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+		if err != nil {
+			return err
+		}
+		out[item.Name] = string(plaintext)
+	}
+	return nil
+}
+
+// userActionsSecretsAllowedForRunner checks the FeatureUserActionsSecrets
+// entitlement for the repo owner. Mirrors the handler-side check but
+// silent — the runner doesn't render a banner.
+func (h *Handlers) userActionsSecretsAllowedForRunner(ctx context.Context, userID int64) (bool, entitlements.Decision, error) {
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		orgbilling.PrincipalForUser(userID),
+		entitlements.FeatureUserActionsSecrets)
+	if err != nil {
+		return false, entitlements.Decision{}, err
+	}
+	return decision.Allowed, decision, nil
 }
 
 func (h *Handlers) mergeRepoSecrets(ctx context.Context, db actionsdb.DBTX, repoID int64, out map[string]string) error {

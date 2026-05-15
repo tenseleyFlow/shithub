@@ -24,6 +24,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/sealbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -73,6 +74,12 @@ type Deps struct {
 	// Defaults to webhook.DefaultSSRFConfig() when zero; tests override
 	// to allow loopback URLs.
 	WebhookSSRF webhook.SSRFConfig
+	// BillingEnforce mirrors the operator's per-feature enforcement
+	// matrix. PRO-EXT01-12b reads UserActionsSecrets to filter user-
+	// scope rows out of runner secret resolution when the gate is
+	// active. Zero value = report-only (rows are included so observers
+	// can verify the merge produces what the user expected).
+	BillingEnforce config.EnforceConfig
 }
 
 // Handlers is the registered API handler set. Construct with New.
