@@ -121,6 +121,26 @@ const (
 	// empty) before PRO-EXT01-17 flips the enforce flag.
 	// Kinds: user only.
 	FeatureUserActionsSecrets Feature = "user_actions_secrets"
+	// FeatureWebhookRelay gates a Pro user's personal webhook relay
+	// (PRO-EXT01-13a). A relay is an inbound endpoint that re-fans
+	// upstream POSTs to N user-configured destination URLs with HMAC
+	// signing. Gate fires at the receiver (deny inbound) AND at
+	// create time (deny new relays). Free users under report-only
+	// can still receive — the gate logs the would-deny so SREs can
+	// see relay traffic shape before flipping enforce.
+	//
+	// SECURITY-CRITICAL — a relay is an amplification vector
+	// (1 in → N out). Ship in report-only and run a security review
+	// pass before PRO-EXT01-17 flips enforce.
+	// Kinds: user only.
+	FeatureWebhookRelay Feature = "webhook_relay"
+	// FeatureCronWorkflowDispatch gates Pro-only scheduled workflow
+	// dispatch — a per-account cron that fires workflow_dispatch
+	// without committing a `schedule:` block (PRO-EXT01-13b).
+	// Registered in 13a so the entitlements surface is complete; the
+	// scheduler that consumes the gate ships in 13b.
+	// Kinds: user only.
+	FeatureCronWorkflowDispatch Feature = "cron_workflow_dispatch"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -222,6 +242,8 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureSecretScanHistory:        {billing.SubjectKindUser},
 	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
 	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
+	FeatureWebhookRelay:             {billing.SubjectKindUser},
+	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
