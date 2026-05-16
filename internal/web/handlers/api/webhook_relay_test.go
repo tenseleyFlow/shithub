@@ -5,7 +5,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -212,6 +211,3 @@ func TestRelayReceiver_FreeUserReportOnlyEmitsLogAndAccepts(t *testing.T) {
 		}
 	}
 }
-
-// Silence the unused warning on io when fancier asserts go away.
-var _ = io.Discard

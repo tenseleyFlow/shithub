@@ -241,6 +241,12 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/actions/secrets/{name}/delete", h.settingsActionsSecretDelete)
 			r.Post("/settings/actions/variables", h.settingsActionsVariableCreate)
 			r.Post("/settings/actions/variables/{name}/delete", h.settingsActionsVariableDelete)
+			// PRO-EXT01-13c: automation settings — relays + cron schedules.
+			r.Get("/settings/automation", h.settingsAutomationForm)
+			r.Post("/settings/automation/relays", h.settingsAutomationRelayCreate)
+			r.Post("/settings/automation/relays/{id}/delete", h.settingsAutomationRelayDelete)
+			r.Post("/settings/automation/cron", h.settingsAutomationCronCreate)
+			r.Post("/settings/automation/cron/{id}/delete", h.settingsAutomationCronDelete)
 			if h.d.SecretBox != nil {
 				r.Get("/settings/security/2fa/enable", h.twoFactorEnableForm)
 				r.Post("/settings/security/2fa/enable", h.twoFactorEnableSubmit)

@@ -1,0 +1,132 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Automation</h1>
+    <section class="shithub-settings-section">
+      <p>
+        Personal automation: webhook relays and cron-scheduled workflow
+        dispatches. Both are Pro features and span every repository you
+        own.
+      </p>
+      {{ if not .Allowed }}
+      <div class="shithub-flash shithub-flash-info shithub-pro-lock" data-pro-feature="{{ .FineGrainedKey }}" role="status">
+        <strong>Pro feature.</strong>
+        <p>Automation requires a Pro subscription. While in preview your settings are saved but workflows won't see them yet.</p>
+        {{ template "pro-lock-cta" .FineGrainedKey }}
+      </div>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Webhook relays</h2>
+      <p>
+        Forward inbound HTTP POSTs to one or more destination URLs.
+        Useful for fanning a single upstream webhook out to dev/staging
+        environments. Each relay gets an HMAC-signed delivery the
+        receiver can verify with the per-relay shared secret.
+      </p>
+      {{ with .RelayError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+      {{ if .Relays }}
+      <table class="shithub-table">
+        <thead><tr><th scope="col">Name</th><th scope="col">Token</th><th scope="col">Destinations</th><th scope="col"></th></tr></thead>
+        <tbody>
+        {{ range .Relays }}
+          <tr>
+            <td><strong>{{ .Name }}</strong>{{ if .Disabled }} <span class="shithub-key-meta">(disabled)</span>{{ end }}</td>
+            <td><code>{{ .TokenPrefix }}…</code></td>
+            <td>
+              {{ range .Destinations }}<code>{{ .URL }}</code><br>{{ end }}
+            </td>
+            <td>
+              <form method="POST" action="/settings/automation/relays/{{ .ID }}/delete" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-key-empty">No relays yet.</p>
+      {{ end }}
+
+      <h3>Add a relay</h3>
+      <form method="POST" action="/settings/automation/relays" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required maxlength="80" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }} placeholder="github-mirror">
+        </label>
+        <label>
+          <span>Destination URL 1</span>
+          <input type="url" name="destination_url_1" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }} placeholder="https://example.test/hook">
+        </label>
+        <label>
+          <span>Destination URL 2 <small>(optional)</small></span>
+          <input type="url" name="destination_url_2" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }}>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }}>Create relay</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Cron-scheduled workflow dispatch</h2>
+      <p>
+        Fire a workflow on a cron cadence without committing a
+        <code>schedule:</code> block. Standard 5-field cron in UTC.
+      </p>
+      {{ with .CronError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+      {{ if .CronDispatches }}
+      <table class="shithub-table">
+        <thead><tr><th scope="col">Workflow</th><th scope="col">Ref</th><th scope="col">Cron</th><th scope="col">Next fire</th><th scope="col">Last fire</th><th scope="col"></th></tr></thead>
+        <tbody>
+        {{ range .CronDispatches }}
+          <tr>
+            <td><code>{{ .WorkflowFile }}</code>{{ if .Disabled }} <span class="shithub-key-meta">(disabled)</span>{{ end }}</td>
+            <td><code>{{ .Ref }}</code></td>
+            <td><code>{{ .CronExpr }}</code></td>
+            <td>{{ .NextFireAt.Format "2006-01-02 15:04 UTC" }}</td>
+            <td>{{ if not .LastFireAt.IsZero }}{{ .LastFireAt.Format "2006-01-02 15:04 UTC" }} <span class="shithub-key-meta">({{ .LastFireStatus }})</span>{{ end }}</td>
+            <td>
+              <form method="POST" action="/settings/automation/cron/{{ .ID }}/delete" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-key-empty">No cron dispatches yet.</p>
+      {{ end }}
+
+      <h3>Add a cron schedule</h3>
+      <form method="POST" action="/settings/automation/cron" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Repository ID</span>
+          <input type="number" name="repo_id" required min="1" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }}>
+        </label>
+        <label>
+          <span>Workflow file</span>
+          <input type="text" name="workflow_file" required {{ if not .Allowed }}disabled aria-disabled="true"{{ end }} placeholder=".shithub/workflows/ci.yml">
+        </label>
+        <label>
+          <span>Ref</span>
+          <input type="text" name="ref" required {{ if not .Allowed }}disabled aria-disabled="true"{{ end }} placeholder="trunk">
+        </label>
+        <label>
+          <span>Cron expression <small>(UTC, 5 fields)</small></span>
+          <input type="text" name="cron_expr" required {{ if not .Allowed }}disabled aria-disabled="true"{{ end }} placeholder="0 * * * *">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary" {{ if not .Allowed }}disabled aria-disabled="true"{{ end }}>Schedule</button>
+      </form>
+    </section>
+  </div>
+</div>
+{{- end }}
