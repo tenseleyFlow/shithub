@@ -86,6 +86,10 @@ func TestUserKeys_CreateListGetDelete(t *testing.T) {
 	if !strings.HasPrefix(created.Fingerprint, "SHA256:") {
 		t.Errorf("fingerprint not prefixed: %q", created.Fingerprint)
 	}
+	if strings.Count(created.Fingerprint, "SHA256:") != 1 {
+		t.Errorf("fingerprint prefix count = %d, want 1: %q",
+			strings.Count(created.Fingerprint, "SHA256:"), created.Fingerprint)
+	}
 
 	// List.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/user/keys", nil)
@@ -102,6 +106,9 @@ func TestUserKeys_CreateListGetDelete(t *testing.T) {
 	if len(listed) != 1 || listed[0].ID != created.ID {
 		t.Errorf("list shape unexpected: %+v", listed)
 	}
+	if listed[0].Fingerprint != created.Fingerprint {
+		t.Errorf("list fingerprint = %q, want %q", listed[0].Fingerprint, created.Fingerprint)
+	}
 
 	// Get by id.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/user/keys/"+itoa(created.ID), nil)
@@ -110,6 +117,13 @@ func TestUserKeys_CreateListGetDelete(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var got apiUserKey
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get: %v; body=%s", err, rr.Body.String())
+	}
+	if got.Fingerprint != created.Fingerprint {
+		t.Errorf("get fingerprint = %q, want %q", got.Fingerprint, created.Fingerprint)
 	}
 
 	// Delete.

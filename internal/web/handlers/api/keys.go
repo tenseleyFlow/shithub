@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -60,7 +61,7 @@ func presentUserKey(k usersdb.UserSshKey) userKeyResponse {
 		ID:          k.ID,
 		Title:       k.Title,
 		Key:         k.PublicKey,
-		Fingerprint: "SHA256:" + k.FingerprintSha256,
+		Fingerprint: presentSSHFingerprint(k.FingerprintSha256),
 		KeyType:     k.KeyType,
 		// Every key shithub stores has been parsed and validated at
 		// upload time. Surface as verified=true so gh-shaped clients
@@ -69,6 +70,13 @@ func presentUserKey(k usersdb.UserSshKey) userKeyResponse {
 		ReadOnly:  false,
 		CreatedAt: k.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}
+}
+
+func presentSSHFingerprint(fp string) string {
+	if strings.HasPrefix(fp, "SHA256:") {
+		return fp
+	}
+	return "SHA256:" + fp
 }
 
 func (h *Handlers) userKeysList(w http.ResponseWriter, r *http.Request) {
