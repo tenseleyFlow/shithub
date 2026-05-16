@@ -227,6 +227,12 @@ func (h *Handlers) Mount(r chi.Router) {
 		// S50 §2 follow-ups — README + topics + fork-sync.
 		h.mountReposFollowups(r)
 	})
+	// PRO-EXT01-13a — webhook relay receiver. Mounted OUTSIDE the
+	// PAT-auth + api-body-cap groups: the URL token is the only
+	// authentication, the body cap is enforced inline (1 MiB, smaller
+	// than the api-wide cap), and the per-token rate limit is wired
+	// in mountWebhookRelay itself.
+	h.mountWebhookRelay(r)
 }
 
 // userResponse is the public shape of a user record. Mirrors GitHub's
