@@ -1616,6 +1616,53 @@ func (ns NullTrendingScope) Value() (driver.Value, error) {
 	return string(ns.TrendingScope), nil
 }
 
+type UserCronDispatchLastStatus string
+
+const (
+	UserCronDispatchLastStatusPending                UserCronDispatchLastStatus = "pending"
+	UserCronDispatchLastStatusFired                  UserCronDispatchLastStatus = "fired"
+	UserCronDispatchLastStatusSkippedEntitlement     UserCronDispatchLastStatus = "skipped_entitlement"
+	UserCronDispatchLastStatusSkippedMissingRef      UserCronDispatchLastStatus = "skipped_missing_ref"
+	UserCronDispatchLastStatusSkippedMissingWorkflow UserCronDispatchLastStatus = "skipped_missing_workflow"
+	UserCronDispatchLastStatusSkippedParseError      UserCronDispatchLastStatus = "skipped_parse_error"
+	UserCronDispatchLastStatusError                  UserCronDispatchLastStatus = "error"
+)
+
+func (e *UserCronDispatchLastStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserCronDispatchLastStatus(s)
+	case string:
+		*e = UserCronDispatchLastStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserCronDispatchLastStatus: %T", src)
+	}
+	return nil
+}
+
+type NullUserCronDispatchLastStatus struct {
+	UserCronDispatchLastStatus UserCronDispatchLastStatus
+	Valid                      bool // Valid is true if UserCronDispatchLastStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserCronDispatchLastStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserCronDispatchLastStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserCronDispatchLastStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserCronDispatchLastStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserCronDispatchLastStatus), nil
+}
+
 type UserPlan string
 
 const (
@@ -3095,6 +3142,22 @@ type UserContributionRepoOptout struct {
 	UserID    int64
 	RepoID    int64
 	CreatedAt pgtype.Timestamptz
+}
+
+type UserCronDispatch struct {
+	ID             int64
+	UserID         int64
+	RepoID         int64
+	WorkflowFile   string
+	Ref            string
+	CronExpr       string
+	NextFireAt     pgtype.Timestamptz
+	LastFireAt     pgtype.Timestamptz
+	LastFireStatus UserCronDispatchLastStatus
+	LastFireError  pgtype.Text
+	DisabledAt     pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type UserEmail struct {
