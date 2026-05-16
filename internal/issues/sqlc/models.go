@@ -1829,6 +1829,50 @@ func (ns NullWebhookOwnerKind) Value() (driver.Value, error) {
 	return string(ns.WebhookOwnerKind), nil
 }
 
+type WebhookRelayDeliveryStatus string
+
+const (
+	WebhookRelayDeliveryStatusPending         WebhookRelayDeliveryStatus = "pending"
+	WebhookRelayDeliveryStatusSucceeded       WebhookRelayDeliveryStatus = "succeeded"
+	WebhookRelayDeliveryStatusFailedRetry     WebhookRelayDeliveryStatus = "failed_retry"
+	WebhookRelayDeliveryStatusFailedPermanent WebhookRelayDeliveryStatus = "failed_permanent"
+)
+
+func (e *WebhookRelayDeliveryStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WebhookRelayDeliveryStatus(s)
+	case string:
+		*e = WebhookRelayDeliveryStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WebhookRelayDeliveryStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWebhookRelayDeliveryStatus struct {
+	WebhookRelayDeliveryStatus WebhookRelayDeliveryStatus
+	Valid                      bool // Valid is true if WebhookRelayDeliveryStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWebhookRelayDeliveryStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WebhookRelayDeliveryStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WebhookRelayDeliveryStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWebhookRelayDeliveryStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WebhookRelayDeliveryStatus), nil
+}
+
 type WorkflowAnnotationLevel string
 
 const (
@@ -3196,6 +3240,20 @@ type UserUsernameReservation struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
+type UserWebhookRelay struct {
+	ID                   int64
+	UserID               int64
+	Name                 string
+	TokenHash            []byte
+	TokenPrefix          string
+	HmacSecretCiphertext []byte
+	HmacSecretNonce      []byte
+	Destinations         []byte
+	DisabledAt           pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
 type UsernameRedirect struct {
 	OldUsername string
 	UserID      int64
@@ -3266,6 +3324,23 @@ type WebhookEventsPending struct {
 	EventKind string
 	Payload   []byte
 	CreatedAt pgtype.Timestamptz
+}
+
+type WebhookRelayDelivery struct {
+	ID             int64
+	RelayID        int64
+	DestinationUrl string
+	Status         WebhookRelayDeliveryStatus
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	PayloadBytes   []byte
+	RequestID      string
+	LastStatusCode pgtype.Int4
+	LastError      pgtype.Text
+	DeliveredAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type WorkflowAnnotation struct {
