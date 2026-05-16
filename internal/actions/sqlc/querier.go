@@ -81,6 +81,7 @@ type Querier interface {
 	GetStepLogChunkBefore(ctx context.Context, db DBTX, arg GetStepLogChunkBeforeParams) (WorkflowStepLogChunk, error)
 	GetStepLogChunkByStepSeq(ctx context.Context, db DBTX, arg GetStepLogChunkByStepSeqParams) (WorkflowStepLogChunk, error)
 	GetUserSecret(ctx context.Context, db DBTX, arg GetUserSecretParams) (GetUserSecretRow, error)
+	GetUserSecretMeta(ctx context.Context, db DBTX, arg GetUserSecretMetaParams) (GetUserSecretMetaRow, error)
 	GetUserVariable(ctx context.Context, db DBTX, arg GetUserVariableParams) (GetUserVariableRow, error)
 	GetWorkflowCacheByID(ctx context.Context, db DBTX, id int64) (WorkflowCache, error)
 	GetWorkflowJobByID(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
@@ -146,6 +147,11 @@ type Querier interface {
 	ListStepLogChunks(ctx context.Context, db DBTX, arg ListStepLogChunksParams) ([]WorkflowStepLogChunk, error)
 	ListStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListStepsForJobRow, error)
 	ListUserSecrets(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserSecretsRow, error)
+	// PRO-EXT_SR-08: bulk-fetch + meta-only single-row queries to retire
+	// two N+1 patterns. The runner's mergeUserSecrets used to do 1 List
+	// followed by N GetUserSecret calls; the REST GET-by-name did a list
+	// scan instead of a direct lookup.
+	ListUserSecretsWithCiphertext(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserSecretsWithCiphertextRow, error)
 	ListUserVariables(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserVariablesRow, error)
 	ListWorkflowAnnotationsForRun(ctx context.Context, db DBTX, runID int64) ([]ListWorkflowAnnotationsForRunRow, error)
 	ListWorkflowAnnotationsForStep(ctx context.Context, db DBTX, stepID int64) ([]WorkflowAnnotation, error)

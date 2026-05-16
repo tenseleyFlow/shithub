@@ -75,3 +75,19 @@ WHERE user_id = $1 AND name = $2;
 
 -- name: DeleteUserSecret :exec
 DELETE FROM workflow_secrets WHERE user_id = $1 AND name = $2;
+
+-- PRO-EXT_SR-08: bulk-fetch + meta-only single-row queries to retire
+-- two N+1 patterns. The runner's mergeUserSecrets used to do 1 List
+-- followed by N GetUserSecret calls; the REST GET-by-name did a list
+-- scan instead of a direct lookup.
+
+-- name: ListUserSecretsWithCiphertext :many
+SELECT id, name, ciphertext, nonce, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE user_id = $1
+ORDER BY name ASC;
+
+-- name: GetUserSecretMeta :one
+SELECT id, name, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE user_id = $1 AND name = $2;

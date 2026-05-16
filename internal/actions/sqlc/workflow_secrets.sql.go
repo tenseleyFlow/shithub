@@ -143,6 +143,38 @@ func (q *Queries) GetUserSecret(ctx context.Context, db DBTX, arg GetUserSecretP
 	return i, err
 }
 
+const getUserSecretMeta = `-- name: GetUserSecretMeta :one
+SELECT id, name, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE user_id = $1 AND name = $2
+`
+
+type GetUserSecretMetaParams struct {
+	UserID pgtype.Int8
+	Name   string
+}
+
+type GetUserSecretMetaRow struct {
+	ID              int64
+	Name            string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserSecretMeta(ctx context.Context, db DBTX, arg GetUserSecretMetaParams) (GetUserSecretMetaRow, error) {
+	row := db.QueryRow(ctx, getUserSecretMeta, arg.UserID, arg.Name)
+	var i GetUserSecretMetaRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listOrgSecrets = `-- name: ListOrgSecrets :many
 SELECT id, name, created_by_user_id, created_at, updated_at
 FROM workflow_secrets
@@ -252,6 +284,56 @@ func (q *Queries) ListUserSecrets(ctx context.Context, db DBTX, userID pgtype.In
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserSecretsWithCiphertext = `-- name: ListUserSecretsWithCiphertext :many
+
+SELECT id, name, ciphertext, nonce, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE user_id = $1
+ORDER BY name ASC
+`
+
+type ListUserSecretsWithCiphertextRow struct {
+	ID              int64
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// PRO-EXT_SR-08: bulk-fetch + meta-only single-row queries to retire
+// two N+1 patterns. The runner's mergeUserSecrets used to do 1 List
+// followed by N GetUserSecret calls; the REST GET-by-name did a list
+// scan instead of a direct lookup.
+func (q *Queries) ListUserSecretsWithCiphertext(ctx context.Context, db DBTX, userID pgtype.Int8) ([]ListUserSecretsWithCiphertextRow, error) {
+	rows, err := db.Query(ctx, listUserSecretsWithCiphertext, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserSecretsWithCiphertextRow{}
+	for rows.Next() {
+		var i ListUserSecretsWithCiphertextRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Ciphertext,
+			&i.Nonce,
 			&i.CreatedByUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
