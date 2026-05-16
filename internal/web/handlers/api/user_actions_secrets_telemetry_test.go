@@ -91,7 +91,11 @@ func newTelemetryEnv(t *testing.T, enforce bool) *telemetryEnv {
 		pool:    pool,
 		userID:  userID,
 		logBuf:  logBuf,
-		tokenRW: mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite)),
+		// PRO-EXT_SR-06: user-scope endpoints now require user:read /
+		// user:write. Use a token holding both so this env can fetch the
+		// public key (read) and PUT (write).
+		tokenRW: mintRunnerAPIPAT(t, pool, userID,
+			string(pat.ScopeUserRead), string(pat.ScopeUserWrite)),
 	}
 }
 
