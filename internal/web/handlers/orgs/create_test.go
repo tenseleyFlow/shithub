@@ -166,6 +166,25 @@ func TestOrgNewFormAcceptsGitHubBusinessPlanAlias(t *testing.T) {
 	}
 }
 
+func TestOrgNewFormRoutesEnterpriseToContactSales(t *testing.T) {
+	t.Parallel()
+	srv, _ := newOrgCreateServer(t, true)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/organizations/new?plan=enterprise")
+	if err != nil {
+		t.Fatalf("GET organizations/new?plan=enterprise: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "PLAN_PAGE") || !strings.Contains(string(body), "ERROR=Enterprise organizations are contact-sales only today.") {
+		t.Fatalf("expected enterprise contact-sales plan page, got: %s", body)
+	}
+}
+
 func TestOrgNewFormSkipsPlanSelectionWhenBillingDisabled(t *testing.T) {
 	t.Parallel()
 	srv, _ := newOrgCreateServer(t, false)
@@ -182,6 +201,47 @@ func TestOrgNewFormSkipsPlanSelectionWhenBillingDisabled(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "FORM_PLAN=free") {
 		t.Fatalf("expected free setup form, got: %s", body)
+	}
+}
+
+func TestOrgCreateFreePlanRedirectsToOrganization(t *testing.T) {
+	t.Parallel()
+	srv, pool := newOrgCreateServer(t, true)
+	t.Cleanup(srv.Close)
+
+	cli := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := cli.PostForm(srv.URL+"/organizations", url.Values{
+		"plan":          {"free"},
+		"slug":          {"acme"},
+		"display_name":  {"Acme"},
+		"billing_email": {"billing@example.com"},
+		"accept_terms":  {"1"},
+	})
+	if err != nil {
+		t.Fatalf("POST organizations: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != "/acme" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	org, err := orgsdb.New().GetOrgBySlug(context.Background(), pool, "acme")
+	if err != nil {
+		t.Fatalf("GetOrgBySlug: %v", err)
+	}
+	if org.DisplayName != "Acme" || org.BillingEmail != "billing@example.com" {
+		t.Fatalf("unexpected org: %#v", org)
+	}
+	state, err := orgbilling.GetOrgBillingState(context.Background(), orgbilling.Deps{Pool: pool}, org.ID)
+	if err != nil {
+		t.Fatalf("GetOrgBillingState: %v", err)
+	}
+	if state.Plan != orgbilling.PlanFree || state.LicensedSeats != 0 || state.UsedSeats != 0 {
+		t.Fatalf("expected free billing state without licensed seats, got: %+v", state)
 	}
 }
 
