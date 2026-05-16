@@ -155,6 +155,9 @@ type InvoiceSnapshot struct {
 	AmountDueCents       int64
 	AmountPaidCents      int64
 	AmountRemainingCents int64
+	BillingReason        string
+	HasProration         bool
+	ProrationAmountCents int64
 	HostedInvoiceURL     string
 	InvoicePDFURL        string
 	PeriodStart          time.Time
@@ -504,6 +507,9 @@ func UpsertInvoice(ctx context.Context, deps Deps, snap InvoiceSnapshot) (billin
 		AmountDueCents:       snap.AmountDueCents,
 		AmountPaidCents:      snap.AmountPaidCents,
 		AmountRemainingCents: snap.AmountRemainingCents,
+		BillingReason:        strings.TrimSpace(snap.BillingReason),
+		HasProration:         snap.HasProration,
+		ProrationAmountCents: snap.ProrationAmountCents,
 		HostedInvoiceUrl:     strings.TrimSpace(snap.HostedInvoiceURL),
 		InvoicePdfUrl:        strings.TrimSpace(snap.InvoicePDFURL),
 		PeriodStart:          pgTime(snap.PeriodStart),

@@ -1251,7 +1251,7 @@ func (q *Queries) ListFailedWebhookEvents(ctx context.Context, db DBTX, limit in
 }
 
 const listInvoicesForOrg = `-- name: ListInvoicesForOrg :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at, billing_reason, has_proration, proration_amount_cents FROM billing_invoices
 WHERE subject_kind = 'org' AND subject_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
@@ -1300,6 +1300,9 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 			&i.SubjectKind,
 			&i.SubjectID,
 			&i.RefundedAt,
+			&i.BillingReason,
+			&i.HasProration,
+			&i.ProrationAmountCents,
 		); err != nil {
 			return nil, err
 		}
@@ -1312,7 +1315,7 @@ func (q *Queries) ListInvoicesForOrg(ctx context.Context, db DBTX, arg ListInvoi
 }
 
 const listInvoicesForSubject = `-- name: ListInvoicesForSubject :many
-SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at FROM billing_invoices
+SELECT id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at, billing_reason, has_proration, proration_amount_cents FROM billing_invoices
 WHERE subject_kind = $1::billing_subject_kind
   AND subject_id = $2::bigint
 ORDER BY created_at DESC, id DESC
@@ -1363,6 +1366,9 @@ func (q *Queries) ListInvoicesForSubject(ctx context.Context, db DBTX, arg ListI
 			&i.SubjectKind,
 			&i.SubjectID,
 			&i.RefundedAt,
+			&i.BillingReason,
+			&i.HasProration,
+			&i.ProrationAmountCents,
 		); err != nil {
 			return nil, err
 		}
@@ -1637,7 +1643,7 @@ UPDATE billing_invoices
        updated_at = now()
  WHERE provider = 'stripe'
    AND stripe_invoice_id = $1::text
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at, billing_reason, has_proration, proration_amount_cents
 `
 
 // PRO08 D2: surface a Stripe-side refund in shithub. Stripe leaves
@@ -1676,6 +1682,9 @@ func (q *Queries) MarkInvoiceRefunded(ctx context.Context, db DBTX, stripeInvoic
 		&i.SubjectKind,
 		&i.SubjectID,
 		&i.RefundedAt,
+		&i.BillingReason,
+		&i.HasProration,
+		&i.ProrationAmountCents,
 	)
 	return i, err
 }
@@ -2412,6 +2421,9 @@ INSERT INTO billing_invoices (
     amount_due_cents,
     amount_paid_cents,
     amount_remaining_cents,
+    billing_reason,
+    has_proration,
+    proration_amount_cents,
     hosted_invoice_url,
     invoice_pdf_url,
     period_start,
@@ -2435,12 +2447,15 @@ VALUES (
     $9::bigint,
     $10::bigint,
     $11::text,
-    $12::text,
-    $13::timestamptz,
-    $14::timestamptz,
-    $15::timestamptz,
+    $12::boolean,
+    $13::bigint,
+    $14::text,
+    $15::text,
     $16::timestamptz,
-    $17::timestamptz
+    $17::timestamptz,
+    $18::timestamptz,
+    $19::timestamptz,
+    $20::timestamptz
 )
 ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
    SET org_id = EXCLUDED.org_id,
@@ -2452,6 +2467,15 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        amount_due_cents = EXCLUDED.amount_due_cents,
        amount_paid_cents = EXCLUDED.amount_paid_cents,
        amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       billing_reason = CASE
+           WHEN EXCLUDED.billing_reason <> '' THEN EXCLUDED.billing_reason
+           ELSE billing_invoices.billing_reason
+       END,
+       has_proration = billing_invoices.has_proration OR EXCLUDED.has_proration,
+       proration_amount_cents = CASE
+           WHEN EXCLUDED.has_proration THEN EXCLUDED.proration_amount_cents
+           ELSE billing_invoices.proration_amount_cents
+       END,
        hosted_invoice_url = EXCLUDED.hosted_invoice_url,
        invoice_pdf_url = EXCLUDED.invoice_pdf_url,
        period_start = EXCLUDED.period_start,
@@ -2460,7 +2484,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at, billing_reason, has_proration, proration_amount_cents
 `
 
 type UpsertInvoiceParams struct {
@@ -2474,6 +2498,9 @@ type UpsertInvoiceParams struct {
 	AmountDueCents       int64
 	AmountPaidCents      int64
 	AmountRemainingCents int64
+	BillingReason        string
+	HasProration         bool
+	ProrationAmountCents int64
 	HostedInvoiceUrl     string
 	InvoicePdfUrl        string
 	PeriodStart          pgtype.Timestamptz
@@ -2501,6 +2528,9 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 		arg.AmountDueCents,
 		arg.AmountPaidCents,
 		arg.AmountRemainingCents,
+		arg.BillingReason,
+		arg.HasProration,
+		arg.ProrationAmountCents,
 		arg.HostedInvoiceUrl,
 		arg.InvoicePdfUrl,
 		arg.PeriodStart,
@@ -2535,6 +2565,9 @@ func (q *Queries) UpsertInvoice(ctx context.Context, db DBTX, arg UpsertInvoiceP
 		&i.SubjectKind,
 		&i.SubjectID,
 		&i.RefundedAt,
+		&i.BillingReason,
+		&i.HasProration,
+		&i.ProrationAmountCents,
 	)
 	return i, err
 }
@@ -2553,6 +2586,9 @@ INSERT INTO billing_invoices (
     amount_due_cents,
     amount_paid_cents,
     amount_remaining_cents,
+    billing_reason,
+    has_proration,
+    proration_amount_cents,
     hosted_invoice_url,
     invoice_pdf_url,
     period_start,
@@ -2575,12 +2611,15 @@ VALUES (
     $10::bigint,
     $11::bigint,
     $12::text,
-    $13::text,
-    $14::timestamptz,
-    $15::timestamptz,
-    $16::timestamptz,
+    $13::boolean,
+    $14::bigint,
+    $15::text,
+    $16::text,
     $17::timestamptz,
-    $18::timestamptz
+    $18::timestamptz,
+    $19::timestamptz,
+    $20::timestamptz,
+    $21::timestamptz
 )
 ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
    SET subject_kind = EXCLUDED.subject_kind,
@@ -2593,6 +2632,15 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        amount_due_cents = EXCLUDED.amount_due_cents,
        amount_paid_cents = EXCLUDED.amount_paid_cents,
        amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       billing_reason = CASE
+           WHEN EXCLUDED.billing_reason <> '' THEN EXCLUDED.billing_reason
+           ELSE billing_invoices.billing_reason
+       END,
+       has_proration = billing_invoices.has_proration OR EXCLUDED.has_proration,
+       proration_amount_cents = CASE
+           WHEN EXCLUDED.has_proration THEN EXCLUDED.proration_amount_cents
+           ELSE billing_invoices.proration_amount_cents
+       END,
        hosted_invoice_url = EXCLUDED.hosted_invoice_url,
        invoice_pdf_url = EXCLUDED.invoice_pdf_url,
        period_start = EXCLUDED.period_start,
@@ -2601,7 +2649,7 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        paid_at = EXCLUDED.paid_at,
        voided_at = EXCLUDED.voided_at,
        updated_at = now()
-RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at
+RETURNING id, org_id, provider, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, status, number, currency, amount_due_cents, amount_paid_cents, amount_remaining_cents, hosted_invoice_url, invoice_pdf_url, period_start, period_end, due_at, paid_at, voided_at, created_at, updated_at, subject_kind, subject_id, refunded_at, billing_reason, has_proration, proration_amount_cents
 `
 
 type UpsertInvoiceForSubjectParams struct {
@@ -2616,6 +2664,9 @@ type UpsertInvoiceForSubjectParams struct {
 	AmountDueCents       int64
 	AmountPaidCents      int64
 	AmountRemainingCents int64
+	BillingReason        string
+	HasProration         bool
+	ProrationAmountCents int64
 	HostedInvoiceUrl     string
 	InvoicePdfUrl        string
 	PeriodStart          pgtype.Timestamptz
@@ -2644,6 +2695,9 @@ func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg Upse
 		arg.AmountDueCents,
 		arg.AmountPaidCents,
 		arg.AmountRemainingCents,
+		arg.BillingReason,
+		arg.HasProration,
+		arg.ProrationAmountCents,
 		arg.HostedInvoiceUrl,
 		arg.InvoicePdfUrl,
 		arg.PeriodStart,
@@ -2678,6 +2732,9 @@ func (q *Queries) UpsertInvoiceForSubject(ctx context.Context, db DBTX, arg Upse
 		&i.SubjectKind,
 		&i.SubjectID,
 		&i.RefundedAt,
+		&i.BillingReason,
+		&i.HasProration,
+		&i.ProrationAmountCents,
 	)
 	return i, err
 }

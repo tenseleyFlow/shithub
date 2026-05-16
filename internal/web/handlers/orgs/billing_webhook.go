@@ -510,6 +510,7 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 	if err != nil {
 		return err
 	}
+	hasProration, prorationAmount := stripeInvoiceProrationSummary(&inv)
 	if _, err := orgbilling.UpsertInvoiceForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, principalState.Principal, orgbilling.InvoiceSnapshot{
 		StripeInvoiceID:      strings.TrimSpace(inv.ID),
 		StripeCustomerID:     stripeCustomerID(inv.Customer),
@@ -520,6 +521,9 @@ func (h *Handlers) applyStripeInvoiceEvent(ctx context.Context, event stripeapi.
 		AmountDueCents:       inv.AmountDue,
 		AmountPaidCents:      inv.AmountPaid,
 		AmountRemainingCents: inv.AmountRemaining,
+		BillingReason:        string(inv.BillingReason),
+		HasProration:         hasProration,
+		ProrationAmountCents: prorationAmount,
 		HostedInvoiceURL:     strings.TrimSpace(inv.HostedInvoiceURL),
 		InvoicePDFURL:        strings.TrimSpace(inv.InvoicePDF),
 		PeriodStart:          unixTime(inv.PeriodStart),
@@ -700,6 +704,35 @@ func stripeInvoiceSubscriptionID(inv *stripeapi.Invoice) string {
 		return ""
 	}
 	return strings.TrimSpace(inv.Parent.SubscriptionDetails.Subscription.ID)
+}
+
+func stripeInvoiceProrationSummary(inv *stripeapi.Invoice) (bool, int64) {
+	if inv == nil || inv.Lines == nil {
+		return false, 0
+	}
+	var total int64
+	hasProration := false
+	for _, line := range inv.Lines.Data {
+		if !stripeInvoiceLineIsProration(line) {
+			continue
+		}
+		hasProration = true
+		total += line.Amount
+	}
+	return hasProration, total
+}
+
+func stripeInvoiceLineIsProration(line *stripeapi.InvoiceLineItem) bool {
+	if line == nil || line.Parent == nil {
+		return false
+	}
+	if line.Parent.InvoiceItemDetails != nil && line.Parent.InvoiceItemDetails.Proration {
+		return true
+	}
+	if line.Parent.SubscriptionItemDetails != nil && line.Parent.SubscriptionItemDetails.Proration {
+		return true
+	}
+	return false
 }
 
 func stripeSubscriptionStatus(status stripeapi.SubscriptionStatus) (orgbilling.SubscriptionStatus, error) {
