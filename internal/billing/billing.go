@@ -537,6 +537,43 @@ func ListInvoicesForOrg(ctx context.Context, deps Deps, orgID int64, limit int32
 	})
 }
 
+// LatestConfirmedSeatSnapshotForOrg returns the newest seat snapshot
+// from a human-confirmed or operator repair path. Worker snapshots
+// intentionally do not count: they restate current local usage but do
+// not prove an owner accepted a billing quantity change.
+func LatestConfirmedSeatSnapshotForOrg(ctx context.Context, deps Deps, orgID int64) (billingdb.BillingSeatSnapshot, bool, error) {
+	if err := validateDeps(deps); err != nil {
+		return billingdb.BillingSeatSnapshot{}, false, err
+	}
+	if orgID == 0 {
+		return billingdb.BillingSeatSnapshot{}, false, ErrOrgIDRequired
+	}
+	rows, err := billingdb.New().ListSeatSnapshotsForOrg(ctx, deps.Pool, billingdb.ListSeatSnapshotsForOrgParams{
+		OrgID: orgID,
+		Limit: 50,
+	})
+	if err != nil {
+		return billingdb.BillingSeatSnapshot{}, false, err
+	}
+	for _, row := range rows {
+		if IsConfirmedSeatSnapshotSource(row.Source) {
+			return row, true, nil
+		}
+	}
+	return billingdb.BillingSeatSnapshot{}, false, nil
+}
+
+// IsConfirmedSeatSnapshotSource reports whether source represents a
+// local seat-count decision that should beat older Stripe webhooks.
+func IsConfirmedSeatSnapshotSource(source string) bool {
+	switch strings.TrimSpace(source) {
+	case "owner_add", "owner_remove", "stripe_repair":
+		return true
+	default:
+		return false
+	}
+}
+
 func SyncSeatSnapshot(ctx context.Context, deps Deps, snap SeatSnapshot) (billingdb.BillingSeatSnapshot, error) {
 	if err := validateDeps(deps); err != nil {
 		return billingdb.BillingSeatSnapshot{}, err

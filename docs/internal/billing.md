@@ -444,9 +444,11 @@ PAYMENTS SP16 starts the Stripe-correct seat-change contract:
   refuses repairs below current used seats, and records
   `admin_org_billing_seats_repaired` audit metadata. The repair action
   never changes Stripe billing.
-- SP16 still owns webhook reconciliation hardening for delayed
-  subscription quantity updates and clearer seat-change invoice
-  surfacing.
+- `customer.subscription.updated` preserves a newer owner-confirmed or
+  admin-repaired local licensed-seat count when Stripe delivers an
+  older subscription quantity event. The webhook still applies status,
+  period, and subscription metadata, but does not roll seats backward.
+- SP16 still owns clearer seat-change invoice surfacing.
 
 ## Entitlement architecture
 

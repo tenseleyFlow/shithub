@@ -293,7 +293,7 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 	itemID := stripeSubscriptionItemID(sub.Items)
 	licensedSeats := stripeSubscriptionItemQuantity(sub.Items)
 	periodStart, periodEnd := stripeSubscriptionPeriod(sub.Items)
-	if _, err := orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, orgbilling.PrincipalSubscriptionSnapshot{
+	snap := orgbilling.PrincipalSubscriptionSnapshot{
 		Principal:                principal,
 		Status:                   status,
 		StripeSubscriptionID:     strings.TrimSpace(sub.ID),
@@ -305,7 +305,12 @@ func (h *Handlers) applyStripeSubscriptionEvent(ctx context.Context, event strip
 		TrialEnd:                 unixTime(sub.TrialEnd),
 		CanceledAt:               unixTime(sub.CanceledAt),
 		LastWebhookEventID:       event.ID,
-	}); err != nil {
+	}
+	snap, err = h.reconcileSubscriptionSeatQuantity(ctx, event, snap)
+	if err != nil {
+		return err
+	}
+	if _, err := orgbilling.ApplySubscriptionSnapshotForPrincipal(ctx, orgbilling.Deps{Pool: h.d.Pool}, snap); err != nil {
 		return err
 	}
 	h.touchLastEventAt(ctx, event, principal)
@@ -394,6 +399,55 @@ func (h *Handlers) guardSubscriptionOverwrite(ctx context.Context, p orgbilling.
 		}
 	}
 	return nil
+}
+
+// reconcileSubscriptionSeatQuantity protects owner-confirmed Team
+// seat changes from delayed subscription.updated events. Stripe can
+// deliver an older quantity after the owner has already confirmed a
+// local add/remove-seat flow; when the event predates that confirmed
+// snapshot, preserve the current local licensed seat count while still
+// allowing the webhook to refresh status, period, and subscription ids.
+func (h *Handlers) reconcileSubscriptionSeatQuantity(ctx context.Context, event stripeapi.Event, snap orgbilling.PrincipalSubscriptionSnapshot) (orgbilling.PrincipalSubscriptionSnapshot, error) {
+	if snap.Principal.Kind != orgbilling.SubjectKindOrg {
+		return snap, nil
+	}
+	if snap.LicensedSeats < 1 {
+		return snap, nil
+	}
+	eventAt := unixTime(event.Created)
+	if eventAt.IsZero() {
+		return snap, nil
+	}
+	deps := orgbilling.Deps{Pool: h.d.Pool}
+	confirmed, ok, err := orgbilling.LatestConfirmedSeatSnapshotForOrg(ctx, deps, snap.Principal.ID)
+	if err != nil {
+		return snap, err
+	}
+	if !ok || !confirmed.CapturedAt.Valid || !confirmed.CapturedAt.Time.After(eventAt) {
+		return snap, nil
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, deps, snap.Principal.ID)
+	if err != nil {
+		return snap, err
+	}
+	if !orgbilling.IsTeamState(state) {
+		return snap, nil
+	}
+	localLicensed := int(state.LicensedSeats)
+	if localLicensed < 1 || localLicensed == snap.LicensedSeats {
+		return snap, nil
+	}
+	h.d.Logger.InfoContext(ctx, "org billing: preserving confirmed local seat quantity over delayed Stripe event",
+		"event_id", event.ID,
+		"event_type", event.Type,
+		"event_created", eventAt,
+		"org_id", snap.Principal.ID,
+		"stripe_licensed_seats", snap.LicensedSeats,
+		"local_licensed_seats", localLicensed,
+		"seat_snapshot_source", confirmed.Source,
+		"seat_snapshot_at", confirmed.CapturedAt.Time)
+	snap.LicensedSeats = localLicensed
+	return snap, nil
 }
 
 func (h *Handlers) guardPriceKindMatch(kind orgbilling.SubjectKind, sub *stripeapi.Subscription) error {
