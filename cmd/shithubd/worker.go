@@ -25,6 +25,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
+	"github.com/tenseleyFlow/shithub/internal/cronworkflow"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -224,6 +225,16 @@ var workerCmd = &cobra.Command{
 				SSRF:      webhook.DefaultSSRFConfig(),
 			}))
 		}
+
+		// PRO-EXT01-13b — cron-scheduled workflow_dispatch sweep.
+		// Operator's systemd timer enqueues KindCronWorkflowSweep on
+		// a minute beat; the handler claims due rows + fires each.
+		p.Register(cronworkflow.KindCronWorkflowSweep, jobs.CronWorkflowSweep(jobs.CronWorkflowSweepDeps{
+			Pool:           pool,
+			Logger:         logger,
+			RepoFS:         rfs,
+			BillingEnforce: cfg.Billing.Enforce,
+		}))
 
 		// Actions trigger pipeline (S41b). Discovers .shithub/workflows/
 		// at the head sha, parses each, matches against the triggering
