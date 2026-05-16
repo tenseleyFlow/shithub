@@ -317,6 +317,16 @@
                 <tr><th scope="row">Stripe customer</th><td>{{ if .Debug.StripeCustomerID }}{{ .Debug.StripeCustomerID }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Stripe subscription</th><td>{{ if .Debug.StripeSubscriptionID }}{{ .Debug.StripeSubscriptionID }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Stripe subscription item</th><td>{{ if .Debug.StripeSubscriptionItemID }}{{ .Debug.StripeSubscriptionItemID }}{{ else }}—{{ end }}</td></tr>
+                <tr>
+                  <th scope="row">Seat quantity drift</th>
+                  <td>
+                    <strong>{{ if .Debug.SeatDrift.Status }}{{ .Debug.SeatDrift.Status }}{{ else }}Unavailable{{ end }}</strong>
+                    <div class="shithub-empty-note">
+                      Local {{ .Debug.SeatDrift.LocalLicensedSeats }} licensed seats{{ if .Debug.SeatDrift.Available }} · Stripe {{ .Debug.SeatDrift.StripeSeats }} licensed seats{{ end }} · Used {{ .Debug.SeatDrift.UsedSeats }} seats.
+                      {{ .Debug.SeatDrift.Detail }}
+                    </div>
+                  </td>
+                </tr>
                 <tr><th scope="row">Last webhook event</th><td>{{ if .Debug.LastWebhookEventID }}{{ .Debug.LastWebhookEventID }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Webhook type</th><td>{{ if .Debug.LastWebhookEventType }}{{ .Debug.LastWebhookEventType }}{{ else }}—{{ end }}</td></tr>
                 <tr><th scope="row">Webhook status</th><td>{{ if .Debug.LastWebhookStatus }}{{ .Debug.LastWebhookStatus }}{{ else }}—{{ end }}</td></tr>
@@ -339,6 +349,16 @@
               </tbody>
             </table>
           </div>
+          {{ if .Debug.SeatDrift.CanRepair }}
+          <div class="Box-body border-top">
+            <h3 class="f4 mb-2">Repair seat quantity drift</h3>
+            <p class="shithub-empty-note mt-0 mb-3">This support action copies Stripe's live licensed-seat quantity into local entitlement state. It does not change Stripe billing.</p>
+            <form method="POST" action="/organizations/{{ .Org.Slug }}/billing/seat-drift/repair">
+              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Repair local seats from Stripe</button>
+            </form>
+          </div>
+          {{ end }}
           <div class="Box-body border-top">
             <h3 class="f4 mb-2">Quota overrides</h3>
             <p class="shithub-empty-note mt-0 mb-3">Temporary support overrides apply before plan limits and are visible to site admins only.</p>

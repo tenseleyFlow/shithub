@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	stripeapi "github.com/stripe/stripe-go/v85"
 
@@ -25,6 +26,7 @@ import (
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	orgsh "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
@@ -755,6 +757,207 @@ func TestOrgBillingSettingsSiteAdminDebugShowsProviderState(t *testing.T) {
 	}
 }
 
+func TestOrgBillingSettingsSiteAdminDebugDetectsSeatDrift(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_drift",
+		StripeSubscriptionItemID: "si_drift",
+		LicensedSeats:            3,
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		fetchSeatQuantityFn: func(_ context.Context, subscriptionItemID string) (int64, error) {
+			if subscriptionItemID != "si_drift" {
+				t.Fatalf("subscription item = %q", subscriptionItemID)
+			}
+			return 5, nil
+		},
+	}
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner", IsSiteAdmin: true}, fake)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "DRIFT=Drift detected|3|5|true;") {
+		t.Fatalf("settings did not render seat drift: %s", body)
+	}
+}
+
+func TestOrgBillingSiteAdminRepairsSeatDriftFromStripe(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	adminID := insertOrgAvatarUser(t, pool, "admin")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_repair",
+		StripeSubscriptionItemID: "si_repair",
+		LicensedSeats:            3,
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: adminID, Username: "admin", IsSiteAdmin: true}, &fakeStripeRemote{
+		fetchSeatQuantityFn: func(_ context.Context, subscriptionItemID string) (int64, error) {
+			if subscriptionItemID != "si_repair" {
+				t.Fatalf("subscription item = %q", subscriptionItemID)
+			}
+			return 5, nil
+		},
+	})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/seat-drift/repair", url.Values{})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("repair status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/organizations/acme/settings/billing?notice=seat-drift-repaired" {
+		t.Fatalf("repair redirect=%q", got)
+	}
+	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState: %v", err)
+	}
+	if state.LicensedSeats != 5 {
+		t.Fatalf("licensed seats=%d, want 5", state.LicensedSeats)
+	}
+	rows, err := usersdb.New().ListAuditLogForTarget(ctx, pool, usersdb.ListAuditLogForTargetParams{
+		TargetType: "org",
+		TargetID:   pgtype.Int8{Int64: orgID, Valid: true},
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLogForTarget: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Action != "admin_org_billing_seats_repaired" {
+		t.Fatalf("unexpected audit rows: %+v", rows)
+	}
+	if !rows[0].ActorID.Valid || rows[0].ActorID.Int64 != adminID {
+		t.Fatalf("audit actor=%+v, want %d", rows[0].ActorID, adminID)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(rows[0].Meta, &meta); err != nil {
+		t.Fatalf("audit meta unmarshal: %v", err)
+	}
+	if meta["stripe_subscription_item_id"] != "si_repair" || meta["source"] != "stripe_repair" {
+		t.Fatalf("unexpected audit meta: %v", meta)
+	}
+}
+
+func TestOrgBillingSeatDriftRepairBlocksBelowUsedSeats(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	adminID := insertOrgAvatarUser(t, pool, "admin")
+	memberID := insertOrgAvatarUser(t, pool, "member")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := pool.Exec(ctx, `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'member')`, orgID, memberID); err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_low",
+		StripeSubscriptionItemID: "si_low",
+		LicensedSeats:            2,
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	mux := newOrgBillingMuxForUser(t, pool, middleware.CurrentUser{ID: adminID, Username: "admin", IsSiteAdmin: true}, &fakeStripeRemote{
+		fetchSeatQuantityFn: func(context.Context, string) (int64, error) { return 1, nil },
+	})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/seat-drift/repair", url.Values{})
+	mux.ServeHTTP(resp, req)
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("repair status=%d body=%s", resp.Code, body)
+	}
+	if !strings.Contains(body, "ERROR=Stripe currently reports fewer seats than this organization is using.") {
+		t.Fatalf("repair did not explain below-used block: %s", body)
+	}
+	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState: %v", err)
+	}
+	if state.LicensedSeats != 2 {
+		t.Fatalf("licensed seats changed to %d, want 2", state.LicensedSeats)
+	}
+	rows, err := usersdb.New().ListAuditLogForTarget(ctx, pool, usersdb.ListAuditLogForTargetParams{
+		TargetType: "org",
+		TargetID:   pgtype.Int8{Int64: orgID, Valid: true},
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLogForTarget: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("blocked repair wrote audit rows: %+v", rows)
+	}
+}
+
+func TestOrgBillingSeatDriftRepairRequiresSiteAdmin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_owner",
+		StripeSubscriptionItemID: "si_owner",
+		LicensedSeats:            3,
+		CurrentPeriodStart:       time.Now().UTC().Add(-time.Hour),
+		CurrentPeriodEnd:         time.Now().UTC().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	mux := newOrgBillingMux(t, pool, ownerID, &fakeStripeRemote{
+		fetchSeatQuantityFn: func(context.Context, string) (int64, error) { return 5, nil },
+	})
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/billing/seat-drift/repair", url.Values{})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("repair status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetTeamLicenseState(ctx, orgbilling.Deps{Pool: pool}, orgID)
+	if err != nil {
+		t.Fatalf("GetTeamLicenseState: %v", err)
+	}
+	if state.LicensedSeats != 3 {
+		t.Fatalf("licensed seats changed to %d, want 3", state.LicensedSeats)
+	}
+}
+
 func TestOrgBillingSettingsShowsPastDueAlert(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1159,7 +1362,7 @@ func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cu
 	tmplFS := fstest.MapFS{
 		"_layout.html":                         {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/billing_result.html":             {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html":           {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing.html":           {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};DRIFT={{ .Debug.SeatDrift.Status }}|{{ .Debug.SeatDrift.LocalLicensedSeats }}|{{ .Debug.SeatDrift.StripeSeats }}|{{ .Debug.SeatDrift.CanRepair }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
 		"orgs/settings_billing_licensing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}LICENSE={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Consumers }}CONSUMER={{ .Username }}:{{ .RoleLabel }};{{ end }}{{ range .PendingInvites }}PENDING={{ .Target }};{{ end }}ADD={{ .SeatMenu.CanAddSeats }};REMOVE={{ .SeatMenu.CanRemove }};{{ end }}`)},
 		"orgs/settings_billing_seats.html":     {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}FORM={{ .Form.Mode }};CURRENT={{ .Form.CurrentSeats }};USED={{ .Form.UsedSeats }};AVAILABLE={{ .Form.AvailableSeats }};NEW={{ .Form.NewTotal }};CAN={{ .Form.CanSubmit }};PRORATION={{ .Form.ProrationLabel }};{{ end }}`)},
 		"orgs/people.html":                     {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }};{{ end }}{{ if .NoticeActionHref }}ACTION={{ .NoticeActionText }}|{{ .NoticeActionHref }};{{ end }}{{ end }}`)},

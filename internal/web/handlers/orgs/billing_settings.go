@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/billing/stripebilling"
@@ -163,6 +164,18 @@ type billingDebugView struct {
 	LastWebhookError         string
 	QuotaOverrides           []billingQuotaOverrideView
 	QuotaOverrideForms       []billingQuotaOverrideForm
+	SeatDrift                billingSeatDriftView
+}
+
+type billingSeatDriftView struct {
+	Available          bool
+	Detected           bool
+	CanRepair          bool
+	LocalLicensedSeats int64
+	StripeSeats        int64
+	UsedSeats          int
+	Status             string
+	Detail             string
 }
 
 func (h *Handlers) settingsBilling(w http.ResponseWriter, r *http.Request) {
@@ -333,6 +346,46 @@ func (h *Handlers) billingPortal(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.BillingPortalSessionsTotal.WithLabelValues("org", "success").Inc()
 	http.Redirect(w, r, session.URL, http.StatusSeeOther)
+}
+
+func (h *Handlers) billingSeatDriftRepair(w http.ResponseWriter, r *http.Request) {
+	org, viewer, ok := h.loadOrgBillingSettingsViewer(w, r)
+	if !ok {
+		return
+	}
+	if !viewer.IsSiteAdmin {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	state, licenseState, ok := h.loadBillingLicenseState(w, r, org)
+	if !ok {
+		return
+	}
+	drift := h.billingSeatDriftView(r, state, licenseState)
+	if !drift.Available {
+		h.renderSettingsBilling(w, r, org, drift.Detail, "")
+		return
+	}
+	if !drift.Detected {
+		http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=seat-drift-none", http.StatusSeeOther)
+		return
+	}
+	if drift.StripeSeats < int64(licenseState.UsedSeats) {
+		h.renderSettingsBilling(w, r, org, "Stripe currently reports fewer seats than this organization is using. Add seats in Stripe first, then repair local state.", "")
+		return
+	}
+	if drift.StripeSeats < 1 || drift.StripeSeats > maxIntValue() {
+		h.renderSettingsBilling(w, r, org, "Stripe returned an invalid seat quantity. Fix the Stripe subscription item before repairing local state.", "")
+		return
+	}
+	before := licenseState.LicensedSeats
+	if _, err := orgbilling.SetTeamLicensedSeats(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, org.ID, int(drift.StripeSeats), "stripe_repair"); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org billing: repair seat drift", "org_id", org.ID, "stripe_seats", drift.StripeSeats, "error", err)
+		h.renderSettingsBilling(w, r, org, billingSeatRepairError(err), "")
+		return
+	}
+	h.recordBillingSeatDriftRepairAudit(r, viewer, org.ID, before, int(drift.StripeSeats), licenseState.UsedSeats, state)
+	http.Redirect(w, r, orgBillingSettingsPath(org.Slug)+"?notice=seat-drift-repaired", http.StatusSeeOther)
 }
 
 func (h *Handlers) billingQuotaOverrideSave(w http.ResponseWriter, r *http.Request) {
@@ -614,7 +667,7 @@ func (h *Handlers) renderSettingsBilling(w http.ResponseWriter, r *http.Request,
 	}
 	debug := billingDebugView{}
 	if viewer.IsSiteAdmin {
-		debug = h.billingDebugView(r, org.ID, state)
+		debug = h.billingDebugView(r, org.ID, state, licenseState)
 	}
 	_ = h.d.Render.RenderPage(w, r, "orgs/settings_billing", map[string]any{
 		"Title":                 org.Slug + " - billing and plans",
@@ -880,6 +933,10 @@ func billingNotice(code string) string {
 		return "Quota override saved."
 	case "quota-override-cleared":
 		return "Quota override cleared."
+	case "seat-drift-none":
+		return "Local licensed seats already match Stripe."
+	case "seat-drift-repaired":
+		return "Local licensed seats were repaired from Stripe."
 	default:
 		return ""
 	}
@@ -896,13 +953,14 @@ func billingLicensingNotice(code string) string {
 	}
 }
 
-func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilling.State) billingDebugView {
+func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilling.State, licenseState orgbilling.TeamLicenseState) billingDebugView {
 	debug := billingDebugView{
 		StripeCustomerID:         pgTextString(state.StripeCustomerID),
 		StripeSubscriptionID:     pgTextString(state.StripeSubscriptionID),
 		StripeSubscriptionItemID: pgTextString(state.StripeSubscriptionItemID),
 		LastWebhookEventID:       strings.TrimSpace(state.LastWebhookEventID),
 	}
+	debug.SeatDrift = h.billingSeatDriftView(r, state, licenseState)
 	overrides, err := orgbilling.ListOrgQuotaOverrides(r.Context(), orgbilling.Deps{Pool: h.d.Pool}, orgID)
 	if err != nil {
 		h.d.Logger.WarnContext(r.Context(), "org billing: list quota overrides", "org_id", orgID, "error", err)
@@ -935,6 +993,103 @@ func (h *Handlers) billingDebugView(r *http.Request, orgID int64, state orgbilli
 		debug.LastWebhookStatus = "pending"
 	}
 	return debug
+}
+
+func (h *Handlers) billingSeatDriftView(r *http.Request, state orgbilling.State, licenseState orgbilling.TeamLicenseState) billingSeatDriftView {
+	drift := billingSeatDriftView{
+		LocalLicensedSeats: int64(licenseState.LicensedSeats),
+		UsedSeats:          licenseState.UsedSeats,
+	}
+	if !orgbilling.IsTeamState(state) {
+		drift.Status = "Unavailable"
+		drift.Detail = "Seat drift repair applies only to Team organizations."
+		return drift
+	}
+	subscriptionItemID := stripeSubscriptionItemIDFromState(state)
+	if subscriptionItemID == "" {
+		drift.Status = "Unavailable"
+		drift.Detail = "No Stripe subscription item is recorded for this organization."
+		return drift
+	}
+	if h.d.Stripe == nil {
+		drift.Status = "Unavailable"
+		drift.Detail = "Stripe is not configured for this instance."
+		return drift
+	}
+	quantity, err := h.d.Stripe.FetchSubscriptionItemQuantity(r.Context(), subscriptionItemID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org billing: fetch stripe subscription item quantity",
+			"subscription_item_id", subscriptionItemID, "error", err)
+		drift.Status = "Unavailable"
+		drift.Detail = "Could not fetch the live Stripe seat quantity right now."
+		return drift
+	}
+	drift.Available = true
+	drift.StripeSeats = quantity
+	drift.Detected = quantity != drift.LocalLicensedSeats
+	switch {
+	case quantity < 1:
+		drift.Status = "Invalid"
+		drift.Detail = "Stripe returned an invalid licensed-seat quantity."
+	case quantity > maxIntValue():
+		drift.Status = "Invalid"
+		drift.Detail = "Stripe returned a licensed-seat quantity that is too large to repair safely."
+	case quantity < int64(licenseState.UsedSeats):
+		drift.Status = "Repair blocked"
+		drift.Detail = "Stripe reports fewer seats than the organization is using. Add seats in Stripe before repairing local state."
+	case drift.Detected:
+		drift.Status = "Drift detected"
+		drift.Detail = "Stripe and local licensed-seat counts differ. Repair copies Stripe's live quantity into local entitlement state."
+		drift.CanRepair = true
+	default:
+		drift.Status = "In sync"
+		drift.Detail = "Local licensed seats match Stripe."
+	}
+	return drift
+}
+
+func stripeSubscriptionItemIDFromState(state orgbilling.State) string {
+	if !state.StripeSubscriptionItemID.Valid {
+		return ""
+	}
+	return strings.TrimSpace(state.StripeSubscriptionItemID.String)
+}
+
+func maxIntValue() int64 {
+	return int64(^uint(0) >> 1)
+}
+
+func billingSeatRepairError(err error) string {
+	switch {
+	case errors.Is(err, orgbilling.ErrSeatCountBelowUsage):
+		return "Stripe currently reports fewer seats than this organization is using. Add seats in Stripe first, then repair local state."
+	case errors.Is(err, orgbilling.ErrInvalidSeatCount):
+		return "Stripe returned an invalid seat quantity. Fix the Stripe subscription item before repairing local state."
+	case errors.Is(err, orgbilling.ErrTeamPlanRequired):
+		return "Seat drift repair applies only to Team organizations."
+	default:
+		return "Could not repair local licensed seats right now."
+	}
+}
+
+func (h *Handlers) recordBillingSeatDriftRepairAudit(
+	r *http.Request,
+	viewer middleware.CurrentUser,
+	orgID int64,
+	before int,
+	stripeSeats int,
+	usedSeats int,
+	state orgbilling.State,
+) {
+	actor, meta := viewer.AuditActor(map[string]any{
+		"source":                      "stripe_repair",
+		"local_licensed_seats_before": before,
+		"local_licensed_seats_after":  stripeSeats,
+		"stripe_licensed_seats":       stripeSeats,
+		"used_seats":                  usedSeats,
+		"stripe_subscription_item_id": stripeSubscriptionItemIDFromState(state),
+	})
+	_ = h.d.Audit.Record(r.Context(), h.d.Pool, actor, audit.ActionAdminOrgBillingSeatsRepaired, audit.TargetOrg, orgID, meta)
 }
 
 func parseBillingQuotaKind(raw string) (orgbilling.QuotaKind, bool) {
