@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
+	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 	"github.com/tenseleyFlow/shithub/internal/worker/jobs"
 )
@@ -212,6 +213,15 @@ var workerCmd = &cobra.Command{
 			}))
 			p.Register(webhook.KindWebhookPurgeOld, jobs.WebhookPurgeOld(jobs.WebhookPurgeOldDeps{
 				Pool: pool, Logger: logger, Retention: 30 * 24 * time.Hour,
+			}))
+			// PRO-EXT01-13a — webhook-relay outbound delivery. Shares
+			// the webhook AEAD box (same SHITHUB_WEBHOOK__AEAD_KEY)
+			// and SSRF policy as the repo-webhook deliverer.
+			p.Register(webhookrelay.KindWebhookRelayDeliver, jobs.WebhookRelayDeliver(jobs.WebhookRelayDeliverDeps{
+				Pool:      pool,
+				Logger:    logger,
+				SecretBox: webhookBox,
+				SSRF:      webhook.DefaultSSRFConfig(),
 			}))
 		}
 
