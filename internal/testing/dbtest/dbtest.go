@@ -45,7 +45,11 @@ var (
 // NewTestDB returns a *pgxpool.Pool against a freshly created database
 // cloned from the per-test-suite template. The database is dropped on
 // t.Cleanup. Calls t.Skip if SHITHUB_TEST_DATABASE_URL is unset.
-func NewTestDB(t *testing.T) *pgxpool.Pool {
+//
+// Accepts testing.TB so benchmarks (*testing.B) can use the same
+// fixture as unit tests (*testing.T) — PRO-EXT_SR-08 added the first
+// benchmark consumer.
+func NewTestDB(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	bootURL := os.Getenv(envURL)
 	if bootURL == "" {

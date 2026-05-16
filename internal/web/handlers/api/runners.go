@@ -1186,21 +1186,23 @@ func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretRes
 // mergeRepoSecrets/mergeOrgSecrets — repo-scope rows (resolved after
 // this call) shadow user-scope rows with the same name, matching the
 // repo-shadows-org precedence already in place.
+// PRO-EXT_SR-08: bulk-fetch via ListUserSecretsWithCiphertext to retire
+// the prior 1+N round-trip (List then GetUserSecret per name). At N=100
+// personal secrets across busy CI this was the only user-scope path
+// that grew per-user rather than per-repo/per-org.
+//
+// The repo/org variants below have the same N+1 shape but were not
+// flagged by the audit; tracked as a follow-up (mergeRepoSecrets,
+// mergeOrgSecrets) for a future cleanup.
 func (h *Handlers) mergeUserSecrets(ctx context.Context, db actionsdb.DBTX, userID int64, out map[string]string) error {
 	q := actionsdb.New()
-	items, err := q.ListUserSecrets(ctx, db, pgtype.Int8{Int64: userID, Valid: true})
+	items, err := q.ListUserSecretsWithCiphertext(ctx, db,
+		pgtype.Int8{Int64: userID, Valid: true})
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		row, err := q.GetUserSecret(ctx, db, actionsdb.GetUserSecretParams{
-			UserID: pgtype.Int8{Int64: userID, Valid: true},
-			Name:   item.Name,
-		})
-		if err != nil {
-			return err
-		}
-		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+		plaintext, err := h.d.SecretBox.Open(item.Ciphertext, item.Nonce)
 		if err != nil {
 			return err
 		}

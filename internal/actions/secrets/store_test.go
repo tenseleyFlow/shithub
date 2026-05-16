@@ -217,6 +217,48 @@ func TestGet_CitextNameIsCaseInsensitive(t *testing.T) {
 	}
 }
 
+// PRO-EXT_SR-08: GetMeta returns the metadata for a single user-scope
+// secret in one query, without decrypting. Used by the REST GET-by-name
+// handler in place of List + linear scan.
+func TestGetMeta_ReturnsRowWithoutDecrypting(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	scope := secrets.UserScope(f.userID)
+	if err := f.deps.Set(ctx, scope, "ALPHA", []byte("v"), f.userID); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	meta, err := f.deps.GetMeta(ctx, scope, "ALPHA")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if meta.Name != "ALPHA" {
+		t.Errorf("Name: got %q want ALPHA", meta.Name)
+	}
+	if meta.CreatedByUserID != f.userID {
+		t.Errorf("CreatedByUserID: got %d want %d", meta.CreatedByUserID, f.userID)
+	}
+	if meta.ID == 0 {
+		t.Error("ID should be set")
+	}
+}
+
+func TestGetMeta_MissingReturnsNotFound(t *testing.T) {
+	f := setup(t)
+	if _, err := f.deps.GetMeta(context.Background(), secrets.UserScope(f.userID), "NEVER_SET"); !errors.Is(err, secrets.ErrNotFound) {
+		t.Fatalf("GetMeta missing: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetMeta_NonUserScopeRejected(t *testing.T) {
+	// GetMeta is user-scope-only for now; repo + org REST GETs still
+	// use the legacy List+scan path. Pin the contract so a future
+	// refactor either widens it deliberately or stays user-only.
+	f := setup(t)
+	if _, err := f.deps.GetMeta(context.Background(), secrets.RepoScope(f.repoID), "ANY"); !errors.Is(err, secrets.ErrInvalidScope) {
+		t.Fatalf("GetMeta repo-scope: got %v, want ErrInvalidScope", err)
+	}
+}
+
 // TestCiphertext_IsActuallyEncryptedInDB is the load-bearing pin
 // the spec called out: verify via psql that the ciphertext column
 // is bytea, not plaintext.

@@ -275,6 +275,41 @@ func (d Deps) List(ctx context.Context, scope Scope) ([]Meta, error) {
 	return nil, ErrInvalidScope
 }
 
+// GetMeta returns metadata for a single secret without decrypting the
+// ciphertext. The REST GET-by-name handler uses this instead of List +
+// linear scan; same one round-trip cost as a List, but bounded to a
+// single row.
+//
+// User scope is the only kind wired today — the repo + org REST GETs
+// still scan their List output. They're the same shape and a future
+// cleanup pass can mirror this. Audit (PRO-EXT_SR-08) only flagged
+// the user-scope path.
+func (d Deps) GetMeta(ctx context.Context, scope Scope, name string) (Meta, error) {
+	if !scope.IsUser() {
+		return Meta{}, ErrInvalidScope
+	}
+	if err := validateName(name); err != nil {
+		return Meta{}, err
+	}
+	row, err := actionsdb.New().GetUserSecretMeta(ctx, d.Pool, actionsdb.GetUserSecretMetaParams{
+		UserID: pgtype.Int8{Int64: scope.UserID, Valid: true},
+		Name:   name,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Meta{}, ErrNotFound
+		}
+		return Meta{}, fmt.Errorf("secrets: get meta: %w", err)
+	}
+	return Meta{
+		ID:              row.ID,
+		Name:            row.Name,
+		CreatedByUserID: int64ValueOrZero(row.CreatedByUserID),
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+	}, nil
+}
+
 // Delete removes a secret. Returns ErrNotFound when the row didn't
 // exist; idempotent at the SQL layer (DELETE WHERE).
 func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
