@@ -262,6 +262,49 @@ func sealPutBody(t *testing.T, pubKey [32]byte, plaintext []byte) []byte {
 	return body
 }
 
+// PRO-EXT_SR-08: the REST GET-by-name path uses GetMeta (direct lookup)
+// rather than List + linear scan. Functionally identical from the
+// caller's perspective; this test pins the success path so a regression
+// that reverts to List-and-filter would still pass here but the bench
+// (BenchmarkResolveVisibleSecrets_UserScope) would regress.
+func TestUserActionsSecrets_GetByNameReturnsMeta(t *testing.T) {
+	env := newSecretsTestEnv(t)
+	// Seed two secrets so a list-scan implementation would have a
+	// reason to do real work.
+	deps := secrets.Deps{Pool: env.pool, Box: env.secretBox}
+	if err := deps.Set(context.Background(), secrets.UserScope(env.userID), "ALPHA", []byte("a"), env.userID); err != nil {
+		t.Fatalf("seed ALPHA: %v", err)
+	}
+	if err := deps.Set(context.Background(), secrets.UserScope(env.userID), "BETA", []byte("b"), env.userID); err != nil {
+		t.Fatalf("seed BETA: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/ALPHA", nil)
+	req.Header.Set("Authorization", "Bearer "+env.userTokenRO)
+	rr := httptest.NewRecorder()
+	env.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET by name: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var meta map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &meta)
+	if meta["name"] != "ALPHA" {
+		t.Errorf("name: got %v want ALPHA", meta["name"])
+	}
+	if _, leaked := meta["value"]; leaked {
+		t.Errorf("plaintext leaked from GET-by-name: %+v", meta)
+	}
+
+	// Missing → 404.
+	missingReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/MISSING", nil)
+	missingReq.Header.Set("Authorization", "Bearer "+env.userTokenRO)
+	missingRR := httptest.NewRecorder()
+	env.router.ServeHTTP(missingRR, missingReq)
+	if missingRR.Code != http.StatusNotFound {
+		t.Fatalf("missing GET: %d, want 404; body=%s", missingRR.Code, missingRR.Body.String())
+	}
+}
+
 // PRO-EXT_SR-06: a PAT scoped only to repo:read/repo:write must not
 // access the user-scope Actions secrets surface. The scope split
 // makes "what scopes does this token need?" answerable by the
