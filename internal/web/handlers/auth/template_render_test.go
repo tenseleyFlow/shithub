@@ -45,10 +45,12 @@ func newProductionRenderer(t *testing.T) *render.Renderer {
 // baseLayoutFields are the keys the shared layout/nav/footer partials
 // consult on every page. Tests merge feature-specific keys over these.
 func baseLayoutFields() map[string]any {
+	//nolint:gosec // G101 false positive: HTML test fixture, not a credential.
+	const fakeCSRF = "test-csrf-token"
 	return map[string]any{
 		"Title":     "test page",
 		"Viewer":    middleware.CurrentUser{},
-		"CSRFToken": "test-csrf-token",
+		"CSRFToken": fakeCSRF,
 	}
 }
 
