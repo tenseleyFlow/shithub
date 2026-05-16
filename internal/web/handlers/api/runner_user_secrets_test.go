@@ -214,7 +214,10 @@ func TestResolveVisibleSecrets_FreeUserReportOnlyMergesUserScope(t *testing.T) {
 
 // ─── helpers ────────────────────────────────────────────────────────
 
-func mustBox(t *testing.T) *secretbox.Box {
+// Helpers take testing.TB so the benchmark file can reuse them
+// without forcing a sub-test wrapper that muddies per-iteration
+// accounting (PRO-EXT_SR-08 added BenchmarkResolveVisibleSecrets_*).
+func mustBox(t testing.TB) *secretbox.Box {
 	t.Helper()
 	k, err := secretbox.GenerateKey()
 	if err != nil {
@@ -227,7 +230,7 @@ func mustBox(t *testing.T) *secretbox.Box {
 	return b
 }
 
-func mustUser(t *testing.T, pool *pgxpool.Pool, username string) int64 {
+func mustUser(t testing.TB, pool *pgxpool.Pool, username string) int64 {
 	t.Helper()
 	var id int64
 	if err := pool.QueryRow(context.Background(), `
@@ -239,7 +242,7 @@ func mustUser(t *testing.T, pool *pgxpool.Pool, username string) int64 {
 	return id
 }
 
-func mustRepo(t *testing.T, pool *pgxpool.Pool, ownerUserID int64, name string) int64 {
+func mustRepo(t testing.TB, pool *pgxpool.Pool, ownerUserID int64, name string) int64 {
 	t.Helper()
 	row, err := reposdb.New().CreateRepo(context.Background(), pool, reposdb.CreateRepoParams{
 		Name:          name,
@@ -253,7 +256,7 @@ func mustRepo(t *testing.T, pool *pgxpool.Pool, ownerUserID int64, name string) 
 	return row.ID
 }
 
-func mustUserSecret(t *testing.T, pool *pgxpool.Pool, box *secretbox.Box, userID int64, name string, plaintext []byte) {
+func mustUserSecret(t testing.TB, pool *pgxpool.Pool, box *secretbox.Box, userID int64, name string, plaintext []byte) {
 	t.Helper()
 	ct, nonce, err := box.Seal(plaintext)
 	if err != nil {
@@ -269,7 +272,7 @@ func mustUserSecret(t *testing.T, pool *pgxpool.Pool, box *secretbox.Box, userID
 	}
 }
 
-func mustRepoSecret(t *testing.T, pool *pgxpool.Pool, box *secretbox.Box, repoID int64, name string, plaintext []byte) {
+func mustRepoSecret(t testing.TB, pool *pgxpool.Pool, box *secretbox.Box, repoID int64, name string, plaintext []byte) {
 	t.Helper()
 	ct, nonce, err := box.Seal(plaintext)
 	if err != nil {
