@@ -211,4 +211,3 @@ func TestRelayReceiver_FreeUserReportOnlyEmitsLogAndAccepts(t *testing.T) {
 		}
 	}
 }
-

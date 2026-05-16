@@ -187,4 +187,3 @@ func newReposAPIRouterWithEnforce(t *testing.T, pool *pgxpool.Pool, enforceCron 
 	h.Mount(r)
 	return r
 }
-
