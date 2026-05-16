@@ -439,18 +439,17 @@ func (h *Handlers) actionsSecretsGetUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	name := chi.URLParam(r, "name")
-	rows, err := h.secretsDeps().List(r.Context(), secrets.UserScope(userID))
+	// PRO-EXT_SR-08: direct meta lookup instead of List + linear scan.
+	meta, err := h.secretsDeps().GetMeta(r.Context(), secrets.UserScope(userID), name)
 	if err != nil {
+		if errors.Is(err, secrets.ErrNotFound) {
+			writeAPIError(w, http.StatusNotFound, "secret not found")
+			return
+		}
 		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
 		return
 	}
-	for _, m := range rows {
-		if m.Name == name {
-			writeJSON(w, http.StatusOK, presentSecretMeta(m))
-			return
-		}
-	}
-	writeAPIError(w, http.StatusNotFound, "secret not found")
+	writeJSON(w, http.StatusOK, presentSecretMeta(meta))
 }
 
 func (h *Handlers) actionsSecretsPutUser(w http.ResponseWriter, r *http.Request) {
