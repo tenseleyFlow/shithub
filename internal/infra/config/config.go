@@ -225,6 +225,23 @@ type EnforceConfig struct {
 	// gates both the write path AND the runner-read path so a Free
 	// user can't sneak rows through during the soak window.
 	UserActionsSecrets bool `toml:"user_actions_secrets"`
+	// UserWebhookRelay: when true, Free users are blocked from
+	// creating webhook relays AND inbound POSTs to existing relays
+	// owned by Free users return 403. Off by default → report-only
+	// (create and inbound succeed; the would-deny is logged).
+	// PRO-EXT01-13a; promoted in PRO-EXT01-17.
+	//
+	// SECURITY-CRITICAL: a relay is a 1-in → N-out amplification
+	// surface. Soak with the operator-visible report-only log
+	// stream before flipping enforce.
+	UserWebhookRelay bool `toml:"user_webhook_relay"`
+	// UserCronWorkflowDispatch: when true, Free users are blocked
+	// from creating cron-scheduled workflow dispatches AND in-flight
+	// dispatches owned by Free users are skipped on each tick. Off
+	// by default → report-only (create succeeds; the would-deny is
+	// logged on each scheduled fire). PRO-EXT01-13b; promoted in
+	// PRO-EXT01-17.
+	UserCronWorkflowDispatch bool `toml:"user_cron_workflow_dispatch"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
