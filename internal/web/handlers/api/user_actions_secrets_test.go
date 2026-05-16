@@ -30,7 +30,7 @@ func TestUserActionsSecrets_PutListGetDeleteRoundTrip(t *testing.T) {
 
 	// Fetch public key.
 	pubReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/public-key", nil)
-	pubReq.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	pubReq.Header.Set("Authorization", "Bearer "+env.userTokenRO)
 	pubRR := httptest.NewRecorder()
 	env.router.ServeHTTP(pubRR, pubReq)
 	if pubRR.Code != http.StatusOK {
@@ -53,7 +53,7 @@ func TestUserActionsSecrets_PutListGetDeleteRoundTrip(t *testing.T) {
 		"key_id":          pk.KeyID,
 	})
 	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/user/actions/secrets/PERSONAL_TOKEN", bytes.NewReader(putBody))
-	putReq.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	putReq.Header.Set("Authorization", "Bearer "+env.userTokenRW)
 	putReq.Header.Set("Content-Type", "application/json")
 	putRR := httptest.NewRecorder()
 	env.router.ServeHTTP(putRR, putReq)
@@ -63,7 +63,7 @@ func TestUserActionsSecrets_PutListGetDeleteRoundTrip(t *testing.T) {
 
 	// LIST exposes the name, never plaintext.
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
-	listReq.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	listReq.Header.Set("Authorization", "Bearer "+env.userTokenRO)
 	listRR := httptest.NewRecorder()
 	env.router.ServeHTTP(listRR, listReq)
 	if listRR.Code != http.StatusOK {
@@ -92,7 +92,7 @@ func TestUserActionsSecrets_PutListGetDeleteRoundTrip(t *testing.T) {
 
 	// DELETE.
 	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/user/actions/secrets/PERSONAL_TOKEN", nil)
-	delReq.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	delReq.Header.Set("Authorization", "Bearer "+env.userTokenRW)
 	delRR := httptest.NewRecorder()
 	env.router.ServeHTTP(delRR, delReq)
 	if delRR.Code != http.StatusNoContent {
@@ -121,7 +121,7 @@ func TestUserActionsSecrets_OwnerOnlySeesOwnSecrets(t *testing.T) {
 
 	// Mint a token for a brand-new user bob and confirm bob's list is empty.
 	bobID := seedRepoCreatorUser(t, env.pool, "bob")
-	bobToken := mintRunnerAPIPAT(t, env.pool, bobID, string(pat.ScopeRepoRead))
+	bobToken := mintRunnerAPIPAT(t, env.pool, bobID, string(pat.ScopeUserRead))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
 	req.Header.Set("Authorization", "Bearer "+bobToken)
@@ -166,7 +166,12 @@ func mintBoundPAT(t *testing.T, pool *pgxpool.Pool, userID, repoID int64, scopes
 
 func TestUserActionsSecrets_BoundPATRejected(t *testing.T) {
 	env := newSecretsTestEnv(t)
-	boundToken := mintBoundPAT(t, env.pool, env.userID, env.repoID, string(pat.ScopeRepoWrite))
+	// Bound PAT carries both user scopes so it gets past the scope
+	// middleware and reaches the handler-level binding check — that's
+	// the assertion this test pins. Without the right scopes the 403
+	// would come from scope rejection instead of binding rejection.
+	boundToken := mintBoundPAT(t, env.pool, env.userID, env.repoID,
+		string(pat.ScopeUserRead), string(pat.ScopeUserWrite))
 
 	// LIST: a bound token should be denied even on the read path.
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
@@ -217,7 +222,7 @@ func TestUserActionsSecrets_UnboundPATAccepted(t *testing.T) {
 	// and break the unbound case.
 	env := newSecretsTestEnv(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
-	req.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	req.Header.Set("Authorization", "Bearer "+env.userTokenRO)
 	rr := httptest.NewRecorder()
 	env.router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -231,7 +236,7 @@ func TestUserActionsSecrets_UnboundPATAccepted(t *testing.T) {
 func fetchUserSecretsPublicKey(t *testing.T, env *secretsTestEnv) [32]byte {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets/public-key", nil)
-	req.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	req.Header.Set("Authorization", "Bearer "+env.userTokenRO)
 	rr := httptest.NewRecorder()
 	env.router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -257,6 +262,38 @@ func sealPutBody(t *testing.T, pubKey [32]byte, plaintext []byte) []byte {
 	return body
 }
 
+// PRO-EXT_SR-06: a PAT scoped only to repo:read/repo:write must not
+// access the user-scope Actions secrets surface. The scope split
+// makes "what scopes does this token need?" answerable by the
+// resource kind (user-scope → user scopes) rather than the broad
+// repo-scope catch-all.
+func TestUserActionsSecrets_RepoScopePATRejected(t *testing.T) {
+	env := newSecretsTestEnv(t)
+
+	// LIST with repo:read — should be 403 (the user-scope group now
+	// requires user:read).
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/user/actions/secrets", nil)
+	listReq.Header.Set("Authorization", "Bearer "+env.tokenRO)
+	listRR := httptest.NewRecorder()
+	env.router.ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusForbidden {
+		t.Fatalf("repo:read LIST: got %d, want 403; body=%s", listRR.Code, listRR.Body.String())
+	}
+
+	// PUT with repo:write — should be 403 (the user-scope write group
+	// now requires user:write).
+	pk := fetchUserSecretsPublicKey(t, env)
+	putBody := sealPutBody(t, pk, []byte("should-not-land"))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/user/actions/secrets/SR06_REPO_SCOPE", bytes.NewReader(putBody))
+	putReq.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	putReq.Header.Set("Content-Type", "application/json")
+	putRR := httptest.NewRecorder()
+	env.router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusForbidden {
+		t.Fatalf("repo:write PUT: got %d, want 403; body=%s", putRR.Code, putRR.Body.String())
+	}
+}
+
 // PRO-EXT_SR-05: the userActionsSecretsAPIGate's enforce-on / deny
 // branch and Pro-user / accept branch were never exercised because
 // the test env always set BillingEnforce.UserActionsSecrets=false.
@@ -270,7 +307,7 @@ func putSealedUserSecret(t *testing.T, env *secretsTestEnv, name string, plainte
 	pk := fetchUserSecretsPublicKey(t, env)
 	body := sealPutBody(t, pk, plaintext)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/user/actions/secrets/"+name, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+env.tokenRW)
+	req.Header.Set("Authorization", "Bearer "+env.userTokenRW)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	env.router.ServeHTTP(rr, req)
