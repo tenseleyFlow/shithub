@@ -34,11 +34,18 @@ import (
 //	GET    /api/v1/orgs/{org}/actions/secrets/{name}
 //	PUT    /api/v1/orgs/{org}/actions/secrets/{name}
 //	DELETE /api/v1/orgs/{org}/actions/secrets/{name}
+//	GET    /api/v1/user/actions/secrets/public-key
+//	GET    /api/v1/user/actions/secrets
+//	GET    /api/v1/user/actions/secrets/{name}
+//	PUT    /api/v1/user/actions/secrets/{name}
+//	DELETE /api/v1/user/actions/secrets/{name}
 //
-// Scopes: `repo:read` for the repo GETs, `repo:write` for repo
-// mutations. Org variants use `repo:read`/`repo:write` likewise —
-// the policy gate inside resolveAPIOrg + the org-write check
-// constrains who can act.
+// Scopes:
+//   - repo + org GETs require `repo:read`, mutations require `repo:write`.
+//   - user-scope GETs require `user:read`, mutations require `user:write`.
+//     PRO-EXT_SR-06 split these out: a PAT scoped only to `user:write`
+//     should be able to manage its owner's personal Actions secrets
+//     without granting blanket `repo:write` across every repo.
 func (h *Handlers) mountActionsSecrets(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoRead))
@@ -48,11 +55,6 @@ func (h *Handlers) mountActionsSecrets(r chi.Router) {
 		r.Get("/api/v1/orgs/{org}/actions/secrets/public-key", h.actionsSecretsPublicKeyOrg)
 		r.Get("/api/v1/orgs/{org}/actions/secrets", h.actionsSecretsListOrg)
 		r.Get("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsGetOrg)
-		// PRO-EXT01-12b: user-scope secrets — read paths use repo:read
-		// because the PAT model already gates write surfaces here.
-		r.Get("/api/v1/user/actions/secrets/public-key", h.actionsSecretsPublicKeyUser)
-		r.Get("/api/v1/user/actions/secrets", h.actionsSecretsListUser)
-		r.Get("/api/v1/user/actions/secrets/{name}", h.actionsSecretsGetUser)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoWrite))
@@ -60,6 +62,15 @@ func (h *Handlers) mountActionsSecrets(r chi.Router) {
 		r.Delete("/api/v1/repos/{owner}/{repo}/actions/secrets/{name}", h.actionsSecretsDeleteRepo)
 		r.Put("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsPutOrg)
 		r.Delete("/api/v1/orgs/{org}/actions/secrets/{name}", h.actionsSecretsDeleteOrg)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireScope(pat.ScopeUserRead))
+		r.Get("/api/v1/user/actions/secrets/public-key", h.actionsSecretsPublicKeyUser)
+		r.Get("/api/v1/user/actions/secrets", h.actionsSecretsListUser)
+		r.Get("/api/v1/user/actions/secrets/{name}", h.actionsSecretsGetUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireScope(pat.ScopeUserWrite))
 		r.Put("/api/v1/user/actions/secrets/{name}", h.actionsSecretsPutUser)
 		r.Delete("/api/v1/user/actions/secrets/{name}", h.actionsSecretsDeleteUser)
 	})

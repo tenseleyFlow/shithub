@@ -55,8 +55,15 @@ type secretsTestEnv struct {
 	userID    int64
 	owner     string
 	repoName  string
-	tokenRO   string
-	tokenRW   string
+	// tokenRO / tokenRW carry repo:read / repo:write — used against
+	// the repo + org Actions-secrets endpoints.
+	tokenRO string
+	tokenRW string
+	// userTokenRO / userTokenRW carry user:read / user:write — required
+	// by /api/v1/user/actions/secrets/* after PRO-EXT_SR-06 split the
+	// scopes off the repo-scope groups.
+	userTokenRO string
+	userTokenRW string
 }
 
 // secretsTestEnvOptions threads test-only configuration into
@@ -127,15 +134,17 @@ func newSecretsTestEnvOpts(t *testing.T, opts secretsTestEnvOptions) *secretsTes
 		t.Fatalf("CreateRepo: %v", err)
 	}
 	return &secretsTestEnv{
-		pool:      pool,
-		router:    r,
-		secretBox: sBox,
-		repoID:    row.ID,
-		userID:    userID,
-		owner:     owner,
-		repoName:  repoName,
-		tokenRO:   mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoRead)),
-		tokenRW:   mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite)),
+		pool:        pool,
+		router:      r,
+		secretBox:   sBox,
+		repoID:      row.ID,
+		userID:      userID,
+		owner:       owner,
+		repoName:    repoName,
+		tokenRO:     mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoRead)),
+		tokenRW:     mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite)),
+		userTokenRO: mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeUserRead)),
+		userTokenRW: mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeUserWrite)),
 	}
 }
 
