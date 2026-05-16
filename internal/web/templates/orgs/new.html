@@ -3,73 +3,86 @@
   <p class="shithub-org-plan-kicker">Tell us about your organization</p>
   <h1>{{ if eq .Form.SelectedTier "team" }}Set up your organization{{ else }}Create an organization{{ end }}</h1>
   {{ if .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ .Error }}</p>{{ end }}
-  <form method="POST" action="/organizations" novalidate>
+
+  <form method="POST" action="/organizations" class="shithub-org-setup-form" novalidate>
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
     <input type="hidden" name="plan" value="{{ .Form.SelectedTier }}">
+
+    <label>
+      <span>Organization name <span class="shithub-required">*</span></span>
+      <input type="text" name="slug" required
+             pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
+             title="lowercase letters, digits, and hyphens; 1-39 chars; cannot start or end with a hyphen"
+             value="{{ .Form.Slug }}" autocomplete="off" spellcheck="false" autofocus data-org-name-input>
+      <small class="shithub-form-note">
+        This will be the name of your account on shithub.
+        Your URL will be: {{ .OrgURLPrefix }}/<strong data-org-name-output>{{ if .Form.Slug }}{{ .Form.Slug }}{{ else }}your-organization{{ end }}</strong>
+      </small>
+    </label>
+
     {{ if eq .Form.SelectedTier "team" }}
-    <p class="shithub-auth-aside">This creates the organization first, then hands off to billing so you can start the Team subscription.</p>
     <label class="shithub-org-seat-count" data-team-seat-calculator data-seat-price-usd="4">
-      <span>Licensed seats</span>
-      <input type="number" name="seat_count" min="1" step="1" inputmode="numeric" value="{{ if .Form.SeatCount }}{{ .Form.SeatCount }}{{ else }}1{{ end }}" data-team-seat-input>
+      <span>Licensed seats <span class="shithub-required">*</span></span>
+      <input type="number" name="seat_count" min="1" step="1" inputmode="numeric" value="{{ .SeatPreview.CountText }}" data-team-seat-input>
       <small>
         $4 x <span data-team-seat-count>{{ .SeatPreview.CountText }}</span> {{ .SeatPreview.SeatNoun }}
-        = <strong data-team-seat-total>{{ .SeatPreview.TotalText }}</strong> per month.
+        = <strong data-team-seat-total>{{ .SeatPreview.TotalText }}</strong> USD per month before taxes.
       </small>
     </label>
     {{ end }}
-    <label>
-      <span>Slug</span>
-      <input type="text" name="slug" required
-             pattern="[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
-             title="lowercase letters, digits, and hyphens; 1–39 chars; cannot start or end with a hyphen"
-             value="{{ .Form.Slug }}" autofocus>
-    </label>
-    <label>
-      <span>Display name</span>
-      <input type="text" name="display_name" value="{{ .Form.DisplayName }}">
-    </label>
-    <label>
-      <span>Billing email (optional)</span>
-      <input type="email" name="billing_email" autocomplete="email" value="{{ .Form.BillingEmail }}">
-    </label>
+
     <fieldset class="shithub-org-owner-choice">
       <legend>This organization belongs to:</legend>
       <label>
         <input type="radio" name="owner_account" value="personal" checked>
         <span>
           <strong>My personal account</strong>
-          <small>{{ .Viewer.Username }}</small>
+          <small>I.e., {{ .Viewer.Username }}</small>
         </span>
       </label>
-      <label class="is-disabled">
-        <input type="radio" name="owner_account" value="business" disabled>
+      <label>
+        <input type="radio" name="owner_account" value="business">
         <span>
           <strong>A business or institution</strong>
-          <small>Business-owned organizations are planned for the Enterprise track.</small>
+          <small>For example: shithub, Inc., Example Institute, American Red Cross</small>
         </span>
       </label>
     </fieldset>
-    <fieldset class="shithub-org-import-create">
-      <legend>Import repositories from GitHub</legend>
-      <p>Optionally mirror repositories from a GitHub organization after this organization is created.</p>
-      <label>
-        <span>GitHub organization</span>
-        <input type="text" name="github_org" placeholder="github-org" value="{{ .Form.GitHubOrg }}" autocomplete="off">
-      </label>
-      <label>
-        <span>GitHub token (optional)</span>
-        <input type="password" name="github_token" autocomplete="off" placeholder="Required for private repositories">
-      </label>
-      <p class="shithub-auth-aside">Without a token, shithub imports public repositories only. With a token, repositories visible to that token are imported and private repositories stay private.</p>
-    </fieldset>
+
     <label class="shithub-org-terms">
       <input type="checkbox" name="accept_terms" value="1"{{ if .Form.AcceptTerms }} checked{{ end }}>
-      <span>I accept the shithub Terms of Service and understand that organization billing is managed through hosted checkout when a paid plan is selected.</span>
+      <span>
+        I hereby accept the shithub Terms of Service. For more information about shithub's privacy practices,
+        see the shithub Privacy Statement.
+      </span>
     </label>
-    <button type="submit" class="shithub-button shithub-button-primary">Create organization</button>
+
+    <details class="shithub-org-optional-details">
+      <summary>Optional profile and import settings</summary>
+      <div class="shithub-org-optional-grid">
+        <label>
+          <span>Display name</span>
+          <input type="text" name="display_name" value="{{ .Form.DisplayName }}">
+        </label>
+        <label>
+          <span>Billing email</span>
+          <input type="email" name="billing_email" autocomplete="email" value="{{ .Form.BillingEmail }}">
+        </label>
+        <label>
+          <span>GitHub organization</span>
+          <input type="text" name="github_org" placeholder="github-org" value="{{ .Form.GitHubOrg }}" autocomplete="off">
+        </label>
+        <label>
+          <span>GitHub token</span>
+          <input type="password" name="github_token" autocomplete="off" placeholder="Required for private repositories">
+        </label>
+        <p class="shithub-form-note">Without a token, shithub imports public repositories only. With a token, repositories visible to that token are imported and private repositories stay private.</p>
+      </div>
+    </details>
+
+    <button type="submit" class="shithub-button shithub-button-primary shithub-org-setup-submit">
+      {{ if eq .Form.SelectedTier "team" }}Next: Payment details{{ else }}Create organization{{ end }}
+    </button>
   </form>
-  <p class="shithub-auth-aside">
-    The slug is your org's URL handle and must be unique across users + orgs. You can change the display name later.
-  </p>
 </section>
 {{- end }}

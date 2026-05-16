@@ -236,7 +236,7 @@ func (h *Handlers) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	form := orgCreateForm{SelectedTier: plan}
 	if plan == orgCreatePlanTeam {
-		form.SeatCount = "1"
+		form.SeatCount = teamSeatCountFromQuery(r.URL.Query())
 	}
 	h.renderNewForm(w, r, form, "")
 }
@@ -354,15 +354,28 @@ func (f orgCreateForm) withoutToken() orgCreateForm {
 func (h *Handlers) renderNewForm(w http.ResponseWriter, r *http.Request, form orgCreateForm, errMsg string) {
 	seatPreview := orgCreateTeamSeatPreview(form.SeatCount)
 	if err := h.d.Render.RenderPage(w, r, "orgs/new", map[string]any{
-		"Title":       orgCreateTitle(form.SelectedTier),
-		"CSRFToken":   middleware.CSRFTokenForRequest(r),
-		"Slug":        form.Slug,
-		"Form":        form,
-		"SeatPreview": seatPreview,
-		"Error":       errMsg,
+		"Title":        orgCreateTitle(form.SelectedTier),
+		"CSRFToken":    middleware.CSRFTokenForRequest(r),
+		"Slug":         form.Slug,
+		"Form":         form,
+		"SeatPreview":  seatPreview,
+		"OrgURLPrefix": orgCreateURLPrefix(r, h.d.BaseURL),
+		"Error":        errMsg,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new", "error", err)
 	}
+}
+
+func orgCreateURLPrefix(r *http.Request, configured string) string {
+	configured = strings.TrimRight(strings.TrimSpace(configured), "/")
+	if configured != "" {
+		return configured
+	}
+	scheme := "https"
+	if r.TLS == nil && (strings.HasPrefix(r.Host, "localhost") || strings.HasPrefix(r.Host, "127.0.0.1")) {
+		scheme = "http"
+	}
+	return scheme + "://" + r.Host
 }
 
 const (
@@ -375,6 +388,8 @@ func requestedOrgCreatePlan(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case orgCreatePlanFree, orgCreatePlanTeam, orgCreatePlanEnterprise:
 		return strings.ToLower(strings.TrimSpace(raw))
+	case "business":
+		return orgCreatePlanTeam
 	default:
 		return ""
 	}
@@ -401,7 +416,10 @@ func orgCreateTitle(plan string) string {
 	return "New organization"
 }
 
-const teamSeatMonthlyPriceUSD = 4
+const (
+	teamSeatMonthlyPriceUSD = 4
+	defaultTeamSignupSeats  = 5
+)
 
 type orgCreateSeatPreview struct {
 	Count     int
@@ -436,7 +454,7 @@ func orgCreateTeamSeatPreview(raw string) orgCreateSeatPreview {
 func parseTeamSeatCount(raw string) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return 1, nil
+		return defaultTeamSignupSeats, nil
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil {
@@ -448,13 +466,250 @@ func parseTeamSeatCount(raw string) (int, error) {
 	return n, nil
 }
 
+func teamSeatCountFromQuery(values url.Values) string {
+	raw := values.Get("seat_count")
+	count, err := parseTeamSeatCount(raw)
+	if err != nil {
+		count = defaultTeamSignupSeats
+	}
+	return strconv.Itoa(count)
+}
+
 func (h *Handlers) renderPlanSelection(w http.ResponseWriter, r *http.Request, errMsg string) {
+	view := newOrgPlanSelectionView(h.billingConfigured())
 	if err := h.d.Render.RenderPage(w, r, "orgs/new_plan", map[string]any{
 		"Title":             "Pick a plan for your organization",
 		"Error":             errMsg,
 		"BillingConfigured": h.billingConfigured(),
+		"PlanView":          view,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/new_plan", "error", err)
+	}
+}
+
+type orgPlanSelectionView struct {
+	DefaultSeats    int
+	DefaultSeatText string
+	PlanCards       []orgPlanCard
+	FeatureSections []orgPlanFeatureSection
+}
+
+type orgPlanCard struct {
+	Name        string
+	Description string
+	Price       string
+	PriceSuffix string
+	CTA         string
+	Href        string
+	Disabled    bool
+	Featured    bool
+	SeatRange   string
+	Features    []orgPlanFeature
+}
+
+type orgPlanFeature struct {
+	Title       string
+	Description string
+}
+
+type orgPlanFeatureSection struct {
+	Name string
+	Rows []orgPlanFeatureRow
+}
+
+type orgPlanFeatureRow struct {
+	Name        string
+	Description string
+	Free        string
+	Team        string
+	Enterprise  string
+	Owner       string
+	OwnerPath   string
+	State       string
+}
+
+func newOrgPlanSelectionView(billingConfigured bool) orgPlanSelectionView {
+	teamHref := "/organizations/new?plan=team&seat_count=" + strconv.Itoa(defaultTeamSignupSeats)
+	if !billingConfigured {
+		teamHref = ""
+	}
+	return orgPlanSelectionView{
+		DefaultSeats:    defaultTeamSignupSeats,
+		DefaultSeatText: strconv.Itoa(defaultTeamSignupSeats),
+		PlanCards: []orgPlanCard{
+			{
+				Name:        "Free",
+				Description: "The basics for individuals and organizations",
+				Price:       "$0",
+				PriceSuffix: "USD per user/month",
+				CTA:         "Create a free organization",
+				Href:        "/organizations/new?plan=free&seat_count=1",
+				SeatRange:   "Recommended for 1-4 seats",
+				Features: []orgPlanFeature{
+					{Title: "Public and private repositories", Description: "Host code and collaborate without a card."},
+					{Title: "Basic issue, pull request, and repository workflows", Description: "The core forge loop stays available to Free organizations."},
+					{Title: "Basic branch protection", Description: "Use the baseline protections already shipped for org repositories."},
+					{Title: "Community support", Description: "Use public documentation and instance support channels."},
+				},
+			},
+			{
+				Name:        "Team",
+				Description: "Advanced collaboration for organizations",
+				Price:       "$4",
+				PriceSuffix: "USD per licensed seat/month",
+				CTA:         "Continue with Team",
+				Href:        teamHref,
+				Disabled:    !billingConfigured,
+				Featured:    true,
+				SeatRange:   "Recommended for 5-10 seats",
+				Features: []orgPlanFeature{
+					{Title: "Everything included in Free, plus...", Description: "Paid capacity and controls for private organization work."},
+					{Title: "Licensed seats", Description: "Buy the number of organization seats you need before inviting members."},
+					{Title: "Private-repo governance controls", Description: "Team-only rules are enforced through the entitlement layer as they ship."},
+					{Title: "Billing and licensing settings", Description: "Owners manage plan state, invoices, and seat changes from shithub."},
+				},
+			},
+			{
+				Name:        "Enterprise",
+				Description: "Security, compliance, and flexible deployment",
+				Price:       "$21",
+				PriceSuffix: "USD starting point",
+				CTA:         "Contact sales",
+				Href:        "/organizations/new?plan=enterprise",
+				SeatRange:   "Recommended for 11+ seats",
+				Features: []orgPlanFeature{
+					{Title: "Everything included in Team, plus...", Description: "Enterprise remains a contact-sales planning surface in v1."},
+					{Title: "Compliance and identity planning", Description: "SAML, SCIM, managed users, and contracts are not self-serve yet."},
+					{Title: "Custom support expectations", Description: "Use the contact-sales path for needs beyond Team."},
+				},
+			},
+		},
+		FeatureSections: orgPlanFeatureSections(),
+	}
+}
+
+func orgPlanFeatureSections() []orgPlanFeatureSection {
+	return []orgPlanFeatureSection{
+		{
+			Name: "Code management",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "Public repositories", Description: "Host open-source projects in public organization repositories.",
+					Free: "Unlimited", Team: "Unlimited", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Shipped baseline",
+				},
+				{
+					Name: "Private repositories", Description: "Host private organization repositories and collaborate with controlled access.",
+					Free: "Included", Team: "Included", Enterprise: "Contact sales", Owner: "SP18",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Baseline shipped",
+				},
+				{
+					Name: "Repository rules", Description: "Enforce branch and tag restrictions across organization repositories.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP18",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Planned",
+				},
+				{
+					Name: "Code owners", Description: "Request reviews from responsible owners when protected files change.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP19",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Planned",
+				},
+			},
+		},
+		{
+			Name: "Code workflow",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "Actions minutes", Description: "Run CI jobs with usage accounting and plan-aware quotas.",
+					Free: "Low quota", Team: "Higher quota planned", Enterprise: "Contact sales", Owner: "SP23",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Partially shipped",
+				},
+				{
+					Name: "Environment deployment branches and secrets", Description: "Protect deployments with environment-scoped controls.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP23",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Planned",
+				},
+				{
+					Name: "Pages and Wikis", Description: "Publish project documentation and lightweight collaboration spaces.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Planned",
+				},
+				{
+					Name: "Packages storage", Description: "Host project packages with plan-aware storage limits.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP22",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP22-packages-product-and-storage-quotas.md", State: "Planned",
+				},
+			},
+		},
+		{
+			Name: "Collaboration",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "Collaborators for public repositories", Description: "Invite collaborators to public organization repositories.",
+					Free: "Unlimited", Team: "Unlimited", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Shipped baseline",
+				},
+				{
+					Name: "Private organization collaborators", Description: "Collaborate privately with billing-aware limits and licensed seats.",
+					Free: "Limited", Team: "Billed by licensed seat", Enterprise: "Contact sales", Owner: "SP06a",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP06a-private-collaboration-limits.md", State: "Shipped",
+				},
+				{
+					Name: "Multiple reviewers in pull requests", Description: "Require more than one reviewer before private-repo changes merge.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP18",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Planned",
+				},
+				{
+					Name: "Scheduled reminders", Description: "Remind teams about pending pull requests.",
+					Free: "Upgrade", Team: "Planned", Enterprise: "Contact sales", Owner: "SP20",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP20-scheduled-reminders.md", State: "Planned",
+				},
+			},
+		},
+		{
+			Name: "Security and compliance",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "Security overview", Description: "See organization security posture and dependency risk in one place.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP25",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP25-security-overview-dependency-advisories.md", State: "Planned",
+				},
+				{
+					Name: "Secret scanning and push protection", Description: "Detect exposed secrets and block risky pushes.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP26",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP26-secret-protection.md", State: "Planned",
+				},
+				{
+					Name: "Code security", Description: "Import and review code scanning results without AI features.",
+					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP27",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP27-code-security.md", State: "Planned",
+				},
+				{
+					Name: "Required 2FA and audit log", Description: "Set stronger organization security posture and review activity.",
+					Free: "Upgrade", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+				},
+			},
+		},
+		{
+			Name: "Support and deployment",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "Community support", Description: "Use public docs and community support channels.",
+					Free: "Included", Team: "Included", Enterprise: "Contact sales", Owner: "SP30",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP30-standard-support-and-billing-ops.md", State: "Baseline shipped",
+				},
+				{
+					Name: "Standard support", Description: "Billing-aware support intake for paying organizations.",
+					Free: "Upgrade", Team: "Planned", Enterprise: "Contact sales", Owner: "SP30",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP30-standard-support-and-billing-ops.md", State: "Planned",
+				},
+				{
+					Name: "Enterprise account, SAML, SCIM, and managed users", Description: "Enterprise identity and account management remain contact-sales only.",
+					Free: "-", Team: "-", Enterprise: "Contact sales", Owner: "SP09",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP09-enterprise-stub.md", State: "Deferred",
+				},
+			},
+		},
 	}
 }
 

@@ -64,9 +64,18 @@ Rules for paid-org copy:
 - Use upgrade language for unavailable Team features instead of hiding
   existing data. Downgrades preserve configuration and make gated
   settings read-only where possible.
+- Public pricing compare rows may name planned GitHub-parity
+  capabilities only when the row also exposes the owning sprint and a
+  non-shipped state such as `Planned` or `Partially shipped`; the Team
+  column must not say `Included` until the owning sprint has shipped
+  the user-visible feature and enforcement.
 - Keep public/open-source collaboration generous in both copy and
   enforcement. Avoid copy that makes public repositories feel like a
   second-class Free tier.
+- Free organization members and invitations exist, but public pricing
+  should not advertise unlimited Free membership as a headline
+  differentiator. The paid pitch should center licensed seats for
+  private organization collaboration and controls.
 - Enterprise is a contact-sales stub in v1. It should collect interest
   without promising contractual features.
 
@@ -76,7 +85,7 @@ Rules for paid-org copy:
 | --- | --- | --- | --- |
 | Public org repositories | Included | Included | Contact sales |
 | Basic private org repositories | Included | Included | Contact sales |
-| Org members and invitations | Included | Billed by licensed seat | Contact sales |
+| Base org members and invitations (not a pricing headline) | Included | Billed by licensed seat | Contact sales |
 | Effective private org collaborators | Up to 3 | Unlimited while active/in grace | Contact sales |
 | Visible teams | Included | Included | Contact sales |
 | Secret teams | Upgrade | Included | Contact sales |
@@ -452,6 +461,31 @@ PAYMENTS SP16 starts the Stripe-correct seat-change contract:
   totals. Recent invoices label Team seat add/remove charges or
   credits as seat changes while preserving that detail across later
   invoice status events.
+
+PAYMENTS SP17 starts GitHub-shaped plan selection and setup parity:
+
+- `/organizations/plan` renders a data-driven Free / Team / Enterprise
+  card surface with GitHub-style recommended seat ranges: Free for
+  1-4 seats, Team for 5-10 seats, and Enterprise for 11+ seats.
+- The seat advisor defaults Team signup to 5 licensed seats and updates
+  plan recommendations plus Free/Team CTA URLs as the owner changes the
+  desired seat count. Free CTAs keep `seat_count=1`; Team CTAs carry
+  the selected licensed-seat count into setup.
+- Team setup accepts `seat_count` on `GET /organizations/new`, defaults
+  blank Team setup to 5 seats, previews `$4 x N seats`, and preserves
+  the explicit Stripe Checkout handoff shipped by SP04/SP14/SP16. The
+  GitHub `plan=business` alias maps to shithub Team.
+- The setup form follows GitHub's organization onboarding shape:
+  organization account name, owner classification, terms acceptance,
+  optional profile/import details, and a `Next: Payment details` submit
+  label before hosted Stripe checkout.
+- The comparison table carries owner sprint, owner path, and current
+  implementation state for every row. Unshipped feature rows are
+  labeled `Planned` or `Partially shipped` instead of `Included` so the
+  public surface remains tied to the sprint reality.
+- Enterprise remains a contact-sales path. Enterprise-only identity,
+  compliance, and account-management rows stay deferred until the
+  Enterprise contract is defined.
 
 ## Entitlement architecture
 
