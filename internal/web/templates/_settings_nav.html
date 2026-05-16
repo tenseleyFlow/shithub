@@ -57,6 +57,9 @@
       <li{{ if eq .SettingsActive "actions-secrets" }} class="active"{{ end }}>
         <a href="/settings/actions/secrets">Actions secrets &amp; variables</a>
       </li>
+      <li{{ if eq .SettingsActive "automation" }} class="active"{{ end }}>
+        <a href="/settings/automation">Automation</a>
+      </li>
       <li{{ if eq .SettingsActive "sessions" }} class="active"{{ end }}>
         <a href="/settings/sessions">Sessions</a>
       </li>
