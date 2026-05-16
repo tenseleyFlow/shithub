@@ -1,11 +1,5 @@
 # Cloning over SSH
 
-> **Status:** the SSH transport is planned but not yet shipped.
-> Until it lands, use [HTTPS with a PAT](./https.md). The procedure
-> below is what the SSH path will look like; the underlying server
-> infrastructure (per-key authorization, command-locked sessions)
-> already exists in the codebase.
-
 SSH lets you push and pull without re-entering credentials each
 time. shithub authenticates each connection by SSH public key:
 the key fingerprint maps to a user, and the session is locked to
@@ -58,6 +52,45 @@ git clone git@shithub.sh:<owner>/<repo>.git
 Subsequent pushes don't prompt — the agent presents the key, the
 server matches the fingerprint to your account, and the session
 is locked to `git-receive-pack` / `git-upload-pack`.
+
+## Multiple shithub accounts on one machine
+
+The repo path does not choose the account. For SSH URLs, the account is
+the user that owns the key your SSH client offers. If you use more than
+one shithub account from the same laptop, give each account its own host
+alias:
+
+```sshconfig
+Host shithub-work
+  HostName shithub.sh
+  User git
+  IdentityFile ~/.ssh/id_ed25519_work
+  IdentitiesOnly yes
+
+Host shithub-personal
+  HostName shithub.sh
+  User git
+  IdentityFile ~/.ssh/id_ed25519_personal
+  IdentitiesOnly yes
+```
+
+Then use the matching alias in each repo remote:
+
+```sh
+git remote set-url origin git@shithub-work:work-org/private-repo.git
+git remote set-url origin git@shithub-personal:you/private-repo.git
+```
+
+Per-repo `core.sshCommand` works too:
+
+```sh
+git config core.sshCommand \
+  "ssh -i ~/.ssh/id_ed25519_work -o IdentitiesOnly=yes"
+```
+
+If the wrong key is offered for a private repo, shithub returns
+`repository not found`. That is intentional: it avoids confirming that
+someone else's private repo exists.
 
 ## Removing or rotating a key
 

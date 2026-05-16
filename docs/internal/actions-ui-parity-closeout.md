@@ -100,7 +100,7 @@ go test -trimpath ./internal/checks/... ./internal/actions/annotations ./interna
 make build
 ```
 
-Manual production checks after deploy:
+Manual production checks after S41k-8 deploy:
 
 1. Run `make audit-actions-ui` against `https://shithub.sh` and a known
    `mfwolffe/scratch` run.
@@ -115,6 +115,21 @@ Manual production checks after deploy:
    object-storage URLs in the page source.
 6. Confirm private repository Actions routes and Code-surface status affordances
    preserve existence-leak-safe 404 behavior for unauthorized viewers.
+
+Post-deploy evidence captured on 2026-05-16:
+
+- A fresh `mfwolffe/scratch` push at
+  `6aac17a4c2eca6c5be94a566a571d1dd42c06939` created check run `109` with
+  `details_url=/mfwolffe/scratch/actions/runs/5`; that run route returned HTTP
+  200.
+- `espadonne/scratch` private-route masking was manually verified in
+  production: anonymous HTTP requests to the repo root and Actions route both
+  returned 404; SSH with the `mfwolffe` key returned `repository not found`;
+  SSH with the `espadonne` key successfully listed `refs/heads/trunk`.
+- The shared `ubuntu-latest` runner was reachable, but there was an existing
+  queued backlog at the time of the check. The `details_url` invariant is
+  proven at check-row creation time; run completion was not part of this UI
+  closeout check.
 
 ## React Decision
 
