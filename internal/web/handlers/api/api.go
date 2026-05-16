@@ -226,6 +226,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsCaches(r)
 		// S50 §2 follow-ups — README + topics + fork-sync.
 		h.mountReposFollowups(r)
+		// PRO-EXT01-13c — webhook relay CRUD + cron workflow dispatch
+		// CRUD. user:read/user:write scopes per PRO-EXT_SR-06.
+		h.mountUserWebhookRelays(r)
+		h.mountUserCronDispatches(r)
 	})
 	// PRO-EXT01-13a — webhook relay receiver. Mounted OUTSIDE the
 	// PAT-auth + api-body-cap groups: the URL token is the only
