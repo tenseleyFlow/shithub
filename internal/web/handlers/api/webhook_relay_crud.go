@@ -9,7 +9,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -264,7 +263,3 @@ func parseInt64Param(w http.ResponseWriter, r *http.Request, name string) (int64
 	return id, true
 }
 
-// requireUserPATAuth is reused from actions_secrets.go. Defined here
-// as a stub to make the dependency explicit; the real implementation
-// lives in that file.
-var _ = time.Now // keep time import for any future created_at presentation

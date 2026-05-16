@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
-	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
@@ -189,5 +188,3 @@ func newReposAPIRouterWithEnforce(t *testing.T, pool *pgxpool.Pool, enforceCron 
 	return r
 }
 
-// Silence unused-import warnings if a future trim drops pat from any test.
-var _ = pat.ScopeUserRead
