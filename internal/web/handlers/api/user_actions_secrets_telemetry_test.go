@@ -87,10 +87,10 @@ func newTelemetryEnv(t *testing.T, enforce bool) *telemetryEnv {
 	h.Mount(r)
 	userID := seedRepoCreatorUser(t, pool, "alice-sr02")
 	return &telemetryEnv{
-		router:  r,
-		pool:    pool,
-		userID:  userID,
-		logBuf:  logBuf,
+		router: r,
+		pool:   pool,
+		userID: userID,
+		logBuf: logBuf,
 		// PRO-EXT_SR-06: user-scope endpoints now require user:read /
 		// user:write. Use a token holding both so this env can fetch the
 		// public key (read) and PUT (write).
