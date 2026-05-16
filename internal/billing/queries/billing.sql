@@ -351,6 +351,9 @@ INSERT INTO billing_invoices (
     amount_due_cents,
     amount_paid_cents,
     amount_remaining_cents,
+    billing_reason,
+    has_proration,
+    proration_amount_cents,
     hosted_invoice_url,
     invoice_pdf_url,
     period_start,
@@ -373,6 +376,9 @@ VALUES (
     sqlc.arg(amount_due_cents)::bigint,
     sqlc.arg(amount_paid_cents)::bigint,
     sqlc.arg(amount_remaining_cents)::bigint,
+    sqlc.arg(billing_reason)::text,
+    sqlc.arg(has_proration)::boolean,
+    sqlc.arg(proration_amount_cents)::bigint,
     sqlc.arg(hosted_invoice_url)::text,
     sqlc.arg(invoice_pdf_url)::text,
     sqlc.narg(period_start)::timestamptz,
@@ -391,6 +397,15 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        amount_due_cents = EXCLUDED.amount_due_cents,
        amount_paid_cents = EXCLUDED.amount_paid_cents,
        amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       billing_reason = CASE
+           WHEN EXCLUDED.billing_reason <> '' THEN EXCLUDED.billing_reason
+           ELSE billing_invoices.billing_reason
+       END,
+       has_proration = billing_invoices.has_proration OR EXCLUDED.has_proration,
+       proration_amount_cents = CASE
+           WHEN EXCLUDED.has_proration THEN EXCLUDED.proration_amount_cents
+           ELSE billing_invoices.proration_amount_cents
+       END,
        hosted_invoice_url = EXCLUDED.hosted_invoice_url,
        invoice_pdf_url = EXCLUDED.invoice_pdf_url,
        period_start = EXCLUDED.period_start,
@@ -442,6 +457,9 @@ INSERT INTO billing_invoices (
     amount_due_cents,
     amount_paid_cents,
     amount_remaining_cents,
+    billing_reason,
+    has_proration,
+    proration_amount_cents,
     hosted_invoice_url,
     invoice_pdf_url,
     period_start,
@@ -463,6 +481,9 @@ VALUES (
     sqlc.arg(amount_due_cents)::bigint,
     sqlc.arg(amount_paid_cents)::bigint,
     sqlc.arg(amount_remaining_cents)::bigint,
+    sqlc.arg(billing_reason)::text,
+    sqlc.arg(has_proration)::boolean,
+    sqlc.arg(proration_amount_cents)::bigint,
     sqlc.arg(hosted_invoice_url)::text,
     sqlc.arg(invoice_pdf_url)::text,
     sqlc.narg(period_start)::timestamptz,
@@ -482,6 +503,15 @@ ON CONFLICT (provider, stripe_invoice_id) DO UPDATE
        amount_due_cents = EXCLUDED.amount_due_cents,
        amount_paid_cents = EXCLUDED.amount_paid_cents,
        amount_remaining_cents = EXCLUDED.amount_remaining_cents,
+       billing_reason = CASE
+           WHEN EXCLUDED.billing_reason <> '' THEN EXCLUDED.billing_reason
+           ELSE billing_invoices.billing_reason
+       END,
+       has_proration = billing_invoices.has_proration OR EXCLUDED.has_proration,
+       proration_amount_cents = CASE
+           WHEN EXCLUDED.has_proration THEN EXCLUDED.proration_amount_cents
+           ELSE billing_invoices.proration_amount_cents
+       END,
        hosted_invoice_url = EXCLUDED.hosted_invoice_url,
        invoice_pdf_url = EXCLUDED.invoice_pdf_url,
        period_start = EXCLUDED.period_start,

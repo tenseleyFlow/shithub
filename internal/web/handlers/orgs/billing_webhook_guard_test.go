@@ -363,6 +363,135 @@ func TestBillingWebhookDropsStaleEvent(t *testing.T) {
 	}
 }
 
+func TestBillingWebhookPreservesLocalSeatsForDelayedQuantityEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	deps := orgbilling.Deps{Pool: pool}
+
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, deps, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_seat_delay",
+		StripeSubscriptionItemID: "si_seat_delay",
+		LicensedSeats:            3,
+		LastWebhookEventID:       "evt_seed_seat_delay",
+	}); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if _, err := orgbilling.SetTeamLicensedSeats(ctx, deps, orgID, 5, "owner_add"); err != nil {
+		t.Fatalf("owner add seats: %v", err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_seat_delay",
+		"customer": "cus_seat_delay",
+		"status":   "active",
+		"metadata": map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_seat_delay",
+			"quantity":             int64(3),
+			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
+			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
+			"price":                map[string]string{"id": testTeamPriceID},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:      "evt_delayed_seat_quantity",
+				Type:    stripeapi.EventType("customer.subscription.updated"),
+				Created: time.Now().UTC().Add(-time.Hour).Unix(),
+				Data:    &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMuxWithPrices(t, pool, ownerID, fake, testTeamPriceID, testProPriceID)
+	resp := postBillingWebhook(t, mux, "evt_delayed_seat_quantity")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("delayed quantity event status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.LicensedSeats != 5 {
+		t.Fatalf("delayed quantity event regressed licensed seats: got %d want 5", state.LicensedSeats)
+	}
+	if state.LastWebhookEventID != "evt_delayed_seat_quantity" {
+		t.Fatalf("expected event metadata to apply, got last_webhook_event_id=%q", state.LastWebhookEventID)
+	}
+}
+
+func TestBillingWebhookAppliesNewerStripeSeatQuantityAfterLocalChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	deps := orgbilling.Deps{Pool: pool}
+
+	if _, err := orgbilling.ApplySubscriptionSnapshot(ctx, deps, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_seat_fresh",
+		StripeSubscriptionItemID: "si_seat_fresh",
+		LicensedSeats:            5,
+		LastWebhookEventID:       "evt_seed_seat_fresh",
+	}); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if _, err := orgbilling.SetTeamLicensedSeats(ctx, deps, orgID, 6, "owner_add"); err != nil {
+		t.Fatalf("owner add seats: %v", err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"id":       "sub_seat_fresh",
+		"customer": "cus_seat_fresh",
+		"status":   "active",
+		"metadata": map[string]string{stripebilling.MetadataOrgID: strconv.FormatInt(orgID, 10)},
+		"items": map[string]any{"data": []map[string]any{{
+			"id":                   "si_seat_fresh",
+			"quantity":             int64(4),
+			"current_period_start": time.Now().UTC().Add(-time.Hour).Unix(),
+			"current_period_end":   time.Now().UTC().Add(30 * 24 * time.Hour).Unix(),
+			"price":                map[string]string{"id": testTeamPriceID},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	fake := &fakeStripeRemote{
+		verifyWebhookFn: func(_ []byte, _ string) (stripeapi.Event, error) {
+			return stripeapi.Event{
+				ID:      "evt_fresh_seat_quantity",
+				Type:    stripeapi.EventType("customer.subscription.updated"),
+				Created: time.Now().UTC().Add(time.Hour).Unix(),
+				Data:    &stripeapi.EventData{Raw: raw},
+			}, nil
+		},
+	}
+	mux := newOrgBillingMuxWithPrices(t, pool, ownerID, fake, testTeamPriceID, testProPriceID)
+	resp := postBillingWebhook(t, mux, "evt_fresh_seat_quantity")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("fresh quantity event status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	state, err := orgbilling.GetOrgBillingState(ctx, deps, orgID)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.LicensedSeats != 4 {
+		t.Fatalf("fresh quantity event did not apply Stripe seats: got %d want 4", state.LicensedSeats)
+	}
+}
+
 // TestBillingWebhookGuardRefusesSecondSubscriptionForSameCustomer locks
 // PRO08 D3: when the principal already has a Stripe subscription on
 // file, a webhook event referencing a DIFFERENT subscription must be

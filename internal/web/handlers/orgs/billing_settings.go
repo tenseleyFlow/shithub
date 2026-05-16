@@ -33,6 +33,7 @@ type billingSummaryItem struct {
 
 type billingInvoiceView struct {
 	Number           string
+	DetailLabel      string
 	StatusLabel      string
 	StatusClass      string
 	AmountLabel      string
@@ -1659,6 +1660,7 @@ func billingInvoiceViews(invoices []billingdb.BillingInvoice) []billingInvoiceVi
 		}
 		items = append(items, billingInvoiceView{
 			Number:           number,
+			DetailLabel:      billingInvoiceDetailLabel(inv),
 			StatusLabel:      billingInvoiceStatusLabel(inv.Status),
 			StatusClass:      strings.ReplaceAll(strings.ToLower(string(inv.Status)), "_", "-"),
 			AmountLabel:      formatCurrencyAmount(inv.Currency, inv.AmountDueCents),
@@ -1669,6 +1671,27 @@ func billingInvoiceViews(invoices []billingdb.BillingInvoice) []billingInvoiceVi
 		})
 	}
 	return items
+}
+
+func billingInvoiceDetailLabel(inv billingdb.BillingInvoice) string {
+	if inv.HasProration {
+		if inv.ProrationAmountCents < 0 {
+			return "Seat credit " + formatCurrencyAmount(inv.Currency, inv.ProrationAmountCents)
+		}
+		return "Seat change " + formatCurrencyAmount(inv.Currency, inv.ProrationAmountCents)
+	}
+	switch strings.TrimSpace(inv.BillingReason) {
+	case "subscription_create":
+		return "New Team subscription"
+	case "subscription_update":
+		return "Subscription update"
+	case "subscription_cycle":
+		return "Monthly renewal"
+	case "manual":
+		return "Manual invoice"
+	default:
+		return "Subscription invoice"
+	}
 }
 
 func billingInvoiceStatusLabel(status orgbilling.InvoiceStatus) string {

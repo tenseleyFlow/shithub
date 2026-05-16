@@ -2187,6 +2187,9 @@ type BillingInvoice struct {
 	SubjectKind          BillingSubjectKind
 	SubjectID            int64
 	RefundedAt           pgtype.Timestamptz
+	BillingReason        string
+	HasProration         bool
+	ProrationAmountCents int64
 }
 
 type BillingSeatSnapshot struct {

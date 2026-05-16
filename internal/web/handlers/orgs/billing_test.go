@@ -1144,20 +1144,31 @@ func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testin
 	mux := newOrgBillingMux(t, pool, ownerID, fake)
 
 	current = stripeTestEvent(t, "evt_invoice_failed", "invoice.payment_failed", map[string]any{
-		"id":                   "in_test_lifecycle",
-		"object":               "invoice",
-		"customer":             "cus_test_lifecycle",
-		"status":               "open",
-		"number":               "INV-FAILED",
-		"currency":             "usd",
-		"amount_due":           int64(400),
-		"amount_paid":          int64(0),
-		"amount_remaining":     int64(400),
-		"hosted_invoice_url":   "https://pay.stripe.test/invoice",
-		"invoice_pdf":          "https://pay.stripe.test/invoice.pdf",
-		"period_start":         start.Unix(),
-		"period_end":           start.Add(30 * 24 * time.Hour).Unix(),
-		"due_date":             start.Add(3 * 24 * time.Hour).Unix(),
+		"id":                 "in_test_lifecycle",
+		"object":             "invoice",
+		"customer":           "cus_test_lifecycle",
+		"status":             "open",
+		"billing_reason":     "subscription_update",
+		"number":             "INV-FAILED",
+		"currency":           "usd",
+		"amount_due":         int64(400),
+		"amount_paid":        int64(0),
+		"amount_remaining":   int64(400),
+		"hosted_invoice_url": "https://pay.stripe.test/invoice",
+		"invoice_pdf":        "https://pay.stripe.test/invoice.pdf",
+		"period_start":       start.Unix(),
+		"period_end":         start.Add(30 * 24 * time.Hour).Unix(),
+		"due_date":           start.Add(3 * 24 * time.Hour).Unix(),
+		"lines": map[string]any{"data": []map[string]any{{
+			"id":     "il_proration",
+			"amount": int64(533),
+			"parent": map[string]any{
+				"type": "subscription_item_details",
+				"subscription_item_details": map[string]any{
+					"proration": true,
+				},
+			},
+		}}},
 		"status_transitions":   map[string]any{},
 		"subscription_details": map[string]any{},
 	})
@@ -1177,6 +1188,16 @@ func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testin
 	}
 	if !state.GraceUntil.Valid {
 		t.Fatalf("payment_failed should set grace_until: %+v", state)
+	}
+	invoices, err := orgbilling.ListInvoicesForOrg(ctx, deps, orgID, 10)
+	if err != nil {
+		t.Fatalf("ListInvoicesForOrg: %v", err)
+	}
+	if len(invoices) != 1 {
+		t.Fatalf("expected one invoice after payment_failed, got %d", len(invoices))
+	}
+	if !invoices[0].HasProration || invoices[0].ProrationAmountCents != 533 || invoices[0].BillingReason != "subscription_update" {
+		t.Fatalf("invoice proration summary not persisted: %+v", invoices[0])
 	}
 
 	current = stripeTestEvent(t, "evt_invoice_paid", "invoice.payment_succeeded", map[string]any{
@@ -1210,6 +1231,22 @@ func TestOrgBillingWebhookHandlesInvoiceFailureRecoveryAndCancellation(t *testin
 	}
 	if state.PastDueAt.Valid {
 		t.Fatalf("payment_succeeded should clear past_due_at: %+v", state)
+	}
+	invoices, err = orgbilling.ListInvoicesForOrg(ctx, deps, orgID, 10)
+	if err != nil {
+		t.Fatalf("ListInvoicesForOrg after payment_succeeded: %v", err)
+	}
+	if len(invoices) != 1 || !invoices[0].HasProration || invoices[0].ProrationAmountCents != 533 || invoices[0].BillingReason != "subscription_update" {
+		t.Fatalf("paid invoice should preserve seat-change details: %+v", invoices)
+	}
+	resp = httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodGet, "/organizations/acme/settings/billing", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("billing settings status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "INVOICE=INV-FAILED:Seat change $5.33 USD;") {
+		t.Fatalf("billing settings did not surface seat-change invoice detail: %s", resp.Body.String())
 	}
 
 	current = stripeTestEvent(t, "evt_subscription_deleted", "customer.subscription.deleted", map[string]any{
@@ -1362,7 +1399,7 @@ func newOrgBillingMuxFull(t *testing.T, pool *pgxpool.Pool, viewer middleware.Cu
 	tmplFS := fstest.MapFS{
 		"_layout.html":                         {Data: []byte(`{{ define "layout" }}<html><body>{{ template "page" . }}</body></html>{{ end }}`)},
 		"orgs/billing_result.html":             {Data: []byte(`{{ define "page" }}RESULT={{ .Result }};HEADING={{ .Heading }};MESSAGE={{ .Message }};BILLING={{ .BillingPath }}{{ end }}`)},
-		"orgs/settings_billing.html":           {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};DRIFT={{ .Debug.SeatDrift.Status }}|{{ .Debug.SeatDrift.LocalLicensedSeats }}|{{ .Debug.SeatDrift.StripeSeats }}|{{ .Debug.SeatDrift.CanRepair }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }};{{ end }}{{ end }}`)},
+		"orgs/settings_billing.html":           {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}{{ with .BillingAlert }}{{ if .Message }}ALERT={{ .Message }}{{ end }}{{ end }}{{ with .Usage.Alert }}{{ if .Message }}USAGE_ALERT={{ .Message }};{{ end }}{{ end }}SEATS={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Usage.Rows }}USAGE={{ .Key }}:{{ .UsedLabel }}/{{ .LimitLabel }}/{{ .PercentLabel }}/{{ .StatusClass }};{{ end }}{{ range .Summary }}{{ if eq .Label "Payment source" }}PAYMENT={{ .Detail }};{{ end }}{{ end }}{{ if .IsSiteAdmin }}DEBUG={{ .Debug.StripeCustomerID }}|{{ .Debug.StripeSubscriptionID }}|{{ .Debug.StripeSubscriptionItemID }}|{{ .Debug.LastWebhookEventID }}|{{ .Debug.LastWebhookStatus }};DRIFT={{ .Debug.SeatDrift.Status }}|{{ .Debug.SeatDrift.LocalLicensedSeats }}|{{ .Debug.SeatDrift.StripeSeats }}|{{ .Debug.SeatDrift.CanRepair }};{{ range .Debug.QuotaOverrides }}OVERRIDE={{ .Kind }}:{{ .Limit }};{{ end }}{{ end }}{{ range .Invoices }}INVOICE={{ .Number }}:{{ .DetailLabel }};{{ end }}{{ end }}`)},
 		"orgs/settings_billing_licensing.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .Notice }}NOTICE={{ . }}{{ end }}LICENSE={{ .Seats.UsedSeats }}/{{ .Seats.LicensedSeats }}/{{ .Seats.AvailableSeats }}/{{ .Seats.PendingInvites }};{{ range .Consumers }}CONSUMER={{ .Username }}:{{ .RoleLabel }};{{ end }}{{ range .PendingInvites }}PENDING={{ .Target }};{{ end }}ADD={{ .SeatMenu.CanAddSeats }};REMOVE={{ .SeatMenu.CanRemove }};{{ end }}`)},
 		"orgs/settings_billing_seats.html":     {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}FORM={{ .Form.Mode }};CURRENT={{ .Form.CurrentSeats }};USED={{ .Form.UsedSeats }};AVAILABLE={{ .Form.AvailableSeats }};NEW={{ .Form.NewTotal }};CAN={{ .Form.CanSubmit }};PRORATION={{ .Form.ProrationLabel }};{{ end }}`)},
 		"orgs/people.html":                     {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }};{{ end }}{{ if .NoticeActionHref }}ACTION={{ .NoticeActionText }}|{{ .NoticeActionHref }};{{ end }}{{ end }}`)},

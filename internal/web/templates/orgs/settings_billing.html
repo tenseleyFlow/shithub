@@ -275,6 +275,7 @@
               <thead>
                 <tr>
                   <th scope="col">Invoice</th>
+                  <th scope="col">Details</th>
                   <th scope="col">Status</th>
                   <th scope="col">Amount</th>
                   <th scope="col">Period</th>
@@ -286,6 +287,7 @@
                 {{ range .Invoices }}
                 <tr>
                   <td>{{ .Number }}</td>
+                  <td>{{ .DetailLabel }}</td>
                   <td><span class="shithub-org-billing-status is-{{ .StatusClass }}">{{ .StatusLabel }}</span></td>
                   <td>{{ .AmountLabel }}</td>
                   <td>{{ .PeriodLabel }}</td>
