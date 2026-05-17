@@ -9,6 +9,7 @@
     <span aria-disabled="true">{{ octicon "lock" }} Member privileges</span>
     <h2>Code, planning, and automation</h2>
     <span aria-disabled="true">{{ octicon "play" }} Actions</span>
+    <a{{ if eq .OrgSettingsActive "scheduled-reminders" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/scheduled-reminders">{{ octicon "bell" }} Scheduled reminders</a>
     <span aria-disabled="true">{{ octicon "table" }} Projects</span>
     <span aria-disabled="true">{{ octicon "package" }} Packages</span>
     <h2>Security</h2>
