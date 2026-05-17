@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/password"
 	"github.com/tenseleyFlow/shithub/internal/auth/session"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	authh "github.com/tenseleyFlow/shithub/internal/web/handlers/auth"
@@ -67,6 +68,59 @@ func newDeviceCodeRouter(t *testing.T) (http.Handler, *pgxpool.Pool) {
 		},
 		Limiter: throttle.NewLimiter(),
 		Audit:   audit.NewRecorder(),
+		DeviceCode: devicecode.Config{
+			ClientIDs:     []string{"shithub-cli"},
+			DefaultScopes: []string{"user:read"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("authh.New: %v", err)
+	}
+	r := chi.NewRouter()
+	h.MountDeviceCodeAPI(r)
+	return r, pool
+}
+
+// newDeviceCodeRouterRateLimited builds the same router as
+// newDeviceCodeRouter but with a real ratelimit.Limiter wired through
+// Deps. The default no-limiter helper above keeps every other test
+// fast and IP-independent; this variant is for the 429-burst test in
+// remediation #2.
+func newDeviceCodeRouterRateLimited(t *testing.T) (http.Handler, *pgxpool.Pool) {
+	t.Helper()
+	pool := dbtest.NewTestDB(t)
+	tmplFS := fstest.MapFS{
+		"_layout.html": {Data: []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)},
+		"hello.html":   {Data: []byte(`{{ define "page" }}home{{ end }}`)},
+	}
+	rr, err := render.New(fs.FS(tmplFS), render.Options{})
+	if err != nil {
+		t.Fatalf("render.New: %v", err)
+	}
+	storeKey, err := session.GenerateKey()
+	if err != nil {
+		t.Fatalf("session key: %v", err)
+	}
+	store, err := session.NewCookieStore(session.CookieStoreConfig{Key: storeKey, MaxAge: 0, Secure: false})
+	if err != nil {
+		t.Fatalf("NewCookieStore: %v", err)
+	}
+	h, err := authh.New(authh.Deps{
+		Logger:       slog.Default(),
+		Render:       rr,
+		Pool:         pool,
+		SessionStore: store,
+		Email:        &noopSender{},
+		Branding: email.Branding{
+			SiteName: "shithub", BaseURL: "http://test.invalid",
+			From: "noreply@shithub.test",
+		},
+		Argon2: password.Params{
+			Memory: 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32,
+		},
+		Limiter:     throttle.NewLimiter(),
+		RateLimiter: ratelimit.New(pool),
+		Audit:       audit.NewRecorder(),
 		DeviceCode: devicecode.Config{
 			ClientIDs:     []string{"shithub-cli"},
 			DefaultScopes: []string{"user:read"},
@@ -267,5 +321,34 @@ func TestDeviceAPI_ExchangePendingThenApproved(t *testing.T) {
 	}
 	if ex.Scope != "user:read" {
 		t.Errorf("scope: got %q", ex.Scope)
+	}
+}
+
+// TestDeviceAPI_IssueRateLimited covers remediation #2: the 6th
+// /login/device/code request from a given IP within a minute returns
+// 429 with Retry-After. Bucket policy is 5/min (see
+// middleware.OAuthDeviceCodePolicy). The default httptest RemoteAddr
+// stays constant across requests so all 6 share an IP bucket.
+func TestDeviceAPI_IssueRateLimited(t *testing.T) {
+	router, _ := newDeviceCodeRouterRateLimited(t)
+	body := url.Values{"client_id": {"shithub-cli"}, "scope": {"user:read"}}
+
+	// First 5 calls succeed.
+	for i := 1; i <= 5; i++ {
+		rr := formPost(router, "/login/device/code", body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("call %d: got status %d; body=%s", i, rr.Code, rr.Body.String())
+		}
+	}
+	// 6th call within the same minute → 429.
+	rr := formPost(router, "/login/device/code", body)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("call 6: got status %d, want 429; body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Header().Get("Retry-After") == "" {
+		t.Errorf("call 6: missing Retry-After header")
+	}
+	if rr.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Errorf("call 6: content-type want text/plain, got %q", rr.Header().Get("Content-Type"))
 	}
 }
