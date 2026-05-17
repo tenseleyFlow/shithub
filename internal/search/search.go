@@ -79,7 +79,11 @@ type UserResult struct {
 	Username    string
 	DisplayName string
 	Bio         string
-	Rank        float64
+	// IsPro is true when the user is on the Pro user plan. Used by the
+	// search results template to render a Pro pill alongside the
+	// username (PRO-EXT_SR2-15 discovery sweep).
+	IsPro bool
+	Rank  float64
 }
 
 // CodeResult is one row from SearchCode. Either Path or Content
