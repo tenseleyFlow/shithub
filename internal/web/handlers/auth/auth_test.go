@@ -97,6 +97,14 @@ type authTestOptions struct {
 	// when false (default, report-only) animation is preserved + a
 	// would-deny log line is emitted.
 	EnforceAnimatedAvatars bool
+	// EnforceProfileVanity flips the PRO-EXT_SR2-09 vanity gate.
+	// True → Free vanity writes are dropped; false (default) → land
+	// + log.
+	EnforceProfileVanity bool
+	// EnforceUsernameReservations flips the PRO-EXT_SR2-09 reservations
+	// gate. True → Free reservation writes denied; false (default) →
+	// land + log.
+	EnforceUsernameReservations bool
 	// LogSink, when non-nil, replaces the discard logger with a JSON
 	// handler writing here — lets tests assert telemetry shape.
 	LogSink io.Writer
@@ -172,6 +180,8 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 			UserContributionPrivacy:   opts.EnforceContributionPrivacy,
 			UserActionsSecrets:        opts.EnforceUserActionsSecrets,
 			AnimatedAvatars:           opts.EnforceAnimatedAvatars,
+			UserProfileVanity:         opts.EnforceProfileVanity,
+			UserUsernameReservations:  opts.EnforceUsernameReservations,
 		},
 		BillingGracePeriod:    14 * 24 * time.Hour,
 		Stripe:                opts.Stripe,

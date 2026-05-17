@@ -18,7 +18,12 @@ import (
 // written; Pro user POSTing gets a success message + the row.
 func TestUsernameReservations_FreeBlockedProAllowed(t *testing.T) {
 	t.Parallel()
-	srv, pool, captor := newTestServerWithPool(t, false)
+	// PRO-EXT_SR2-09 added the enforce knob; flip it on so the test
+	// keeps asserting hard-deny for Free. Report-only path is covered
+	// separately by the entitlement-level tests.
+	srv, pool, captor := newTestServerWithPoolOptions(t, authTestOptions{
+		EnforceUsernameReservations: true,
+	})
 	cli, userID := newBillingTestUser(t, srv, pool, captor, "freealice")
 
 	// Free attempt — gate denies.
@@ -195,7 +200,8 @@ func TestUsernameReservations_ReleaseRemovesRow(t *testing.T) {
 	assertReservationCount(t, pool, userID, 2)
 
 	var dropID int64
-	if err := pool.QueryRow(context.Background(),
+	if err := pool.QueryRow(
+		context.Background(),
 		`SELECT id FROM user_username_reservations WHERE user_id = $1 AND reserved_handle = $2`,
 		userID, "drop-me",
 	).Scan(&dropID); err != nil {
@@ -214,7 +220,8 @@ func TestUsernameReservations_ReleaseRemovesRow(t *testing.T) {
 	}
 	assertReservationCount(t, pool, userID, 1)
 	var remaining string
-	if err := pool.QueryRow(context.Background(),
+	if err := pool.QueryRow(
+		context.Background(),
 		`SELECT reserved_handle FROM user_username_reservations WHERE user_id = $1`,
 		userID,
 	).Scan(&remaining); err != nil {
@@ -272,7 +279,8 @@ func TestUsernameReservations_DuplicateBlocked(t *testing.T) {
 func assertReservationCount(t *testing.T, pool *pgxpool.Pool, userID int64, want int64) {
 	t.Helper()
 	var got int64
-	if err := pool.QueryRow(context.Background(),
+	if err := pool.QueryRow(
+		context.Background(),
 		`SELECT count(*) FROM user_username_reservations WHERE user_id = $1`, userID,
 	).Scan(&got); err != nil {
 		t.Fatalf("count reservations: %v", err)

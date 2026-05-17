@@ -126,7 +126,12 @@ func TestProfileEditor_TooLongBio(t *testing.T) {
 // they persist.
 func TestProfileEditor_VanityValuesGatedOnPro(t *testing.T) {
 	t.Parallel()
-	srv, pool, captor := newTestServerWithPool(t, false)
+	// PRO-EXT_SR2-09 added the enforce knob; flip it on so this test
+	// keeps asserting the hard-deny outcome. Report-only behavior is
+	// implicit in the absence of opts.
+	srv, pool, captor := newTestServerWithPoolOptions(t, authTestOptions{
+		EnforceProfileVanity: true,
+	})
 	cli, userID := newBillingTestUser(t, srv, pool, captor, "vanityalice")
 
 	// Free attempt — values must NOT persist.
@@ -185,7 +190,8 @@ func TestProfileEditor_VanityRejectsMalformedAccent(t *testing.T) {
 func assertVanityValues(t *testing.T, pool *pgxpool.Pool, userID int64, wantAccent, wantLayout string) {
 	t.Helper()
 	var gotAccent, gotLayout string
-	if err := pool.QueryRow(context.Background(),
+	if err := pool.QueryRow(
+		context.Background(),
 		`SELECT profile_accent_hex, profile_layout FROM users WHERE id = $1`, userID,
 	).Scan(&gotAccent, &gotLayout); err != nil {
 		t.Fatalf("read vanity values: %v", err)
