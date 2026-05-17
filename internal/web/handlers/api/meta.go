@@ -60,6 +60,7 @@ var APICapabilities = []string{
 	"merge-upstream",
 	"gpg-keys",
 	"rulesets",
+	"users",
 }
 
 type metaResponse struct {
