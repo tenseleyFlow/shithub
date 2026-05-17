@@ -72,8 +72,13 @@ type issueResponse struct {
 	// AuthorID is the legacy flat foreign key. Kept alongside the new
 	// `user` envelope for one release cycle (S60 audit migration);
 	// prefer `user.id` for new code.
-	AuthorID  int64           `json:"author_id,omitempty"`
-	User      *userEnvelope   `json:"user,omitempty"`
+	AuthorID int64         `json:"author_id,omitempty"`
+	User     *userEnvelope `json:"user,omitempty"`
+	// Assignees mirrors gh's issue payload (C-audit C20a). nil when
+	// no assignees; non-nil empty slice when the issue exists but is
+	// unassigned (gh shape). Always populated by presentIssue (the
+	// caller resolves and passes through, just like Labels).
+	Assignees []userEnvelope  `json:"assignees"`
 	Labels    []labelEnvelope `json:"labels,omitempty"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
@@ -85,7 +90,15 @@ type issueResponse struct {
 // (and pass nil for the freshly-created-just-now path where the author
 // is the authenticated caller and we can construct the envelope from
 // the auth context cheaper than a round-trip).
-func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope) issueResponse {
+//
+// assignees is the resolved slice; pass a non-nil empty slice (never
+// nil) so the field always serializes — gh-compat clients expect the
+// key to be present (C20a). The single-issue paths build it via
+// assigneeEnvelopesFor; the list endpoint batches.
+func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, assignees []userEnvelope) issueResponse {
+	if assignees == nil {
+		assignees = []userEnvelope{}
+	}
 	out := issueResponse{
 		ID:        i.ID,
 		Number:    i.Number,
@@ -95,6 +108,7 @@ func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope) 
 		Locked:    i.Locked,
 		Labels:    labels,
 		User:      user,
+		Assignees: assignees,
 		CreatedAt: i.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt: i.UpdatedAt.Time.UTC().Format(time.RFC3339),
 	}
@@ -195,7 +209,7 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		if row.AuthorUserID.Valid {
 			u = users[row.AuthorUserID.Int64]
 		}
-		out = append(out, presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u))
+		out = append(out, presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u, h.assigneeEnvelopesFor(r.Context(), row.ID)))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -226,6 +240,30 @@ func (h *Handlers) labelEnvelopesFor(ctx context.Context, issueID int64) []label
 		return nil
 	}
 	return presentLabelEnvelopes(rows)
+}
+
+// assigneeEnvelopesFor returns the assignees on an issue as gh-compat
+// user envelopes (C20a). Mirrors labelEnvelopesFor's shape. Returns a
+// non-nil empty slice on no-assignees so the response always carries
+// the `assignees: []` key — gh clients parse against the field being
+// present. Uses the batch user lookup to avoid N+1.
+func (h *Handlers) assigneeEnvelopesFor(ctx context.Context, issueID int64) []userEnvelope {
+	rows, err := issuesdb.New().ListIssueAssignees(ctx, h.d.Pool, issueID)
+	if err != nil || len(rows) == 0 {
+		return []userEnvelope{}
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, a := range rows {
+		ids = append(ids, a.UserID)
+	}
+	byID := h.resolveUserEnvelopesBatch(ctx, ids)
+	out := make([]userEnvelope, 0, len(rows))
+	for _, a := range rows {
+		if env := byID[a.UserID]; env != nil {
+			out = append(out, *env)
+		}
+	}
+	return out
 }
 
 // ─── single get ─────────────────────────────────────────────────────
@@ -262,7 +300,7 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u))
+	writeJSON(w, http.StatusOK, presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u, h.assigneeEnvelopesFor(r.Context(), issue.ID)))
 }
 
 // ─── create ─────────────────────────────────────────────────────────
@@ -380,7 +418,7 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	// their envelope so the response is fully populated on the first
 	// round-trip.
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	writeJSON(w, http.StatusCreated, presentIssue(fresh, labels, u))
+	writeJSON(w, http.StatusCreated, presentIssue(fresh, labels, u, h.assigneeEnvelopesFor(r.Context(), fresh.ID)))
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
@@ -548,7 +586,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	if fresh.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), fresh.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u))
+	writeJSON(w, http.StatusOK, presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u, h.assigneeEnvelopesFor(r.Context(), fresh.ID)))
 }
 
 // ─── comments ───────────────────────────────────────────────────────
