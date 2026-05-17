@@ -613,6 +613,7 @@ INSERT INTO org_usage_snapshots (
     source,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,
@@ -624,6 +625,7 @@ SELECT
     $1::text,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,
@@ -631,7 +633,7 @@ SELECT
     actions_period_end
 FROM org_usage_counters
 WHERE org_id = $2::bigint
-RETURNING id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at
+RETURNING id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at, package_storage_bytes
 `
 
 type CreateOrgUsageSnapshotParams struct {
@@ -654,6 +656,7 @@ func (q *Queries) CreateOrgUsageSnapshot(ctx context.Context, db DBTX, arg Creat
 		&i.ActionsPeriodStart,
 		&i.ActionsPeriodEnd,
 		&i.CapturedAt,
+		&i.PackageStorageBytes,
 	)
 	return i, err
 }
@@ -963,7 +966,7 @@ func (q *Queries) GetOrgQuotaOverride(ctx context.Context, db DBTX, arg GetOrgQu
 
 const getOrgUsageCounters = `-- name: GetOrgUsageCounters :one
 
-SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at FROM org_usage_counters WHERE org_id = $1
+SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at, package_storage_bytes FROM org_usage_counters WHERE org_id = $1
 `
 
 // ─── org_usage_counters ────────────────────────────────────────────
@@ -982,6 +985,7 @@ func (q *Queries) GetOrgUsageCounters(ctx context.Context, db DBTX, orgID int64)
 		&i.CalculatedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PackageStorageBytes,
 	)
 	return i, err
 }
@@ -1418,7 +1422,7 @@ func (q *Queries) ListOrgQuotaOverrides(ctx context.Context, db DBTX, orgID int6
 }
 
 const listOrgUsageSnapshots = `-- name: ListOrgUsageSnapshots :many
-SELECT id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at FROM org_usage_snapshots
+SELECT id, org_id, source, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, captured_at, package_storage_bytes FROM org_usage_snapshots
 WHERE org_id = $1
 ORDER BY captured_at DESC, id DESC
 LIMIT $2
@@ -1450,6 +1454,7 @@ func (q *Queries) ListOrgUsageSnapshots(ctx context.Context, db DBTX, arg ListOr
 			&i.ActionsPeriodStart,
 			&i.ActionsPeriodEnd,
 			&i.CapturedAt,
+			&i.PackageStorageBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -2157,11 +2162,21 @@ artifact_usage AS (
     JOIN repos repo ON repo.id = r.repo_id
     WHERE repo.owner_org_id = $1::bigint
 ),
+package_usage AS (
+    SELECT COALESCE(sum(f.size_bytes), 0)::bigint AS package_storage_bytes
+    FROM repo_package_files f
+    JOIN repo_package_versions v ON v.id = f.version_id
+    JOIN repo_packages p ON p.id = v.package_id
+    JOIN repos repo ON repo.id = p.repo_id
+    WHERE repo.owner_org_id = $1::bigint
+      AND repo.deleted_at IS NULL
+),
 upserted AS (
     INSERT INTO org_usage_counters (
         org_id,
         repo_storage_bytes,
         object_storage_bytes,
+        package_storage_bytes,
         actions_log_bytes,
         actions_artifact_bytes,
         actions_minutes_used,
@@ -2172,17 +2187,19 @@ upserted AS (
     SELECT
         $1::bigint,
         repo_usage.repo_storage_bytes,
-        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes,
+        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes + package_usage.package_storage_bytes,
+        package_usage.package_storage_bytes,
         action_usage.actions_log_bytes,
         artifact_usage.actions_artifact_bytes,
         actions_minutes.actions_minutes_used,
         $2::timestamptz,
         $3::timestamptz,
         now()
-    FROM repo_usage, action_usage, actions_minutes, artifact_usage
+    FROM repo_usage, action_usage, actions_minutes, artifact_usage, package_usage
     ON CONFLICT (org_id) DO UPDATE
        SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
            object_storage_bytes = EXCLUDED.object_storage_bytes,
+           package_storage_bytes = EXCLUDED.package_storage_bytes,
            actions_log_bytes = EXCLUDED.actions_log_bytes,
            actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
            actions_minutes_used = EXCLUDED.actions_minutes_used,
@@ -2190,9 +2207,9 @@ upserted AS (
            actions_period_end = EXCLUDED.actions_period_end,
            calculated_at = EXCLUDED.calculated_at,
            updated_at = now()
-    RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at
+    RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at, package_storage_bytes
 )
-SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at FROM upserted
+SELECT org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at, package_storage_bytes FROM upserted
 `
 
 type RecalculateOrgUsageCountersParams struct {
@@ -2213,6 +2230,7 @@ type RecalculateOrgUsageCountersRow struct {
 	CalculatedAt         pgtype.Timestamptz
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
+	PackageStorageBytes  int64
 }
 
 func (q *Queries) RecalculateOrgUsageCounters(ctx context.Context, db DBTX, arg RecalculateOrgUsageCountersParams) (RecalculateOrgUsageCountersRow, error) {
@@ -2230,6 +2248,7 @@ func (q *Queries) RecalculateOrgUsageCounters(ctx context.Context, db DBTX, arg 
 		&i.CalculatedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PackageStorageBytes,
 	)
 	return i, err
 }
@@ -2802,6 +2821,7 @@ INSERT INTO org_usage_counters (
     org_id,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,
@@ -2816,13 +2836,15 @@ VALUES (
     $4::bigint,
     $5::bigint,
     $6::bigint,
-    $7::timestamptz,
+    $7::bigint,
     $8::timestamptz,
-    COALESCE($9::timestamptz, now())
+    $9::timestamptz,
+    COALESCE($10::timestamptz, now())
 )
 ON CONFLICT (org_id) DO UPDATE
    SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
        object_storage_bytes = EXCLUDED.object_storage_bytes,
+       package_storage_bytes = EXCLUDED.package_storage_bytes,
        actions_log_bytes = EXCLUDED.actions_log_bytes,
        actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
        actions_minutes_used = EXCLUDED.actions_minutes_used,
@@ -2830,13 +2852,14 @@ ON CONFLICT (org_id) DO UPDATE
        actions_period_end = EXCLUDED.actions_period_end,
        calculated_at = EXCLUDED.calculated_at,
        updated_at = now()
-RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at
+RETURNING org_id, repo_storage_bytes, object_storage_bytes, actions_log_bytes, actions_artifact_bytes, actions_minutes_used, actions_period_start, actions_period_end, calculated_at, created_at, updated_at, package_storage_bytes
 `
 
 type UpsertOrgUsageCountersParams struct {
 	OrgID                int64
 	RepoStorageBytes     int64
 	ObjectStorageBytes   int64
+	PackageStorageBytes  int64
 	ActionsLogBytes      int64
 	ActionsArtifactBytes int64
 	ActionsMinutesUsed   int64
@@ -2850,6 +2873,7 @@ func (q *Queries) UpsertOrgUsageCounters(ctx context.Context, db DBTX, arg Upser
 		arg.OrgID,
 		arg.RepoStorageBytes,
 		arg.ObjectStorageBytes,
+		arg.PackageStorageBytes,
 		arg.ActionsLogBytes,
 		arg.ActionsArtifactBytes,
 		arg.ActionsMinutesUsed,
@@ -2870,6 +2894,7 @@ func (q *Queries) UpsertOrgUsageCounters(ctx context.Context, db DBTX, arg Upser
 		&i.CalculatedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PackageStorageBytes,
 	)
 	return i, err
 }
