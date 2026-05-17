@@ -532,6 +532,58 @@ func TestIssues_LockUnlock(t *testing.T) {
 	}
 }
 
+// TestIssues_LockedRejectsCommentEvenFromLocker covers C-audit C19:
+// pre-fix, the locker (who is a collaborator) bypassed their own
+// lock and could keep commenting. "Lock that doesn't lock" was the
+// UX cliff. Strict semantic: any comment to a locked issue gets a
+// 423 until the issue is explicitly unlocked.
+func TestIssues_LockedRejectsCommentEvenFromLocker(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	// Create + lock as the same actor.
+	cbody, _ := json.Marshal(map[string]any{"title": "spicy"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(cbody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/repos/alice/demo/issues/1/lock", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("lock: %d", rr.Code)
+	}
+
+	// Comment as the locker — must be rejected 423 (regression for C19).
+	commentBody, _ := json.Marshal(map[string]any{"body": "post-lock by locker"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues/1/comments", bytes.NewReader(commentBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusLocked {
+		t.Fatalf("locked comment: got %d, want 423 Locked; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// After unlock, comments work again.
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/repos/alice/demo/issues/1/lock", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("unlock: %d", rr.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues/1/comments", bytes.NewReader(commentBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Errorf("post-unlock comment: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 // TestIssues_UserEnvelope pins the S60 audit-finding A12 fix: every
 // issue + comment response carries a nested `user: {id, login, type}`
 // envelope alongside the legacy `author_id` so gh-compat clients (the
