@@ -81,6 +81,10 @@ func (h *Handlers) repoPackageUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, pkgdomain.MaxPackageFileBytes+packageUploadBodySlack)
+	// MaxBytesReader above caps the full multipart request body before
+	// ParseMultipartForm can spill parts to memory/disk.
+	//
+	//nolint:gosec // G120: request body is capped by MaxBytesReader.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		h.renderRepoPackagesPage(w, r, row, owner.Username, "Package upload is too large or malformed.", "", repoPackageUploadForm{})
 		return
