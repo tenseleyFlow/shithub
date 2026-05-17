@@ -32,8 +32,8 @@ type apiPRRef struct {
 }
 
 type apiPull struct {
-	ID    int64  `json:"id"`
-	Number int64 `json:"number"`
+	ID     int64  `json:"id"`
+	Number int64  `json:"number"`
 	Title  string `json:"title"`
 	Body   string `json:"body"`
 	State  string `json:"state"`
