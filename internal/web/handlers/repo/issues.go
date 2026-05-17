@@ -424,7 +424,12 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
 
+	// PRO-EXT01-04c: discovery surface — every author/actor/participant
+	// rendered on this page gets a Pro pill next to their handle. We
+	// piggyback on the existing username cache (GetUserByID already
+	// returns Plan) so no extra DB queries vs. the pre-pill render.
 	usernames := map[int64]string{}
+	proUsernames := map[string]bool{}
 	usernameFor := func(id int64) string {
 		if id == 0 {
 			return ""
@@ -434,6 +439,9 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		}
 		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, id); err == nil {
 			usernames[id] = u.Username
+			if billing.IsProUserPlan(billing.UserPlan(u.Plan)) {
+				proUsernames[u.Username] = true
+			}
 			return u.Username
 		}
 		return ""
@@ -466,6 +474,10 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, a := range assignees {
 		participants[a.Username] = struct{}{}
+		// Route through the username cache so assignees populate the
+		// Pro-username set used by the template; otherwise an assignee
+		// who never authored a comment would render without a pill.
+		_ = usernameFor(a.UserID)
 		if a.UserID == viewer.ID {
 			viewerAssigned = true
 		}
@@ -488,6 +500,7 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"Labels":                labels,
 		"Assignees":             assignees,
 		"Participants":          participantNames,
+		"ProUsernames":          proUsernames,
 		"ViewerAssigned":        viewerAssigned,
 		"AllLabels":             allLabels,
 		"Milestones":            milestones,
