@@ -83,6 +83,9 @@ type Querier interface {
 	// DB literal (not a parameter) so the policy lives next to the data.
 	ListOrgIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
 	// Members of an org with usernames + roles for the people page.
+	// PRO-EXT_SR2-15: select u.plan so the people list renders a Pro
+	// badge next to Pro user accounts (org owners get the org-paid
+	// treatment in a separate sprint).
 	ListOrgMembers(ctx context.Context, db DBTX, orgID int64) ([]ListOrgMembersRow, error)
 	// All repo IDs (including soft-deleted) belonging to an org. Used by
 	// the org hard-delete cascade to fan out per-repo destruction.

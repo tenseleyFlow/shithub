@@ -33,7 +33,8 @@ type AddOrgMemberParams struct {
 // the member is new; existing rows keep their current role (use
 // ChangeOrgMemberRole to update).
 func (q *Queries) AddOrgMember(ctx context.Context, db DBTX, arg AddOrgMemberParams) error {
-	_, err := db.Exec(ctx, addOrgMember,
+	_, err := db.Exec(
+		ctx, addOrgMember,
 		arg.OrgID,
 		arg.UserID,
 		arg.Role,
@@ -94,7 +95,7 @@ func (q *Queries) GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberPar
 
 const listOrgMembers = `-- name: ListOrgMembers :many
 SELECT m.org_id, m.user_id, m.role, m.invited_by_user_id, m.joined_at,
-       u.username, u.display_name
+       u.username, u.display_name, u.plan
 FROM org_members m
 JOIN users u ON u.id = m.user_id
 WHERE m.org_id = $1
@@ -110,9 +111,13 @@ type ListOrgMembersRow struct {
 	JoinedAt        pgtype.Timestamptz
 	Username        string
 	DisplayName     string
+	Plan            UserPlan
 }
 
 // Members of an org with usernames + roles for the people page.
+// PRO-EXT_SR2-15: select u.plan so the people list renders a Pro
+// badge next to Pro user accounts (org owners get the org-paid
+// treatment in a separate sprint).
 func (q *Queries) ListOrgMembers(ctx context.Context, db DBTX, orgID int64) ([]ListOrgMembersRow, error) {
 	rows, err := db.Query(ctx, listOrgMembers, orgID)
 	if err != nil {
@@ -130,6 +135,7 @@ func (q *Queries) ListOrgMembers(ctx context.Context, db DBTX, orgID int64) ([]L
 			&i.JoinedAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
