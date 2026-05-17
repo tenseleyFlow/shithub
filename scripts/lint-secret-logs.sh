@@ -36,6 +36,8 @@ EXEMPTS=(
   "internal/auth/totp/totp.go"
   # PAT middleware parses (not logs) the Authorization header.
   "internal/web/middleware/pat.go"
+  # Metrics define static names; shithub_pat here is not a logged token value.
+  "internal/infra/metrics/metrics.go"
   # Git-HTTP auth handler mentions the prefix in doc comments.
   "internal/web/handlers/githttp/auth.go"
   # Tests legitimately mention these strings in fixtures.

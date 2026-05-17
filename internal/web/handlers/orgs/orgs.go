@@ -774,7 +774,7 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 	// PRO-EXT_SR2-15: collect Pro-member set for the badge.
 	proUsernames := make(map[string]bool, len(filteredMembers))
 	for _, m := range filteredMembers {
-		if m.Plan == orgsdb.UserPlanPro {
+		if orgbilling.IsProUserPlan(orgbilling.UserPlan(m.Plan)) {
 			proUsernames[m.Username] = true
 		}
 	}

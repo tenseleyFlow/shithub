@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	socialdb "github.com/tenseleyFlow/shithub/internal/social/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -129,7 +130,7 @@ func (h *Handlers) stargazersList(w http.ResponseWriter, r *http.Request) {
 	// PRO-EXT_SR2-15: collect the Pro-stargazer set for the badge.
 	proUsernames := make(map[string]bool, len(rows))
 	for _, sr := range rows {
-		if sr.Plan == socialdb.UserPlanPro {
+		if billing.IsProUserPlan(billing.UserPlan(sr.Plan)) {
 			proUsernames[sr.Username] = true
 		}
 	}
@@ -174,7 +175,7 @@ func (h *Handlers) watchersList(w http.ResponseWriter, r *http.Request) {
 	// PRO-EXT_SR2-15: collect the Pro-watcher set for the badge.
 	proUsernames := make(map[string]bool, len(rows))
 	for _, wr := range rows {
-		if wr.Plan == socialdb.UserPlanPro {
+		if billing.IsProUserPlan(billing.UserPlan(wr.Plan)) {
 			proUsernames[wr.Username] = true
 		}
 	}
