@@ -144,6 +144,13 @@ func (h *Handlers) settingsSecretScanAlertsSave(w http.ResponseWriter, r *http.R
 	}, "", "Saved.")
 }
 
+// settingsSecretScanAlertsDisable deletes the prefs row. PRO-EXT_SR2-11
+// (audit H2) verified this is intentionally NOT gated on
+// FeatureSecretScanAlerts: a user whose Pro lapsed must still be able
+// to disable alerts they configured while Pro, otherwise we leak
+// downgrade trauma into the bug tracker ("I cancelled but I'm still
+// getting alerts" → entitlement check denies the disable → can't fix).
+// The save side IS gated; only disable is free to all auth'd users.
 func (h *Handlers) settingsSecretScanAlertsDisable(w http.ResponseWriter, r *http.Request) {
 	user := middleware.CurrentUserFromContext(r.Context())
 	if err := secretscandb.New().DeleteSecretScanAlertPrefs(r.Context(), h.d.Pool, user.ID); err != nil {
