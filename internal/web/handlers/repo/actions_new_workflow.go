@@ -16,6 +16,7 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos/webedit"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 type actionsNewWorkflowTemplateView struct {
@@ -194,9 +195,17 @@ func (h *Handlers) renderActionsNewWorkflowPicker(w http.ResponseWriter, r *http
 		return
 	}
 	workflows, allRunCount, _ := actionsWorkflowViews(workflowRows, actionsListFilters{}, basePath)
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	pins, err := h.actionsWorkflowPinsForViewer(r.Context(), viewer, row.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions new workflow: list workflow pins", "repo_id", row.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	workflows = actionsApplyWorkflowPins(workflows, pins)
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = "New workflow · " + row.Name
-	data["ActionsSidebar"] = actionsSidebar(basePath, workflows, allRunCount, false, "", true)
+	data["ActionsSidebar"] = actionsSidebar(basePath, r.URL.RequestURI(), workflows, allRunCount, false, "", true, viewer.ID != 0)
 	data["NewWorkflowHref"] = basePath + "/new"
 	data["SupportedTemplates"] = actionsTemplateViews(basePath+"/new", workflowtemplates.Supported())
 	data["UnsupportedTemplates"] = actionsTemplateViews("", workflowtemplates.Unsupported())

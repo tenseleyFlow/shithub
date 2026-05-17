@@ -6359,6 +6359,24 @@ button.shithub-repo-action {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.shithub-actions-workflow-nav-item {
+  padding-right: 0.25rem;
+}
+.shithub-actions-workflow-link {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: inherit;
+  text-decoration: none;
+}
+.shithub-actions-workflow-link:hover {
+  text-decoration: none;
+}
+.shithub-actions-workflow-link > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .shithub-actions-nav-item-visual {
   padding-left: 0.65rem;
 }
@@ -6375,6 +6393,54 @@ button.shithub-repo-action {
   margin-left: auto;
   color: var(--fg-muted);
   opacity: 0;
+}
+.shithub-actions-pin-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: auto;
+  opacity: 0;
+}
+.shithub-actions-workflow-nav-item.is-pinned .shithub-actions-pin-controls,
+.shithub-actions-workflow-nav-item:hover .shithub-actions-pin-controls,
+.shithub-actions-workflow-nav-item:focus-within .shithub-actions-pin-controls {
+  opacity: 1;
+}
+.shithub-actions-pin-controls form {
+  display: inline-flex;
+  margin: 0;
+}
+.shithub-actions-pin-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.shithub-actions-pin-button:hover,
+.shithub-actions-pin-button:focus-visible {
+  color: var(--fg-default);
+  background: var(--canvas-inset);
+}
+.shithub-actions-pin-button.is-pinned {
+  color: var(--accent-fg);
+}
+.shithub-actions-pin-button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+  opacity: 0.35;
+}
+.shithub-actions-pin-button:disabled:hover {
+  background: transparent;
+}
+.shithub-actions-pin-move-up svg {
+  transform: rotate(180deg);
 }
 .shithub-actions-nav-item:hover .shithub-actions-pin-placeholder,
 .shithub-actions-nav-item:focus-visible .shithub-actions-pin-placeholder {

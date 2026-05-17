@@ -136,11 +136,18 @@ func (h *Handlers) repoActionsManagementPage(w http.ResponseWriter, r *http.Requ
 	workflows, allRunCount, _ := actionsWorkflowViews(workflowRows, actionsListFilters{}, basePath)
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row)).Allow
+	pins, err := h.actionsWorkflowPinsForViewer(r.Context(), viewer, row.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: list workflow pins for management page", "repo_id", row.ID, "page", page.Key, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	workflows = actionsApplyWorkflowPins(workflows, pins)
 
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = page.Title + " · " + row.Name
 	data["Page"] = page
-	data["ActionsSidebar"] = actionsSidebar(basePath, workflows, allRunCount, false, page.Key, canManage)
+	data["ActionsSidebar"] = actionsSidebar(basePath, r.URL.RequestURI(), workflows, allRunCount, false, page.Key, canManage, viewer.ID != 0)
 	data["RunCount"] = allRunCount
 	data["Workflows"] = workflows
 	if err := h.d.Render.RenderPage(w, r, "repo/actions_management", data); err != nil {

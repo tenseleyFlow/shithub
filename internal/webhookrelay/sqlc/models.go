@@ -3207,6 +3207,15 @@ type User struct {
 	ProfileLayout               string
 }
 
+type UserActionWorkflowPin struct {
+	UserID       int64
+	RepoID       int64
+	WorkflowFile string
+	Position     int32
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
 type UserBillingState struct {
 	UserID                   int64
 	Provider                 BillingProvider
