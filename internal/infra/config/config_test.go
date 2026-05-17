@@ -28,6 +28,8 @@ func TestDefaults_EnforceFlagsAllOn(t *testing.T) {
 		"UserAdvancedBranchProtection": e.UserAdvancedBranchProtection,
 		"UserRequiredReviewers":        e.UserRequiredReviewers,
 		"UserProfilePinsBeyondFree":    e.UserProfilePinsBeyondFree,
+		"UserProfileVanity":            e.UserProfileVanity,
+		"UserUsernameReservations":     e.UserUsernameReservations,
 		"UserPrivateRepoTemplates":     e.UserPrivateRepoTemplates,
 		"UserSavedRepliesUnlimited":    e.UserSavedRepliesUnlimited,
 		"UserScheduledIssues":          e.UserScheduledIssues,

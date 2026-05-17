@@ -177,6 +177,21 @@ type EnforceConfig struct {
 	// mode is benign, and a Free user has no way to have exceeded the
 	// cap before this knob existed.
 	UserProfilePinsBeyondFree bool `toml:"user_profile_pins_beyond_free"`
+	// UserProfileVanity: when true, Free users posting vanity values
+	// (accent color, profile layout) have those values silently
+	// dropped; the rest of the profile update lands. PRO-EXT01-04;
+	// enforced by default post-17. Added explicitly in PRO-EXT_SR2-09
+	// so the operator pattern is uniform across every Pro feature
+	// (the audit caught FeatureProfileVanity and
+	// FeatureUsernameReservations hard-enforcing with no knob).
+	UserProfileVanity bool `toml:"user_profile_vanity"`
+	// UserUsernameReservations: when true, Free users attempting to
+	// reserve a previous handle get a 402; existing reservations
+	// continue to redirect (the table is the source of truth — we
+	// don't punish someone whose Pro lapsed by squatting their old
+	// handles). PRO-EXT01-05; enforced by default post-17. Added in
+	// PRO-EXT_SR2-09 for the same reason as UserProfileVanity above.
+	UserUsernameReservations bool `toml:"user_username_reservations"`
 	// UserPrivateRepoTemplates: when true, Free users cannot mark a
 	// private personal repo as a template, and create-from-template
 	// requests targeting a private template whose owner is not currently
@@ -418,6 +433,8 @@ func defaultEnforce() EnforceConfig {
 		UserAdvancedBranchProtection: true,
 		UserRequiredReviewers:        true,
 		UserProfilePinsBeyondFree:    true,
+		UserProfileVanity:            true,
+		UserUsernameReservations:     true,
 		UserPrivateRepoTemplates:     true,
 		UserSavedRepliesUnlimited:    true,
 		UserScheduledIssues:          true,
