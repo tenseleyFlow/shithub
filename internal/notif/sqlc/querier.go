@@ -23,10 +23,19 @@ type Querier interface {
 	// with the same rule has the same effect.
 	ApplyRuleSnooze(ctx context.Context, db DBTX, arg ApplyRuleSnoozeParams) error
 	ApplyRuleTab(ctx context.Context, db DBTX, arg ApplyRuleTabParams) error
-	// Sweep claim. FOR UPDATE SKIP LOCKED so multiple worker processes
-	// can drain in parallel without dispatching the same row twice.
-	// Limited to a small batch per tick so a backlog can't monopolize
-	// one worker.
+	// Sweep claim. Atomic claim-by-advance: each due row's
+	// next_send_at is bumped one hour into the future as part of the
+	// claim, so a second worker running the same statement sees the row
+	// as "not due" and skips it. FOR UPDATE SKIP LOCKED inside the CTE
+	// guards against two concurrent claims racing on the SELECT step.
+	//
+	// Failure handling: if the worker dies between claim and the
+	// success-path AdvanceUserNotificationDigest, the row sits with
+	// next_send_at = now()+1h and gets re-picked-up automatically by
+	// the next sweep tick after that window. The user-visible failure
+	// mode is a one-hour delay on one digest send, which is better than
+	// the previous race window where two workers could double-send.
+	// PRO-EXT_SR2-11 (audit H3).
 	ClaimDueNotificationDigests(ctx context.Context, db DBTX, limit int32) ([]UserNotificationDigest, error)
 	// Per-recipient absolute rate cap: how many total emails to this
 	// recipient in the last $2 minutes?
