@@ -250,6 +250,10 @@ type Querier interface {
 	ListUserTokenUsageByDay(ctx context.Context, db DBTX, arg ListUserTokenUsageByDayParams) ([]ListUserTokenUsageByDayRow, error)
 	ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]UserToken, error)
 	ListUsernameReservationsForUser(ctx context.Context, db DBTX, userID int64) ([]UserUsernameReservation, error)
+	// Batch lookup for participant rendering on issue/PR views and other
+	// multi-user surfaces. Empty / NULL entries in the input array are
+	// silently filtered. PRO-EXT_SR2-12 (audit H5).
+	ListUsersByIDs(ctx context.Context, db DBTX, dollar_1 []int64) ([]User, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Resolve an old username to the current username via the user_id FK.
 	// Returns ErrNoRows when no redirect exists.
@@ -264,6 +268,12 @@ type Querier interface {
 	// Wrapped by the username-change flow inside a tx that also writes
 	// username_redirects, so the old name becomes a redirect target atomically.
 	RenameUser(ctx context.Context, db DBTX, arg RenameUserParams) error
+	// Atomic reconcile: insert any desired repo IDs that aren't already
+	// opt-outs, and delete any existing opt-outs not in the desired set.
+	// Both data-modifying CTEs see the same snapshot, so we don't need an
+	// explicit tx wrapper. Retires the per-row upsert+delete loop from the
+	// pre-PRO-EXT_SR2-12 settings/contributions submit handler.
+	ReplaceContributionOptoutsForUser(ctx context.Context, db DBTX, arg ReplaceContributionOptoutsForUserParams) error
 	ResetAuthThrottle(ctx context.Context, db DBTX, arg ResetAuthThrottleParams) error
 	// Clears deleted_at; called when a user logs in within the 14-day grace
 	// window. The login handler enforces the window check before calling.
