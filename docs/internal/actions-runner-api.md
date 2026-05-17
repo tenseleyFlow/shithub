@@ -172,6 +172,13 @@ shithub with `Content-Disposition: attachment` for both SQL-backed and
 object-backed logs; browser pages do not expose raw object-storage URLs. Live
 tailing uses the S41f SSE route while chunks remain hot.
 
+Completed/non-streaming step-log pages pass the capped snapshot through
+`internal/actions/logview` for display only. The parser recognizes
+`::group::<title>` and `::endgroup::` markers as collapsible sections and emits
+deterministic `L<N>` anchors for visible lines. Titles and lines remain text and
+are escaped by `html/template`; raw downloads and live SSE chunks are not
+rewritten by this view parser.
+
 `POST /api/v1/jobs/{id}/status`
 
 Auth: job JWT. Body:

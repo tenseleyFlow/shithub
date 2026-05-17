@@ -77,7 +77,14 @@ the small sidebar controls can move pinned workflows up or down.
 - `${{ secrets.NAME }}`, `${{ vars.NAME }}`, `${{ env.NAME }}`, and
   `${{ shithub.* }}` expressions
 - `needs:`, `if:`, `timeout-minutes:`, and concurrency groups
-- live step logs, cancel, re-run, check-run sync, and the Actions Atom feed
+- live step logs, grouped completed logs, cancel, re-run, check-run sync, and
+  the Actions Atom feed
+
+Completed step-log pages recognize `::group::<title>` and `::endgroup::`
+markers as collapsible sections. Line numbers are stable anchors; click a line
+number or copy icon to copy a permalink, and shift-click a second line to copy a
+line-range link. Raw log downloads stay unchanged and include the original
+group marker lines.
 
 `runs-on: ubuntu-latest` is a runner label, not a promise that shithub downloads
 a hosted Ubuntu image for you. The site operator decides which image a matching
