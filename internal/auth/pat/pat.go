@@ -21,6 +21,21 @@ import (
 // Prefix is the fixed marker prepended to every minted token.
 const Prefix = "shithub_pat_"
 
+// Source discriminates how a user_tokens row was minted. Stored in the
+// user_tokens.source column (migration 0102_user_tokens_source.sql).
+// New values land here without a DB migration; the column is plain
+// text with a Go-side enum.
+const (
+	// SourceUserCreated is the default — a user pasted the new-token
+	// form on /settings/tokens. Pre-S55 rows backfill to this value
+	// via the column DEFAULT.
+	SourceUserCreated = "user_created"
+	// SourceOAuthDevice indicates the token was minted by the
+	// internal/auth/devicecode Exchange path on first poll after the
+	// user approved a device-flow grant. See `S55-campaign.md`.
+	SourceOAuthDevice = "oauth_device"
+)
+
 // PayloadLen is the length of the random payload (chars), not bytes.
 // 32 base62 characters carry log2(62)*32 ≈ 190 bits of entropy — well
 // beyond any plausible brute-force budget.
