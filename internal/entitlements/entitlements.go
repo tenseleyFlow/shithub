@@ -148,6 +148,14 @@ const (
 	// discoverable; the badge endpoint returns a 402-styled SVG.
 	// Kinds: user only.
 	FeaturePersonalStatusPage Feature = "personal_status_page"
+	// FeatureRepoTimeMachine gates the Pro-only "paused" repo state
+	// (PRO-EXT01-15). A paused repo keeps reads working but returns
+	// 402 on every write surface (git push, REST mutations, issue/PR
+	// creates). Useful for old side projects the owner doesn't want
+	// to fully archive. A future sprint wires the per-repo storage
+	// billing multiplier so paused repos bill at a reduced rate.
+	// Kinds: user only.
+	FeatureRepoTimeMachine Feature = "repo_time_machine"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -252,6 +260,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureWebhookRelay:             {billing.SubjectKindUser},
 	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
 	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
+	FeatureRepoTimeMachine:          {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
