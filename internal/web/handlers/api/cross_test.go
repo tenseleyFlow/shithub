@@ -278,3 +278,55 @@ func TestCrossCutting_RateLimitDeniedJSON(t *testing.T) {
 		t.Errorf("429 error: got %q", envelope.Error)
 	}
 }
+
+// TestCrossCutting_UsersByName pins the S60 audit-finding A5
+// endpoint: GET /api/v1/users/{username} returns the GitHub-compat
+// public-profile envelope. user:read scope required.
+func TestCrossCutting_UsersByName(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router := newCrossCuttingAPIRouter(t, pool)
+	userID := crossCuttingUser(t, pool)
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeUserRead))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/alice", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID      int64  `json:"id"`
+		Login   string `json:"login"`
+		Type    string `json:"type"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rr.Body.String())
+	}
+	if resp.Login != "alice" || resp.Type != "User" {
+		t.Errorf("shape: %+v", resp)
+	}
+	if resp.ID != userID {
+		t.Errorf("ID: got %d, want %d", resp.ID, userID)
+	}
+	if resp.HTMLURL == "" {
+		t.Error("html_url should be populated")
+	}
+}
+
+func TestCrossCutting_UsersByName_Missing(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router := newCrossCuttingAPIRouter(t, pool)
+	userID := crossCuttingUser(t, pool)
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeUserRead))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/does-not-exist", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status: got %d, want 404", rr.Code)
+	}
+}
