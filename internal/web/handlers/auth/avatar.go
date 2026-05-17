@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/avatars"
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -52,26 +54,39 @@ func (h *Handlers) settingsAvatarUpload(w http.ResponseWriter, r *http.Request) 
 	}
 	defer func() { _ = file.Close() }()
 
-	variants, hash, err := avatars.Process(file)
+	user := middleware.CurrentUserFromContext(r.Context())
+	// PRO-EXT01-04b: animated GIFs are a Pro-only preservation path. The
+	// gate runs *before* Process so a Free upload of a multi-frame GIF
+	// flattens to PNG (when enforce is on) or preserves animation +
+	// emits a would-deny log (report-only). Pro always preserves.
+	allowAnimated := h.userAnimatedAvatarsAllowed(r, user.ID)
+	variants, hash, err := avatars.ProcessOpts(file, avatars.Options{AllowAnimated: allowAnimated})
 	if err != nil {
 		h.renderAvatarError(w, r, friendlyAvatarError(err))
 		return
 	}
 
-	user := middleware.CurrentUserFromContext(r.Context())
 	prefix := fmt.Sprintf("avatars/%d/%s", user.ID, hash)
-	// Largest variant lives at <prefix>.png and is what the public
-	// avatar route serves.
-	largestKey := prefix + ".png"
+	canonicalSize := variants[0].Size
+	canonicalExt := variants[0].Ext
+	largestKey := fmt.Sprintf("%s.%s", prefix, canonicalExt)
 	for _, v := range variants {
-		key := fmt.Sprintf("%s-%d.png", prefix, v.Size)
-		if v.Size == variants[0].Size {
+		ext := v.Ext
+		if ext == "" {
+			ext = "png"
+		}
+		key := fmt.Sprintf("%s-%d.%s", prefix, v.Size, ext)
+		if v.Size == canonicalSize {
 			key = largestKey
+		}
+		contentType := v.ContentType
+		if contentType == "" {
+			contentType = "image/png"
 		}
 		if _, err := h.d.ObjectStore.Put(
 			r.Context(), key,
 			bytes.NewReader(v.Data),
-			storage.PutOpts{ContentType: "image/png", ContentLength: int64(len(v.Data))},
+			storage.PutOpts{ContentType: contentType, ContentLength: int64(len(v.Data))},
 		); err != nil {
 			h.d.Logger.ErrorContext(r.Context(), "avatar: put", "error", err, "key", key)
 			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
@@ -124,6 +139,66 @@ func (h *Handlers) renderAvatarError(w http.ResponseWriter, r *http.Request, msg
 		Company:     row.Company,
 		Pronouns:    row.Pronouns,
 	}, msg, "")
+}
+
+// userAnimatedAvatarsAllowedRead is the silent read used by the
+// settings template renderer. It returns the same decision as the
+// upload-time gate but without emitting a report_only_deny log — every
+// settings page view would otherwise flood the signal that
+// PRO-EXT01-17 wants attributable to actual upload attempts.
+func (h *Handlers) userAnimatedAvatarsAllowedRead(r *http.Request, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureAnimatedAvatars)
+	if err != nil {
+		return false
+	}
+	return decision.Allowed
+}
+
+// userAnimatedAvatarsAllowed gates the Pro-only animated-GIF preserve
+// path. Mirrors userVanityAllowed: any failure is treated as deny so a
+// degraded entitlements path can't silently promote a Free user.
+//
+// Report-only semantics (enforce flag off): the function returns true
+// for Free uploads so animation IS preserved during soak — but only
+// after recording a would-deny log so SREs can size the migration
+// before flipping the enforce flag.
+func (h *Handlers) userAnimatedAvatarsAllowed(r *http.Request, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID),
+		entitlements.FeatureAnimatedAvatars)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "avatar: animated entitlement check", "user_id", userID, "error", err)
+		return false
+	}
+	if decision.Allowed {
+		return true
+	}
+	// Free user. Log the would-deny exactly once per upload. The
+	// surface tag "avatar-upload" lets SRE dashboards split this signal
+	// from other Pro gates that may share the same feature constant in
+	// the future.
+	mode := "report_only"
+	if h.d.BillingEnforce.AnimatedAvatars {
+		mode = "enforce"
+	}
+	h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
+		"principal", billing.PrincipalForUser(userID).String(),
+		"principal_kind", string(billing.SubjectKindUser),
+		"principal_id", userID,
+		"feature", string(entitlements.FeatureAnimatedAvatars),
+		"reason", string(decision.Reason),
+		"required_plan", string(decision.RequiredPlan),
+		"mode", mode,
+		"surface", "avatar-upload")
+	if h.d.BillingEnforce.AnimatedAvatars {
+		return false
+	}
+	// Report-only: let the upload proceed with animation preserved.
+	return true
 }
 
 func friendlyAvatarError(err error) string {
