@@ -160,19 +160,47 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 				if len(excerpt) > 400 {
 					excerpt = excerpt[:400]
 				}
-				if _, ierr := sq.UpsertSecretScanFinding(ctx, deps.Pool, secretscandb.UpsertSecretScanFindingParams{
+				row, ierr := sq.UpsertSecretScanFinding(ctx, deps.Pool, secretscandb.UpsertSecretScanFindingParams{
 					RepoID:       repo.ID,
 					Pattern:      f.Pattern,
 					Path:         path,
 					LineNo:       int32(f.Line),
 					Excerpt:      excerpt,
 					FirstSeenOid: oid,
-				}); ierr != nil {
+				})
+				if ierr != nil {
 					deps.Logger.WarnContext(ctx, "secret-scan: upsert finding",
 						"repo_id", repo.ID, "pattern", f.Pattern, "path", path, "error", ierr)
 					continue
 				}
 				totalFindings++
+
+				// PRO-EXT01-10d: enqueue an alert ONLY when this was the
+				// INSERT branch (timestamps equal because both columns
+				// pick up the same statement-scoped now()). Re-scans
+				// that re-surface a known line take the UPDATE branch
+				// (last_seen_at advances) and stay silent so a flaky
+				// scanner can't spam the owner.
+				if !repo.OwnerUserID.Valid {
+					continue
+				}
+				if !row.FirstSeenAt.Time.Equal(row.LastSeenAt.Time) {
+					continue
+				}
+				payload, perr := json.Marshal(secretscan.AlertPayload{
+					UserID:    repo.OwnerUserID.Int64,
+					RepoID:    repo.ID,
+					FindingID: row.ID,
+				})
+				if perr != nil {
+					deps.Logger.WarnContext(ctx, "secret-scan: marshal alert", "error", perr)
+					continue
+				}
+				if _, eerr := worker.Enqueue(ctx, deps.Pool, secretscan.KindSecretScanAlert,
+					json.RawMessage(payload), worker.EnqueueOptions{}); eerr != nil {
+					deps.Logger.WarnContext(ctx, "secret-scan: enqueue alert",
+						"repo_id", repo.ID, "finding_id", row.ID, "error", eerr)
+				}
 			}
 		}
 
