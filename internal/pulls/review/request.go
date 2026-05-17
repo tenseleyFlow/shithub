@@ -16,12 +16,16 @@ import (
 type RequestParams struct {
 	PRIssueID         int64
 	RequestedUserID   int64
+	RequestedTeamID   int64
 	RequestedByUserID int64
 }
 
 // Request creates a pr_review_requests row. Bounded by
 // MaxReviewersPerPR per the spec pitfalls section.
 func Request(ctx context.Context, deps Deps, p RequestParams) (pullsdb.PrReviewRequest, error) {
+	if (p.RequestedUserID == 0) == (p.RequestedTeamID == 0) {
+		return pullsdb.PrReviewRequest{}, ErrReviewerTargetRequired
+	}
 	q := pullsdb.New()
 	count, err := q.CountActivePRReviewRequests(ctx, deps.Pool, p.PRIssueID)
 	if err != nil {
@@ -39,15 +43,18 @@ func Request(ctx context.Context, deps Deps, p RequestParams) (pullsdb.PrReviewR
 		return pullsdb.PrReviewRequest{}, err
 	}
 	for _, e := range existing {
-		if e.RequestedUserID.Valid && e.RequestedUserID.Int64 == p.RequestedUserID &&
-			!e.DismissedAt.Valid && !e.SatisfiedByReviewID.Valid {
+		active := !e.DismissedAt.Valid && !e.SatisfiedByReviewID.Valid
+		if active && e.RequestedUserID.Valid && e.RequestedUserID.Int64 == p.RequestedUserID && p.RequestedUserID != 0 {
+			return pullsdb.PrReviewRequest{}, ErrReviewerAlreadyPending
+		}
+		if active && e.RequestedTeamID.Valid && e.RequestedTeamID.Int64 == p.RequestedTeamID && p.RequestedTeamID != 0 {
 			return pullsdb.PrReviewRequest{}, ErrReviewerAlreadyPending
 		}
 	}
 	row, err := q.CreatePRReviewRequest(ctx, deps.Pool, pullsdb.CreatePRReviewRequestParams{
 		PrIssueID:         p.PRIssueID,
 		RequestedUserID:   pgtype.Int8{Int64: p.RequestedUserID, Valid: p.RequestedUserID != 0},
-		RequestedTeamID:   pgtype.Int8{Valid: false},
+		RequestedTeamID:   pgtype.Int8{Int64: p.RequestedTeamID, Valid: p.RequestedTeamID != 0},
 		RequestedByUserID: pgtype.Int8{Int64: p.RequestedByUserID, Valid: p.RequestedByUserID != 0},
 	})
 	if err != nil {
@@ -59,7 +66,7 @@ func Request(ctx context.Context, deps Deps, p RequestParams) (pullsdb.PrReviewR
 	// failure is logged but doesn't fail the request (the fan-out
 	// worker isn't strict about ordering for this kind).
 	issue, ierr := issuesdb.New().GetIssueByID(ctx, deps.Pool, p.PRIssueID)
-	if ierr == nil {
+	if ierr == nil && p.RequestedUserID != 0 {
 		var public bool
 		_ = deps.Pool.QueryRow(
 			ctx,

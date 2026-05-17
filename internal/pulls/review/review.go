@@ -41,6 +41,7 @@ var (
 	ErrNotResolved            = errors.New("review: thread is not resolved")
 	ErrReviewerLimitReached   = errors.New("review: 20 reviewers max per PR")
 	ErrReviewerAlreadyPending = errors.New("review: reviewer already requested")
+	ErrReviewerTargetRequired = errors.New("review: exactly one user or team reviewer target is required")
 	ErrReviewNotFound         = errors.New("review: review not found")
 )
 

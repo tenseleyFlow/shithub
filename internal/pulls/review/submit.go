@@ -88,6 +88,13 @@ func Submit(ctx context.Context, deps Deps, p SubmitParams) (pullsdb.PrReview, e
 		}); err != nil {
 			return pullsdb.PrReview{}, fmt.Errorf("satisfy request: %w", err)
 		}
+		if err := q.SatisfyPRReviewTeamRequestsForReviewer(ctx, tx, pullsdb.SatisfyPRReviewTeamRequestsForReviewerParams{
+			PrIssueID:           p.PRIssueID,
+			SatisfiedByReviewID: pgtype.Int8{Int64: row.ID, Valid: true},
+			UserID:              p.AuthorUserID,
+		}); err != nil {
+			return pullsdb.PrReview{}, fmt.Errorf("satisfy team requests: %w", err)
+		}
 	}
 
 	// `reviewed` timeline event.

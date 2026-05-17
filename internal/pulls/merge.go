@@ -94,6 +94,8 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 	reviewGate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
 		RepoID:    issue.RepoID,
 		BaseRef:   pr.BaseRef,
+		BaseOID:   pr.BaseOid,
+		GitDir:    p.GitDir,
 		PRIssueID: p.PRID,
 	}, int64FromPg(issue.AuthorUserID))
 	if err != nil {

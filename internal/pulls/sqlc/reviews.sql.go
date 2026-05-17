@@ -456,6 +456,67 @@ func (q *Queries) ListPRReviewCommentsForFile(ctx context.Context, db DBTX, arg 
 	return items, nil
 }
 
+const listPRReviewRequestTargets = `-- name: ListPRReviewRequestTargets :many
+SELECT pr.id, pr.pr_issue_id, pr.requested_user_id, pr.requested_team_id,
+       pr.requested_by_user_id, pr.requested_at, pr.dismissed_at,
+       pr.satisfied_by_review_id,
+       u.username AS requested_username,
+       t.slug AS requested_team_slug,
+       o.slug AS requested_team_org_slug
+FROM pr_review_requests pr
+LEFT JOIN users u ON u.id = pr.requested_user_id
+LEFT JOIN teams t ON t.id = pr.requested_team_id
+LEFT JOIN orgs o ON o.id = t.org_id
+WHERE pr.pr_issue_id = $1
+ORDER BY pr.requested_at
+`
+
+type ListPRReviewRequestTargetsRow struct {
+	ID                   int64
+	PrIssueID            int64
+	RequestedUserID      pgtype.Int8
+	RequestedTeamID      pgtype.Int8
+	RequestedByUserID    pgtype.Int8
+	RequestedAt          pgtype.Timestamptz
+	DismissedAt          pgtype.Timestamptz
+	SatisfiedByReviewID  pgtype.Int8
+	RequestedUsername    pgtype.Text
+	RequestedTeamSlug    pgtype.Text
+	RequestedTeamOrgSlug pgtype.Text
+}
+
+func (q *Queries) ListPRReviewRequestTargets(ctx context.Context, db DBTX, prIssueID int64) ([]ListPRReviewRequestTargetsRow, error) {
+	rows, err := db.Query(ctx, listPRReviewRequestTargets, prIssueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPRReviewRequestTargetsRow{}
+	for rows.Next() {
+		var i ListPRReviewRequestTargetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PrIssueID,
+			&i.RequestedUserID,
+			&i.RequestedTeamID,
+			&i.RequestedByUserID,
+			&i.RequestedAt,
+			&i.DismissedAt,
+			&i.SatisfiedByReviewID,
+			&i.RequestedUsername,
+			&i.RequestedTeamSlug,
+			&i.RequestedTeamOrgSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPRReviewRequests = `-- name: ListPRReviewRequests :many
 SELECT id, pr_issue_id, requested_user_id, requested_team_id, requested_by_user_id, requested_at, dismissed_at, satisfied_by_review_id FROM pr_review_requests
 WHERE pr_issue_id = $1
@@ -683,6 +744,32 @@ type SatisfyPRReviewRequestParams struct {
 
 func (q *Queries) SatisfyPRReviewRequest(ctx context.Context, db DBTX, arg SatisfyPRReviewRequestParams) error {
 	_, err := db.Exec(ctx, satisfyPRReviewRequest, arg.PrIssueID, arg.SatisfiedByReviewID, arg.RequestedUserID)
+	return err
+}
+
+const satisfyPRReviewTeamRequestsForReviewer = `-- name: SatisfyPRReviewTeamRequestsForReviewer :exec
+UPDATE pr_review_requests pr
+SET satisfied_by_review_id = $2
+WHERE pr.pr_issue_id = $1
+  AND pr.requested_team_id IS NOT NULL
+  AND pr.dismissed_at IS NULL
+  AND pr.satisfied_by_review_id IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM team_members tm
+    WHERE tm.team_id = pr.requested_team_id
+      AND tm.user_id = $3
+  )
+`
+
+type SatisfyPRReviewTeamRequestsForReviewerParams struct {
+	PrIssueID           int64
+	SatisfiedByReviewID pgtype.Int8
+	UserID              int64
+}
+
+func (q *Queries) SatisfyPRReviewTeamRequestsForReviewer(ctx context.Context, db DBTX, arg SatisfyPRReviewTeamRequestsForReviewerParams) error {
+	_, err := db.Exec(ctx, satisfyPRReviewTeamRequestsForReviewer, arg.PrIssueID, arg.SatisfiedByReviewID, arg.UserID)
 	return err
 }
 
