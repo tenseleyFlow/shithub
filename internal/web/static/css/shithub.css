@@ -1028,7 +1028,8 @@ code {
 .shithub-auth label { display: grid; gap: 0.25rem; font-weight: 500; }
 .shithub-auth input[type=text],
 .shithub-auth input[type=email],
-.shithub-auth input[type=password] {
+.shithub-auth input[type=password],
+.shithub-auth input[type=number] {
   font: inherit;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-default);
@@ -1042,7 +1043,7 @@ code {
   font-size: 0.9rem;
 }
 .shithub-org-plan-page {
-  max-width: 72rem;
+  max-width: 78rem;
   margin: 3rem auto;
   padding: 0 1rem 3rem;
 }
@@ -1064,6 +1065,34 @@ code {
   color: var(--fg-muted);
   text-align: center;
 }
+.shithub-plan-seat-advisor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem minmax(13rem, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  max-width: 46rem;
+  margin: 1.5rem auto 2rem;
+  padding: 1rem;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-plan-seat-advisor label {
+  font-weight: 600;
+}
+.shithub-plan-seat-advisor input {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  color: var(--fg-default);
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.shithub-plan-seat-advisor p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
 .shithub-billing-plan-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1073,9 +1102,9 @@ code {
 .shithub-pricing-card {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto auto auto 1fr;
   gap: 0.9rem;
-  padding: 1.25rem;
+  padding: 1rem;
   min-height: 100%;
   background: var(--canvas-default);
   border: 1px solid var(--border-default);
@@ -1083,7 +1112,10 @@ code {
 }
 .shithub-pricing-card.is-featured {
   border-color: var(--accent-fg);
-  box-shadow: inset 0 3px 0 var(--accent-fg);
+  box-shadow: inset 0 4px 0 var(--accent-fg), 0 0 0 1px var(--accent-fg);
+}
+.shithub-pricing-card.is-recommended:not(.is-featured) {
+  border-color: var(--accent-fg);
 }
 .shithub-billing-plan-grid .shithub-button {
   width: 100%;
@@ -1100,8 +1132,8 @@ code {
   font-size: 0.85rem;
 }
 .shithub-pricing-badge {
-  margin: -1.25rem -1.25rem 0;
-  padding: 0.35rem 1rem;
+  margin: -1rem -1rem 0;
+  padding: 0.3rem 1rem;
   color: #fff;
   background: var(--accent-fg);
   border-radius: 6px 6px 0 0;
@@ -1122,9 +1154,20 @@ code {
 .shithub-pricing-price small {
   font-size: 0.8rem;
 }
+.shithub-pricing-seat-range {
+  margin: -0.4rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.shithub-pricing-feature-panel {
+  margin: 0 -1rem -1rem;
+  padding: 0.35rem 1rem 1rem;
+  background: var(--canvas-subtle);
+  border-radius: 0 0 6px 6px;
+}
 .shithub-pricing-features {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.2rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1132,12 +1175,18 @@ code {
   font-size: 0.9rem;
 }
 .shithub-pricing-features li {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 0.5rem;
+  min-width: 0;
 }
-.shithub-pricing-features svg {
-  margin-top: 0.15rem;
+.shithub-pricing-features details {
+  padding: 0.45rem 0;
+}
+.shithub-pricing-features summary {
+  color: var(--fg-default);
+  font-weight: 600;
+  cursor: pointer;
+}
+.shithub-pricing-features p {
+  margin: 0.3rem 0 0 1.05rem;
   color: var(--fg-muted);
 }
 .shithub-billing-plan-compare {
@@ -1152,11 +1201,81 @@ code {
   margin: 0 0 1rem;
   text-align: center;
 }
+.shithub-plan-compare-grid {
+  min-width: 760px;
+}
+.shithub-plan-compare-header,
+.shithub-plan-compare-row {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.35fr) repeat(3, minmax(9rem, 1fr));
+}
+.shithub-plan-compare-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: center;
+}
+.shithub-plan-compare-header > div,
+.shithub-plan-compare-row > div {
+  min-width: 0;
+  padding: 0.9rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-plan-compare-header > div {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+  background: var(--canvas-default);
+}
+.shithub-plan-compare-header strong {
+  font-size: 1.1rem;
+}
+.shithub-plan-compare-header span {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.shithub-plan-compare-header .is-featured,
+.shithub-plan-compare-row .is-featured {
+  background: var(--canvas-subtle);
+}
+.shithub-plan-compare-section h3 {
+  margin: 2rem 0 0.4rem;
+  color: var(--fg-muted);
+  font-size: 1rem;
+}
+.shithub-plan-compare-row {
+  align-items: stretch;
+}
+.shithub-plan-compare-row details summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+.shithub-plan-compare-row p {
+  margin: 0.35rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-plan-row-owner {
+  font-size: 0.75rem;
+}
 .shithub-org-setup {
-  max-width: 38rem;
+  max-width: 32rem;
 }
 .shithub-org-setup .shithub-org-plan-kicker {
   text-align: left;
+}
+.shithub-org-setup h1 {
+  margin-bottom: 1.75rem;
+  font-size: 1.6rem;
+  text-align: left;
+}
+.shithub-required {
+  color: var(--danger-fg);
+}
+.shithub-form-note {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 .shithub-org-seat-count small {
   display: block;
@@ -1194,12 +1313,29 @@ code {
   margin-top: 0.15rem;
   color: var(--fg-muted);
 }
-.shithub-org-owner-choice label.is-disabled {
-  color: var(--fg-muted);
-}
 .shithub-org-terms {
   color: var(--fg-muted);
   font-size: 0.9rem;
+}
+.shithub-org-optional-details {
+  padding: 0.8rem 0;
+  color: var(--fg-muted);
+  border-top: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border-muted);
+}
+.shithub-org-optional-details summary {
+  color: var(--fg-default);
+  font-weight: 600;
+  cursor: pointer;
+}
+.shithub-org-optional-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.shithub-org-setup-submit {
+  width: 100%;
+  min-height: 2.75rem;
 }
 .shithub-billing-result {
   display: flex;
@@ -1237,6 +1373,12 @@ code {
 @media (max-width: 900px) {
   .shithub-billing-plan-grid {
     grid-template-columns: 1fr;
+  }
+  .shithub-plan-seat-advisor {
+    grid-template-columns: 1fr;
+  }
+  .shithub-plan-compare-header {
+    position: static;
   }
 }
 .shithub-flash {

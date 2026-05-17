@@ -202,10 +202,18 @@ the human-facing summary, but product behavior goes through
 `orgs.plan` for paid feature access.
 
 `/organizations/plan` is the canonical Free / Team / Enterprise plan
-picker. Existing "New organization" links route there. When Stripe
-Billing is not fully configured, Team remains visible but disabled;
-site admins see operator setup copy. Choosing Team creates the
-organization first and then redirects the owner to hosted Stripe
+picker. Existing "New organization" links route there. The picker uses
+GitHub-style Free / Team / Enterprise cards, a seat-count advisor, and
+a compare table whose rows carry owning sprint metadata and shipped /
+planned state. Free membership is supported but is not marketed as an
+unlimited-member headline; the Team pitch focuses on licensed seats for
+private organization collaboration and controls. Team setup defaults to
+5 licensed seats, accepts `seat_count` from the picker, shows `$4 x N`
+before payment, and accepts GitHub's `plan=business` alias as Team.
+
+When Stripe Billing is not fully configured, Team remains visible but
+disabled; site admins see operator setup copy. Choosing Team creates
+the organization first and then redirects the owner to hosted Stripe
 Checkout; webhook processing, not checkout creation, activates paid
 entitlements. Stripe success and cancel returns render explicit
 post-checkout pages: success explains that Team activation waits for

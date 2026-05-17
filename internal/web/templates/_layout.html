@@ -79,6 +79,58 @@
   })();
 
   (function () {
+    document.querySelectorAll("[data-org-seat-recommender]").forEach(function (root) {
+      var input = root.querySelector("[data-org-seat-count-input]");
+      var note = root.querySelector("[data-org-seat-recommendation]");
+      var links = root.querySelectorAll("[data-plan-cta]");
+      var cards = root.querySelectorAll("[data-plan-card]");
+      if (!input || !note) return;
+
+      function normalizeSeatCount() {
+        var seats = Number(input.value || root.getAttribute("data-default-team-seats") || "5");
+        if (!Number.isFinite(seats) || seats < 1) seats = 1;
+        return Math.floor(seats);
+      }
+
+      function recommendedPlan(seats) {
+        if (seats <= 4) return "Free";
+        if (seats <= 10) return "Team";
+        return "Enterprise";
+      }
+
+      function update() {
+        var seats = normalizeSeatCount();
+        var plan = recommendedPlan(seats);
+        note.textContent = plan + " is recommended for " + seats + " " + (seats === 1 ? "seat." : "seats.");
+        cards.forEach(function (card) {
+          card.classList.toggle("is-recommended", card.getAttribute("data-plan-card") === plan);
+        });
+        links.forEach(function (link) {
+          var name = link.getAttribute("data-plan-cta");
+          if (!link.href || name === "Enterprise") return;
+          try {
+            var url = new URL(link.getAttribute("href"), window.location.origin);
+            url.searchParams.set("seat_count", String(name === "Free" ? 1 : seats));
+            link.setAttribute("href", url.pathname + url.search);
+          } catch (e) {}
+        });
+      }
+
+      input.addEventListener("input", update);
+      update();
+    });
+
+    document.querySelectorAll("[data-org-name-input]").forEach(function (input) {
+      var output = document.querySelector("[data-org-name-output]");
+      if (!output) return;
+      function update() {
+        var slug = String(input.value || "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+        output.textContent = slug || "your-organization";
+      }
+      input.addEventListener("input", update);
+      update();
+    });
+
     document.querySelectorAll("[data-team-seat-calculator]").forEach(function (root) {
       var input = root.querySelector("[data-team-seat-input]");
       var count = root.querySelector("[data-team-seat-count]");
