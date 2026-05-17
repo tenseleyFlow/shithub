@@ -28,9 +28,17 @@ const MaxInboundBody = 1 * 1024 * 1024
 // IngestResult bundles the request id assigned to this inbound POST
 // (returned to the caller via X-Request-ID for traceability) and the
 // number of delivery rows created.
+//
+// DestinationsAttempted is the count of destinations the receiver
+// tried to fan out to; the handler uses it to distinguish "zero
+// destinations configured (user choice — 202)" from "destinations
+// configured but every CreateDelivery failed (broken — 503)" so a
+// broken relay doesn't silently swallow inbound posts.
+// PRO-EXT_SR2-13 (audit Q5).
 type IngestResult struct {
-	RequestID    string
-	DeliveryRows int
+	RequestID             string
+	DeliveryRows          int
+	DestinationsAttempted int
 }
 
 // Ingest takes a relay row + raw inbound body and creates one
@@ -56,7 +64,7 @@ func (d Deps) Ingest(ctx context.Context, logger *slog.Logger, r Relay, body []b
 	if err != nil {
 		return IngestResult{}, fmt.Errorf("webhookrelay: gen request id: %w", err)
 	}
-	res := IngestResult{RequestID: reqID}
+	res := IngestResult{RequestID: reqID, DestinationsAttempted: len(dests)}
 	if len(dests) == 0 {
 		return res, nil
 	}

@@ -149,6 +149,20 @@ func (h *Handlers) webhookRelayReceive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("X-Shithub-Relay-Request", res.RequestID)
+	// PRO-EXT_SR2-13 (audit Q5): a relay that has destinations
+	// configured but landed zero delivery rows means every
+	// CreateDelivery failed — log the warnings already fire inside
+	// Ingest, but the caller used to see a 202 and assume success.
+	// Surface the breakage as 503 so a broken relay doesn't silently
+	// swallow inbound traffic. The empty-destinations case is still
+	// 202 (legitimate not-yet-wired state).
+	if res.DestinationsAttempted > 0 && res.DeliveryRows == 0 {
+		h.d.Logger.ErrorContext(r.Context(), "webhookrelay: all delivery rows failed to persist",
+			"relay_id", relay.ID, "destinations_attempted", res.DestinationsAttempted,
+			"request_id", res.RequestID)
+		writeAPIError(w, http.StatusServiceUnavailable, "all destinations failed to persist; please retry")
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"request_id":     res.RequestID,
 		"delivery_count": res.DeliveryRows,
