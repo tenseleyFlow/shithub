@@ -1,3 +1,25 @@
+{{ define "actions-log-node" -}}
+{{ if eq .Kind "group" }}
+  <details id="{{ .Group.Anchor }}" class="shithub-actions-log-group{{ if not .Group.Closed }} is-open-ended{{ end }}" data-actions-log-line-number="{{ .Group.Number }}" open>
+    <summary class="shithub-actions-log-group-summary">
+      <a class="shithub-actions-log-line-number" href="#{{ .Group.Anchor }}" data-actions-log-line="{{ .Group.Number }}" aria-label="Copy permalink for line {{ .Group.Number }}">{{ .Group.Number }}</a>
+      <button type="button" class="shithub-actions-log-copy" data-actions-log-copy-line="{{ .Group.Number }}" aria-label="Copy permalink for line {{ .Group.Number }}">{{ octicon "copy" }}</button>
+      <span class="shithub-actions-log-group-title">{{ .Group.Title }}</span>
+      {{ if not .Group.Closed }}<span class="shithub-actions-log-group-meta">ended at EOF</span>{{ end }}
+    </summary>
+    <div class="shithub-actions-log-group-body">
+      {{ range .Group.Children }}{{ template "actions-log-node" . }}{{ end }}
+    </div>
+  </details>
+{{ else }}
+  <div id="{{ .Line.Anchor }}" class="shithub-actions-log-line" data-actions-log-line-number="{{ .Line.Number }}">
+    <a class="shithub-actions-log-line-number" href="#{{ .Line.Anchor }}" data-actions-log-line="{{ .Line.Number }}" aria-label="Copy permalink for line {{ .Line.Number }}">{{ .Line.Number }}</a>
+    <button type="button" class="shithub-actions-log-copy" data-actions-log-copy-line="{{ .Line.Number }}" aria-label="Copy permalink for line {{ .Line.Number }}">{{ octicon "copy" }}</button>
+    <span class="shithub-actions-log-line-text">{{ .Line.Text }}</span>
+  </div>
+{{ end }}
+{{- end }}
+
 {{ define "page" -}}
 {{ template "repo-header" . }}
 <section class="shithub-actions-run-page shithub-actions-log-page">
@@ -73,8 +95,10 @@
         {{ else if .Log.StreamHref }}
           <pre class="shithub-actions-log-output"><code data-actions-log-stream="{{ .Log.StreamHref }}">{{ .Log.LogText }}</code></pre>
           <p class="shithub-actions-log-live" data-actions-log-status>Live</p>
-        {{ else if .Log.LogText }}
-          <pre class="shithub-actions-log-output"><code>{{ .Log.LogText }}</code></pre>
+        {{ else if .Log.LogDocument.HasLines }}
+          <div class="shithub-actions-log-output shithub-actions-log-rendered" data-actions-log-view>
+            {{ range .Log.LogDocument.Nodes }}{{ template "actions-log-node" . }}{{ end }}
+          </div>
         {{ else }}
           <p class="shithub-actions-log-empty">No log output has been recorded for this step.</p>
         {{ end }}
@@ -114,6 +138,76 @@
     if (status) status.textContent = "Reconnecting";
   };
   scrollToBottom();
+})();
+</script>
+{{ end }}
+{{ if and (not .Log.StreamHref) .Log.LogDocument.HasLines }}
+<script>
+(() => {
+  const root = document.querySelector("[data-actions-log-view]");
+  if (!root) return;
+  let rangeStart = null;
+
+  function parseHash() {
+    const match = /^#L(\d+)(?:-L?(\d+))?$/.exec(window.location.hash);
+    if (!match) return null;
+    const a = Number(match[1]);
+    const b = Number(match[2] || match[1]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return [Math.min(a, b), Math.max(a, b)];
+  }
+
+  function rows() {
+    return Array.from(root.querySelectorAll("[data-actions-log-line-number]"));
+  }
+
+  function markHash() {
+    const range = parseHash();
+    let first = null;
+    for (const row of rows()) {
+      const n = Number(row.dataset.actionsLogLineNumber);
+      const active = range && n >= range[0] && n <= range[1];
+      row.classList.toggle("is-targeted", Boolean(active));
+      if (active && !first) first = row;
+    }
+    if (first) first.scrollIntoView({ block: "center" });
+  }
+
+  function copyHash(hash) {
+    if (!navigator.clipboard) return;
+    const url = new URL(window.location.href);
+    url.hash = hash;
+    navigator.clipboard.writeText(url.toString()).catch(() => {});
+  }
+
+  function lineHash(line, event) {
+    if (event.shiftKey && rangeStart && rangeStart !== line) {
+      const a = Math.min(rangeStart, line);
+      const b = Math.max(rangeStart, line);
+      return `#L${a}-L${b}`;
+    }
+    rangeStart = line;
+    return `#L${line}`;
+  }
+
+  root.addEventListener("click", (event) => {
+    const clickTarget = event.target;
+    if (!(clickTarget instanceof Element)) return;
+    const copyButton = clickTarget.closest("[data-actions-log-copy-line]");
+    const lineLink = clickTarget.closest("[data-actions-log-line]");
+    const target = copyButton || lineLink;
+    if (!target || !root.contains(target)) return;
+    const line = Number(copyButton ? copyButton.dataset.actionsLogCopyLine : lineLink.dataset.actionsLogLine);
+    if (!Number.isFinite(line)) return;
+    event.preventDefault();
+    const hash = lineHash(line, event);
+    history.replaceState(null, "", hash);
+    markHash();
+    copyHash(hash);
+  });
+
+  window.addEventListener("hashchange", markHash);
+  markHash();
 })();
 </script>
 {{ end }}
