@@ -331,6 +331,24 @@ func FeatureAppliesToKind(feature Feature, kind billing.SubjectKind) bool {
 	return false
 }
 
+// FeaturesForKind returns every Feature registered as applying to
+// `kind`. Order is not stable across calls — sort by Feature string
+// at call sites that need determinism. Exposed for contract tests
+// that need to assert "every user-kind feature is reachable via the
+// /api/v1/user/plan response" or similar parity checks.
+func FeaturesForKind(kind billing.SubjectKind) []Feature {
+	out := make([]Feature, 0, len(featureKinds))
+	for f, kinds := range featureKinds {
+		for _, k := range kinds {
+			if k == kind {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	return out
+}
+
 type Reason string
 
 const (
