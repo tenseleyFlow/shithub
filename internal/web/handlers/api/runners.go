@@ -113,7 +113,7 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		version = runner.Version
 	}
 
-	job, steps, resolvedSecrets, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity), hostName, version)
+	job, steps, resolvedSecrets, resolvedVariables, claimed, err := h.claimRunnerJob(r.Context(), runner.ID, labels, int32(capacity), hostName, version)
 	if err != nil {
 		if errors.Is(err, errRunnerRevoked) {
 			metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("rejected").Inc()
@@ -156,7 +156,7 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.ActionsRunnerHeartbeatsTotal.WithLabelValues("claimed").Inc()
 	metrics.ActionsRunnerJWTTotal.WithLabelValues("issued").Add(2)
-	writeJSON(w, http.StatusOK, h.presentRunnerClaim(job, steps, resolvedSecrets, token, checkoutToken, time.Unix(claims.Exp, 0)))
+	writeJSON(w, http.StatusOK, h.presentRunnerClaim(job, steps, resolvedSecrets, resolvedVariables, token, checkoutToken, time.Unix(claims.Exp, 0)))
 }
 
 func cleanRunnerMetadata(value string) string {
@@ -219,11 +219,11 @@ func (h *Handlers) claimRunnerJob(
 	capacity int32,
 	hostName string,
 	version string,
-) (actionsdb.ClaimQueuedWorkflowJobRow, []actionsdb.ListRunnerStepsForJobRow, map[string]string, bool, error) {
+) (actionsdb.ClaimQueuedWorkflowJobRow, []actionsdb.ListRunnerStepsForJobRow, map[string]string, map[string]string, bool, error) {
 	q := actionsdb.New()
 	tx, err := h.d.Pool.Begin(ctx)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	committed := false
 	defer func() {
@@ -234,14 +234,14 @@ func (h *Handlers) claimRunnerJob(
 
 	lockedRunner, err := q.LockRunnerByID(ctx, tx, runnerID)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	if lockedRunner.RevokedAt.Valid {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, errRunnerRevoked
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, errRunnerRevoked
 	}
 	running, err := q.CountRunningJobsForRunner(ctx, tx, runnerID)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	heartbeat := func(status actionsdb.WorkflowRunnerStatus) error {
 		_, err := q.HeartbeatRunner(ctx, tx, actionsdb.HeartbeatRunnerParams{
@@ -260,23 +260,23 @@ func (h *Handlers) claimRunnerJob(
 			status = actionsdb.WorkflowRunnerStatusBusy
 		}
 		if err := heartbeat(status); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		committed = true
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, nil
 	}
 	if running >= capacity {
 		if err := heartbeat(actionsdb.WorkflowRunnerStatusBusy); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		committed = true
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, nil
 	}
 
 	job, err := q.ClaimQueuedWorkflowJob(ctx, tx, actionsdb.ClaimQueuedWorkflowJobParams{
@@ -285,51 +285,55 @@ func (h *Handlers) claimRunnerJob(
 	})
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		if err := heartbeat(actionsdb.WorkflowRunnerStatusIdle); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 		committed = true
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, nil
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, nil
 	}
 	run, err := q.StartWorkflowRun(ctx, tx, job.RunID)
 	switch {
 	case err == nil:
 		if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionRunning); err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		run, err = q.GetWorkflowRunByID(ctx, tx, job.RunID)
 		if err != nil {
-			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+			return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 		}
 	default:
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	if err := actionsevents.EmitJobTx(ctx, tx, run, claimRowWorkflowJob(job), actionsevents.ActionRunning); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	steps, err := q.ListRunnerStepsForJob(ctx, tx, job.ID)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID, job.Event)
 	if err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
+	}
+	resolvedVariables, err := h.resolveVisibleVariablesFromDB(ctx, tx, job.RepoID, job.Event)
+	if err != nil {
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	if err := h.storeJobSecretMaskSnapshot(ctx, tx, job.ID, secretMaskValues(resolvedSecrets)); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	status := actionsdb.WorkflowRunnerStatusIdle
 	if running+1 >= capacity {
 		status = actionsdb.WorkflowRunnerStatusBusy
 	}
 	if err := heartbeat(status); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	var claimLatencySeconds float64
 	observeClaimLatency := false
@@ -340,13 +344,13 @@ func (h *Handlers) claimRunnerJob(
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, false, err
+		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
 	committed = true
 	if observeClaimLatency {
 		metrics.ActionsJobClaimLatencySeconds.Observe(claimLatencySeconds)
 	}
-	return job, steps, resolvedSecrets, true, nil
+	return job, steps, resolvedSecrets, resolvedVariables, true, nil
 }
 
 type runnerJobAuth struct {
@@ -1288,6 +1292,115 @@ func (h *Handlers) mergeOrgSecrets(ctx context.Context, db actionsdb.DBTX, orgID
 	return nil
 }
 
+// resolveVisibleVariablesFromDB computes the `vars.*` namespace for a job
+// the same way resolveVisibleSecretsFromDB builds `secrets.*`. The merge
+// order is org → user → repo, with repo shadowing user+org. Variables
+// are plaintext on the wire (the value column isn't encrypted —
+// that's the design distinction from secrets).
+//
+// PRO-EXT01-12c: closes the gap where vars.* was empty at the runner
+// despite the CRUD layer accepting values. Without this the user-tier
+// vars feature shipped a write-only UI.
+func (h *Handlers) resolveVisibleVariablesFromDB(ctx context.Context, db secretResolutionDB, repoID int64, event actionsdb.WorkflowRunEvent) (map[string]string, error) {
+	if event == actionsdb.WorkflowRunEventPullRequest {
+		// Mirror the secrets gate: PRs from forks could lift values
+		// the maintainer didn't intend to share with PR authors.
+		return nil, nil
+	}
+	repo, err := reposdb.New().GetRepoByID(ctx, db, repoID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	if repo.OwnerOrgID.Valid {
+		if err := h.mergeOrgVariables(ctx, db, repo.OwnerOrgID.Int64, out); err != nil {
+			return nil, err
+		}
+	}
+	// PRO-EXT01-12c: user-scoped variables, gated on
+	// FeatureUserActionsVariables. Report-only soak path mirrors
+	// secrets: when denied AND the enforce flag is on, the user
+	// layer is empty so a Free user's workflows can't see user-scope
+	// rows even if the write path slipped during the soak window.
+	if repo.OwnerUserID.Valid {
+		allowed, _, derr := h.userActionsVariablesAllowedForRunner(ctx, repo.OwnerUserID.Int64)
+		if derr != nil {
+			return nil, derr
+		}
+		if allowed || !h.d.BillingEnforce.UserActionsVariables {
+			if err := h.mergeUserVariables(ctx, db, repo.OwnerUserID.Int64, out); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := h.mergeRepoVariables(ctx, db, repo.ID, out); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (h *Handlers) mergeUserVariables(ctx context.Context, db actionsdb.DBTX, userID int64, out map[string]string) error {
+	items, err := actionsdb.New().ListUserVariables(ctx, db, pgtype.Int8{Int64: userID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		out[item.Name] = item.Value
+	}
+	return nil
+}
+
+func (h *Handlers) mergeRepoVariables(ctx context.Context, db actionsdb.DBTX, repoID int64, out map[string]string) error {
+	items, err := actionsdb.New().ListRepoVariables(ctx, db, pgtype.Int8{Int64: repoID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		out[item.Name] = item.Value
+	}
+	return nil
+}
+
+func (h *Handlers) mergeOrgVariables(ctx context.Context, db actionsdb.DBTX, orgID int64, out map[string]string) error {
+	items, err := actionsdb.New().ListOrgVariables(ctx, db, pgtype.Int8{Int64: orgID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		out[item.Name] = item.Value
+	}
+	return nil
+}
+
+// userActionsVariablesAllowedForRunner mirrors the secrets equivalent.
+// Emits report_only_deny with surface=runner-vars so SREs can
+// distinguish the variables-side soak signal from the secrets-side
+// one in their dashboards.
+func (h *Handlers) userActionsVariablesAllowedForRunner(ctx context.Context, userID int64) (bool, entitlements.Decision, error) {
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		orgbilling.PrincipalForUser(userID),
+		entitlements.FeatureUserActionsVariables)
+	if err != nil {
+		return false, entitlements.Decision{}, err
+	}
+	if !decision.Allowed && h.d.Logger != nil {
+		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+			"principal", orgbilling.PrincipalForUser(userID).String(),
+			"principal_kind", string(orgbilling.SubjectKindUser),
+			"principal_id", userID,
+			"feature", string(entitlements.FeatureUserActionsVariables),
+			"reason", string(decision.Reason),
+			"required_plan", string(decision.RequiredPlan),
+			"mode", "report_only",
+			"surface", "runner-vars")
+	}
+	return decision.Allowed, decision, nil
+}
+
 func (h *Handlers) logMaskValues(ctx context.Context, repoID int64) ([]string, error) {
 	resolved, err := h.resolveVisibleSecrets(ctx, repoID)
 	if err != nil {
@@ -1602,9 +1715,13 @@ type runnerJobPayload struct {
 	TimeoutMinutes int32             `json:"timeout_minutes"`
 	Permissions    json.RawMessage   `json:"permissions"`
 	Secrets        map[string]string `json:"secrets"`
-	MaskValues     []string          `json:"mask_values"`
-	Env            json.RawMessage   `json:"env"`
-	Steps          []runnerStep      `json:"steps"`
+	// Variables is the `vars.*` namespace, plaintext. PRO-EXT01-12c
+	// finally wires this through; earlier sprints shipped the CRUD
+	// layer with the runner-side resolution unfinished.
+	Variables  map[string]string `json:"variables"`
+	MaskValues []string          `json:"mask_values"`
+	Env        json.RawMessage   `json:"env"`
+	Steps      []runnerStep      `json:"steps"`
 }
 
 type runnerStep struct {
@@ -1625,6 +1742,7 @@ func (h *Handlers) presentRunnerClaim(
 	job actionsdb.ClaimQueuedWorkflowJobRow,
 	steps []actionsdb.ListRunnerStepsForJobRow,
 	resolvedSecrets map[string]string,
+	resolvedVariables map[string]string,
 	token string,
 	checkoutToken string,
 	expiresAt time.Time,
@@ -1669,6 +1787,7 @@ func (h *Handlers) presentRunnerClaim(
 			TimeoutMinutes: job.TimeoutMinutes,
 			Permissions:    rawJSONOrObject(job.Permissions),
 			Secrets:        cloneStringMap(resolvedSecrets),
+			Variables:      cloneStringMap(resolvedVariables),
 			MaskValues:     secretMaskValues(resolvedSecrets),
 			Env:            rawJSONOrObject(job.JobEnv),
 			Steps:          outSteps,
