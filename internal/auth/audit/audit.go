@@ -46,6 +46,13 @@ const (
 	ActionGPGKeyDeleted         Action = "gpg_key_deleted"
 	ActionPATCreated            Action = "pat_created"
 	ActionPATRevoked            Action = "pat_revoked"
+	// Device-flow OAuth (S55). One row per state transition. Issuance
+	// of the eventual PAT continues to fire ActionPATCreated; these
+	// three constants exist so forensics can correlate
+	// `device_grant_*` actions with the PAT row issued at Exchange.
+	ActionDeviceGrantRequested Action = "device_grant_requested"
+	ActionDeviceGrantApproved  Action = "device_grant_approved"
+	ActionDeviceGrantDenied    Action = "device_grant_denied"
 	ActionUsernameChanged       Action = "username_changed"
 	ActionAccountDeleted        Action = "account_deleted"
 	ActionAccountRestored       Action = "account_restored"
@@ -134,11 +141,12 @@ const (
 type Target string
 
 const (
-	TargetUser  Target = "user"
-	TargetRepo  Target = "repo"
-	TargetOrg   Target = "org"
-	TargetIssue Target = "issue"
-	TargetPull  Target = "pull"
+	TargetUser        Target = "user"
+	TargetRepo        Target = "repo"
+	TargetOrg         Target = "org"
+	TargetIssue       Target = "issue"
+	TargetPull        Target = "pull"
+	TargetDeviceGrant Target = "device_grant"
 )
 
 // Recorder writes audit rows. Bound to the sqlc queries handle.
