@@ -261,6 +261,70 @@ func TestRunnerHeartbeatRespectsRepoConcurrencyCap(t *testing.T) {
 	}
 }
 
+func TestRunnerHeartbeatActiveJobSetClearsAbandonedRunningJob(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	firstRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "active-set-1")
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	firstClaim := claimRunnerHeartbeat(t, router, token, 1)
+	if firstClaim.Job.RunID != firstRunID {
+		t.Fatalf("first claim run_id=%d want %d", firstClaim.Job.RunID, firstRunID)
+	}
+
+	secondRunID := enqueueRunnerAPIRunWithTriggerID(t, pool, logger, repoID, userID, "active-set-2")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("old-compatible heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	q := actionsdb.New()
+	secondJobs, err := q.ListJobsForRun(ctx, pool, secondRunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun second: %v", err)
+	}
+	if len(secondJobs) != 1 || secondJobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("second job should still be queued without active_job_ids: %+v", secondJobs)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1,"active_job_ids":[]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reconcile heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var secondClaim runnerHeartbeatClaim
+	if err := json.Unmarshal(rr.Body.Bytes(), &secondClaim); err != nil {
+		t.Fatalf("decode second claim: %v", err)
+	}
+	if secondClaim.Job.RunID != secondRunID {
+		t.Fatalf("second claim run_id=%d want %d", secondClaim.Job.RunID, secondRunID)
+	}
+	firstJob, err := q.GetWorkflowJobByID(ctx, pool, firstClaim.Job.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowJobByID first: %v", err)
+	}
+	if firstJob.Status != actionsdb.WorkflowJobStatusCancelled || !firstJob.CancelRequested ||
+		!firstJob.Conclusion.Valid || firstJob.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("first job after reconcile: %+v", firstJob)
+	}
+	firstRun, err := q.GetWorkflowRunByID(ctx, pool, firstRunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID first: %v", err)
+	}
+	if firstRun.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!firstRun.Conclusion.Valid || firstRun.Conclusion.CheckConclusion != actionsdb.CheckConclusionCancelled {
+		t.Fatalf("first run after reconcile: %+v", firstRun)
+	}
+}
+
 func TestRunnerHeartbeatRespectsOwnerConcurrencyCap(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)

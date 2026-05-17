@@ -98,6 +98,23 @@ SELECT COUNT(*)::integer
 FROM workflow_jobs
 WHERE runner_id = sqlc.arg(runner_id)::bigint AND status = 'running';
 
+-- name: CancelRunnerJobsMissingFromActiveSet :many
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = 'cancelled',
+    conclusion = 'cancelled',
+    started_at = COALESCE(started_at, now()),
+    completed_at = COALESCE(completed_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE runner_id = sqlc.arg(runner_id)::bigint
+  AND status = 'running'
+  AND NOT (id = ANY(sqlc.arg(active_job_ids)::bigint[]))
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at;
+
 -- name: ClaimQueuedWorkflowJob :one
 WITH candidate AS (
     SELECT j.id

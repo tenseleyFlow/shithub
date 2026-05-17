@@ -187,6 +187,9 @@ func TestRunOnce_NoClaim(t *testing.T) {
 		len(got.Labels) != 2 || got.Labels[0] != "self-hosted" || got.Labels[1] != "linux" {
 		t.Fatalf("heartbeat: %#v", got)
 	}
+	if got.ActiveJobIDs == nil || len(got.ActiveJobIDs) != 0 {
+		t.Fatalf("active_job_ids should be an explicit empty set on idle heartbeat: %#v", got.ActiveJobIDs)
+	}
 }
 
 func TestRunOnce_ExecutesAndCompletesSuccess(t *testing.T) {

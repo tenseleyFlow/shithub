@@ -23,6 +23,7 @@ const (
 	CancelReasonUser        = "user"
 	CancelReasonConcurrency = "concurrency"
 	CancelReasonTimeout     = "timeout"
+	CancelReasonRunnerLost  = "runner_lost"
 )
 
 // CancelResult summarizes the durable state changes from a cancel request.
@@ -31,6 +32,13 @@ type CancelResult struct {
 	ChangedJobs   []actionsdb.WorkflowJob
 	RunCompleted  bool
 	RunConclusion actionsdb.CheckConclusion
+}
+
+// RunnerReconcileResult summarizes orphaned running jobs that were made
+// terminal because a runner heartbeat reported the authoritative active set.
+type RunnerReconcileResult struct {
+	ChangedJobs   []actionsdb.WorkflowJob
+	CompletedRuns []actionsdb.WorkflowRun
 }
 
 // CancelRun requests cancellation for every queued/running job in a workflow
@@ -184,6 +192,83 @@ func CancelJob(ctx context.Context, deps Deps, jobID int64, reason string) (Canc
 	}, nil
 }
 
+// ReconcileRunnerActiveJobs cancels running jobs that are assigned to runnerID
+// but absent from the runner's reported active job set. This recovers capacity
+// after a runner loses a claimed job locally, for example after a token/session
+// failure or process restart, while preserving old runner compatibility by
+// only being called when a heartbeat explicitly includes active_job_ids.
+func ReconcileRunnerActiveJobs(ctx context.Context, deps Deps, runnerID int64, activeJobIDs []int64) (RunnerReconcileResult, error) {
+	if deps.Pool == nil {
+		return RunnerReconcileResult{}, errors.New("actions lifecycle: nil Pool")
+	}
+	if activeJobIDs == nil {
+		activeJobIDs = []int64{}
+	}
+	q := actionsdb.New()
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return RunnerReconcileResult{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	changed, err := q.CancelRunnerJobsMissingFromActiveSet(ctx, tx, actionsdb.CancelRunnerJobsMissingFromActiveSetParams{
+		RunnerID:     runnerID,
+		ActiveJobIds: activeJobIDs,
+	})
+	if err != nil {
+		return RunnerReconcileResult{}, err
+	}
+	if len(changed) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return RunnerReconcileResult{}, err
+		}
+		committed = true
+		return RunnerReconcileResult{}, nil
+	}
+
+	jobsByRun := make(map[int64][]actionsdb.WorkflowJob)
+	for _, job := range changed {
+		if _, err := q.CancelOpenWorkflowStepsForJob(ctx, tx, job.ID); err != nil {
+			return RunnerReconcileResult{}, err
+		}
+		jobsByRun[job.RunID] = append(jobsByRun[job.RunID], job)
+	}
+
+	completedRuns := make([]actionsdb.WorkflowRun, 0, len(jobsByRun))
+	for runID, jobs := range jobsByRun {
+		runCompleted, _, err := runstate.RollupAfterCancel(ctx, q, tx, runID)
+		if err != nil {
+			return RunnerReconcileResult{}, err
+		}
+		run, err := q.GetWorkflowRunByID(ctx, tx, runID)
+		if err != nil {
+			return RunnerReconcileResult{}, err
+		}
+		if runCompleted {
+			completedRuns = append(completedRuns, run)
+		}
+		if err := emitCancelEvents(ctx, tx, run, jobs, runCompleted); err != nil {
+			return RunnerReconcileResult{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RunnerReconcileResult{}, err
+	}
+	committed = true
+
+	recordCancelledJobs(changed, CancelReasonRunnerLost)
+	for _, run := range completedRuns {
+		actionstelemetry.RecordRunTerminal(run)
+	}
+	syncChangedJobChecks(ctx, deps, changed)
+	return RunnerReconcileResult{ChangedJobs: changed, CompletedRuns: completedRuns}, nil
+}
+
 func recordCancelledJobs(jobs []actionsdb.WorkflowJob, reason string) {
 	if len(jobs) == 0 {
 		return
@@ -220,6 +305,8 @@ func cancelReason(reason string) string {
 		return CancelReasonConcurrency
 	case CancelReasonTimeout:
 		return CancelReasonTimeout
+	case CancelReasonRunnerLost:
+		return CancelReasonRunnerLost
 	default:
 		return CancelReasonUser
 	}

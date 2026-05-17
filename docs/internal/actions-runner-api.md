@@ -91,7 +91,8 @@ Request body:
   "labels": ["self-hosted", "linux", "ubuntu-latest", "x64"],
   "capacity": 1,
   "host_name": "runner-host-1",
-  "version": "v0.1.0"
+  "version": "v0.1.0",
+  "active_job_ids": []
 }
 ```
 
@@ -107,6 +108,14 @@ same queued jobs, so no duplicate run is created.
 `host_name` and `version` are optional runner metadata. The server stores
 trimmed values up to 255 bytes for pool diagnostics and preserves the
 previous values when old runners omit them.
+`active_job_ids` is the runner's authoritative local active-job set. An
+empty array means the runner is idle. When the field is present, the
+server first cancels any `running` jobs assigned to that runner whose IDs
+are missing from the set, rolls up their workflow runs, and syncs their
+check runs. This recovers capacity after a runner restart, lost job
+token, or local process failure leaves the database with a stale running
+row. Omitted or `null` `active_job_ids` is treated as an old runner
+heartbeat and does not reconcile jobs.
 The job payload includes `checkout_url`, `checkout_token`, resolved
 `secrets`, and `mask_values`; repo secrets shadow org secrets with the
 same name. The server also stores an encrypted claim-time copy of the mask
@@ -279,7 +288,7 @@ runner posts terminal job status `cancelled`.
 - `shithub_actions_runs_completed_total{event,conclusion}`
 - `shithub_actions_run_duration_seconds{event,conclusion}`
 - `shithub_actions_steps_completed_total{step_type,conclusion}`
-- `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout"}`
+- `shithub_actions_jobs_cancelled_total{reason="user|concurrency|timeout|runner_lost"}`
 - `shithub_actions_concurrency_queued_total`
 - `shithub_actions_log_scrub_replacements_total{location="server"}`
 - `shithub_actions_log_chunks_total{location="server"}`
