@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
@@ -582,7 +583,11 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
 
+	// PRO-EXT01-04c: see issues.go::issueView for the same cache shape;
+	// the Pro-username set is what the template uses to render pills
+	// next to every author/actor handle on the page.
 	usernames := map[int64]string{}
+	proUsernames := map[string]bool{}
 	usernameFor := func(id int64) string {
 		if id == 0 {
 			return ""
@@ -592,6 +597,9 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, id); err == nil {
 			usernames[id] = u.Username
+			if billing.IsProUserPlan(billing.UserPlan(u.Plan)) {
+				proUsernames[u.Username] = true
+			}
 			return u.Username
 		}
 		return ""
@@ -608,9 +616,10 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	for _, rv := range reviews {
 		rr := reviewRow{R: rv}
 		if rv.AuthorUserID.Valid {
-			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, rv.AuthorUserID.Int64); err == nil {
-				rr.AuthorName = u.Username
-			}
+			// PRO-EXT01-04c: usernameFor seeds the Pro-username set so
+			// reviewers (rendered in the Conversation sidebar) get a
+			// pill next to their handle.
+			rr.AuthorName = usernameFor(rv.AuthorUserID.Int64)
 		}
 		rs = append(rs, rr)
 	}
@@ -623,9 +632,7 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	for _, rq := range requests {
 		rr := reqRow{R: rq}
 		if rq.RequestedUserID.Valid {
-			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, rq.RequestedUserID.Int64); err == nil {
-				rr.Username = u.Username
-			}
+			rr.Username = usernameFor(rq.RequestedUserID.Int64)
 		}
 		reqs = append(reqs, rr)
 	}
@@ -651,6 +658,7 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, a := range assignees {
 		participants[a.Username] = struct{}{}
+		_ = usernameFor(a.UserID)
 		if a.UserID == viewer.ID {
 			viewerAssigned = true
 		}
@@ -666,6 +674,7 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		"Labels":                labels,
 		"Assignees":             assignees,
 		"Participants":          participantNames,
+		"ProUsernames":          proUsernames,
 		"ViewerAssigned":        viewerAssigned,
 		"AllLabels":             allLabels,
 		"Milestones":            milestones,
