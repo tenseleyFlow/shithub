@@ -254,6 +254,7 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:   expiresAt,
 		IpAllowlist: ipAllowlist,
 		RepoID:      repoBinding,
+		Source:      pat.SourceUserCreated,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "tokens: insert", "error", err)
