@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -86,9 +87,34 @@ func (c Config) effective() Config {
 	return out
 }
 
-// Deps wires the package to the database.
+// Deps wires the package to the database and the audit recorder.
+// Audit may be nil — orchestrators silently skip audit emission so
+// the test harness can wire a no-op without ceremony — but production
+// callers MUST set it. Forensics-grade audit trail is a remediation
+// requirement (S55-remediation #4).
+//
+// ActorIP is best-effort metadata for the Create audit row, which has
+// no authenticated user. Production callers pass
+// middleware.RealIPFromContext; empty string means "skip the ip key in
+// the audit meta JSON" so testfixtures don't carry junk values.
 type Deps struct {
-	Pool *pgxpool.Pool
+	Pool     *pgxpool.Pool
+	Audit    *audit.Recorder
+	ActorIP  string
+}
+
+func (d Deps) recordAudit(ctx context.Context, actorID int64, action audit.Action, targetID int64, meta map[string]any) {
+	if d.Audit == nil {
+		return
+	}
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	if d.ActorIP != "" {
+		meta["ip"] = d.ActorIP
+	}
+	// Best-effort: audit failures must not fail the auth flow.
+	_ = d.Audit.Record(ctx, d.Pool, actorID, action, audit.TargetDeviceGrant, targetID, meta)
 }
 
 // Authorization is the package-facing projection of an in-flight
@@ -131,16 +157,26 @@ func Create(ctx context.Context, deps Deps, cfg Config, clientID, scopeInput str
 		return Authorization{}, err
 	}
 
-	if _, err := usersdb.New().InsertDeviceAuthorization(ctx, deps.Pool, usersdb.InsertDeviceAuthorizationParams{
+	grant, err := usersdb.New().InsertDeviceAuthorization(ctx, deps.Pool, usersdb.InsertDeviceAuthorizationParams{
 		DeviceCodeHash:  deviceCodeHash,
 		UserCode:        userCode,
 		ClientID:        clientID,
 		Scopes:          scopes,
 		IntervalSeconds: int32(c.PollInterval / time.Second),
 		ExpiresAt:       pgtype.Timestamptz{Time: time.Now().Add(c.ExpiresIn), Valid: true},
-	}); err != nil {
+	})
+	if err != nil {
 		return Authorization{}, fmt.Errorf("devicecode: insert: %w", err)
 	}
+
+	// Audit: anonymous actor (no user_id yet). Meta includes the
+	// requested scopes + client_id; ActorIP is folded in by Deps.
+	// Do NOT log the raw device_code or user_code — those defeat the
+	// sha256-on-disk design.
+	deps.recordAudit(ctx, 0, audit.ActionDeviceGrantRequested, grant.ID, map[string]any{
+		"client_id":        clientID,
+		"requested_scopes": scopes,
+	})
 
 	return Authorization{
 		DeviceCode:   deviceCodeRaw,
@@ -178,16 +214,25 @@ func Approve(ctx context.Context, deps Deps, rowID, userID int64) error {
 	if time.Now().After(full.ExpiresAt.Time) {
 		return ErrExpiredToken
 	}
-	return usersdb.New().ApproveDeviceAuthorization(ctx, deps.Pool, usersdb.ApproveDeviceAuthorizationParams{
+	if err := usersdb.New().ApproveDeviceAuthorization(ctx, deps.Pool, usersdb.ApproveDeviceAuthorizationParams{
 		ID:            full.ID,
 		UserID:        pgtype.Int8{Int64: userID, Valid: true},
 		IssuedTokenID: pgtype.Int8{}, // populated by Exchange
+	}); err != nil {
+		return err
+	}
+	deps.recordAudit(ctx, userID, audit.ActionDeviceGrantApproved, full.ID, map[string]any{
+		"client_id": full.ClientID,
+		"scopes":    full.Scopes,
 	})
+	return nil
 }
 
 // Deny terminates an in-flight authorization without minting a token.
-// Future Exchange polls return ErrAccessDenied.
-func Deny(ctx context.Context, deps Deps, rowID int64) error {
+// Future Exchange polls return ErrAccessDenied. userID is the
+// authenticated user clicking Deny — recorded as the audit actor so
+// forensics can correlate which account refused a flow.
+func Deny(ctx context.Context, deps Deps, rowID, userID int64) error {
 	full, err := loadByID(ctx, deps.Pool, rowID)
 	if err != nil {
 		return ErrInvalidGrant
@@ -195,7 +240,14 @@ func Deny(ctx context.Context, deps Deps, rowID int64) error {
 	if full.ApprovedAt.Valid || full.DeniedAt.Valid {
 		return ErrAlreadyTerminal
 	}
-	return usersdb.New().DenyDeviceAuthorization(ctx, deps.Pool, full.ID)
+	if err := usersdb.New().DenyDeviceAuthorization(ctx, deps.Pool, full.ID); err != nil {
+		return err
+	}
+	deps.recordAudit(ctx, userID, audit.ActionDeviceGrantDenied, full.ID, map[string]any{
+		"client_id": full.ClientID,
+		"scopes":    full.Scopes,
+	})
+	return nil
 }
 
 // Exchange is the CLI-facing poll. Returns the minted PAT exactly
@@ -303,6 +355,25 @@ func Exchange(ctx context.Context, deps Deps, clientID, rawDeviceCode, tokenName
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ExchangeResult{}, fmt.Errorf("devicecode: commit tx: %w", err)
+	}
+
+	// Audit: emit pat_created (symmetry with the settings-page mint
+	// at internal/web/handlers/auth/tokens.go) with meta naming the
+	// originating device_authorizations row + source=oauth_device.
+	// Approve already fired ActionDeviceGrantApproved at consent
+	// time; this is the issuance event, not a re-approval. Target is
+	// TargetUser to match the existing PAT mint shape — joins to
+	// device_grant_approved go through meta.grant_id, not target_id.
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, locked.UserID.Int64,
+			audit.ActionPATCreated, audit.TargetUser, locked.UserID.Int64,
+			map[string]any{
+				"token_id": tok.ID,
+				"prefix":   prefix,
+				"scopes":   locked.Scopes,
+				"source":   pat.SourceOAuthDevice,
+				"grant_id": locked.ID,
+			})
 	}
 
 	return ExchangeResult{
