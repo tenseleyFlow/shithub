@@ -376,6 +376,20 @@ var (
 		},
 		[]string{"feature", "kind", "outcome"},
 	)
+	// PATUsageEventsTotal tracks the fire-and-forget PAT analytics
+	// insert path. Pre-PRO-EXT_SR2-13 the recordPATUsage goroutine
+	// silently dropped events on timeout or DB error, which made it
+	// impossible to know whether the empty per-token usage charts in
+	// /settings/personal-access-tokens were "no traffic" or "every
+	// insert is timing out." Labels:
+	//   outcome — "ok" | "error" | "timeout"
+	PATUsageEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_pat_usage_events_total",
+			Help: "PAT usage analytics insert outcomes (PRO-EXT_SR2-13 Q7).",
+		},
+		[]string{"outcome"},
+	)
 )
 
 func init() {
@@ -427,6 +441,7 @@ func init() {
 		ActionsStorageObjects,
 		ActionsStorageBytes,
 		ProGateTotal,
+		PATUsageEventsTotal,
 	)
 	// PRO-EXT01-17: install the entitlements observation hook so every
 	// CheckPrincipalFeature call lands in ProGateTotal. No-op for

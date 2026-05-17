@@ -16,6 +16,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -256,6 +257,11 @@ func (p *patUsageRecorder) Write(b []byte) (int, error) {
 // recordPATUsage inserts one usage event for this request. Best-effort:
 // the goroutine has its own short timeout and any error is logged at
 // warn level, never surfaced to the user.
+//
+// PRO-EXT_SR2-13 (audit Q7): every outcome (ok / timeout / error) bumps
+// shithub_pat_usage_events_total{outcome=...} so operators can spot a
+// silent drop rate before it shows up as confused users staring at
+// empty per-token analytics charts.
 func recordPATUsage(q usersdb.Querier, cfg PATConfig, tokenID int64, method, path string, status int) {
 	if cfg.Pool == nil {
 		return
@@ -264,13 +270,25 @@ func recordPATUsage(q usersdb.Querier, cfg PATConfig, tokenID int64, method, pat
 	go func() { //nolint:gosec
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		if err := q.InsertUserTokenUsageEvent(ctx, cfg.Pool, usersdb.InsertUserTokenUsageEventParams{
+		err := q.InsertUserTokenUsageEvent(ctx, cfg.Pool, usersdb.InsertUserTokenUsageEventParams{
 			TokenID:     tokenID,
 			Method:      method,
 			RoutePrefix: prefix,
 			StatusCode:  int16(status),
-		}); err != nil && cfg.Logger != nil {
-			cfg.Logger.WarnContext(ctx, "pat: insert usage event", "error", err)
+		})
+		switch {
+		case err == nil:
+			metrics.PATUsageEventsTotal.WithLabelValues("ok").Inc()
+		case errors.Is(err, context.DeadlineExceeded):
+			metrics.PATUsageEventsTotal.WithLabelValues("timeout").Inc()
+			if cfg.Logger != nil {
+				cfg.Logger.WarnContext(ctx, "pat: insert usage event", "error", err)
+			}
+		default:
+			metrics.PATUsageEventsTotal.WithLabelValues("error").Inc()
+			if cfg.Logger != nil {
+				cfg.Logger.WarnContext(ctx, "pat: insert usage event", "error", err)
+			}
 		}
 	}()
 }
