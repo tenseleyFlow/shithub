@@ -290,6 +290,7 @@ func Exchange(ctx context.Context, deps Deps, clientID, rawDeviceCode, tokenName
 		TokenPrefix: prefix,
 		Scopes:      locked.Scopes,
 		ExpiresAt:   pgtype.Timestamptz{},
+		Source:      pat.SourceOAuthDevice,
 	})
 	if err != nil {
 		return ExchangeResult{}, fmt.Errorf("devicecode: insert token: %w", err)
