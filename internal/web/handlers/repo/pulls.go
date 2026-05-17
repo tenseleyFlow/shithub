@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
+	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
@@ -582,12 +583,30 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	assignees, _ := h.iq.ListIssueAssignees(r.Context(), h.d.Pool, pr.IID)
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
+	reviews, _ := h.pq.ListPRReviews(r.Context(), h.d.Pool, pr.IID)
+	requests, _ := h.pq.ListPRReviewRequests(r.Context(), h.d.Pool, pr.IID)
 
 	// PRO-EXT01-04c: see issues.go::issueView for the same cache shape;
 	// the Pro-username set is what the template uses to render pills
 	// next to every author/actor handle on the page.
+	//
+	// PRO-EXT_SR2-12 (audit H5): pre-fetch the participant set so the
+	// closure becomes a map lookup instead of one GetUserByID per
+	// distinct participant.
 	usernames := map[int64]string{}
 	proUsernames := map[string]bool{}
+	participantIDs := collectPullParticipantIDs(pr, comments, events, assignees, reviews, requests)
+	if len(participantIDs) > 0 {
+		preloaded, err := h.uq.ListUsersByIDs(r.Context(), h.d.Pool, participantIDs)
+		if err == nil {
+			for _, u := range preloaded {
+				usernames[u.ID] = u.Username
+				if billing.IsProUserPlan(billing.UserPlan(u.Plan)) {
+					proUsernames[u.Username] = true
+				}
+			}
+		}
+	}
 	usernameFor := func(id int64) string {
 		if id == 0 {
 			return ""
@@ -607,7 +626,6 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	timeline := h.issueTimelineRows(comments, events, allLabels, milestones, usernameFor)
 
 	// Reviews + reviewer requests for the Conversation sidebar.
-	reviews, _ := h.pq.ListPRReviews(r.Context(), h.d.Pool, pr.IID)
 	type reviewRow struct {
 		R          pullsdb.PrReview
 		AuthorName string
@@ -623,7 +641,6 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		rs = append(rs, rr)
 	}
-	requests, _ := h.pq.ListPRReviewRequests(r.Context(), h.d.Pool, pr.IID)
 	type reqRow struct {
 		R        pullsdb.PrReviewRequest
 		Username string
@@ -1084,6 +1101,62 @@ func (h *Handlers) pullDeleteHeadBranch(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.redirectPull(w, r, owner.Username, row.Name, pr.INumber)
+}
+
+// collectPullParticipantIDs builds the distinct set of user IDs we
+// know we'll need a username + plan for when rendering a PR view:
+// PR author, merger, every comment author, every event actor, every
+// assignee, every review author, every review-request recipient.
+// Mirrors collectIssueParticipantIDs in issues.go. PRO-EXT_SR2-12.
+func collectPullParticipantIDs(
+	pr pullsdb.GetPullRequestByRepoAndNumberRow,
+	comments []issuesdb.IssueComment,
+	events []issuesdb.IssueEvent,
+	assignees []issuesdb.ListIssueAssigneesRow,
+	reviews []pullsdb.PrReview,
+	requests []pullsdb.PrReviewRequest,
+) []int64 {
+	seen := make(map[int64]struct{}, len(comments)+len(events)+len(assignees)+len(reviews)+len(requests)+2)
+	add := func(id int64) {
+		if id == 0 {
+			return
+		}
+		seen[id] = struct{}{}
+	}
+	if pr.IAuthorUserID.Valid {
+		add(pr.IAuthorUserID.Int64)
+	}
+	if pr.MergedByUserID.Valid {
+		add(pr.MergedByUserID.Int64)
+	}
+	for _, c := range comments {
+		if c.AuthorUserID.Valid {
+			add(c.AuthorUserID.Int64)
+		}
+	}
+	for _, e := range events {
+		if e.ActorUserID.Valid {
+			add(e.ActorUserID.Int64)
+		}
+	}
+	for _, a := range assignees {
+		add(a.UserID)
+	}
+	for _, rv := range reviews {
+		if rv.AuthorUserID.Valid {
+			add(rv.AuthorUserID.Int64)
+		}
+	}
+	for _, rq := range requests {
+		if rq.RequestedUserID.Valid {
+			add(rq.RequestedUserID.Int64)
+		}
+	}
+	out := make([]int64, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
 }
 
 func (h *Handlers) handlePullWriteError(w http.ResponseWriter, r *http.Request, err error) {
