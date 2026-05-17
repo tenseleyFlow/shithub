@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
+	"github.com/tenseleyFlow/shithub/internal/notifications"
 )
 
 // Deps wires the package against the rest of the runtime.
@@ -51,6 +52,10 @@ type Deps struct {
 	SiteName       string
 	BaseURL        string
 	UnsubscribeKey []byte
+	// RuleEngine evaluates per-recipient notification routing rules
+	// (PRO-EXT01-16a). Nil disables rule evaluation entirely — the
+	// fanout still upserts inbox rows + sends emails normally.
+	RuleEngine *notifications.Evaluator
 }
 
 // Errors surfaced by the orchestrator.

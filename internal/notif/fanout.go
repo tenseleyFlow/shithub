@@ -153,8 +153,19 @@ func dispatchEvent(ctx context.Context, deps Deps, ev notifdb.DomainEvent) error
 		if err != nil {
 			return err
 		}
-		// Email side. Pref + storm dampener gate.
-		if action.EmailDefault && deps.EmailSender != nil {
+		// PRO-EXT01-16a: evaluate the recipient's routing rules and
+		// stamp the decision onto the row. applyRuleDecision returns
+		// the post-mutation notification so the email path sees the
+		// snooze/drop state.
+		notif, err = applyRuleDecision(ctx, deps, q, notif)
+		if err != nil && deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "fanout: rule decision",
+				"recipient", recipID, "notification_id", notif.ID, "error", err)
+		}
+		// Email side. Pref + storm dampener gate. Snoozed/dropped
+		// notifications skip the email — that's the whole point of
+		// the focus-mode feature.
+		if shouldEmail(action, notif) && deps.EmailSender != nil {
 			if err := maybeSendEmail(ctx, deps, q, recipID, notif, action.Reason, threadKind, threadID); err != nil && deps.Logger != nil {
 				deps.Logger.WarnContext(ctx, "fanout: email send",
 					"recipient", recipID, "error", err)
@@ -500,6 +511,89 @@ func ensure(m map[int64]*recipient, uid int64) *recipient {
 
 func intToPg(v int64) pgtype.Int8 {
 	return pgtype.Int8{Int64: v, Valid: v != 0}
+}
+
+// applyRuleDecision asks the rule engine what to do with the
+// freshly-upserted notification, mutates the row via the appropriate
+// ApplyRule* sqlc query, and returns the post-mutation row so the
+// caller can branch on snooze/drop state.
+//
+// A nil engine, no matching rule, or any error → return the input
+// notification unchanged so the fanout keeps making progress.
+// Failures are logged but never escalate; rule evaluation is a
+// best-effort enhancement on top of the existing fanout flow.
+func applyRuleDecision(
+	ctx context.Context, deps Deps, q *notifdb.Queries, n notifdb.Notification,
+) (notifdb.Notification, error) {
+	if deps.RuleEngine == nil {
+		return n, nil
+	}
+	d, err := deps.RuleEngine.Evaluate(ctx, n)
+	if err != nil {
+		return n, err
+	}
+	if d.RuleID == 0 {
+		return n, nil
+	}
+	ruleID := pgtype.Int8{Int64: d.RuleID, Valid: true}
+	switch d.Action {
+	case notifdb.UserNotificationRuleActionSnooze:
+		if err := q.ApplyRuleSnooze(ctx, deps.Pool, notifdb.ApplyRuleSnoozeParams{
+			ID:            n.ID,
+			SnoozedUntil:  pgtype.Timestamptz{Time: d.SnoozeUntil, Valid: true},
+			MatchedRuleID: ruleID,
+		}); err != nil {
+			return n, err
+		}
+		n.SnoozedUntil = pgtype.Timestamptz{Time: d.SnoozeUntil, Valid: true}
+		n.MatchedRuleID = ruleID
+	case notifdb.UserNotificationRuleActionTab:
+		if err := q.ApplyRuleTab(ctx, deps.Pool, notifdb.ApplyRuleTabParams{
+			ID:            n.ID,
+			TabLabel:      pgtype.Text{String: d.Tab, Valid: true},
+			MatchedRuleID: ruleID,
+		}); err != nil {
+			return n, err
+		}
+		n.TabLabel = pgtype.Text{String: d.Tab, Valid: true}
+		n.MatchedRuleID = ruleID
+	case notifdb.UserNotificationRuleActionMarkRead:
+		if err := q.ApplyRuleMarkRead(ctx, deps.Pool, notifdb.ApplyRuleMarkReadParams{
+			ID:            n.ID,
+			MatchedRuleID: ruleID,
+		}); err != nil {
+			return n, err
+		}
+		n.Unread = false
+		n.MatchedRuleID = ruleID
+	case notifdb.UserNotificationRuleActionDrop:
+		if err := q.ApplyRuleDrop(ctx, deps.Pool, notifdb.ApplyRuleDropParams{
+			ID:            n.ID,
+			MatchedRuleID: ruleID,
+		}); err != nil {
+			return n, err
+		}
+		n.TabLabel = pgtype.Text{String: "dropped", Valid: true}
+		n.MatchedRuleID = ruleID
+	}
+	return n, nil
+}
+
+// shouldEmail decides whether the storm-dampener-gated email path
+// should run, given the post-rule state of the notification. A
+// snoozed or dropped row skips email — that's the user's stated
+// preference via the rule.
+func shouldEmail(action Action, n notifdb.Notification) bool {
+	if !action.EmailDefault {
+		return false
+	}
+	if n.SnoozedUntil.Valid {
+		return false
+	}
+	if n.TabLabel.Valid && n.TabLabel.String == "dropped" {
+		return false
+	}
+	return true
 }
 
 func isLifecycleEvent(kind string) bool {
