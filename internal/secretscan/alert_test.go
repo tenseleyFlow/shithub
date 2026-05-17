@@ -203,7 +203,7 @@ func TestDispatch_WebhookSignsAndPosts(t *testing.T) {
 		gotBody      []byte
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSignature = r.Header.Get("X-ShitHub-Signature")
+		gotSignature = r.Header.Get("X-Shithub-Signature-256")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))

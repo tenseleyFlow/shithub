@@ -264,8 +264,14 @@ func sendWebhookAlert(
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", deps.SiteName+"-secret-scan-alerts")
-	req.Header.Set("X-ShitHub-Signature", signature)
-	req.Header.Set("X-ShitHub-Event", "secret_scan.finding.new")
+	// PRO-EXT_SR2-13 (audit Q6): normalize header naming across the
+	// three webhook surfaces. Repo webhooks emit X-Shithub-Signature-256
+	// + X-Shithub-Event (internal/webhook/deliver.go). Webhook relay
+	// emits X-Shithub-Relay-Signature-256. Secret-scan alerts had been
+	// using mixed-case "X-ShitHub-Signature" with no algorithm suffix,
+	// which forced downstream HMAC-verify snippets to special-case it.
+	req.Header.Set("X-Shithub-Signature-256", signature)
+	req.Header.Set("X-Shithub-Event", "secret_scan.finding.new")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err

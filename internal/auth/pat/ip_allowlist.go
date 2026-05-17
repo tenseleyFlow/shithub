@@ -39,15 +39,25 @@ const MaxIPAllowlistEntryBytes = 64
 
 // ParseAllowlist parses a textarea-style input (newline or comma
 // separated) into a deduplicated, validated list of CIDR strings.
-// Returns (canonicalized, invalid): canonicalized is the parsed-and-
-// re-stringified set (suitable to persist); invalid is the list of
-// inputs that failed parsing (suitable for an inline error message).
+// Returns (canonicalized, invalid, tooMany): canonicalized is the
+// parsed-and-re-stringified set (suitable to persist); invalid is the
+// list of inputs that failed parsing; tooMany is true if the caller
+// supplied more than MaxIPAllowlistEntries distinct valid entries
+// (the surplus is silently dropped — the caller should refuse to
+// persist with an explicit "too many entries" error rather than
+// quietly truncate, since silent truncation is exactly the failure
+// mode that lets a user think their restriction took effect when
+// half of it didn't).
 //
-// An empty input returns (nil, nil) so the user can clear the
-// allowlist by submitting a blank textarea.
-func ParseAllowlist(raw string) (canonicalized []string, invalid []string) {
+// PRO-EXT_SR2-13 (audit Q8): pre-change this function silently
+// `break`'d at the cap and the handler had no way to tell the user
+// their tail of entries was dropped.
+//
+// An empty input returns (nil, nil, false) so the user can clear
+// the allowlist by submitting a blank textarea.
+func ParseAllowlist(raw string) (canonicalized []string, invalid []string, tooMany bool) {
 	if strings.TrimSpace(raw) == "" {
-		return nil, nil
+		return nil, nil, false
 	}
 	// Split on newline or comma. Single trim per entry afterwards.
 	rawEntries := strings.FieldsFunc(raw, func(r rune) bool {
@@ -77,16 +87,17 @@ func ParseAllowlist(raw string) (canonicalized []string, invalid []string) {
 		if _, dup := seen[canonical]; dup {
 			continue
 		}
+		if len(out) >= MaxIPAllowlistEntries {
+			tooMany = true
+			continue
+		}
 		seen[canonical] = struct{}{}
 		out = append(out, canonical)
-		if len(out) >= MaxIPAllowlistEntries {
-			break
-		}
 	}
 	if len(out) == 0 {
-		return nil, invalid
+		return nil, invalid, tooMany
 	}
-	return out, invalid
+	return out, invalid, tooMany
 }
 
 // parseAllowlistEntry returns the canonical netip.Prefix for one
