@@ -32,16 +32,52 @@
     </form>
   {{ else }}
     <p>Enter the code shown on your device.</p>
-    <form method="GET" action="/login/device" novalidate>
+    <form method="GET" action="/login/device" novalidate class="shithub-device-form">
       <label>
-        <span>User code</span>
-        <input type="text" name="user_code" required autofocus
-               autocomplete="off" inputmode="text"
-               pattern="[A-Za-z0-9-]+"
+        <span class="shithub-sr-only">User code</span>
+        <input type="text" name="user_code" id="shithub-device-code-input"
+               class="shithub-device-code-input"
+               required autofocus autocomplete="off" inputmode="text"
+               autocapitalize="characters" spellcheck="false"
+               maxlength="9"
+               pattern="[A-HJ-NP-Za-hj-np-z2-9]{4}-?[A-HJ-NP-Za-hj-np-z2-9]{4}"
+               placeholder="XXXX-XXXX"
                value="{{ .UserCode }}">
       </label>
       <button type="submit" class="shithub-button shithub-button-primary">Continue</button>
     </form>
+    <script>
+    (function () {
+      "use strict";
+      var input = document.getElementById("shithub-device-code-input");
+      if (!input) return;
+      var ALPHA = /[^A-HJ-NP-Z2-9]/g;
+      function normalize(v) {
+        v = v.toUpperCase().replace(ALPHA, "");
+        if (v.length > 8) v = v.slice(0, 8);
+        if (v.length > 4) v = v.slice(0, 4) + "-" + v.slice(4);
+        return v;
+      }
+      input.addEventListener("input", function (e) {
+        var before = e.target.value;
+        var pos = e.target.selectionStart;
+        var after = normalize(before);
+        if (before === after) return;
+        e.target.value = after;
+        // Restore caret roughly where the user expects: if normalize
+        // inserted the dash before our caret position, shift right by 1.
+        if (pos > 4 && after.charAt(4) === "-" && before.charAt(4) !== "-") pos++;
+        if (pos > after.length) pos = after.length;
+        e.target.setSelectionRange(pos, pos);
+      });
+      input.addEventListener("paste", function (e) {
+        var cb = e.clipboardData || window.clipboardData;
+        if (!cb) return;
+        e.preventDefault();
+        input.value = normalize(cb.getData("text"));
+      });
+    })();
+    </script>
   {{ end }}
 </section>
 {{- end }}
