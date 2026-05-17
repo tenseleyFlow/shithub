@@ -99,7 +99,8 @@ func TestActionsProductionTemplatesRenderParityLandmarks(t *testing.T) {
 				`href="/alice/public-repo/actions/runs/41/jobs/0/steps/0/log/download"`,
 				`Download`,
 				`SQL chunks`,
-				`<pre class="shithub-actions-log-output"><code>`,
+				`data-actions-log-view`,
+				`data-actions-log-copy-line="1"`,
 				`checkout complete`,
 			},
 		},
@@ -254,6 +255,93 @@ func TestActionsProductionTemplatesEscapeRunAnnotationsAndLogs(t *testing.T) {
 		if strings.Contains(logBody, leak) {
 			t.Fatalf("step log page leaked storage detail %q in\n%s", leak, logBody)
 		}
+	}
+}
+
+func TestActionsProductionStepLogGroupsAnchorsAndRawDownload(t *testing.T) {
+	t.Parallel()
+	f := newActionsUIAuditFixture(t)
+	now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	runID := f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      43,
+		WorkflowFile:  ".shithub/workflows/grouped.yml",
+		WorkflowName:  "Grouped",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -10 * time.Minute,
+		StartedOffset: -9 * time.Minute,
+		DoneOffset:    -8 * time.Minute,
+	}, now)
+	jobID := f.insertWorkflowJob(t, workflowJobFixture{
+		RunID:       runID,
+		JobIndex:    0,
+		JobKey:      "build",
+		JobName:     "Build",
+		RunsOn:      "ubuntu-latest",
+		Status:      actionsdb.WorkflowJobStatusCompleted,
+		Conclusion:  actionsdb.CheckConclusionSuccess,
+		StartedAt:   now.Add(-9 * time.Minute),
+		CompletedAt: now.Add(-8 * time.Minute),
+	})
+	stepID := f.insertWorkflowStep(t, workflowStepFixture{
+		JobID:       jobID,
+		StepIndex:   0,
+		StepName:    "Grouped logs",
+		RunCommand:  "printf grouped",
+		Status:      actionsdb.WorkflowStepStatusCompleted,
+		Conclusion:  actionsdb.CheckConclusionSuccess,
+		StartedAt:   now.Add(-9 * time.Minute),
+		CompletedAt: now.Add(-8 * time.Minute),
+	})
+	rawLog := strings.Join([]string{
+		"::group::Build <tag> ***",
+		"line one",
+		"::group::Nested",
+		"<svg onload=alert(1)>",
+		"::endgroup::",
+		"::endgroup::",
+		"after",
+		"",
+	}, "\n")
+	f.insertStepLogChunk(t, stepID, 0, rawLog)
+
+	mux := f.actionsMux(viewerFor(f.owner))
+	body := mustGetActionsAuditBody(t, mux, "/alice/public-repo/actions/runs/43/jobs/0/steps/0")
+	for _, raw := range []string{
+		"::group::Build",
+		"::endgroup::",
+		"<svg onload=alert(1)>",
+	} {
+		if strings.Contains(body, raw) {
+			t.Fatalf("raw log command or markup leaked into rendered log: %q in\n%s", raw, body)
+		}
+	}
+	assertContainsAll(t, body, []string{
+		`data-actions-log-view`,
+		`id="L1"`,
+		`data-actions-log-line-number="1"`,
+		`Build &lt;tag&gt; ***`,
+		`id="L2"`,
+		`href="#L2"`,
+		`data-actions-log-copy-line="2"`,
+		`id="L3"`,
+		`Nested`,
+		`id="L4"`,
+		`&lt;svg onload=alert(1)&gt;`,
+		"`#L${a}-L${b}`",
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/runs/43/jobs/0/steps/0/log/download", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("download status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); got != rawLog {
+		t.Fatalf("download body changed:\ngot  %q\nwant %q", got, rawLog)
 	}
 }
 

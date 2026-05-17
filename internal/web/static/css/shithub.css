@@ -7586,6 +7586,106 @@ button.shithub-repo-action {
 .shithub-actions-log-output code {
   font: inherit;
 }
+.shithub-actions-log-rendered {
+  padding: 0.55rem 0;
+  white-space: normal;
+}
+.shithub-actions-log-line,
+.shithub-actions-log-group-summary {
+  display: grid;
+  grid-template-columns: 4.25rem 1.6rem minmax(0, 1fr) auto;
+  align-items: start;
+  min-height: 1.45rem;
+  padding: 0 0.85rem 0 0;
+}
+.shithub-actions-log-line:hover,
+.shithub-actions-log-line.is-targeted,
+.shithub-actions-log-group.is-targeted > .shithub-actions-log-group-summary {
+  background: rgba(88, 166, 255, 0.12);
+}
+.shithub-actions-log-line-number {
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 0;
+  padding-right: 0.8rem;
+  color: #7d8590;
+  text-decoration: none;
+  user-select: none;
+}
+.shithub-actions-log-line-number:hover,
+.shithub-actions-log-line-number:focus-visible {
+  color: #e6edf3;
+  text-decoration: none;
+}
+.shithub-actions-log-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.12rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #7d8590;
+  cursor: pointer;
+  opacity: 0;
+}
+.shithub-actions-log-line:hover .shithub-actions-log-copy,
+.shithub-actions-log-line:focus-within .shithub-actions-log-copy,
+.shithub-actions-log-group-summary:hover .shithub-actions-log-copy,
+.shithub-actions-log-group-summary:focus-within .shithub-actions-log-copy {
+  opacity: 1;
+}
+.shithub-actions-log-copy:hover,
+.shithub-actions-log-copy:focus-visible {
+  color: #e6edf3;
+  background: rgba(177, 186, 196, 0.12);
+}
+.shithub-actions-log-line-text,
+.shithub-actions-log-group-title {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.shithub-actions-log-group {
+  margin: 0.15rem 0;
+}
+.shithub-actions-log-group summary {
+  list-style: none;
+  cursor: pointer;
+}
+.shithub-actions-log-group summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-actions-log-group-title {
+  font-weight: 600;
+}
+.shithub-actions-log-group-title::before {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 0.55rem;
+  border-top: 0.3rem solid transparent;
+  border-bottom: 0.3rem solid transparent;
+  border-left: 0.4rem solid #7d8590;
+  content: "";
+}
+.shithub-actions-log-group[open] > .shithub-actions-log-group-summary .shithub-actions-log-group-title::before {
+  border-top: 0.4rem solid #7d8590;
+  border-right: 0.3rem solid transparent;
+  border-bottom: 0;
+  border-left: 0.3rem solid transparent;
+}
+.shithub-actions-log-group-meta {
+  color: #7d8590;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.shithub-actions-log-group-body {
+  margin-left: 0;
+}
 .shithub-actions-log-live {
   padding: 0.5rem 1rem;
   border-top: 1px solid var(--border-default);

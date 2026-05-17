@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/dispatch"
+	"github.com/tenseleyFlow/shithub/internal/actions/logview"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
@@ -306,6 +307,7 @@ type actionsStepLogView struct {
 	WarningCount int
 	ErrorCount   int
 	LogText      string
+	LogDocument  logview.Document
 	LogSource    string
 	LogError     string
 	LogTruncated bool
@@ -1335,6 +1337,7 @@ func (h *Handlers) repoActionStepLog(w http.ResponseWriter, r *http.Request) {
 		WarningCount: warningCount,
 		ErrorCount:   errorCount,
 		LogText:      logContent.Text,
+		LogDocument:  logview.Parse(logContent.Text),
 		LogSource:    logContent.Source,
 		LogError:     logContent.Error,
 		LogTruncated: logContent.Truncated,
