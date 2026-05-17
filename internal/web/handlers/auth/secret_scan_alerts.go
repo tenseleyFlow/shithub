@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 // secretScanAlertsForm is the GET render state.
@@ -69,13 +70,22 @@ func (h *Handlers) settingsSecretScanAlertsSave(w http.ResponseWriter, r *http.R
 
 	// Validate webhook URL shape client-side too — the CHECK
 	// constraint will reject malformed values but the friendly error
-	// here saves a 500.
+	// here saves a 500. PRO-EXT_SR2-10 (audit C1) extends this to a
+	// full SSRF-with-resolve check so the persisted URL can't already
+	// be pointing at the metadata service / internal IPs / non-http
+	// schemes when the alert worker eventually fires.
 	if webhookURL != "" {
 		u, perr := url.Parse(webhookURL)
 		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			h.renderSecretScanAlertsForm(w, r,
 				secretScanAlertsForm{EmailEnabled: emailEnabled, WebhookURL: webhookURL},
 				"Webhook URL must be a http(s) URL with a host.", "")
+			return
+		}
+		if err := webhook.DefaultSSRFConfig().ValidateWithResolve(r.Context(), webhookURL); err != nil {
+			h.renderSecretScanAlertsForm(w, r,
+				secretScanAlertsForm{EmailEnabled: emailEnabled, WebhookURL: webhookURL},
+				"Webhook URL is not allowed: "+err.Error(), "")
 			return
 		}
 	}
