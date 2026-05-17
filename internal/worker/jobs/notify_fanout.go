@@ -11,6 +11,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/notif"
+	"github.com/tenseleyFlow/shithub/internal/notifications"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
@@ -26,6 +27,11 @@ type NotifyFanoutDeps struct {
 	SiteName       string
 	BaseURL        string
 	UnsubscribeKey []byte
+	// EnforceInboxRules promotes the PRO-EXT01-16a rule engine from
+	// report-only to enforce: Free users' rules stop firing entirely
+	// (instead of firing-with-deny-log). Operator-controlled via
+	// EnforceConfig.UserInboxRules.
+	EnforceInboxRules bool
 }
 
 // NotifyFanout returns the worker handler for `notify:fanout`. The
@@ -35,6 +41,11 @@ type NotifyFanoutDeps struct {
 // when a drain partially fails, and the cron-driven scheduler re-
 // enqueues on a tick.
 func NotifyFanout(deps NotifyFanoutDeps) worker.Handler {
+	engine := &notifications.Evaluator{
+		Pool:        deps.Pool,
+		Logger:      deps.Logger,
+		EnforceFree: deps.EnforceInboxRules,
+	}
 	return func(ctx context.Context, _ json.RawMessage) error {
 		processed, err := notif.FanoutOnce(ctx, notif.Deps{
 			Pool:           deps.Pool,
@@ -44,6 +55,7 @@ func NotifyFanout(deps NotifyFanoutDeps) worker.Handler {
 			SiteName:       deps.SiteName,
 			BaseURL:        deps.BaseURL,
 			UnsubscribeKey: deps.UnsubscribeKey,
+			RuleEngine:     engine,
 		})
 		if err != nil {
 			return err

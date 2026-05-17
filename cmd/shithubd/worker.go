@@ -182,13 +182,14 @@ var workerCmd = &cobra.Command{
 
 		notifSender, _ := pickNotifEmailSender(cfg)
 		p.Register(worker.KindNotifyFanout, jobs.NotifyFanout(jobs.NotifyFanoutDeps{
-			Pool:           pool,
-			Logger:         logger,
-			EmailSender:    notifSender,
-			EmailFrom:      cfg.Auth.EmailFrom,
-			SiteName:       cfg.Auth.SiteName,
-			BaseURL:        cfg.Auth.BaseURL,
-			UnsubscribeKey: notifUnsubscribeKey(cfg, logger),
+			Pool:              pool,
+			Logger:            logger,
+			EmailSender:       notifSender,
+			EmailFrom:         cfg.Auth.EmailFrom,
+			SiteName:          cfg.Auth.SiteName,
+			BaseURL:           cfg.Auth.BaseURL,
+			UnsubscribeKey:    notifUnsubscribeKey(cfg, logger),
+			EnforceInboxRules: cfg.Billing.Enforce.UserInboxRules,
 		}))
 		p.Register(worker.KindTrendingCompute, jobs.TrendingCompute(jobs.TrendingComputeDeps{
 			Pool: pool, Logger: logger,

@@ -1663,6 +1663,50 @@ func (ns NullUserCronDispatchLastStatus) Value() (driver.Value, error) {
 	return string(ns.UserCronDispatchLastStatus), nil
 }
 
+type UserNotificationRuleAction string
+
+const (
+	UserNotificationRuleActionSnooze   UserNotificationRuleAction = "snooze"
+	UserNotificationRuleActionTab      UserNotificationRuleAction = "tab"
+	UserNotificationRuleActionMarkRead UserNotificationRuleAction = "mark_read"
+	UserNotificationRuleActionDrop     UserNotificationRuleAction = "drop"
+)
+
+func (e *UserNotificationRuleAction) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserNotificationRuleAction(s)
+	case string:
+		*e = UserNotificationRuleAction(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserNotificationRuleAction: %T", src)
+	}
+	return nil
+}
+
+type NullUserNotificationRuleAction struct {
+	UserNotificationRuleAction UserNotificationRuleAction
+	Valid                      bool // Valid is true if UserNotificationRuleAction is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserNotificationRuleAction) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserNotificationRuleAction, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserNotificationRuleAction.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserNotificationRuleAction) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserNotificationRuleAction), nil
+}
+
 type UserPlan string
 
 const (
@@ -2571,6 +2615,9 @@ type Notification struct {
 	Summary         []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	SnoozedUntil    pgtype.Timestamptz
+	TabLabel        pgtype.Text
+	MatchedRuleID   pgtype.Int8
 }
 
 type NotificationEmailLog struct {
@@ -3215,6 +3262,23 @@ type UserNotificationPref struct {
 	Key       string
 	Value     []byte
 	UpdatedAt pgtype.Timestamptz
+}
+
+type UserNotificationRule struct {
+	ID                  int64
+	UserID              int64
+	Name                string
+	Enabled             bool
+	Position            int32
+	MatchReason         pgtype.Text
+	MatchKind           pgtype.Text
+	MatchRepoID         pgtype.Int8
+	MatchActorID        pgtype.Int8
+	Action              UserNotificationRuleAction
+	ActionTab           pgtype.Text
+	ActionSnoozeMinutes pgtype.Int4
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
 }
 
 type UserRecoveryCode struct {

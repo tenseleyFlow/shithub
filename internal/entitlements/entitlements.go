@@ -156,6 +156,14 @@ const (
 	// billing multiplier so paused repos bill at a reduced rate.
 	// Kinds: user only.
 	FeatureRepoTimeMachine Feature = "repo_time_machine"
+	// FeatureInboxRules gates Pro-tier notification-routing rules
+	// (PRO-EXT01-16a). A rule is a (match, action) pair: match on
+	// reason/kind/repo/actor, action is snooze / tab / mark-read /
+	// drop. Rules fire at fanout time after the inbox row is upserted.
+	// Free users can't create rules; their existing rule rows (if any
+	// from a downgrade) keep working in report-only mode until enforce
+	// flips. Kinds: user only.
+	FeatureInboxRules Feature = "inbox_rules"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -261,6 +269,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
 	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
 	FeatureRepoTimeMachine:          {billing.SubjectKindUser},
+	FeatureInboxRules:               {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.

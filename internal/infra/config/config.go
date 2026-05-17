@@ -255,6 +255,13 @@ type EnforceConfig struct {
 	// admin path before flipping for real). PRO-EXT01-15; promoted in
 	// PRO-EXT01-17.
 	UserRepoTimeMachine bool `toml:"user_repo_time_machine"`
+	// UserInboxRules: when true, Free users attempting to create a
+	// notification routing rule get a 402; rules already created (e.g.
+	// from a Pro→Free downgrade) stop firing at fanout. Off by default
+	// → report-only (rule creates allowed but a would-deny log is
+	// emitted; existing rules continue to apply). PRO-EXT01-16a;
+	// promoted in PRO-EXT01-17.
+	UserInboxRules bool `toml:"user_inbox_rules"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

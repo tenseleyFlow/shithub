@@ -211,6 +211,10 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/emails/{id}/remove", h.settingsEmailsRemove)
 			r.Get("/settings/notifications", h.settingsNotificationsForm)
 			r.Post("/settings/notifications", h.settingsNotificationsSubmit)
+			// PRO-EXT01-16a: notification routing rules.
+			r.Post("/settings/notifications/rules", h.settingsRuleCreate)
+			r.Post("/settings/notifications/rules/{id}/delete", h.settingsRuleDelete)
+			r.Post("/settings/notifications/rules/{id}/toggle", h.settingsRuleToggle)
 			r.Get("/settings/sessions", h.settingsSessionsList)
 			r.Post("/settings/sessions/logout-everywhere", h.settingsSessionsLogoutAll)
 			r.Get("/settings/danger", h.settingsDangerForm)
