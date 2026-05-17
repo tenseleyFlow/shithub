@@ -1042,6 +1042,31 @@ code {
   color: var(--fg-muted);
   font-size: 0.9rem;
 }
+.shithub-device-form { display: grid; gap: 1.25rem; justify-items: center; }
+/* The selector beats .shithub-auth input[type=text] above on
+   specificity by adding the input.* qualifier. */
+.shithub-auth input.shithub-device-code-input {
+  font: 700 1.75rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.15em;
+  text-align: center;
+  text-transform: uppercase;
+  width: 100%;
+  max-width: 14rem;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-subtle);
+}
+.shithub-auth input.shithub-device-code-input::placeholder {
+  color: var(--fg-muted);
+  opacity: 0.6;
+  letter-spacing: 0.15em;
+}
+.shithub-auth input.shithub-device-code-input:focus {
+  outline: none;
+  border-color: var(--accent-fg);
+  background: var(--canvas-default);
+}
 .shithub-org-plan-page {
   max-width: 78rem;
   margin: 3rem auto;
