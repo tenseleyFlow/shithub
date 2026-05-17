@@ -635,7 +635,17 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Planned",
 				},
 				{
-					Name: "Pages and Wikis", Description: "Publish project documentation and lightweight collaboration spaces.",
+					Name: "Repository projects", Description: "Organize issues and pull requests with repository project views.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Shipped",
+				},
+				{
+					Name: "Wikis", Description: "Create long-form repository documentation pages.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Shipped",
+				},
+				{
+					Name: "Pages", Description: "Publish static project sites from organization repositories.",
 					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP21",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Planned",
 				},
@@ -673,6 +683,11 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					Name: "Automatic code review assignment", Description: "Automatically request matching CODEOWNERS users and teams on pull request updates.",
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP19",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Shipped",
+				},
+				{
+					Name: "Multiple issue and pull request assignees", Description: "Assign more than one person to a private organization issue or pull request.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP21",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Shipped",
 				},
 				{
 					Name: "Scheduled reminders", Description: "Remind teams about pending pull requests.",

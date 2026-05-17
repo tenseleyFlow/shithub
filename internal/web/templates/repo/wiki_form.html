@@ -1,0 +1,50 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-wiki-page">
+    <aside class="shithub-wiki-sidebar">
+      <div class="shithub-wiki-sidebar-head">
+        <h2>Pages</h2>
+      </div>
+      {{ if .Pages }}
+      <nav aria-label="Wiki pages">
+        {{ range .Pages }}
+        <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/wiki/{{ .Slug }}">{{ .Title }}</a>
+        {{ end }}
+      </nav>
+      {{ else }}
+      <p class="shithub-muted">No wiki pages yet.</p>
+      {{ end }}
+    </aside>
+    <main class="shithub-wiki-main">
+      <form method="post" action="{{ if eq .Form.Mode "edit" }}/{{ .Owner }}/{{ .Repo.Name }}/wiki/{{ .Form.Slug }}{{ else }}/{{ .Owner }}/{{ .Repo.Name }}/wiki{{ end }}" class="shithub-wiki-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <header>
+          <h1>{{ if eq .Form.Mode "edit" }}Edit page{{ else }}Create a new page{{ end }}</h1>
+          <div class="shithub-form-actions shithub-form-actions-start">
+            <button type="submit" class="shithub-button shithub-button-primary">{{ if eq .Form.Mode "edit" }}Save page{{ else }}Create page{{ end }}</button>
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/wiki" class="shithub-button">Cancel</a>
+          </div>
+        </header>
+        {{ if .Form.Error }}<p class="shithub-error">{{ .Form.Error }}</p>{{ end }}
+        <label>
+          <span>Title</span>
+          <input type="text" name="title" value="{{ .Form.Title }}" maxlength="200" required>
+        </label>
+        <label>
+          <span>Slug</span>
+          {{ if eq .Form.Mode "edit" }}
+          <input type="text" name="slug" value="{{ .Form.Slug }}" disabled>
+          {{ else }}
+          <input type="text" name="slug" value="{{ .Form.Slug }}" maxlength="120" required>
+          {{ end }}
+        </label>
+        <label>
+          <span>Write</span>
+          <textarea name="body" rows="22" maxlength="262144">{{ .Form.Body }}</textarea>
+        </label>
+      </form>
+    </main>
+  </section>
+</section>
+{{- end }}

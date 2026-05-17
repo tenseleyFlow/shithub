@@ -94,12 +94,15 @@ Rules for paid-org copy:
 | Required reviewers on private org repos | Upgrade | Included | Contact sales |
 | Private-repo CODEOWNERS review | Upgrade | Included | Contact sales |
 | Scheduled reminders on private org repos | Upgrade | Included | Contact sales |
+| Repository projects on private org repos | Upgrade | Included | Contact sales |
+| Wikis on private org repos | Upgrade | Included | Contact sales |
+| Multiple issue/PR assignees on private org repos | Upgrade | Included | Contact sales |
 | Org-level Actions secrets | Upgrade | Included | Contact sales |
 | Org-level Actions variables | Upgrade | Included | Contact sales |
 | Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
 | Actions artifacts/storage | Low quota once metered | Higher quota once metered | Contact sales |
 | Packages storage | Deferred until Packages is active | Deferred until Packages is active | Deferred |
-| Pages/Wikis/Projects | Do not promise until shipped | Do not promise until shipped | Deferred |
+| Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
 | Data residency/compliance | Deferred | Deferred | Later Enterprise feature |
@@ -573,6 +576,17 @@ Expected org feature keys:
 - `private_collaboration_limit`
 - `storage_quota`
 - `actions_minutes_quota`
+- `scheduled_reminders`
+- `repo_projects`
+- `repo_wikis`
+- `multiple_assignees`
+
+SP21 collaboration gates follow the same public/private split as other
+Team rows. Public repository Projects, Wikis, and multiple assignees are
+available on Free. Private organization repository writes for projects,
+wiki pages, and expanding an issue or PR beyond one assignee require
+Team. Downgrade preserves existing data and blocks expansion rather
+than deleting projects, wiki pages, or assignee rows.
 
 The deprecated `FeatureOrg*` aliases still compile for older call sites,
 but new code should use the canonical unprefixed keys above and let

@@ -583,6 +583,7 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 	assignees, _ := h.iq.ListIssueAssignees(r.Context(), h.d.Pool, pr.IID)
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
+	issueProjects, projectOptions := h.issueProjectData(r.Context(), row, pr.IID)
 	reviews, _ := h.pq.ListPRReviews(r.Context(), h.d.Pool, pr.IID)
 	requests, _ := h.pq.ListPRReviewRequests(r.Context(), h.d.Pool, pr.IID)
 
@@ -711,12 +712,15 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		"ViewerAssigned":        viewerAssigned,
 		"AllLabels":             allLabels,
 		"Milestones":            milestones,
+		"Projects":              issueProjects,
+		"ProjectOptions":        projectOptions,
 		"Reviews":               rs,
 		"ReviewRequests":        reqs,
 		"CanComment":            canCommentAction && (!pr.ILocked || canCommentThroughLock),
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
 		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanEditIssueProjects":  h.canEditIssueProjects(r.Context(), row, chi.URLParam(r, "owner"), actor),
 		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
 		"UseCommentEditor":      true,
 		"ViewerAvatarURL":       commentEditorAvatarURL(viewer.Username),

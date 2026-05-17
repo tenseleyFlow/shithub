@@ -24,8 +24,12 @@ default branch Code tab directly, matching GitHub's canonical repo URL.
 | `POST /{owner}/{repo}/upload/{ref}/{path...}`    | commit uploaded files            |
 | `POST /{owner}/{repo}/markdown-preview`          | editor Markdown preview fragment |
 | `GET /{owner}/{repo}/actions`                    | parked product-tab shell         |
-| `GET /{owner}/{repo}/projects`                   | parked product-tab shell         |
-| `GET /{owner}/{repo}/wiki`                       | parked product-tab shell         |
+| `GET /{owner}/{repo}/projects`                   | repository projects              |
+| `POST /{owner}/{repo}/projects` + item actions   | create/update/close projects     |
+| `GET /{owner}/{repo}/wiki`                       | repository wiki                  |
+| `GET /{owner}/{repo}/wiki/{slug}`                | wiki page view                   |
+| `GET /{owner}/{repo}/wiki/new`                   | new wiki page form               |
+| `POST /{owner}/{repo}/wiki` + `/{slug}` actions  | create/update/delete wiki pages  |
 | `GET /{owner}/{repo}/security`                   | parked product-tab shell         |
 | `GET /{owner}/{repo}/pulse`                      | parked product-tab shell         |
 | `GET /{owner}/{repo}/packages`                   | parked product-tab shell         |
@@ -48,11 +52,21 @@ quality, Insights, and Settings when visible to the viewer. Forks remain
 available from the repo action button and About sidebar, but are not a
 top-level tab on GitHub.
 
-Actions, Projects, Wiki, Security and quality, Insights, Packages, and
-Releases currently render honest parked shells via `repo/deferred_tab`.
-They are public read surfaces gated by `ActionRepoRead`, so private repo
-existence behavior matches Code/Issues/Pull requests while the deeper
-systems remain assigned to their later sprints.
+Actions, Security and quality, Insights, Packages, and Releases still
+render honest parked shells via `repo/deferred_tab`. Projects and Wiki
+are SP21 product surfaces:
+
+- Projects list repository project boards, create/update/close/delete
+  projects, and let issue/PR sidebars attach an item to an open
+  project.
+- Wiki lists pages, renders sanitized Markdown through the canonical
+  markdown package, and supports create/edit/delete for repo writers.
+
+Project and Wiki reads are public read surfaces gated by
+`ActionRepoRead`, so private repo existence behavior matches
+Code/Issues/Pull requests. Writes require the normal repo policy action
+plus the Team entitlement on private organization repositories. Public
+repositories stay available to Free organizations.
 
 ## Ref + path disambiguation
 
