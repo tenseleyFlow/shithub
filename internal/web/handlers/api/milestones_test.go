@@ -256,7 +256,7 @@ func TestIssues_PatchAttachLabelAndMilestone(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(updated.Labels) != 1 || updated.Labels[0] != "needs-triage" {
+	if len(updated.Labels) != 1 || updated.Labels[0].Name != "needs-triage" {
 		t.Errorf("labels: %+v", updated.Labels)
 	}
 }
