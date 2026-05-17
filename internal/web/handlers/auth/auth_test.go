@@ -92,6 +92,14 @@ type authTestOptions struct {
 	EnforceContributionPrivacy bool
 	// EnforceUserActionsSecrets flips the PRO-EXT01-12 enforce knob.
 	EnforceUserActionsSecrets bool
+	// EnforceAnimatedAvatars flips the PRO-EXT01-04b enforce knob.
+	// When true, Free uploads of multi-frame GIFs flatten to PNG;
+	// when false (default, report-only) animation is preserved + a
+	// would-deny log line is emitted.
+	EnforceAnimatedAvatars bool
+	// LogSink, when non-nil, replaces the discard logger with a JSON
+	// handler writing here — lets tests assert telemetry shape.
+	LogSink io.Writer
 }
 
 // newTestServerWithPool is identical to newTestServer but also exposes
@@ -125,7 +133,12 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 	}
 
 	cap := &captureSender{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logger *slog.Logger
+	if opts.LogSink != nil {
+		logger = slog.New(slog.NewJSONHandler(opts.LogSink, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	} else {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 
 	totpKey, err := secretbox.GenerateKey()
 	if err != nil {
@@ -158,6 +171,7 @@ func newTestServerWithPoolOptions(t *testing.T, opts authTestOptions) (*httptest
 			UserAdvancedCodeSearch:    opts.EnforceAdvancedCodeSearch,
 			UserContributionPrivacy:   opts.EnforceContributionPrivacy,
 			UserActionsSecrets:        opts.EnforceUserActionsSecrets,
+			AnimatedAvatars:           opts.EnforceAnimatedAvatars,
 		},
 		BillingGracePeriod:    14 * 24 * time.Hour,
 		Stripe:                opts.Stripe,
