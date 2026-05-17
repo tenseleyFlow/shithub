@@ -51,6 +51,17 @@ const (
 	// because the settings UI groups them and product copy reads cleanly
 	// as one "make your profile yours" affordance. Kinds: user only.
 	FeatureProfileVanity Feature = "profile_vanity"
+	// FeatureAnimatedAvatars gates Pro-tier preservation of animated GIF
+	// avatars. Free uploads of multi-frame GIFs are flattened to a
+	// static PNG (current behavior); Pro uploads keep the raw GIF bytes
+	// and the public avatar endpoint serves them with image/gif content
+	// type. PRO-EXT01-04b. The decision intentionally sits OUTSIDE
+	// FeatureProfileVanity so the soak window for animated serving can
+	// diverge — animated GIFs are the only Pro-only avatar surface that
+	// changes the *bytes* we serve, so operators may want a longer
+	// observation window before flipping enforce.
+	// Kinds: user only.
+	FeatureAnimatedAvatars Feature = "animated_avatars"
 	// FeatureUsernameReservations gates Pro-tier vanity reservations: a
 	// Pro user can reserve up to ProUsernameReservationsCap inactive
 	// handles against squatting. shithub-original (gh does not offer
@@ -271,6 +282,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:            {billing.SubjectKindUser},
+	FeatureAnimatedAvatars:          {billing.SubjectKindUser},
 	FeatureUsernameReservations:     {billing.SubjectKindUser},
 	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
 	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
