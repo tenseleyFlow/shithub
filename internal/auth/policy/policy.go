@@ -45,6 +45,12 @@ const (
 	// write-mode (the typed-name confirm step in /admin/impersonate).
 	// The default is read-only on the canonical foot-gun grounds.
 	DenyImpersonationReadOnly
+	// DenyPaused is returned for write actions on a paused repo
+	// (PRO-EXT01-15). The handler maps this to HTTP 402 — the
+	// "payment required" status — because a paused repo is the
+	// Pro-tier soft-freeze state, not a permanent retirement. Reads
+	// are allowed; only writes are blocked.
+	DenyPaused
 )
 
 // Decision is the verdict from Can. Allow is the only field handlers
@@ -127,6 +133,9 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		if repo.IsArchived {
 			return deny(DenyArchived, "repo archived")
 		}
+		if repo.IsPaused {
+			return deny(DenyPaused, "repo paused")
+		}
 		if repo.OwnerOrgID != 0 && isOrgSuspended(ctx, d, repo.OwnerOrgID) {
 			return deny(DenyOrgSuspended, "owning org suspended")
 		}
@@ -161,6 +170,15 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	//    earlier but keeping the flow uniform makes the matrix readable.)
 	if repo.IsArchived && isWriteAction(action) {
 		return deny(DenyArchived, "repo archived")
+	}
+
+	// 8a. Paused repos (PRO-EXT01-15): same semantics as archive at the
+	//     gate, distinct DenyCode so handlers can surface 402 with a
+	//     pause-specific message ("repository is paused"). The DB
+	//     constraint guarantees paused ≠ archived so the two branches
+	//     are exclusive.
+	if repo.IsPaused && isWriteAction(action) {
+		return deny(DenyPaused, "repo paused")
 	}
 
 	// 8b. Org suspension (S30): writes against any repo owned by a

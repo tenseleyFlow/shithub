@@ -18,6 +18,10 @@ type RepoRef struct {
 	Visibility  string // "public" | "private"
 	IsArchived  bool
 	IsDeleted   bool
+	// IsPaused is the PRO-EXT01-15 Pro-tier soft-freeze state. Reads
+	// flow normally; writes get DenyPaused (→ HTTP 402). Mutually
+	// exclusive with IsArchived at the DB layer.
+	IsPaused bool
 
 	// AuthorUserID is the author of the *issue or PR* being acted on,
 	// when the action is one that grants author-self privileges

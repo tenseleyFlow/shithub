@@ -15,6 +15,7 @@ func NewRepoRefFromRepo(r reposdb.Repo) RepoRef {
 		ID:         r.ID,
 		Visibility: string(r.Visibility),
 		IsArchived: r.IsArchived,
+		IsPaused:   r.IsPaused,
 		IsDeleted:  r.DeletedAt.Valid,
 	}
 	if r.OwnerUserID.Valid {
