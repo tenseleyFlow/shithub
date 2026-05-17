@@ -180,6 +180,164 @@ func TestRepoActionsWorkflowRouteSupportsNestedWorkflowPaths(t *testing.T) {
 	}
 }
 
+func TestRepoActionsWorkflowPinsAreViewerScopedAndOrderSidebar(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      1,
+		WorkflowFile:  ".shithub/workflows/alpha.yml",
+		WorkflowName:  "Alpha",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -3 * time.Hour,
+	}, now)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      2,
+		WorkflowFile:  ".shithub/workflows/beta.yml",
+		WorkflowName:  "Beta",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -2 * time.Hour,
+	}, now)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      3,
+		WorkflowFile:  ".shithub/workflows/deploy.yml",
+		WorkflowName:  "Deploy",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -time.Hour,
+	}, now)
+
+	f.postWorkflowPin(t, viewerFor(f.owner), ".shithub/workflows/deploy.yml", "pin", http.StatusSeeOther)
+	f.postWorkflowPin(t, viewerFor(f.owner), ".shithub/workflows/beta.yml", "pin", http.StatusSeeOther)
+
+	ownerBody := f.getActionsBody(t, viewerFor(f.owner), "/alice/public-repo/actions")
+	assertStringOrder(t, ownerBody,
+		"PIN=.shithub/workflows/deploy.yml:true:false:true;",
+		"PIN=.shithub/workflows/beta.yml:true:true:false;",
+		"PIN=.shithub/workflows/alpha.yml:false:false:false;",
+	)
+
+	strangerBody := f.getActionsBody(t, viewerFor(f.stranger), "/alice/public-repo/actions")
+	assertStringOrder(t, strangerBody,
+		"PIN=.shithub/workflows/alpha.yml:false:false:false;",
+		"PIN=.shithub/workflows/beta.yml:false:false:false;",
+		"PIN=.shithub/workflows/deploy.yml:false:false:false;",
+	)
+
+	f.postWorkflowPin(t, viewerFor(f.owner), ".shithub/workflows/beta.yml", "move_up", http.StatusSeeOther)
+	movedBody := f.getActionsBody(t, viewerFor(f.owner), "/alice/public-repo/actions")
+	assertStringOrder(t, movedBody,
+		"PIN=.shithub/workflows/beta.yml:true:false:true;",
+		"PIN=.shithub/workflows/deploy.yml:true:true:false;",
+		"PIN=.shithub/workflows/alpha.yml:false:false:false;",
+	)
+
+	f.postWorkflowPin(t, viewerFor(f.owner), ".shithub/workflows/beta.yml", "unpin", http.StatusSeeOther)
+	unpinnedBody := f.getActionsBody(t, viewerFor(f.owner), "/alice/public-repo/actions")
+	assertStringOrder(t, unpinnedBody,
+		"PIN=.shithub/workflows/deploy.yml:true:false:false;",
+		"PIN=.shithub/workflows/alpha.yml:false:false:false;",
+		"PIN=.shithub/workflows/beta.yml:false:false:false;",
+	)
+}
+
+func TestRepoActionsWorkflowPinRequiresRepoRead(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:     1,
+		RepoID:       f.privateRepo.ID,
+		WorkflowFile: ".shithub/workflows/private.yml",
+		WorkflowName: "Private",
+		HeadRef:      "trunk",
+		Event:        actionsdb.WorkflowRunEventPush,
+		Status:       actionsdb.WorkflowRunStatusQueued,
+		ActorUserID:  f.owner.ID,
+	}, now)
+
+	form := url.Values{
+		"workflow_file": {".shithub/workflows/private.yml"},
+		"action":        {"pin"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/alice/private-repo/actions/workflow-pins", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	pins, err := actionsdb.New().ListWorkflowPinsForUserRepo(context.Background(), f.pool, actionsdb.ListWorkflowPinsForUserRepoParams{
+		UserID: f.stranger.ID,
+		RepoID: f.privateRepo.ID,
+	})
+	if err != nil {
+		t.Fatalf("ListWorkflowPinsForUserRepo: %v", err)
+	}
+	if len(pins) != 0 {
+		t.Fatalf("private repo pin written for unauthorized user: %+v", pins)
+	}
+}
+
+func TestRepoActionsWorkflowPinRejectsNonexistentWorkflow(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+
+	f.postWorkflowPin(t, viewerFor(f.owner), ".shithub/workflows/missing.yml", "pin", http.StatusNotFound)
+	pins, err := actionsdb.New().ListWorkflowPinsForUserRepo(context.Background(), f.pool, actionsdb.ListWorkflowPinsForUserRepoParams{
+		UserID: f.owner.ID,
+		RepoID: f.publicRepo.ID,
+	})
+	if err != nil {
+		t.Fatalf("ListWorkflowPinsForUserRepo: %v", err)
+	}
+	if len(pins) != 0 {
+		t.Fatalf("unexpected pins for missing workflow: %+v", pins)
+	}
+}
+
+func TestRepoActionsWorkflowSidebarIgnoresStalePins(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	f.insertWorkflowRun(t, workflowRunFixture{
+		RunIndex:      1,
+		WorkflowFile:  ".shithub/workflows/live.yml",
+		WorkflowName:  "Live",
+		HeadRef:       "trunk",
+		Event:         actionsdb.WorkflowRunEventPush,
+		Status:        actionsdb.WorkflowRunStatusCompleted,
+		Conclusion:    actionsdb.CheckConclusionSuccess,
+		ActorUserID:   f.owner.ID,
+		CreatedOffset: -time.Hour,
+	}, now)
+	if _, err := f.pool.Exec(context.Background(), `
+		INSERT INTO user_action_workflow_pins (user_id, repo_id, workflow_file, position)
+		VALUES ($1, $2, '.shithub/workflows/deleted.yml', 1)`,
+		f.owner.ID, f.publicRepo.ID); err != nil {
+		t.Fatalf("insert stale workflow pin: %v", err)
+	}
+
+	body := f.getActionsBody(t, viewerFor(f.owner), "/alice/public-repo/actions")
+	if strings.Contains(body, "deleted.yml") {
+		t.Fatalf("stale pin rendered in sidebar: %s", body)
+	}
+	if !strings.Contains(body, "PIN=.shithub/workflows/live.yml:false:false:false;") {
+		t.Fatalf("live workflow missing from sidebar: %s", body)
+	}
+}
+
 func TestActionsWorkflowRouteRejectsTraversal(t *testing.T) {
 	t.Parallel()
 	tests := map[string]bool{
@@ -1526,6 +1684,7 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/metrics/performance", f.handlers.repoActionsPerformanceMetrics)
 	mux.Get("/{owner}/{repo}/actions/new", f.handlers.repoActionsNewWorkflow)
 	mux.Post("/{owner}/{repo}/actions/new", f.handlers.repoActionsCreateWorkflow)
+	mux.Post("/{owner}/{repo}/actions/workflow-pins", f.handlers.repoActionsWorkflowPin)
 	mux.Get("/{owner}/{repo}/actions/workflows/*", f.handlers.repoActionsWorkflow)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", f.handlers.repoActionRunRerun)
@@ -1535,6 +1694,48 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Post("/{owner}/{repo}/actions/workflows/{file}/dispatches", f.handlers.repoActionsDispatch)
 	mux.Get("/{owner}/{repo}/actions", f.handlers.repoTabActions)
 	return mux
+}
+
+func (f *repoFixture) getActionsBody(t *testing.T, viewer middleware.CurrentUser, target string) string {
+	t.Helper()
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	f.actionsMux(viewer).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET %s status=%d body=%s", target, resp.Code, resp.Body.String())
+	}
+	return resp.Body.String()
+}
+
+func (f *repoFixture) postWorkflowPin(t *testing.T, viewer middleware.CurrentUser, workflowFile, action string, wantStatus int) {
+	t.Helper()
+	form := url.Values{
+		"workflow_file": {workflowFile},
+		"action":        {action},
+		"return_to":     {"/alice/public-repo/actions"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/workflow-pins", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+	f.actionsMux(viewer).ServeHTTP(resp, req)
+	if resp.Code != wantStatus {
+		t.Fatalf("POST pin %s %s status=%d want %d body=%s", action, workflowFile, resp.Code, wantStatus, resp.Body.String())
+	}
+}
+
+func assertStringOrder(t *testing.T, body string, markers ...string) {
+	t.Helper()
+	last := -1
+	for _, marker := range markers {
+		idx := strings.Index(body, marker)
+		if idx == -1 {
+			t.Fatalf("body missing %q in %s", marker, body)
+		}
+		if idx <= last {
+			t.Fatalf("marker %q appeared out of order in %s", marker, body)
+		}
+		last = idx
+	}
 }
 
 const dispatchWorkflowFixture = `name: Manual

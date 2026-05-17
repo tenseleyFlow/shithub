@@ -60,6 +60,13 @@ The form validates the path, target branch, file collision, and workflow syntax
 before committing. Common GitHub templates that need setup/cache/matrix/service
 features are shown as unavailable instead of being offered as broken workflows.
 
+## Pinning workflows
+
+Signed-in users can pin workflows from the Actions sidebar. Pins are personal
+to the viewer and repository: they do not change anyone else's sidebar.
+Pinned workflows appear before unpinned workflows across Actions pages, and
+the small sidebar controls can move pinned workflows up or down.
+
 ## What works today
 
 - `push`, `pull_request`, `schedule`, and `workflow_dispatch` triggers
