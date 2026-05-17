@@ -280,6 +280,84 @@ func TestIssues_CreateUnknownLabelRejected(t *testing.T) {
 	}
 }
 
+// TestIssues_ListLabelsFilter covers C-audit C8: passing `labels=`
+// must either filter on the named labels (gh-compat AND semantic) or
+// reject with 422 when any name doesn't exist on the repo. Pre-fix
+// the filter was silently dropped and the full unfiltered list came
+// back — the kind of false-negative-on-filter bug that bites scripts.
+func TestIssues_ListLabelsFilter(t *testing.T) {
+	pool, router, _, repoID, token := seedIssuesEnv(t, "alice")
+	// Create two issues; we'll attach "triaged" to only the first.
+	for _, title := range []string{"triaged one", "untagged one"} {
+		body, _ := json.Marshal(map[string]any{"title": title})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed issue: %d", rr.Code)
+		}
+	}
+	// Seed a label and attach to issue #1 via PATCH.
+	lbody, _ := json.Marshal(map[string]any{"name": "triaged", "color": "ff0000"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/labels", bytes.NewReader(lbody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed label: %d %s", rr.Code, rr.Body.String())
+	}
+	patch, _ := json.Marshal(map[string]any{"labels": []string{"triaged"}})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/issues/1", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("attach label: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Happy path: filter matches the single issue carrying the label.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?labels=triaged", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status: %d %s", rr.Code, rr.Body.String())
+	}
+	var listed []apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Title != "triaged one" {
+		t.Errorf("filtered list shape: %+v", listed)
+	}
+
+	// C8 regression: unknown label name must 422, not silently return
+	// the full unfiltered list. Pre-fix this returned 2 rows.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?labels=totally-fake", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown label status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "unknown label") {
+		t.Errorf("error should mention unknown label; got %s", rr.Body.String())
+	}
+
+	// Compound: real + fake → still 422 (any unknown rejects).
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?labels=triaged,totally-fake", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("compound filter with unknown: got %d, want 422", rr.Code)
+	}
+
+	_ = pool
+	_ = repoID
+}
+
 func TestIssues_ListFiltersByState(t *testing.T) {
 	pool, router, userID, repoID, token := seedIssuesEnv(t, "alice")
 	// Create two issues, close the second directly via sqlc.
