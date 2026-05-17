@@ -150,6 +150,13 @@ default.
 
 ## Deploy
 
+When the runner API request shape changes, deploy `shithubd-web` first.
+The runner heartbeat endpoint rejects unknown JSON fields, so new runner
+binaries that send a new field must not be started against old web
+binaries. After web is current, redeploy `shithubd-runner`; current
+runners report `active_job_ids` on each idle heartbeat so the server can
+clear stale running jobs that the runner no longer has locally.
+
 For the runner role only:
 
 ```sh
@@ -289,8 +296,10 @@ systemctl disable shithubd-runner
 If the binary itself is bad, copy a prior archived binary from
 `/var/lib/shithubd-runner/binaries/` back to
 `/usr/local/bin/shithubd-runner` and restart the unit. Jobs already
-claimed by the stopped runner remain visible in the database; S41g adds
-operator cancel/re-run controls.
+claimed by a stopped current runner are reconciled on its next idle
+heartbeat if they are missing from `active_job_ids`. If the host is gone
+or still runs an old binary, drain/revoke the runner and cancel affected
+runs from the Actions UI or admin API before destroying the droplet.
 
 For a DigitalOcean test runner, drain or revoke the runner in shithub before
 destroying the droplet. Then list and delete the specific test host:

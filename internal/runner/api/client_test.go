@@ -28,6 +28,9 @@ func TestHeartbeat_ClaimsJob(t *testing.T) {
 			req.HostName != "runner-host" || req.Version != "dev-test" {
 			t.Fatalf("request: %#v", req)
 		}
+		if req.ActiveJobIDs == nil || len(req.ActiveJobIDs) != 0 {
+			t.Fatalf("active_job_ids must be an explicit empty list for idle runners: %#v", req.ActiveJobIDs)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"token":"job-token",
@@ -42,10 +45,11 @@ func TestHeartbeat_ClaimsJob(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	claim, err := client.Heartbeat(t.Context(), HeartbeatRequest{
-		Labels:   []string{"self-hosted", "linux"},
-		Capacity: 2,
-		HostName: "runner-host",
-		Version:  "dev-test",
+		Labels:       []string{"self-hosted", "linux"},
+		Capacity:     2,
+		HostName:     "runner-host",
+		Version:      "dev-test",
+		ActiveJobIDs: []int64{},
 	})
 	if err != nil {
 		t.Fatalf("Heartbeat: %v", err)

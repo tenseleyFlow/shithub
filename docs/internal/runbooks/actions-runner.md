@@ -293,7 +293,7 @@ Claim a job:
 curl -fsS "$BASE/api/v1/runners/heartbeat" \
   -H "Authorization: Bearer $RUNNER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1,"host_name":"curl-smoke","version":"manual"}' \
+  -d '{"labels":["self-hosted","linux","ubuntu-latest","x64"],"capacity":1,"host_name":"curl-smoke","version":"manual","active_job_ids":[]}' \
   | tee /tmp/shithub-claim.json
 ```
 

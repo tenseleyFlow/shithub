@@ -126,10 +126,11 @@ func (r *Runner) Run(ctx context.Context) error {
 
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	claim, err := r.api.Heartbeat(ctx, api.HeartbeatRequest{
-		Labels:   r.labels,
-		Capacity: r.capacity,
-		HostName: r.hostName,
-		Version:  r.version,
+		Labels:       r.labels,
+		Capacity:     r.capacity,
+		HostName:     r.hostName,
+		Version:      r.version,
+		ActiveJobIDs: []int64{},
 	})
 	if err != nil {
 		return false, err

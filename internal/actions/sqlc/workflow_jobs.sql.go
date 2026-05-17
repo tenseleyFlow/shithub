@@ -11,6 +11,70 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelRunnerJobsMissingFromActiveSet = `-- name: CancelRunnerJobsMissingFromActiveSet :many
+UPDATE workflow_jobs
+SET cancel_requested = true,
+    status = 'cancelled',
+    conclusion = 'cancelled',
+    started_at = COALESCE(started_at, now()),
+    completed_at = COALESCE(completed_at, now()),
+    version = version + 1,
+    updated_at = now()
+WHERE runner_id = $1::bigint
+  AND status = 'running'
+  AND NOT (id = ANY($2::bigint[]))
+RETURNING id, run_id, job_index, job_key, job_name, runs_on,
+          runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
+          job_env, status, conclusion, cancel_requested,
+          started_at, completed_at, version, created_at, updated_at
+`
+
+type CancelRunnerJobsMissingFromActiveSetParams struct {
+	RunnerID     int64
+	ActiveJobIds []int64
+}
+
+func (q *Queries) CancelRunnerJobsMissingFromActiveSet(ctx context.Context, db DBTX, arg CancelRunnerJobsMissingFromActiveSetParams) ([]WorkflowJob, error) {
+	rows, err := db.Query(ctx, cancelRunnerJobsMissingFromActiveSet, arg.RunnerID, arg.ActiveJobIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowJob{}
+	for rows.Next() {
+		var i WorkflowJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.JobIndex,
+			&i.JobKey,
+			&i.JobName,
+			&i.RunsOn,
+			&i.RunnerID,
+			&i.NeedsJobs,
+			&i.IfExpr,
+			&i.TimeoutMinutes,
+			&i.Permissions,
+			&i.JobEnv,
+			&i.Status,
+			&i.Conclusion,
+			&i.CancelRequested,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimQueuedWorkflowJob = `-- name: ClaimQueuedWorkflowJob :one
 WITH candidate AS (
     SELECT j.id

@@ -15,6 +15,7 @@ type Querier interface {
 	AppendStepLogChunk(ctx context.Context, db DBTX, arg AppendStepLogChunkParams) (AppendStepLogChunkRow, error)
 	ApproveWorkflowRun(ctx context.Context, db DBTX, arg ApproveWorkflowRunParams) (ApproveWorkflowRunRow, error)
 	CancelOpenWorkflowStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]WorkflowStep, error)
+	CancelRunnerJobsMissingFromActiveSet(ctx context.Context, db DBTX, arg CancelRunnerJobsMissingFromActiveSetParams) ([]WorkflowJob, error)
 	ClaimQueuedWorkflowJob(ctx context.Context, db DBTX, arg ClaimQueuedWorkflowJobParams) (ClaimQueuedWorkflowJobRow, error)
 	ClearRunnerDraining(ctx context.Context, db DBTX, id int64) (ClearRunnerDrainingRow, error)
 	CompleteWorkflowRun(ctx context.Context, db DBTX, arg CompleteWorkflowRunParams) (WorkflowRun, error)

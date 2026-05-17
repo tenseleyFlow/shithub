@@ -57,10 +57,11 @@ func (h *Handlers) mountRunners(r chi.Router) {
 }
 
 type runnerHeartbeatRequest struct {
-	Labels   []string `json:"labels"`
-	Capacity int      `json:"capacity"`
-	HostName string   `json:"host_name"`
-	Version  string   `json:"version"`
+	Labels       []string `json:"labels"`
+	Capacity     int      `json:"capacity"`
+	HostName     string   `json:"host_name"`
+	Version      string   `json:"version"`
+	ActiveJobIDs *[]int64 `json:"active_job_ids"`
 }
 
 const runnerMetadataMaxBytes = 255
@@ -103,6 +104,33 @@ func (h *Handlers) runnerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if capacity < 1 || capacity > 64 {
 		writeAPIError(w, http.StatusBadRequest, "capacity must be between 1 and 64")
 		return
+	}
+	var activeJobIDs []int64
+	if body.ActiveJobIDs != nil {
+		var err error
+		activeJobIDs, err = normalizeRunnerActiveJobIDs(*body.ActiveJobIDs, capacity)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		reconciled, err := actionslifecycle.ReconcileRunnerActiveJobs(
+			r.Context(),
+			actionslifecycle.Deps{Pool: h.d.Pool, Logger: h.d.Logger},
+			runner.ID,
+			activeJobIDs,
+		)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "runner active job reconciliation failed", "runner_id", runner.ID, "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "runner heartbeat failed")
+			return
+		}
+		if len(reconciled.ChangedJobs) > 0 {
+			h.d.Logger.WarnContext(r.Context(), "runner active job reconciliation cancelled orphaned jobs",
+				"runner_id", runner.ID,
+				"changed_jobs", len(reconciled.ChangedJobs),
+				"completed_runs", len(reconciled.CompletedRuns),
+			)
+		}
 	}
 	hostName := cleanRunnerMetadata(body.HostName)
 	if hostName == "" {
@@ -173,6 +201,26 @@ func cleanRunnerMetadata(value string) string {
 		b.WriteRune(r)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func normalizeRunnerActiveJobIDs(ids []int64, capacity int) ([]int64, error) {
+	if len(ids) > capacity {
+		return nil, fmt.Errorf("active_job_ids cannot contain more than capacity (%d)", capacity)
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, errors.New("active_job_ids must contain positive job IDs")
+		}
+		if _, ok := seen[id]; ok {
+			return nil, errors.New("active_job_ids must not contain duplicates")
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
 }
 
 func (h *Handlers) authenticateRunner(w http.ResponseWriter, r *http.Request) (actionsdb.GetRunnerByTokenHashRow, bool) {

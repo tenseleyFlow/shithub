@@ -82,7 +82,7 @@ registered.
 1. Identify the runner from the alert label.
 2. On the runner host: `systemctl status shithubd-runner` and
    `journalctl -u shithubd-runner -n 200 --no-pager`.
-3. On the app host: `shithubd admin actions runner list` and confirm the
+3. On the app host: `shithubd admin runner list` and confirm the
    runner labels still match queued jobs.
 4. If the runner is wedged, restart `shithubd-runner`. If it cannot
    authenticate, rotate the runner token and redeploy the service env.
@@ -94,14 +94,22 @@ registered.
 **Symptom:** `shithub_actions_queue_depth{resource="jobs"} > 100` for 10m.
 
 1. Check runner availability:
-   `shithubd admin actions runner list`.
+   `shithubd admin runner list`.
 2. Compare queued labels with runner labels. A workflow using an unsupported
    `runs-on` value will sit queued until a compatible runner exists.
-3. Inspect web and worker logs for trigger storms, claim errors, and DB pool
+3. Check for a stale running job assigned to a runner that is otherwise
+   heartbeating idle:
+   `SELECT id, run_id, runner_id, status, started_at FROM workflow_jobs WHERE status='running' ORDER BY started_at;`.
+   Modern runners report `active_job_ids` on heartbeat; if a runner is idle,
+   the next heartbeat should cancel any running jobs missing from that set and
+   increment `shithub_actions_jobs_cancelled_total{reason="runner_lost"}`.
+   If the runner binary is older than that protocol, deploy the current web
+   build first and then redeploy the runner role.
+4. Inspect web and worker logs for trigger storms, claim errors, and DB pool
    saturation.
-4. If legitimate load exceeds capacity, add runners or raise capacity on idle
+5. If legitimate load exceeds capacity, add runners or raise capacity on idle
    runner hosts. If one repository dominates, cancel or throttle that workload.
-5. After mitigation, watch `shithub_actions_queue_depth` drain and confirm
+6. After mitigation, watch `shithub_actions_queue_depth` drain and confirm
    `shithub_actions_active` does not flatline.
 
 ## actions-run-duration-p99-regressed
