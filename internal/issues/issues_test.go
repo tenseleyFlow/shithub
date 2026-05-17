@@ -256,12 +256,13 @@ func TestAddComment_LockedRejectsNonCollab(t *testing.T) {
 	}
 }
 
-// TestAddComment_LockedAllowsCollab is the positive companion to the
-// previous test: when the orchestrator is told `IsCollab=true` the
-// locked gate must yield. This guards the policy contract — a triage+
-// collaborator is allowed to post past a lock so they can wrap up
-// drive-by spam threads. (S00-S25 audit, finding C3.)
-func TestAddComment_LockedAllowsCollab(t *testing.T) {
+// TestAddComment_LockedRejectsCollabToo replaces the previous
+// "LockedAllowsCollab" test. C-audit C19 tightened the lock semantic:
+// a lock locks for everyone (including the locker and any collab
+// with IsCollab=true). The escape hatch was a UX cliff — users
+// believed they had quieted a thread and walked away, only to find
+// teammates kept posting. Strict semantic: explicit unlock required.
+func TestAddComment_LockedRejectsCollabToo(t *testing.T) {
 	pool, deps, uid, rid := setup(t)
 	ctx := context.Background()
 	row, err := issues.Create(ctx, deps, issues.CreateParams{
@@ -280,17 +281,14 @@ func TestAddComment_LockedAllowsCollab(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	c, err := issues.AddComment(ctx, deps, issues.CommentCreateParams{
+	_, err = issues.AddComment(ctx, deps, issues.CommentCreateParams{
 		IssueID:      row.ID,
 		AuthorUserID: collab.ID,
 		Body:         "wrapping up the thread",
 		IsCollab:     true,
 	})
-	if err != nil {
-		t.Fatalf("expected lock bypass for collab, got %v", err)
-	}
-	if c.ID == 0 {
-		t.Errorf("returned comment had zero ID")
+	if !errors.Is(err, issues.ErrIssueLocked) {
+		t.Fatalf("expected ErrIssueLocked even for collab, got %v", err)
 	}
 }
 
