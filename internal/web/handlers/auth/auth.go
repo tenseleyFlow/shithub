@@ -218,6 +218,10 @@ func (h *Handlers) Mount(r chi.Router) {
 			// PRO-EXT01-16b: scheduled digest emails.
 			r.Post("/settings/notifications/digest", h.settingsDigestSave)
 			r.Post("/settings/notifications/digest/disable", h.settingsDigestDisable)
+			// PRO-EXT01-10d: per-user secret-scan alert preferences.
+			r.Get("/settings/secret-scanning/alerts", h.settingsSecretScanAlertsForm)
+			r.Post("/settings/secret-scanning/alerts", h.settingsSecretScanAlertsSave)
+			r.Post("/settings/secret-scanning/alerts/disable", h.settingsSecretScanAlertsDisable)
 			r.Get("/settings/sessions", h.settingsSessionsList)
 			r.Post("/settings/sessions/logout-everywhere", h.settingsSessionsLogoutAll)
 			r.Get("/settings/danger", h.settingsDangerForm)

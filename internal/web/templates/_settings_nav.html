@@ -60,6 +60,9 @@
       <li{{ if eq .SettingsActive "automation" }} class="active"{{ end }}>
         <a href="/settings/automation">Automation</a>
       </li>
+      <li{{ if eq .SettingsActive "secret-scan-alerts" }} class="active"{{ end }}>
+        <a href="/settings/secret-scanning/alerts">Secret scan alerts</a>
+      </li>
       <li{{ if eq .SettingsActive "sessions" }} class="active"{{ end }}>
         <a href="/settings/sessions">Sessions</a>
       </li>
