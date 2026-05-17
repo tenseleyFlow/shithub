@@ -42,6 +42,7 @@ type apiIssue struct {
 	LockReason  string     `json:"lock_reason"`
 	AuthorID    int64      `json:"author_id"`
 	User        *apiUser   `json:"user"`
+	HTMLURL     string     `json:"html_url"`
 	Labels      []apiLabel `json:"labels"`
 	Assignees   []apiUser  `json:"assignees"`
 	CreatedAt   string     `json:"created_at"`
@@ -107,6 +108,12 @@ func TestIssues_CreateAndGet(t *testing.T) {
 	if created.Number != 1 || created.Title != "first bug" || created.State != "open" {
 		t.Errorf("shape: %+v", created)
 	}
+	// B7: response must carry the user-facing URL so CLI clients can
+	// surface it on success ("Created issue X #N (URL)"). The test
+	// harness sets BaseURL to https://shithub.test.
+	if !strings.HasSuffix(created.HTMLURL, "/alice/demo/issues/1") {
+		t.Errorf("html_url: got %q, want suffix /alice/demo/issues/1", created.HTMLURL)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/1", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -114,6 +121,11 @@ func TestIssues_CreateAndGet(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var fetched apiIssue
+	_ = json.Unmarshal(rr.Body.Bytes(), &fetched)
+	if !strings.HasSuffix(fetched.HTMLURL, "/alice/demo/issues/1") {
+		t.Errorf("GET html_url: got %q, want suffix /alice/demo/issues/1", fetched.HTMLURL)
 	}
 }
 

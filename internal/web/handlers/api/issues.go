@@ -78,7 +78,12 @@ type issueResponse struct {
 	// no assignees; non-nil empty slice when the issue exists but is
 	// unassigned (gh shape). Always populated by presentIssue (the
 	// caller resolves and passes through, just like Labels).
-	Assignees []userEnvelope  `json:"assignees"`
+	Assignees []userEnvelope `json:"assignees"`
+	// HTMLURL is the user-facing page for this issue (B-audit B7).
+	// Populated when ownerLogin is available at the callsite — list/
+	// get/create/patch all have it; legacy paths without it gracefully
+	// omit the key via omitempty.
+	HTMLURL   string          `json:"html_url,omitempty"`
 	Labels    []labelEnvelope `json:"labels,omitempty"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
@@ -161,7 +166,7 @@ func presentComment(c issuesdb.IssueComment, user *userEnvelope) commentResponse
 // ─── list ───────────────────────────────────────────────────────────
 
 func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionIssueRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionIssueRead)
 	if !ok {
 		return
 	}
@@ -209,7 +214,9 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		if row.AuthorUserID.Valid {
 			u = users[row.AuthorUserID.Int64]
 		}
-		out = append(out, presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u, h.assigneeEnvelopesFor(r.Context(), row.ID)))
+		resp := presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u, h.assigneeEnvelopesFor(r.Context(), row.ID))
+		resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, row.Number)
+		out = append(out, resp)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -228,6 +235,16 @@ func normalizeIssueState(s string) pgtype.Text {
 		// list endpoints; tightening would break script ports.
 		return pgtype.Text{}
 	}
+}
+
+// issueHTMLURL composes the user-facing page URL for an issue. Empty
+// when the deployment has no BaseURL configured (e.g. test contexts);
+// the omitempty tag on issueResponse.HTMLURL then drops the field.
+func (h *Handlers) issueHTMLURL(ownerLogin, repoName string, number int64) string {
+	if h.d.BaseURL == "" || ownerLogin == "" || repoName == "" {
+		return ""
+	}
+	return strings.TrimRight(h.d.BaseURL, "/") + "/" + ownerLogin + "/" + repoName + "/issues/" + strconv.FormatInt(number, 10)
 }
 
 // labelEnvelopesFor returns the labels on an issue as GitHub-compat
@@ -269,7 +286,7 @@ func (h *Handlers) assigneeEnvelopesFor(ctx context.Context, issueID int64) []us
 // ─── single get ─────────────────────────────────────────────────────
 
 func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionIssueRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionIssueRead)
 	if !ok {
 		return
 	}
@@ -300,7 +317,9 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u, h.assigneeEnvelopesFor(r.Context(), issue.ID)))
+	resp := presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u, h.assigneeEnvelopesFor(r.Context(), issue.ID))
+	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, issue.Number)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ─── create ─────────────────────────────────────────────────────────
@@ -318,7 +337,7 @@ type issueCreateRequest struct {
 }
 
 func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionIssueCreate)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionIssueCreate)
 	if !ok {
 		return
 	}
@@ -418,7 +437,9 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	// their envelope so the response is fully populated on the first
 	// round-trip.
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	writeJSON(w, http.StatusCreated, presentIssue(fresh, labels, u, h.assigneeEnvelopesFor(r.Context(), fresh.ID)))
+	resp := presentIssue(fresh, labels, u, h.assigneeEnvelopesFor(r.Context(), fresh.ID))
+	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
@@ -443,7 +464,7 @@ type issuePatchRequest struct {
 }
 
 func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionIssueRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionIssueRead)
 	if !ok {
 		return
 	}
@@ -479,7 +500,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	if body.Title != nil || body.Body != nil {
 		canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
 		if !canEdit {
-			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(*repo)).Allow
+			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow
 		}
 		if !canEdit {
 			writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may edit this issue")
@@ -499,7 +520,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 
 	if body.State != nil {
 		// State changes require ActionIssueClose.
-		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueClose, policy.NewRepoRefFromRepo(*repo)).Allow {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueClose, policy.NewRepoRefFromRepo(repo)).Allow {
 			writeAPIError(w, http.StatusForbidden, "lack permission to change issue state")
 			return
 		}
@@ -528,7 +549,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	// action so a write collaborator who lacks (e.g.) ActionIssueLabel
 	// still gets a clean 403 instead of a partial update.
 	if body.Labels != nil {
-		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueLabel, policy.NewRepoRefFromRepo(*repo)).Allow {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueLabel, policy.NewRepoRefFromRepo(repo)).Allow {
 			writeAPIError(w, http.StatusForbidden, "lack permission to set labels")
 			return
 		}
@@ -544,7 +565,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Assignees != nil {
-		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(*repo)).Allow {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(repo)).Allow {
 			writeAPIError(w, http.StatusForbidden, "lack permission to set assignees")
 			return
 		}
@@ -559,7 +580,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Milestone != nil {
-		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(*repo)).Allow {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionIssueAssign, policy.NewRepoRefFromRepo(repo)).Allow {
 			writeAPIError(w, http.StatusForbidden, "lack permission to set milestone")
 			return
 		}
@@ -586,7 +607,9 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	if fresh.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), fresh.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u, h.assigneeEnvelopesFor(r.Context(), fresh.ID)))
+	resp := presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u, h.assigneeEnvelopesFor(r.Context(), fresh.ID))
+	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ─── comments ───────────────────────────────────────────────────────

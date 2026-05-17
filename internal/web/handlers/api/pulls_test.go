@@ -53,6 +53,7 @@ type apiPull struct {
 	MergedAt       string    `json:"merged_at"`
 	AuthorID       int64     `json:"author_id"`
 	User           *apiUser  `json:"user"`
+	HTMLURL        string    `json:"html_url"`
 }
 
 // gitCmdAPI is the test-side git shell wrapper — every invocation runs
@@ -174,6 +175,11 @@ func TestPulls_CreateAndGet(t *testing.T) {
 	// S60 audit A12: user envelope arrives alongside author_id.
 	if created.User == nil || created.User.Login != "alice" {
 		t.Errorf("user envelope: %+v", created.User)
+	}
+	// B-audit B7: PR responses must carry html_url so CLI clients can
+	// surface it on success.
+	if !strings.HasSuffix(created.HTMLURL, "/alice/demo/pulls/1") {
+		t.Errorf("html_url: got %q, want suffix /alice/demo/pulls/1", created.HTMLURL)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
