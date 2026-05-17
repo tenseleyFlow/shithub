@@ -3,6 +3,7 @@
 package pat_test
 
 import (
+	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
@@ -34,9 +35,12 @@ func TestParseAllowlist_AcceptsCIDRAndBareAddresses(t *testing.T) {
 		{"   \n   ", nil},
 	}
 	for _, tc := range cases {
-		got, invalid := pat.ParseAllowlist(tc.in)
+		got, invalid, tooMany := pat.ParseAllowlist(tc.in)
 		if len(invalid) != 0 {
 			t.Errorf("ParseAllowlist(%q) unexpected invalid: %v", tc.in, invalid)
+		}
+		if tooMany {
+			t.Errorf("ParseAllowlist(%q) unexpected tooMany=true", tc.in)
 		}
 		if !stringSliceEqual(got, tc.want) {
 			t.Errorf("ParseAllowlist(%q) = %v, want %v", tc.in, got, tc.want)
@@ -46,38 +50,52 @@ func TestParseAllowlist_AcceptsCIDRAndBareAddresses(t *testing.T) {
 
 func TestParseAllowlist_RejectsMalformed(t *testing.T) {
 	t.Parallel()
-	got, invalid := pat.ParseAllowlist("203.0.113.0/99\nnot-an-ip\n198.51.100.5")
+	got, invalid, tooMany := pat.ParseAllowlist("203.0.113.0/99\nnot-an-ip\n198.51.100.5")
 	if len(got) != 1 || got[0] != "198.51.100.5/32" {
 		t.Errorf("valid entry should still be parsed: got=%v", got)
 	}
 	if len(invalid) != 2 {
 		t.Errorf("expected 2 invalid entries, got %d (%v)", len(invalid), invalid)
 	}
+	if tooMany {
+		t.Errorf("did not expect tooMany for this input")
+	}
 }
 
-func TestParseAllowlist_CapsAtMax(t *testing.T) {
+// TestParseAllowlist_TooManyEntriesFlagged pins the PRO-EXT_SR2-13
+// fix: pre-change the cap was enforced via silent `break`, so a user
+// submitting more than MaxIPAllowlistEntries entries had the surplus
+// dropped without any signal. The third return value now lets the
+// caller surface an explicit error.
+//
+// Address generation uses /24s starting at 10.0.0.0/24 because
+// netip.ParseAddr rejects leading zeros (so the pre-existing test's
+// "203.0.113.000"-style entries were all silently invalid, masking
+// both the cap behavior and this Q8 regression for the lifetime of
+// the test).
+func TestParseAllowlist_TooManyEntriesFlagged(t *testing.T) {
 	t.Parallel()
-	// Build a list with MaxIPAllowlistEntries+10 unique entries.
 	var b strings.Builder
 	for i := 0; i < pat.MaxIPAllowlistEntries+10; i++ {
-		// Build a /32 for each unique IP.
-		oct := i & 0xff
-		b.WriteString("203.0.113.")
-		b.WriteByte(byte('0' + oct/100))
-		b.WriteByte(byte('0' + (oct/10)%10))
-		b.WriteByte(byte('0' + oct%10))
-		b.WriteString("\n")
+		// 10.<i/256>.<i%256>.0/24 — unique for every i up to 65535.
+		fmt.Fprintf(&b, "10.%d.%d.0/24\n", i/256, i%256)
 	}
-	got, _ := pat.ParseAllowlist(b.String())
-	if len(got) > pat.MaxIPAllowlistEntries {
-		t.Errorf("entries exceeded cap: got %d, max %d", len(got), pat.MaxIPAllowlistEntries)
+	got, invalid, tooMany := pat.ParseAllowlist(b.String())
+	if len(invalid) != 0 {
+		t.Fatalf("test data should be all-valid: invalid=%v", invalid)
+	}
+	if len(got) != pat.MaxIPAllowlistEntries {
+		t.Errorf("expected exactly %d entries kept, got %d", pat.MaxIPAllowlistEntries, len(got))
+	}
+	if !tooMany {
+		t.Errorf("expected tooMany=true for input with %d entries", pat.MaxIPAllowlistEntries+10)
 	}
 }
 
 func TestParseAllowlist_RejectsOversizedEntry(t *testing.T) {
 	t.Parallel()
 	huge := strings.Repeat("a", pat.MaxIPAllowlistEntryBytes+1)
-	got, invalid := pat.ParseAllowlist(huge)
+	got, invalid, _ := pat.ParseAllowlist(huge)
 	if len(got) != 0 || len(invalid) != 1 {
 		t.Errorf("oversized entry should be rejected: got=%v invalid=%v", got, invalid)
 	}

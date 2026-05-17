@@ -4,6 +4,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -191,9 +192,18 @@ func (h *Handlers) tokensCreate(w http.ResponseWriter, r *http.Request) {
 	// PRO-EXT01-11a: optional IP allowlist. Parse first so a malformed
 	// entry hard-errors before we mint the token (would otherwise leave
 	// a fresh token with the user's allowlist silently dropped).
-	ipAllowlist, invalidIPs := pat.ParseAllowlist(ipAllowlistRaw)
+	ipAllowlist, invalidIPs, tooManyIPs := pat.ParseAllowlist(ipAllowlistRaw)
 	if len(invalidIPs) > 0 {
 		render("Invalid IP / CIDR entries: " + strings.Join(invalidIPs, ", "))
+		return
+	}
+	// PRO-EXT_SR2-13 (audit Q8): a user submitting more than the cap
+	// gets an explicit error instead of a silently-truncated allowlist.
+	// Silent truncation is exactly the bug class IP allowlists are
+	// meant to prevent ("I restricted access to X but it's still open
+	// from Y").
+	if tooManyIPs {
+		render(fmt.Sprintf("Too many IP / CIDR entries (max %d). Reduce the list and retry.", pat.MaxIPAllowlistEntries))
 		return
 	}
 	if len(ipAllowlist) > 0 {
