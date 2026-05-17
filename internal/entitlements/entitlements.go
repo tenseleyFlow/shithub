@@ -109,6 +109,15 @@ const (
 	// the repo owner's entitlement before doing any work. PRO-EXT01-10b.
 	// Kinds: user only.
 	FeatureSecretScanHistory Feature = "secret_scan_history"
+	// FeatureSecretScanAlerts gates per-user email + webhook
+	// notifications when a new secret-scan finding is recorded.
+	// Companion to FeatureSecretScanHistory (a Free user has no
+	// historical scan, so alerts are moot); separate constant so the
+	// soak window for alert delivery can diverge — alert misroutes
+	// are a data-leak risk worth observing independently before
+	// flipping enforce.
+	// Kinds: user only. PRO-EXT01-10d.
+	FeatureSecretScanAlerts Feature = "secret_scan_alerts" // #nosec G101 -- entitlement feature key, not a credential.
 	// FeatureFineGrainedPATs gates Pro-only PAT extensions: IP
 	// allowlists (PRO-EXT01-11a), single-repo binding (PRO-EXT01-11b),
 	// and — when shipped — custom-expiry / fine-grained scope syntax.
@@ -290,6 +299,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
 	FeatureContributionPrivacy:      {billing.SubjectKindUser},
 	FeatureSecretScanHistory:        {billing.SubjectKindUser},
+	FeatureSecretScanAlerts:         {billing.SubjectKindUser},
 	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
 	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
 	FeatureUserActionsVariables:     {billing.SubjectKindUser},
