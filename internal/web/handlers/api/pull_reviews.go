@@ -49,22 +49,26 @@ func (h *Handlers) mountPullReviews(r chi.Router) {
 // ─── presentation ───────────────────────────────────────────────────
 
 type reviewResponse struct {
-	ID          int64  `json:"id"`
-	PullID      int64  `json:"pull_id"`
-	AuthorID    int64  `json:"author_id,omitempty"`
-	State       string `json:"state"`
-	Body        string `json:"body,omitempty"`
-	SubmittedAt string `json:"submitted_at,omitempty"`
-	Dismissed   bool   `json:"dismissed"`
-	DismissedAt string `json:"dismissed_at,omitempty"`
+	ID     int64 `json:"id"`
+	PullID int64 `json:"pull_id"`
+	// AuthorID is the legacy flat foreign key. Kept alongside the
+	// `user` envelope for one release cycle (S60 audit migration).
+	AuthorID    int64         `json:"author_id,omitempty"`
+	User        *userEnvelope `json:"user,omitempty"`
+	State       string        `json:"state"`
+	Body        string        `json:"body,omitempty"`
+	SubmittedAt string        `json:"submitted_at,omitempty"`
+	Dismissed   bool          `json:"dismissed"`
+	DismissedAt string        `json:"dismissed_at,omitempty"`
 }
 
-func presentReview(r pullsdb.PrReview) reviewResponse {
+func presentReview(r pullsdb.PrReview, user *userEnvelope) reviewResponse {
 	out := reviewResponse{
 		ID:        r.ID,
 		PullID:    r.PrIssueID,
 		State:     string(r.State),
 		Body:      r.Body,
+		User:      user,
 		Dismissed: r.DismissedAt.Valid,
 	}
 	if r.AuthorUserID.Valid {
@@ -80,25 +84,28 @@ func presentReview(r pullsdb.PrReview) reviewResponse {
 }
 
 type reviewCommentResponse struct {
-	ID                int64  `json:"id"`
-	PullID            int64  `json:"pull_id"`
-	ReviewID          int64  `json:"review_id,omitempty"`
-	AuthorID          int64  `json:"author_id,omitempty"`
-	FilePath          string `json:"file_path"`
-	Side              string `json:"side"`
-	OriginalCommitSHA string `json:"original_commit_sha"`
-	OriginalLine      int32  `json:"original_line"`
-	OriginalPosition  int32  `json:"original_position"`
-	CurrentPosition   *int32 `json:"current_position,omitempty"`
-	Body              string `json:"body"`
-	InReplyToID       int64  `json:"in_reply_to_id,omitempty"`
-	Pending           bool   `json:"pending"`
-	Resolved          bool   `json:"resolved"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
+	ID       int64 `json:"id"`
+	PullID   int64 `json:"pull_id"`
+	ReviewID int64 `json:"review_id,omitempty"`
+	// AuthorID is the legacy flat foreign key. Kept alongside the
+	// `user` envelope for one release cycle (S60 audit migration).
+	AuthorID          int64         `json:"author_id,omitempty"`
+	User              *userEnvelope `json:"user,omitempty"`
+	FilePath          string        `json:"file_path"`
+	Side              string        `json:"side"`
+	OriginalCommitSHA string        `json:"original_commit_sha"`
+	OriginalLine      int32         `json:"original_line"`
+	OriginalPosition  int32         `json:"original_position"`
+	CurrentPosition   *int32        `json:"current_position,omitempty"`
+	Body              string        `json:"body"`
+	InReplyToID       int64         `json:"in_reply_to_id,omitempty"`
+	Pending           bool          `json:"pending"`
+	Resolved          bool          `json:"resolved"`
+	CreatedAt         string        `json:"created_at"`
+	UpdatedAt         string        `json:"updated_at"`
 }
 
-func presentReviewComment(c pullsdb.PrReviewComment) reviewCommentResponse {
+func presentReviewComment(c pullsdb.PrReviewComment, user *userEnvelope) reviewCommentResponse {
 	out := reviewCommentResponse{
 		ID:                c.ID,
 		PullID:            c.PrIssueID,
@@ -108,6 +115,7 @@ func presentReviewComment(c pullsdb.PrReviewComment) reviewCommentResponse {
 		OriginalLine:      c.OriginalLine,
 		OriginalPosition:  c.OriginalPosition,
 		Body:              c.Body,
+		User:              user,
 		Pending:           c.Pending,
 		Resolved:          c.ResolvedAt.Valid,
 		CreatedAt:         c.CreatedAt.Time.UTC().Format(time.RFC3339),
@@ -181,9 +189,20 @@ func (h *Handlers) pullReviewsList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	authorIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if row.AuthorUserID.Valid {
+			authorIDs = append(authorIDs, row.AuthorUserID.Int64)
+		}
+	}
+	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
 	out := make([]reviewResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, presentReview(row))
+		var u *userEnvelope
+		if row.AuthorUserID.Valid {
+			u = users[row.AuthorUserID.Int64]
+		}
+		out = append(out, presentReview(row, u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -246,7 +265,8 @@ func (h *Handlers) pullReviewSubmit(w http.ResponseWriter, r *http.Request) {
 		writeReviewError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentReview(row))
+	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
+	writeJSON(w, http.StatusCreated, presentReview(row, u))
 }
 
 // ─── inline comments ────────────────────────────────────────────────
@@ -266,9 +286,20 @@ func (h *Handlers) pullReviewCommentsList(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	authorIDs := make([]int64, 0, len(rows))
+	for _, c := range rows {
+		if c.AuthorUserID.Valid {
+			authorIDs = append(authorIDs, c.AuthorUserID.Int64)
+		}
+	}
+	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
 	out := make([]reviewCommentResponse, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, presentReviewComment(c))
+		var u *userEnvelope
+		if c.AuthorUserID.Valid {
+			u = users[c.AuthorUserID.Int64]
+		}
+		out = append(out, presentReviewComment(c, u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -323,7 +354,8 @@ func (h *Handlers) pullReviewCommentCreate(w http.ResponseWriter, r *http.Reques
 		writeReviewError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentReviewComment(c))
+	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
+	writeJSON(w, http.StatusCreated, presentReviewComment(c, u))
 }
 
 // ─── requested reviewers ────────────────────────────────────────────
