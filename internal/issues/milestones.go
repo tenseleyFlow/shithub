@@ -11,7 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
 
 // MilestoneCreateParams is input for CreateMilestone.
@@ -141,6 +143,38 @@ func AssignUser(ctx context.Context, deps Deps, actorUserID, issueID, userID int
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	exists, err := q.IssueAssigneeExists(ctx, tx, issuesdb.IssueAssigneeExistsParams{
+		IssueID: issueID,
+		UserID:  userID,
+	})
+	if err != nil {
+		return err
+	}
+	if !exists {
+		count, err := q.CountIssueAssignees(ctx, tx, issueID)
+		if err != nil {
+			return err
+		}
+		if count >= 1 {
+			issue, err := q.GetIssueByID(ctx, tx, issueID)
+			if err != nil {
+				return err
+			}
+			repo, err := reposdb.New().GetRepoByID(ctx, tx, issue.RepoID)
+			if err != nil {
+				return err
+			}
+			if repo.OwnerOrgID.Valid && repo.Visibility == reposdb.RepoVisibilityPrivate {
+				decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: deps.Pool}, repo.OwnerOrgID.Int64, entitlements.FeatureMultipleAssignees)
+				if err != nil {
+					return err
+				}
+				if !decision.Allowed {
+					return ErrMultipleAssigneesRequireTeam
+				}
+			}
+		}
+	}
 	if err := q.AssignUserToIssue(ctx, tx, issuesdb.AssignUserToIssueParams{
 		IssueID: issueID, UserID: userID,
 		AssignedByUserID: pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},

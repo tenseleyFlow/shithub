@@ -66,6 +66,17 @@ func (q *Queries) AssignUserToIssue(ctx context.Context, db DBTX, arg AssignUser
 	return err
 }
 
+const countIssueAssignees = `-- name: CountIssueAssignees :one
+SELECT count(*) FROM issue_assignees WHERE issue_id = $1
+`
+
+func (q *Queries) CountIssueAssignees(ctx context.Context, db DBTX, issueID int64) (int64, error) {
+	row := db.QueryRow(ctx, countIssueAssignees, issueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countIssueEvents = `-- name: CountIssueEvents :one
 SELECT COUNT(*) FROM issue_events WHERE issue_id = $1
 `
@@ -495,6 +506,26 @@ func (q *Queries) InsertIssueReference(ctx context.Context, db DBTX, arg InsertI
 		arg.SourceObjectID,
 	)
 	return err
+}
+
+const issueAssigneeExists = `-- name: IssueAssigneeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM issue_assignees
+    WHERE issue_id = $1 AND user_id = $2
+)
+`
+
+type IssueAssigneeExistsParams struct {
+	IssueID int64
+	UserID  int64
+}
+
+func (q *Queries) IssueAssigneeExists(ctx context.Context, db DBTX, arg IssueAssigneeExistsParams) (bool, error) {
+	row := db.QueryRow(ctx, issueAssigneeExists, arg.IssueID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listIssueAssignees = `-- name: ListIssueAssignees :many

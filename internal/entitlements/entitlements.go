@@ -36,6 +36,12 @@ const (
 	// remain available to Free orgs; any reminder target that can
 	// touch private repos requires Team.
 	FeatureScheduledReminders Feature = "scheduled_reminders"
+	// SP21 collaboration surfaces. Public repositories remain generous;
+	// these gates apply to private organization repositories where GitHub
+	// Team includes the richer collaboration affordances.
+	FeatureRepoProjects      Feature = "repo_projects"
+	FeatureRepoWikis         Feature = "repo_wikis"
+	FeatureMultipleAssignees Feature = "multiple_assignees"
 	// PRO07 additions.
 	//
 	// FeatureProfilePinsBeyondFree gates raising the personal profile
@@ -294,6 +300,9 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureStorageQuota:             {billing.SubjectKindOrg}, // user pending SP08
 	FeatureActionsMinutesQuota:      {billing.SubjectKindOrg}, // user pending SP08
 	FeatureScheduledReminders:       {billing.SubjectKindOrg},
+	FeatureRepoProjects:             {billing.SubjectKindOrg},
+	FeatureRepoWikis:                {billing.SubjectKindOrg},
+	FeatureMultipleAssignees:        {billing.SubjectKindOrg},
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:            {billing.SubjectKindUser},

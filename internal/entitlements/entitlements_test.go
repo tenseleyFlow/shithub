@@ -163,6 +163,9 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 		entitlements.FeatureOrgStorageQuota,
 		entitlements.FeatureOrgActionsMinutesQuota,
 		entitlements.FeatureScheduledReminders,
+		entitlements.FeatureRepoProjects,
+		entitlements.FeatureRepoWikis,
+		entitlements.FeatureMultipleAssignees,
 	} {
 		if decision := set.CanUse(feature); !decision.Allowed {
 			t.Fatalf("feature %s decision=%+v, want allowed", feature, decision)
