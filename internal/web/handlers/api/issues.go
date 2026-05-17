@@ -270,6 +270,13 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 type issueCreateRequest struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	// Labels names to attach on create. Unknown names → 422.
+	Labels []string `json:"labels,omitempty"`
+	// Assignees usernames to attach on create. Unknown usernames → 422.
+	Assignees []string `json:"assignees,omitempty"`
+	// Milestone id (repo-local). 0/omitted leaves the issue with no
+	// milestone; an unrelated repo's id → 422.
+	Milestone *int64 `json:"milestone,omitempty"`
 }
 
 func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +290,45 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+
+	// Resolve labels/assignees up front so a bad name fails the request
+	// before we write the issue row — avoids a half-created issue with
+	// no labels when the caller passed a typo.
+	var labelIDs []int64
+	if len(body.Labels) > 0 {
+		ids, err := h.resolveLabelIDs(r, repo.ID, body.Labels)
+		if err != nil {
+			writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		labelIDs = ids
+	}
+	assigneeIDs := make([]int64, 0, len(body.Assignees))
+	for _, name := range body.Assignees {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		u, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, name)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeAPIError(w, http.StatusUnprocessableEntity, "unknown assignee: "+name)
+				return
+			}
+			h.d.Logger.ErrorContext(r.Context(), "api: create issue assignee lookup", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		assigneeIDs = append(assigneeIDs, u.ID)
+	}
+	if body.Milestone != nil && *body.Milestone != 0 {
+		m, err := issuesdb.New().GetMilestone(r.Context(), h.d.Pool, *body.Milestone)
+		if err != nil || m.RepoID != repo.ID {
+			writeAPIError(w, http.StatusUnprocessableEntity, "milestone does not belong to this repo")
+			return
+		}
+	}
+
 	issue, err := issues.Create(r.Context(), h.issuesDeps(), issues.CreateParams{
 		RepoID:       repo.ID,
 		AuthorUserID: auth.UserID,
@@ -294,11 +340,47 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 		writeIssuesError(w, err)
 		return
 	}
+
+	// Apply optional attachments. Each is best-effort in the sense that
+	// the issue row already exists if these fail; we surface the first
+	// error and let the caller PATCH to retry. Author/create context is
+	// the same actor, so no extra policy gates here (anyone who can
+	// create an issue can set its initial labels/assignees/milestone —
+	// matches gh's POST /repos/{}/{}/issues behavior).
+	if len(labelIDs) > 0 {
+		if err := issues.ApplyLabels(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, labelIDs); err != nil {
+			writeIssuesError(w, err)
+			return
+		}
+	}
+	for _, aid := range assigneeIDs {
+		if err := issues.AssignUser(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, aid); err != nil {
+			writeIssuesError(w, err)
+			return
+		}
+	}
+	if body.Milestone != nil && *body.Milestone != 0 {
+		if err := issues.AssignMilestone(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, *body.Milestone); err != nil {
+			writeIssuesError(w, err)
+			return
+		}
+	}
+
+	// Re-fetch so updated_at + any milestone-induced denorms reflect
+	// the final state. Cheap — single PK lookup.
+	fresh, err := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, issue.ID)
+	if err != nil {
+		fresh = issue
+	}
+	var labels []labelEnvelope
+	if len(labelIDs) > 0 {
+		labels = h.labelEnvelopesFor(r.Context(), fresh.ID)
+	}
 	// On create the author is always the authenticated caller; pull
 	// their envelope so the response is fully populated on the first
 	// round-trip.
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	writeJSON(w, http.StatusCreated, presentIssue(issue, nil, u))
+	writeJSON(w, http.StatusCreated, presentIssue(fresh, labels, u))
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
