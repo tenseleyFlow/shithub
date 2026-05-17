@@ -200,6 +200,13 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 			// User sees this directly in their git client.
 			writeGitErrorMessage(w, http.StatusForbidden,
 				"repository is archived; pushes are disabled")
+		case policy.DenyPaused:
+			// 402 Payment Required — the repo is paused (PRO-EXT01-15)
+			// and writes are temporarily disabled until the owner
+			// unpauses or upgrades-then-unpauses. The git client
+			// surfaces the body verbatim.
+			writeGitErrorMessage(w, http.StatusPaymentRequired,
+				"repository is paused; pushes are disabled until the owner unpauses")
 		case policy.DenyVisibility:
 			http.Error(w, "not found", http.StatusNotFound)
 		default:

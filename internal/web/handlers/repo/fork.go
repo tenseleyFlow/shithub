@@ -446,6 +446,8 @@ func (h *Handlers) handleForkError(w http.ResponseWriter, r *http.Request, err e
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 	case errors.Is(err, fork.ErrSourceArchived):
 		h.d.Render.HTTPError(w, r, http.StatusConflict, "source repo is archived")
+	case errors.Is(err, fork.ErrSourcePaused):
+		h.d.Render.HTTPError(w, r, http.StatusConflict, "source repo is paused")
 	case errors.Is(err, fork.ErrTargetNameTaken):
 		h.d.Render.HTTPError(w, r, http.StatusConflict, "you already own a repository with that name")
 	case errors.Is(err, fork.ErrSelfForkSameName):

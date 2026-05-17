@@ -42,6 +42,37 @@
     </section>
 
     <section class="shithub-danger-zone">
+      <h2>Pause {{ if not .PauseAllowed }}{{ template "pro-badge" true }}{{ end }}</h2>
+      <p class="shithub-hint">
+        Pause is a soft-freeze for repositories you don't want to fully archive.
+        Reads keep working; pushes and write APIs return 402 until you unpause.
+      </p>
+      {{ if .Repo.IsPaused }}
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/unpause">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        {{ if .Repo.PauseReason.Valid }}
+        <p><strong>Reason:</strong> {{ .Repo.PauseReason.String }}</p>
+        {{ end }}
+        <button type="submit" class="shithub-button">Unpause</button>
+      </form>
+      {{ else if .Repo.IsArchived }}
+      <p class="shithub-hint">Unarchive first — a repository can't be both archived and paused.</p>
+      {{ else }}
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/pause"{{ if not .PauseAllowed }} class="shithub-pro-lock" data-pro-feature="{{ .PauseFeatureKey }}"{{ end }}>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          Reason <small>(optional, max 280 chars)</small>
+          <input type="text" name="pause_reason" maxlength="280" {{ if not .PauseAllowed }}disabled aria-disabled="true"{{ end }} placeholder="winter break — back in March">
+        </label>
+        <button type="submit" class="shithub-button" {{ if not .PauseAllowed }}disabled aria-disabled="true"{{ end }}>Pause repository</button>
+        {{ if not .PauseAllowed }}
+        <a class="shithub-pro-lock-cta" href="/settings/billing" data-pro-feature="{{ .PauseFeatureKey }}">{{ template "pro-badge" true }} Upgrade to Pro</a>
+        {{ end }}
+      </form>
+      {{ end }}
+    </section>
+
+    <section class="shithub-danger-zone">
       <h2>Transfer ownership</h2>
       <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/transfer">
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
