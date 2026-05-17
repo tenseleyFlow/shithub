@@ -61,22 +61,31 @@ func (h *Handlers) mountIssues(r chi.Router) {
 // ─── presentation ───────────────────────────────────────────────────
 
 type issueResponse struct {
-	ID          int64    `json:"id"`
-	Number      int64    `json:"number"`
-	Title       string   `json:"title"`
-	Body        string   `json:"body"`
-	State       string   `json:"state"`
-	StateReason string   `json:"state_reason,omitempty"`
-	Locked      bool     `json:"locked"`
-	LockReason  string   `json:"lock_reason,omitempty"`
-	AuthorID    int64    `json:"author_id,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
-	ClosedAt    string   `json:"closed_at,omitempty"`
+	ID          int64  `json:"id"`
+	Number      int64  `json:"number"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	State       string `json:"state"`
+	StateReason string `json:"state_reason,omitempty"`
+	Locked      bool   `json:"locked"`
+	LockReason  string `json:"lock_reason,omitempty"`
+	// AuthorID is the legacy flat foreign key. Kept alongside the new
+	// `user` envelope for one release cycle (S60 audit migration);
+	// prefer `user.id` for new code.
+	AuthorID  int64           `json:"author_id,omitempty"`
+	User      *userEnvelope   `json:"user,omitempty"`
+	Labels    []labelEnvelope `json:"labels,omitempty"`
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+	ClosedAt  string          `json:"closed_at,omitempty"`
 }
 
-func presentIssue(i issuesdb.Issue, labels []string) issueResponse {
+// presentIssue fills the issue envelope. The user pointer is optional;
+// callers pass it pre-resolved so list endpoints can batch the lookup
+// (and pass nil for the freshly-created-just-now path where the author
+// is the authenticated caller and we can construct the envelope from
+// the auth context cheaper than a round-trip).
+func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope) issueResponse {
 	out := issueResponse{
 		ID:        i.ID,
 		Number:    i.Number,
@@ -85,6 +94,7 @@ func presentIssue(i issuesdb.Issue, labels []string) issueResponse {
 		State:     string(i.State),
 		Locked:    i.Locked,
 		Labels:    labels,
+		User:      user,
 		CreatedAt: i.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt: i.UpdatedAt.Time.UTC().Format(time.RFC3339),
 	}
@@ -104,19 +114,23 @@ func presentIssue(i issuesdb.Issue, labels []string) issueResponse {
 }
 
 type commentResponse struct {
-	ID        int64  `json:"id"`
-	IssueID   int64  `json:"issue_id"`
-	AuthorID  int64  `json:"author_id,omitempty"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	EditedAt  string `json:"edited_at,omitempty"`
+	ID      int64 `json:"id"`
+	IssueID int64 `json:"issue_id"`
+	// AuthorID is the legacy flat foreign key. See issueResponse for
+	// the S60 migration notes.
+	AuthorID  int64         `json:"author_id,omitempty"`
+	User      *userEnvelope `json:"user,omitempty"`
+	Body      string        `json:"body"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
+	EditedAt  string        `json:"edited_at,omitempty"`
 }
 
-func presentComment(c issuesdb.IssueComment) commentResponse {
+func presentComment(c issuesdb.IssueComment, user *userEnvelope) commentResponse {
 	out := commentResponse{
 		ID:        c.ID,
 		IssueID:   c.IssueID,
+		User:      user,
 		Body:      c.Body,
 		CreatedAt: c.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt: c.UpdatedAt.Time.UTC().Format(time.RFC3339),
@@ -166,9 +180,22 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	if link != "" {
 		w.Header().Set("Link", link)
 	}
+	// Batch-resolve the unique author set in one query so the list
+	// endpoint doesn't fan out one GetUserByID per row.
+	authorIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if row.AuthorUserID.Valid {
+			authorIDs = append(authorIDs, row.AuthorUserID.Int64)
+		}
+	}
+	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
 	out := make([]issueResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, presentIssue(row, h.labelNamesFor(r.Context(), row.ID)))
+		var u *userEnvelope
+		if row.AuthorUserID.Valid {
+			u = users[row.AuthorUserID.Int64]
+		}
+		out = append(out, presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -189,16 +216,16 @@ func normalizeIssueState(s string) pgtype.Text {
 	}
 }
 
-func (h *Handlers) labelNamesFor(ctx context.Context, issueID int64) []string {
+// labelEnvelopesFor returns the labels on an issue as GitHub-compat
+// objects. Replaces pre-S60 `labelNamesFor` which returned bare names
+// in a string array — that shape couldn't be decoded by gh-compat
+// clients (CLI issue view/close/reopen panicked on any labeled issue).
+func (h *Handlers) labelEnvelopesFor(ctx context.Context, issueID int64) []labelEnvelope {
 	rows, err := issuesdb.New().ListLabelsOnIssue(ctx, h.d.Pool, issueID)
 	if err != nil {
 		return nil
 	}
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.Name)
-	}
-	return out
+	return presentLabelEnvelopes(rows)
 }
 
 // ─── single get ─────────────────────────────────────────────────────
@@ -231,7 +258,11 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "issue not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, presentIssue(issue, h.labelNamesFor(r.Context(), issue.ID)))
+	var u *userEnvelope
+	if issue.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u))
 }
 
 // ─── create ─────────────────────────────────────────────────────────
@@ -263,7 +294,11 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 		writeIssuesError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentIssue(issue, nil))
+	// On create the author is always the authenticated caller; pull
+	// their envelope so the response is fully populated on the first
+	// round-trip.
+	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
+	writeJSON(w, http.StatusCreated, presentIssue(issue, nil, u))
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
@@ -427,7 +462,11 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "reload failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, presentIssue(fresh, h.labelNamesFor(r.Context(), fresh.ID)))
+	var u *userEnvelope
+	if fresh.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), fresh.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u))
 }
 
 // ─── comments ───────────────────────────────────────────────────────
@@ -447,9 +486,20 @@ func (h *Handlers) issueCommentsList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	authorIDs := make([]int64, 0, len(rows))
+	for _, c := range rows {
+		if c.AuthorUserID.Valid {
+			authorIDs = append(authorIDs, c.AuthorUserID.Int64)
+		}
+	}
+	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
 	out := make([]commentResponse, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, presentComment(c))
+		var u *userEnvelope
+		if c.AuthorUserID.Valid {
+			u = users[c.AuthorUserID.Int64]
+		}
+		out = append(out, presentComment(c, u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -484,7 +534,8 @@ func (h *Handlers) issueCommentCreate(w http.ResponseWriter, r *http.Request) {
 		writeIssuesError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentComment(c))
+	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
+	writeJSON(w, http.StatusCreated, presentComment(c, u))
 }
 
 type commentUpdateRequest struct {
@@ -546,7 +597,11 @@ func (h *Handlers) issueCommentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fresh, _ := q.GetIssueComment(r.Context(), h.d.Pool, comment.ID)
-	writeJSON(w, http.StatusOK, presentComment(fresh))
+	var u *userEnvelope
+	if fresh.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), fresh.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentComment(fresh, u))
 }
 
 func (h *Handlers) issueCommentDelete(w http.ResponseWriter, r *http.Request) {
