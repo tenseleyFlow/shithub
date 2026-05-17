@@ -7,6 +7,7 @@
     <section class="shithub-settings-section">
       <h2>SSH keys</h2>
       <p>SSH keys let you push and clone over SSH without typing a password. Generate one with <code>ssh-keygen -t ed25519</code> and paste the contents of the <code>.pub</code> file below.</p>
+      <p class="shithub-hint">Using multiple shithub accounts on this machine? Use SSH host aliases or per-repo <code>core.sshCommand</code> so each clone offers the key registered to the repo owner or collaborator account.</p>
 
       {{ if .Keys }}
       <ul class="shithub-key-list">

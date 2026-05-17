@@ -1,6 +1,6 @@
 # SSH git protocol
 
-S13 lights up `git clone git@host:owner/repo.git`, `git fetch`, and `git push` over SSH. The S07 `ssh-shell` placeholder is now the real dispatcher: it parses `SSH_ORIGINAL_COMMAND`, resolves user + repo against the DB, runs an inline owner-only authz, sets the `SHITHUB_*` hook environment, closes the DB pool, and `syscall.Exec`s the canonical `git-upload-pack` or `git-receive-pack` binary. After exec, sshd's stdin/stdout/stderr flow directly to git.
+S13 lights up `git clone git@host:owner/repo.git`, `git fetch`, and `git push` over SSH. The S07 `ssh-shell` placeholder is now the real dispatcher: it parses `SSH_ORIGINAL_COMMAND`, resolves user + repo against the DB, authorizes through `internal/auth/policy`, sets the `SHITHUB_*` hook environment, closes the DB pool, and `syscall.Exec`s the canonical `git-upload-pack` or `git-receive-pack` binary. After exec, sshd's stdin/stdout/stderr flow directly to git.
 
 ## What's wired
 
@@ -25,8 +25,8 @@ git-upload-pack 'alice/foo.git'
                                                             │
                                                             ├─ ParseSSHCommand
                                                             ├─ DB pool (max 2)
-                                                            ├─ GetUserByID, GetUserByUsername, GetRepoByOwnerUserAndName
-                                                            ├─ Inline authz
+                                                            ├─ GetUserByID, orgs.Resolve, GetRepoByOwner{User,Org}AndName
+                                                            ├─ policy.Can
                                                             ├─ Build SHITHUB_* env
                                                             ├─ pool.Close()
                                                             └─ syscall.Exec git-upload-pack /data/repos/al/alice/foo.git
@@ -57,21 +57,21 @@ After parse, the path goes through:
 
 These validators live inside the `protocol` package rather than importing `internal/infra/storage` so that an SSH connection — which runs a brand-new shithubd process every time — doesn't pay the storage package's init cost.
 
-## Authorization (S15 will refactor)
+## Authorization
 
-Inline V1 rules, mirroring the HTTP path:
+SSH authorization uses `policy.Can` against the same repo resources as
+the HTTP path:
 
 - **upload-pack**:
   - public repo → any non-suspended user.
-  - private repo → must be the owner; non-owners get the not-found message (no existence leak).
+  - private repo → owner, org member, or collaborator with read access.
+  - denied private reads get the not-found message (no existence leak).
 - **receive-pack**:
-  - must be the owner.
+  - owner, org member, or collaborator with write/admin access.
   - repo not archived (else `MsgArchived`).
   - repo not soft-deleted (else `MsgRepoNotFound`).
 
 Suspended or soft-deleted users are rejected up-front with `MsgSuspended`.
-
-S15 lifts these into `policy.Can(actor, action, resource)`.
 
 ## Hook environment
 
@@ -130,6 +130,11 @@ The friendly message is what the user sees in `git`'s output. The structured slo
 - `TestDispatch_UnknownCommandIsRejected`.
 - `TestFriendlyMessageFor` covers the message catalogue.
 - `TestParseRemoteIP` covers `SSH_CONNECTION` parsing edge cases.
+
+`internal/git/protocol/ssh_dispatch_collab_test.go` (DB-integration):
+- write collaborators can push private repos;
+- read collaborators can clone private repos but cannot push;
+- removed collaborators collapse back to not-found for private reads.
 
 We don't unit-test the cobra command's `syscall.Exec` path; the whole point of `syscall.Exec` is that the test process would be replaced. The dispatcher tests cover everything up to the exec call; the deploy doc has a manual smoke-test recipe.
 

@@ -140,8 +140,9 @@ type Querier interface {
 	// Single-key lookup for the REST GET-by-id endpoint. user_id filter so
 	// one caller can't read another's key by ID.
 	GetUserSSHKey(ctx context.Context, db DBTX, arg GetUserSSHKeyParams) (UserSshKey, error)
-	// Hot path for sshd's AuthorizedKeysCommand. Index lookup via the UNIQUE
-	// index on fingerprint_sha256.
+	// Hot path for sshd's AuthorizedKeysCommand. Only authentication keys may
+	// open git protocol sessions; signing-only keys are deliberately invisible
+	// here even though the fingerprint is globally unique.
 	GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error)
 	GetUserSessionEpoch(ctx context.Context, db DBTX, id int64) (int32, error)
 	GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserTotp, error)

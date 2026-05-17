@@ -72,9 +72,33 @@ If (d) hangs or rejects:
 |---|---|
 | `git clone git@shithub.sh:...` hangs at "Connecting" | sshd not listening on 22, or firewall blocking. `systemctl status ssh; ufw status` |
 | Hangs at "Permission denied (publickey)" | Key not in user's `/settings/keys`, OR fingerprint mismatch. The DB stores `SHA256:...` from `ssh-keygen -lf <key>`. |
+| `repository not found` for an existing private repo | The authenticated key belongs to a user without access, or the repo path is wrong. For multi-account clients, check `ssh -G <host>` and `git config core.sshCommand`; the SSH key chooses the shithub account, not the `<owner>/<repo>` path. |
 | "Permission denied" right after key offer | AKC returned an empty string (key DOES match no row). Run `shithubd ssh-authkeys <your-fp>` manually as root to debug. |
 | Connects then "fatal: protocol error" | `ssh-shell` rejected the requested op. Check `journalctl -u shithubd-web` for the `ssh-shell: denied` entry. |
 | `git push` works but post-receive hooks don't fire | `SHITHUB_*` env not threaded through. Check `protocol.PrepareDispatch` — that's the env-build site. |
+
+For a user with multiple shithub accounts on the same client, recommend
+host aliases instead of relying on the default `shithub.sh` host entry:
+
+```sshconfig
+Host shithub-alice
+  HostName shithub.sh
+  User git
+  IdentityFile ~/.ssh/id_ed25519_alice
+  IdentitiesOnly yes
+
+Host shithub-work
+  HostName shithub.sh
+  User git
+  IdentityFile ~/.ssh/id_ed25519_work
+  IdentitiesOnly yes
+```
+
+The corresponding remotes should use the alias:
+
+```sh
+git remote set-url origin git@shithub-work:work-org/private-repo.git
+```
 
 ## Disabling without removing
 

@@ -93,11 +93,12 @@ const getUserSSHKeyByFingerprint = `-- name: GetUserSSHKeyByFingerprint :one
 SELECT id, user_id, title, fingerprint_sha256, key_type, key_bits, public_key,
        last_used_at, last_used_ip, created_at, kind
 FROM user_ssh_keys
-WHERE fingerprint_sha256 = $1
+WHERE fingerprint_sha256 = $1 AND kind = 'authentication'
 `
 
-// Hot path for sshd's AuthorizedKeysCommand. Index lookup via the UNIQUE
-// index on fingerprint_sha256.
+// Hot path for sshd's AuthorizedKeysCommand. Only authentication keys may
+// open git protocol sessions; signing-only keys are deliberately invisible
+// here even though the fingerprint is globally unique.
 func (q *Queries) GetUserSSHKeyByFingerprint(ctx context.Context, db DBTX, fingerprintSha256 string) (UserSshKey, error) {
 	row := db.QueryRow(ctx, getUserSSHKeyByFingerprint, fingerprintSha256)
 	var i UserSshKey
