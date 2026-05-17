@@ -142,6 +142,13 @@ func (h *Handlers) renderUsernamesForm(w http.ResponseWriter, r *http.Request, e
 // userReservationsAllowed checks the FeatureUsernameReservations gate.
 // Returns (allowed, decision, error). The decision is returned so the
 // caller can surface the upgrade banner copy when allowed=false.
+//
+// Honors the BillingEnforce.UserUsernameReservations soak path: with
+// the flag off and the entitlement denying, the would-deny is logged
+// but allowed=true is returned so the write lands during soak. Added
+// in PRO-EXT_SR2-09 — prior to that the function always hard-denied
+// without an operator knob, contradicting the report-only contract
+// the runbook claimed governed the feature.
 func (h *Handlers) userReservationsAllowed(ctx context.Context, userID int64) (bool, entitlements.Decision, error) {
 	decision, err := entitlements.CheckPrincipalFeature(ctx,
 		entitlements.Deps{Pool: h.d.Pool},
@@ -150,17 +157,23 @@ func (h *Handlers) userReservationsAllowed(ctx context.Context, userID int64) (b
 	if err != nil {
 		return false, entitlements.Decision{}, err
 	}
-	if !decision.Allowed {
-		h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
-			"principal", billing.PrincipalForUser(userID).String(),
-			"principal_kind", string(billing.SubjectKindUser),
-			"principal_id", userID,
-			"feature", string(entitlements.FeatureUsernameReservations),
-			"reason", string(decision.Reason),
-			"required_plan", string(decision.RequiredPlan),
-			"mode", "report_only")
+	if decision.Allowed {
+		return true, decision, nil
 	}
-	return decision.Allowed, decision, nil
+	mode := "report_only"
+	if h.d.BillingEnforce.UserUsernameReservations {
+		mode = "enforce"
+	}
+	h.d.Logger.InfoContext(ctx, "entitlements.report_only_deny",
+		"principal", billing.PrincipalForUser(userID).String(),
+		"principal_kind", string(billing.SubjectKindUser),
+		"principal_id", userID,
+		"feature", string(entitlements.FeatureUsernameReservations),
+		"reason", string(decision.Reason),
+		"required_plan", string(decision.RequiredPlan),
+		"mode", mode,
+		"surface", "settings-username-reservations")
+	return !h.d.BillingEnforce.UserUsernameReservations, decision, nil
 }
 
 // usernameReservationAvailable checks whether `handle` is free for

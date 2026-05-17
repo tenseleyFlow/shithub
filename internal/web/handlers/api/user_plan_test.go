@@ -16,7 +16,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 )
 
@@ -185,5 +187,40 @@ func upgradeUserToActivePro(t *testing.T, pool *pgxpool.Pool, userID int64) {
 	})
 	if err != nil {
 		t.Fatalf("ApplyUserSubscriptionSnapshot: %v", err)
+	}
+}
+
+// TestUserPlan_ContractEnumeratesEveryUserFeature is the trip-wire
+// audit fix from PRO-EXT_SR2-09. The /api/v1/user/plan response
+// promises CLIs a per-feature `allowed` flag for every gated
+// user-tier feature — the PRO-EXT01 audit caught the response
+// silently missing nine features added across the campaign. This
+// test enumerates `entitlements.FeaturesForKind(SubjectKindUser)`
+// and fails by name if any are absent from the response so future
+// sprints can't ship a new Feature* without exposing it.
+func TestUserPlan_ContractEnumeratesEveryUserFeature(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router := newCrossCuttingAPIRouter(t, pool)
+
+	userID := crossCuttingUser(t, pool)
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeUserRead))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/plan", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body apiUserPlan
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	for _, f := range entitlements.FeaturesForKind(billing.SubjectKindUser) {
+		if _, ok := body.Features[string(f)]; !ok {
+			t.Errorf("user-applicable feature %q missing from /api/v1/user/plan response — "+
+				"add it to userPlanFeatures in internal/web/handlers/api/user_plan.go", f)
+		}
 	}
 }

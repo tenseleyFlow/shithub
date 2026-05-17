@@ -138,9 +138,12 @@ func (h *Handlers) settingsProfileSubmit(w http.ResponseWriter, r *http.Request)
 
 // userVanityAllowed checks the FeatureProfileVanity gate. Returns
 // false on any error (defensive — a degraded entitlements path can't
-// silently promote a Free user). Logs the would-deny when a Free user
-// attempts the write so PRO-EXT01-17's telemetry can attribute
-// upgrade-driving traffic.
+// silently promote a Free user). Honors the report-only soak path:
+// when BillingEnforce.UserProfileVanity is false and the user is
+// denied, the vanity write still lands and a would-deny log fires.
+// PRO-EXT_SR2-09 added the enforce flag — prior to that the function
+// always hard-denied without an operator knob, contradicting the
+// pattern every other Pro gate followed.
 func (h *Handlers) userVanityAllowed(r *http.Request, userID int64) bool {
 	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
 		entitlements.Deps{Pool: h.d.Pool},
@@ -150,17 +153,23 @@ func (h *Handlers) userVanityAllowed(r *http.Request, userID int64) bool {
 		h.d.Logger.WarnContext(r.Context(), "settings/profile: vanity entitlement check", "user_id", userID, "error", err)
 		return false
 	}
-	if !decision.Allowed {
-		h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
-			"principal", billing.PrincipalForUser(userID).String(),
-			"principal_kind", string(billing.SubjectKindUser),
-			"principal_id", userID,
-			"feature", string(entitlements.FeatureProfileVanity),
-			"reason", string(decision.Reason),
-			"required_plan", string(decision.RequiredPlan),
-			"mode", "report_only")
+	if decision.Allowed {
+		return true
 	}
-	return decision.Allowed
+	mode := "report_only"
+	if h.d.BillingEnforce.UserProfileVanity {
+		mode = "enforce"
+	}
+	h.d.Logger.InfoContext(r.Context(), "entitlements.report_only_deny",
+		"principal", billing.PrincipalForUser(userID).String(),
+		"principal_kind", string(billing.SubjectKindUser),
+		"principal_id", userID,
+		"feature", string(entitlements.FeatureProfileVanity),
+		"reason", string(decision.Reason),
+		"required_plan", string(decision.RequiredPlan),
+		"mode", mode,
+		"surface", "settings-profile-vanity")
+	return !h.d.BillingEnforce.UserProfileVanity
 }
 
 // renderProfileForm is the shared render path. errMsg / successMsg are

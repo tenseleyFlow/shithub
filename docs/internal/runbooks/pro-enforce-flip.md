@@ -156,9 +156,9 @@ flip per the soak rules above. Per-feature notes:
 | Feature key                      | Sprint  | Soak | Notes |
 |----------------------------------|---------|------|-------|
 | `user_profile_pins_beyond_free`  | 04      | 7d   | Cosmetic gate; low blast radius. |
-| `profile_vanity`                 | 04      | 7d   | Cosmetic. |
+| `user_profile_vanity`            | 04      | 7d   | Cosmetic. Enforce knob added in PRO-EXT_SR2-09 (audit caught it hard-enforcing with no soak path). |
 | `animated_avatars`               | 04b     | 7d   | Free uploads flatten on flip. |
-| `username_reservations`          | 05      | 7d   | Mostly Pro-only writes. |
+| `user_username_reservations`     | 05      | 7d   | Mostly Pro-only writes. Enforce knob added in PRO-EXT_SR2-09 (same fix as user_profile_vanity). |
 | `private_repo_templates`         | 06      | 7d   | Toggle on settings/general. |
 | `saved_replies_unlimited`        | 07a     | 7d   | Cap-enforce; soft visible. |
 | `scheduled_issues`               | 07b     | 7d   | Worker-gated. |
