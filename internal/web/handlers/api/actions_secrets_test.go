@@ -277,8 +277,13 @@ func TestActionsSecrets_PutGetDeleteRoundTrip(t *testing.T) {
 	if listRR.Code != http.StatusOK {
 		t.Fatalf("LIST status: got %d; body=%s", listRR.Code, listRR.Body.String())
 	}
-	var listed []map[string]any
-	_ = json.Unmarshal(listRR.Body.Bytes(), &listed)
+	// S62 envelope.
+	var listEnv struct {
+		TotalCount int              `json:"total_count"`
+		Secrets    []map[string]any `json:"secrets"`
+	}
+	_ = json.Unmarshal(listRR.Body.Bytes(), &listEnv)
+	listed := listEnv.Secrets
 	if len(listed) != 1 {
 		t.Fatalf("expected 1 secret; got %+v", listed)
 	}
