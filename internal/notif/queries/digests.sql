@@ -31,19 +31,36 @@ RETURNING user_id, enabled, frequency, hour_utc, day_of_week,
 DELETE FROM user_notification_digests WHERE user_id = $1;
 
 -- name: ClaimDueNotificationDigests :many
--- Sweep claim. FOR UPDATE SKIP LOCKED so multiple worker processes
--- can drain in parallel without dispatching the same row twice.
--- Limited to a small batch per tick so a backlog can't monopolize
--- one worker.
-SELECT user_id, enabled, frequency, hour_utc, day_of_week,
-       last_sent_at, next_send_at, created_at, updated_at
-FROM user_notification_digests
-WHERE enabled = true
-  AND next_send_at IS NOT NULL
-  AND next_send_at <= now()
-ORDER BY next_send_at ASC
-LIMIT $1
-FOR UPDATE SKIP LOCKED;
+-- Sweep claim. Atomic claim-by-advance: each due row's
+-- next_send_at is bumped one hour into the future as part of the
+-- claim, so a second worker running the same statement sees the row
+-- as "not due" and skips it. FOR UPDATE SKIP LOCKED inside the CTE
+-- guards against two concurrent claims racing on the SELECT step.
+--
+-- Failure handling: if the worker dies between claim and the
+-- success-path AdvanceUserNotificationDigest, the row sits with
+-- next_send_at = now()+1h and gets re-picked-up automatically by
+-- the next sweep tick after that window. The user-visible failure
+-- mode is a one-hour delay on one digest send, which is better than
+-- the previous race window where two workers could double-send.
+-- PRO-EXT_SR2-11 (audit H3).
+WITH due AS (
+    SELECT user_id
+    FROM user_notification_digests
+    WHERE enabled = true
+      AND next_send_at IS NOT NULL
+      AND next_send_at <= now()
+    ORDER BY next_send_at ASC
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE user_notification_digests d
+SET next_send_at = now() + interval '1 hour',
+    updated_at   = now()
+FROM due
+WHERE d.user_id = due.user_id
+RETURNING d.user_id, d.enabled, d.frequency, d.hour_utc, d.day_of_week,
+          d.last_sent_at, d.next_send_at, d.created_at, d.updated_at;
 
 -- name: AdvanceUserNotificationDigest :exec
 -- After a successful send, bump the cursor + record last_sent_at.

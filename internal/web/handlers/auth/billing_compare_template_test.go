@@ -89,7 +89,7 @@ func TestBillingCompareTable_ListsEveryProFeature(t *testing.T) {
 		"Saved replies for issues and PRs",
 		"Schedule issues to file later",
 		"Private repositories as templates",
-		"Cross-repo code search",
+		"Regex code search",
 		"Advanced branch protection on private repos",
 		"Required reviewers on private repos",
 		"Per-repo contribution-graph privacy",
