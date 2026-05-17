@@ -141,6 +141,7 @@ func Run(ctx context.Context, opts Options) error {
 		r.Use(middleware.OptionalUser(usernameLookup(pool)))
 	}
 	r.Use(middleware.PolicyCache())
+	r.Use(middleware.EntitlementsCache())
 
 	deps := handlers.Deps{
 		Logger:       logger,

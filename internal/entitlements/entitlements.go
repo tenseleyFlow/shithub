@@ -433,8 +433,24 @@ func (l Loader) ForOrg(ctx context.Context, orgID int64) (Set, error) {
 // whose CanUse / Limit decisions reflect the principal's
 // subscription state. PRO05+ callers prefer this entry point over
 // ForOrg.
+//
+// PRO-EXT_SR2-13 (audit Q3): one HTTP request commonly triggers
+// 3-6 CheckPrincipalFeature calls for the same principal — pre-fix
+// each one re-loaded billing state from Postgres. ForPrincipal now
+// consults the request-scoped cache installed by
+// ContextWithPrincipalCache; subsequent calls in the same request
+// reuse the loaded Set. Callers without a cache on the context (CLI
+// tools, workers) take the un-memoized path unchanged.
 func ForPrincipal(ctx context.Context, deps Deps, p billing.Principal) (Set, error) {
-	return New(deps).ForPrincipal(ctx, p)
+	if cached, ok := lookupPrincipalCache(ctx, p); ok {
+		return cached, nil
+	}
+	set, err := New(deps).ForPrincipal(ctx, p)
+	if err != nil {
+		return Set{}, err
+	}
+	storePrincipalCache(ctx, p, set)
+	return set, nil
 }
 
 func (l Loader) ForPrincipal(ctx context.Context, p billing.Principal) (Set, error) {
