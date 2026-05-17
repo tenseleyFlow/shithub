@@ -68,6 +68,21 @@ falls back to plain text rather than leaking existence via a 404.
   `/team` doesn't get split off. Routes to `/{org}/teams/{team}`
   via the Team resolver. S25 deferral cleared.
 
+## Team reviewers and CODEOWNERS
+
+SP19 uses teams as first-class pull request reviewer targets. A review
+request row may target either `requested_user_id` or
+`requested_team_id`; submitting an `approve` or `request_changes`
+review satisfies a team request when the reviewer is a current member
+of that team.
+
+CODEOWNERS supports `@org/team` owners for repositories owned by the
+same organization. To resolve as a valid code owner, the team must have
+explicit repository access with `write`, `maintain`, or `admin` role.
+This keeps CODEOWNERS review requirements aligned with GitHub's
+"owners must have write access" rule and avoids granting review power
+from mention syntax alone.
+
 ## Routes
 
 ```
@@ -94,7 +109,7 @@ POST /{org}/teams/{slug}/repos            grant (repo_id + role) / revoke (actio
   lands when these surfaces next get touched.
 * **API endpoints** `GET /api/v1/orgs/{org}/teams` etc.: same
   posture as S30 — defer to S33/S34 API consolidation.
-* **CODEOWNERS / SCIM team provisioning** are post-MVP per spec.
+* **SCIM team provisioning** is post-MVP per spec.
 
 ## Pitfalls noted in code
 

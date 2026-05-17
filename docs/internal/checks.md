@@ -223,9 +223,9 @@ downgrade.
 - **Webhook events for `check_suite` / `check_run`** → S33 (the
   deliverer drains `webhook_events_pending`; emit points are at
   `internal/checks/{create,update}.go`).
-- **CODEOWNERS-driven required reviewers + checks** → post-MVP.
-- **`require_code_owner_review` enforcement** → post-MVP (column
-  exists from S23; CODEOWNERS parser is the gap).
+- **CODEOWNERS-driven review gating** ships in SP19 under
+  `docs/internal/pr-review.md`. There is no separate checks-specific
+  CODEOWNERS gate in S24.
 - **Auto-dismiss stale reviews on push** → post-MVP (column exists
   from S23; symmetric to S24's stale-on-push, but the reviewer-side
   semantics are spec-deferred).

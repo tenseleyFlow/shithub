@@ -4,9 +4,11 @@ S23 ships file-level inline review comments, three review states
 (`comment` / `approve` / `request_changes`), reviewer-request
 flow, dismiss, server-side draft → submit, branch-protection-driven
 required-review gating on merge, and outdated-comment handling on
-synchronize.
+synchronize. SP19 extends that surface with CODEOWNERS parsing,
+automatic code-owner review requests, team review requests, and
+code-owner-required merge gating.
 
-## Schema (migration 0024)
+## Schema (migrations 0024, 0103)
 
 ```
 pr_reviews          — one row per submitted review (state, body, dismissed_*)
@@ -16,7 +18,7 @@ pr_review_comments  — file-level inline comments anchored on
                       review_id NULL + pending=true means draft.
                       review_id N            means part of review N.
                       review_id NULL + pending=false means single inline comment.
-pr_review_requests  — pending review requests (user; teams in S31).
+pr_review_requests  — pending review requests (user or org team).
 ```
 
 Plus three columns on `branch_protection_rules`:
@@ -25,7 +27,7 @@ Plus three columns on `branch_protection_rules`:
 | ------------------------------- | ------- | -------------------------------------------------- |
 | `required_review_count`         | `0`     | How many distinct approves required before merge   |
 | `dismiss_stale_reviews_on_push` | `false` | Placeholder; dismiss-on-push wires post-MVP        |
-| `require_code_owner_review`     | `false` | Placeholder; CODEOWNERS parsing post-MVP           |
+| `require_code_owner_review`     | `false` | Enforced for branch rules via CODEOWNERS           |
 
 The CHECK on `required_review_count >= 0` keeps the gate sane when an
 admin types nonsense.
@@ -85,7 +87,8 @@ without starting a review" path) is `pending=false` from the start,
 | `GET /{owner}/{repo}/pulls/{n}.patch`                             | Public read  |
 
 The settings/branches handler now also accepts
-`required_review_count` and `dismiss_stale_reviews_on_push`.
+`required_review_count`, `dismiss_stale_reviews_on_push`, and
+`require_code_owner_review`.
 
 The PR template hides review-request, review-submit, inline-comment,
 and thread-resolve controls unless `policy.Can(pull:review)` allows
@@ -108,8 +111,12 @@ gate. It:
    for the PR's `base_ref`.
 2. Counts approves per author (latest review per author wins).
 3. Counts undismissed `request_changes` reviews.
-4. Returns `Satisfied=true` iff `approves >= required_review_count`
-   AND no undismissed request_changes.
+4. If the rule requires code-owner review, loads CODEOWNERS from the
+   PR base commit, resolves matching file owners, and verifies each
+   owned changed path has at least one valid owner approval.
+5. Returns `Satisfied=true` iff `approves >= required_review_count`,
+   no undismissed request_changes exists, and all required code-owner
+   approvals are satisfied.
 
 PR-author approvals are **excluded** from the count.
 
@@ -138,12 +145,45 @@ in the review form template — server check is authoritative.
 
 ## Reviewer requests
 
-Capped at 20 active reviewers per PR (`MaxReviewersPerPR`). Already-
-pending reviewer hits `ErrReviewerAlreadyPending` instead of
-producing a duplicate row. Submitting an `approve` or
-`request_changes` review by a requested reviewer satisfies their
-request (`satisfied_by_review_id` is set inside the submit tx); a
-plain `comment` review does **not** satisfy, matching GitHub.
+Capped at 20 active reviewer targets per PR (`MaxReviewersPerPR`).
+Requests can target a user or an organization team. Already-pending
+targets hit `ErrReviewerAlreadyPending` instead of producing a
+duplicate row. Submitting an `approve` or `request_changes` review by
+a requested user satisfies their request (`satisfied_by_review_id` is
+set inside the submit tx); a plain `comment` review does **not**
+satisfy, matching GitHub.
+
+Team requests are satisfied when any current member of the requested
+team submits `approve` or `request_changes`. HTML reviewer entry
+accepts `@org/team` or `org/team` for organization-owned repos; the
+REST API accepts `team_slug` or `team_id`. User-targeted review
+requests still emit the existing user notification; team notification
+fan-out remains a later notifications task.
+
+## CODEOWNERS
+
+`internal/repos/codeowners` implements the GitHub-compatible subset
+used by SP19:
+
+- Searched in order on the PR base commit:
+  `.github/CODEOWNERS`, `CODEOWNERS`, then `docs/CODEOWNERS`.
+- The file is capped at 3 MiB.
+- Later matching patterns override earlier matching patterns.
+- Empty-owner patterns clear ownership for matching paths.
+- `@user` owners resolve to users with effective write access to the
+  repository.
+- `@org/team` owners resolve only when the repository is owned by that
+  organization and the team has explicit `write`, `maintain`, or
+  `admin` access to the repository.
+- Email owners are parsed but not resolvable to review targets yet.
+
+On PR create and synchronize, `internal/pulls` best-effort requests
+valid matching code owners. Public repositories can use this on Free.
+Private repositories require the local `codeowners_review` entitlement:
+Team for organizations or Pro for personal repositories. Downgrades
+preserve existing branch rules and requests, but settings writes that
+expand private-repo CODEOWNERS review requirements are blocked until
+billing is restored.
 
 ## Resolved threads
 
@@ -173,6 +213,10 @@ when notifications ship; the trigger points are already in place.
 | `…::TwoApprovers_UnblockMerge`                    | `required_review_count=2` satisfied by two distinct authors    |
 | `…::ResolveAndReopen`                             | Resolve flips `resolved_at`; double-resolve errors; reopen clears |
 | `…::Dismiss_ClearsBlock`                          | Dismissing a `request_changes` re-clears mergeable_state       |
+| `…::TestSubmit_SatisfiesTeamReviewRequest`        | Team request is satisfied by a member's blocking/approval review |
+| `internal/pulls/pulls_test.go::TestCreate_RequestsCodeOwners` | CODEOWNERS user owners are auto-requested on PR create |
+| `…::TestCreate_RequestsTeamCodeOwners`            | CODEOWNERS team owners are auto-requested on PR create |
+| `…::TestMergeability_CodeOwnerReviewRequired`     | Branch rule blocks until matching code owner approves |
 
 ## Pitfalls handled
 
@@ -195,8 +239,6 @@ when notifications ship; the trigger points are already in place.
 
 ## Deferred
 
-- **CODEOWNERS-driven required reviewers** → post-MVP. Column
-  exists; parser + UI follow.
 - **Auto-dismiss-stale-reviews on synchronize** → post-MVP. Column
   exists; default off matches GitHub.
 - **Multi-line comment ranges** → post-MVP.
@@ -204,7 +246,6 @@ when notifications ship; the trigger points are already in place.
   code today.
 - **Cross-fork (S27) reviews** — comments anchor on the head repo's
   OID; cross-repo lookup gap closes when forks land.
-- **`@team` review requests** → S31. Column already in place.
 - **Position mapping via blame for rebase-heavy PRs** → follow-up.
   Current line-presence mapper is the floor.
 - **Notification fan-out** → S29 consumes the events S23 emits.
