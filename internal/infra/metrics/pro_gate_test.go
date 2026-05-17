@@ -91,6 +91,38 @@ func TestProGateTotal_ProUserDecisionRecordsAllowOutcome(t *testing.T) {
 	}
 }
 
+// TestProGateTotal_EveryUserFeatureBumpsCounter sweeps every
+// user-applicable Feature constant and asserts the gate counter
+// advances. PRO-EXT_SR2-14: pre-fix only FeatureUserActionsSecrets
+// was covered, so a regression that detached the observer hook for
+// a subset of features would soak silently. The sweep catches that.
+func TestProGateTotal_EveryUserFeatureBumpsCounter(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	u, err := usersdb.New().CreateUser(context.Background(), pool, usersdb.CreateUserParams{
+		Username: "gate-sweep-free", DisplayName: "gate-sweep-free", PasswordHash: proGateFixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	features := entitlements.FeaturesForKind(billing.SubjectKindUser)
+	if len(features) == 0 {
+		t.Fatal("FeaturesForKind(user) returned no features — registry empty?")
+	}
+	for _, f := range features {
+		f := f
+		t.Run(string(f), func(t *testing.T) {
+			before := readGateCounter(t, string(f), "user", "deny")
+			if _, err := entitlements.CheckPrincipalFeature(context.Background(),
+				entitlements.Deps{Pool: pool}, billing.PrincipalForUser(u.ID), f); err != nil {
+				t.Fatalf("CheckPrincipalFeature(%s): %v", f, err)
+			}
+			if after := readGateCounter(t, string(f), "user", "deny"); after-before < 1 {
+				t.Errorf("deny counter did not advance for %s: before=%v after=%v", f, before, after)
+			}
+		})
+	}
+}
+
 func readGateCounter(t *testing.T, feature, kind, outcome string) float64 {
 	t.Helper()
 	c, err := metrics.ProGateTotal.GetMetricWithLabelValues(feature, kind, outcome)
