@@ -28,7 +28,7 @@
         {{ if .PR.MergedAt.Valid }}
           <span class="shithub-pill shithub-pull-merged">{{ octicon "git-merge" }} Merged</span>
           <span>
-            {{ if .MergedByName }}<a href="/{{ .MergedByName }}">{{ .MergedByName }}</a>{{ else if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+            {{ if .MergedByName }}<a href="/{{ .MergedByName }}">{{ .MergedByName }}</a>{{ template "pro-badge" (index $.ProUsernames .MergedByName) }}{{ else if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
             merged {{ .PullStats.Commits }} commit{{ if ne .PullStats.Commits 1 }}s{{ end }} into
             <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.BaseRef }}">{{ .PR.BaseRef }}</a>
             from
@@ -37,7 +37,7 @@
         {{ else if eq (printf "%s" .PR.IState) "open" }}
           <span class="shithub-pill shithub-issues-state-open">{{ octicon "git-pull-request" }} {{ if .PR.Draft }}Draft{{ else }}Open{{ end }}</span>
           <span>
-            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
             wants to merge {{ .PullStats.Commits }} commit{{ if ne .PullStats.Commits 1 }}s{{ end }} into
             <a class="shithub-branch-name" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.BaseRef }}">{{ .PR.BaseRef }}</a>
             from
@@ -47,7 +47,7 @@
         {{ else }}
           <span class="shithub-pill shithub-issues-state-closed">{{ octicon "issue-closed" }} Closed</span>
           <span>
-            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
             closed this pull request
           </span>
         {{ end }}
@@ -82,7 +82,7 @@
         <article class="shithub-issue-thread shithub-pull-thread">
           <div class="shithub-comment shithub-issue-body-comment">
             <div class="shithub-comment-head">
-              {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+              {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
               commented
               <time datetime="{{ .PR.ICreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .PR.ICreatedAt.Time }}</time>
             </div>
@@ -95,7 +95,7 @@
             {{ if eq .Type "comment" }}
             <div class="shithub-comment">
               <div class="shithub-comment-head">
-                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
                 commented
                 <time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt }}</time>
               </div>
@@ -117,7 +117,7 @@
                 {{ else }}{{ octicon "comment" }}{{ end }}
               </span>
               <span class="shithub-event-text">
-                {{ if .ActorName }}<a href="/{{ .ActorName }}">{{ .ActorName }}</a>{{ else }}Someone{{ end }}
+                {{ if .ActorName }}<a href="/{{ .ActorName }}">{{ .ActorName }}</a>{{ template "pro-badge" (index $.ProUsernames .ActorName) }}{{ else }}Someone{{ end }}
                 {{ if eq .E.Kind "merged" }}
                   merged commit
                   {{ if .CommitSHA }}<a class="shithub-mono-link" href="/{{ $.Owner }}/{{ $.Repo.Name }}/commit/{{ .CommitSHA }}">{{ .ShortCommit }}</a>{{ end }}
@@ -400,7 +400,7 @@
                 {{ range .ReviewRequests }}
                   {{ if not .R.DismissedAt.Valid }}
                   <li>
-                    <a href="/{{ .Username }}">@{{ .Username }}</a>
+                    <a href="/{{ .Username }}">@{{ .Username }}</a>{{ template "pro-badge" (index $.ProUsernames .Username) }}
                     {{ if .R.SatisfiedByReviewID.Valid }}<small>reviewed</small>{{ else }}<small>pending</small>{{ end }}
                   </li>
                   {{ end }}
@@ -416,7 +416,7 @@
                   <span class="shithub-pull-review-state">
                     {{ if eq (printf "%s" .R.State) "approve" }}✓ approved{{ else if eq (printf "%s" .R.State) "request_changes" }}✗ changes requested{{ else }}● commented{{ end }}
                   </span>
-                  {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+                  {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
                 </li>
                 {{ end }}
               </ul>
@@ -459,7 +459,7 @@
               {{ end }}
             </div>
             {{ if .Assignees }}
-              {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ end }}
+              {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ template "pro-badge" (index $.ProUsernames .Username) }}{{ end }}
             {{ else }}
               <p class="shithub-muted">No one</p>
               {{ if and .CanEditIssueAssignees .Viewer.ID }}
@@ -548,7 +548,7 @@
           <section>
             <h3>{{ len .Participants }} participant{{ if ne (len .Participants) 1 }}s{{ end }}</h3>
             {{ if .Participants }}
-              {{ range .Participants }}<a href="/{{ . }}" class="shithub-participant">@{{ . }}</a>{{ end }}
+              {{ range .Participants }}<a href="/{{ . }}" class="shithub-participant">@{{ . }}</a>{{ template "pro-badge" (index $.ProUsernames .) }}{{ end }}
             {{ else }}<p class="shithub-muted">None yet</p>{{ end }}
           </section>
 

@@ -16,7 +16,7 @@
         <span class="shithub-pill shithub-issues-state-{{ printf "%s" .Issue.State }}">
           {{ if eq (printf "%s" .Issue.State) "open" }}{{ octicon "issue-opened" }} Open{{ else }}{{ octicon "issue-closed" }} Closed{{ end }}
         </span>
-        {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+        {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
         opened this issue
         <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
         · {{ .CommentCount }} comment{{ if ne .CommentCount 1 }}s{{ end }}
@@ -28,7 +28,7 @@
     <article class="shithub-issue-thread">
       <div class="shithub-comment shithub-issue-body-comment">
         <div class="shithub-comment-head">
-          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
           opened
           <time datetime="{{ .Issue.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Issue.CreatedAt.Time }}</time>
         </div>
@@ -41,7 +41,7 @@
         {{ if eq .Type "comment" }}
         <div class="shithub-comment">
           <div class="shithub-comment-head">
-            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+            {{ if .AuthorName }}<a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ template "pro-badge" (index $.ProUsernames .AuthorName) }}{{ end }}
             commented
             <time datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt }}</time>
           </div>
@@ -62,7 +62,7 @@
             {{ else }}{{ octicon "comment" }}{{ end }}
           </span>
           <span>
-            {{ if .ActorName }}<a href="/{{ .ActorName }}">{{ .ActorName }}</a>{{ else }}Someone{{ end }}
+            {{ if .ActorName }}<a href="/{{ .ActorName }}">{{ .ActorName }}</a>{{ template "pro-badge" (index $.ProUsernames .ActorName) }}{{ else }}Someone{{ end }}
             {{ if .LabelName }}
               {{ if eq .E.Kind "labeled" }}added the{{ else }}removed the{{ end }}
               <span class="shithub-label" style="background-color: #{{ .LabelColor }}">{{ .LabelName }}</span>
@@ -132,7 +132,7 @@
           {{ end }}
         </div>
         {{ if .Assignees }}
-          {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ end }}
+          {{ range .Assignees }}<a href="/{{ .Username }}">@{{ .Username }}</a>{{ template "pro-badge" (index $.ProUsernames .Username) }}{{ end }}
         {{ else }}
           <p class="shithub-muted">No one</p>
           {{ if and .CanEditIssueAssignees .Viewer.ID }}
@@ -227,7 +227,7 @@
       <section>
         <h3>Participants</h3>
         {{ if .Participants }}
-          {{ range .Participants }}<a href="/{{ . }}" class="shithub-participant">@{{ . }}</a>{{ end }}
+          {{ range .Participants }}<a href="/{{ . }}" class="shithub-participant">@{{ . }}</a>{{ template "pro-badge" (index $.ProUsernames .) }}{{ end }}
         {{ else }}<p class="shithub-muted">None yet</p>{{ end }}
       </section>
 
