@@ -473,7 +473,32 @@ func CheckPrincipalFeature(ctx context.Context, deps Deps, p billing.Principal, 
 	if err != nil {
 		return Decision{}, err
 	}
-	return set.CanUse(feature), nil
+	decision := set.CanUse(feature)
+	if observeGate != nil {
+		outcome := "deny"
+		if decision.Allowed {
+			outcome = "allow"
+		}
+		observeGate(string(feature), string(p.Kind), outcome)
+	}
+	return decision, nil
+}
+
+// observeGate is the package-level hook the metrics layer installs at
+// startup via SetObserveGate. We keep the dependency direction
+// metrics → entitlements (the existing direction); a counter living
+// in metrics fires through this hook without entitlements ever
+// importing the metrics package back.
+//
+// PRO-EXT01-17: the hook is the wiring point for
+// shithub_pro_gate_total{feature,kind,outcome}.
+var observeGate func(feature, kind, outcome string)
+
+// SetObserveGate installs the observation hook called by every
+// CheckPrincipalFeature. Pass nil to detach (mainly useful in tests).
+// Idempotent; the last writer wins.
+func SetObserveGate(fn func(feature, kind, outcome string)) {
+	observeGate = fn
 }
 
 // CanUse evaluates `feature` against the carried Principal's
