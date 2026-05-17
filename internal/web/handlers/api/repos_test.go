@@ -400,6 +400,41 @@ func TestRepos_PatchDescriptionAndVisibility(t *testing.T) {
 	}
 }
 
+// TestRepos_PatchRejectsRename is the C7 regression: PATCH /repos
+// with a {"name": "..."} field used to be silently dropped (Go's
+// default JSON decoder discards unknown fields). The CLI took the
+// 200 + unchanged repo response as success, rendered "Renamed to
+// <OLD name>", and (worse) overwrote the local git origin to point
+// at the renamed-to URL — see CX2 on the CLI side. Until rename is
+// implemented server-side, refuse with a clear 422.
+func TestRepos_PatchRejectsRename(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	patch, _ := json.Marshal(map[string]any{"name": "renamed"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "renaming via REST is not yet supported") {
+		t.Errorf("error message should explain the restriction; got %s", rr.Body.String())
+	}
+}
+
 func TestRepos_PatchRejectsNonOwner(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	router, _ := newReposAPIRouter(t, pool)
