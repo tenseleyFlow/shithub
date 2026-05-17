@@ -12,14 +12,24 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/devicecode"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 // MountDeviceCodeAPI registers the RFC 8628 JSON endpoints. Caller is
 // responsible for placing r inside a CSRF-exempt group — these are
 // non-browser endpoints invoked by CLI / native clients.
+//
+// Each route gets its own per-IP rate-limit bucket (see
+// middleware/oauthratelimit.go). The buckets are independent: 5/min on
+// /login/device/code (every accepted request creates a DB row) and
+// 50/min on /login/oauth/access_token (canonical poll cadence is
+// 12/min, 50 leaves headroom for retries). When the underlying
+// limiter is nil (test wiring), the middleware no-ops.
 func (h *Handlers) MountDeviceCodeAPI(r chi.Router) {
-	r.Post("/login/device/code", h.deviceCodeIssue)
-	r.Post("/login/oauth/access_token", h.deviceCodeExchange)
+	issueLimit := middleware.OAuthRateLimit(h.d.RateLimiter, middleware.OAuthDeviceCodePolicy, h.d.Logger)
+	exchangeLimit := middleware.OAuthRateLimit(h.d.RateLimiter, middleware.OAuthAccessTokenPolicy, h.d.Logger)
+	r.With(issueLimit).Post("/login/device/code", h.deviceCodeIssue)
+	r.With(exchangeLimit).Post("/login/oauth/access_token", h.deviceCodeExchange)
 }
 
 type deviceCodeIssueResponse struct {
