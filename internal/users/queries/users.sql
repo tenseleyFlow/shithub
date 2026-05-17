@@ -10,6 +10,15 @@ SELECT *
 FROM users
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: ListUsersByIDs :many
+-- Batch lookup for participant rendering on issue/PR views and other
+-- multi-user surfaces. Empty / NULL entries in the input array are
+-- silently filtered. PRO-EXT_SR2-12 (audit H5).
+SELECT *
+FROM users
+WHERE deleted_at IS NULL
+  AND id = ANY($1::bigint[]);
+
 -- name: GetUserByUsername :one
 SELECT *
 FROM users
