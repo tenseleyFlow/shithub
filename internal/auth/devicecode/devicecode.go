@@ -212,6 +212,12 @@ func Exchange(ctx context.Context, deps Deps, clientID, rawDeviceCode, tokenName
 		return ExchangeResult{}, ErrInvalidGrant
 	}
 	q := usersdb.New()
+
+	// Pre-checks run without a lock: they're read-only state queries
+	// and the races they tolerate (e.g. two simultaneous fast-polls
+	// both racing slow_down) are explicitly allowed by RFC 8628. The
+	// only race we MUST close is the post-approval mint race, handled
+	// by the FOR UPDATE block below.
 	row, dbErr := q.GetDeviceAuthorizationByCodeHash(ctx, deps.Pool, hash)
 	if dbErr != nil {
 		return ExchangeResult{}, ErrInvalidGrant
@@ -239,14 +245,37 @@ func Exchange(ctx context.Context, deps Deps, clientID, rawDeviceCode, tokenName
 		return ExchangeResult{}, ErrAuthorizationPending
 	}
 	if row.IssuedTokenID.Valid {
-		// One-shot disclosure already happened. The CLI either lost
-		// the previous response or someone is replaying the grant.
+		// Cheap fast-path: a previous Exchange already minted on this
+		// grant, no need to take a write lock to confirm.
 		return ExchangeResult{}, ErrInvalidGrant
 	}
 	if !row.UserID.Valid {
-		// Approved row without a user_id is a corrupted state — the
-		// approval path always sets both atomically. Surface as
-		// invalid_grant.
+		return ExchangeResult{}, ErrInvalidGrant
+	}
+
+	// Hot path: this looks like the first Exchange after approval.
+	// Wrap mint+insert+stamp in a TX with SELECT FOR UPDATE so two
+	// concurrent first-polls serialize at the DB — exactly one mints
+	// the PAT, the other re-reads issued_token_id under the lock and
+	// returns invalid_grant. Also closes the orphan-token bug where a
+	// process death between InsertUserToken and the stamp would leave
+	// a stranded PAT row.
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return ExchangeResult{}, fmt.Errorf("devicecode: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	locked, err := q.GetDeviceAuthorizationByCodeHashForUpdate(ctx, tx, hash)
+	if err != nil {
+		return ExchangeResult{}, fmt.Errorf("devicecode: lock grant: %w", err)
+	}
+	if locked.IssuedTokenID.Valid {
+		// A concurrent Exchange landed the mint before us; one-shot
+		// disclosure preserved.
+		return ExchangeResult{}, ErrInvalidGrant
+	}
+	if !locked.UserID.Valid {
 		return ExchangeResult{}, ErrInvalidGrant
 	}
 
@@ -254,32 +283,31 @@ func Exchange(ctx context.Context, deps Deps, clientID, rawDeviceCode, tokenName
 	if err != nil {
 		return ExchangeResult{}, fmt.Errorf("devicecode: mint pat: %w", err)
 	}
-	tok, err := q.InsertUserToken(ctx, deps.Pool, usersdb.InsertUserTokenParams{
-		UserID:      row.UserID.Int64,
+	tok, err := q.InsertUserToken(ctx, tx, usersdb.InsertUserTokenParams{
+		UserID:      locked.UserID.Int64,
 		Name:        tokenName,
 		TokenHash:   hashBytes,
 		TokenPrefix: prefix,
-		Scopes:      row.Scopes,
+		Scopes:      locked.Scopes,
 		ExpiresAt:   pgtype.Timestamptz{},
 	})
 	if err != nil {
 		return ExchangeResult{}, fmt.Errorf("devicecode: insert token: %w", err)
 	}
-
-	// Stamp the issued token id back onto the row so the next
-	// Exchange poll sees the one-shot lockout. Re-running Approve at
-	// the SQL layer would clear approved_at; we use a dedicated raw
-	// UPDATE here to keep the semantics tight.
-	if _, err := deps.Pool.Exec(ctx, `
-		UPDATE device_authorizations SET issued_token_id = $2 WHERE id = $1
-	`, row.ID, tok.ID); err != nil {
+	if err := q.StampIssuedTokenID(ctx, tx, usersdb.StampIssuedTokenIDParams{
+		ID:            locked.ID,
+		IssuedTokenID: pgtype.Int8{Int64: tok.ID, Valid: true},
+	}); err != nil {
 		return ExchangeResult{}, fmt.Errorf("devicecode: stamp token: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ExchangeResult{}, fmt.Errorf("devicecode: commit tx: %w", err)
 	}
 
 	return ExchangeResult{
 		AccessToken: raw,
 		TokenType:   "bearer",
-		Scopes:      row.Scopes,
+		Scopes:      locked.Scopes,
 	}, nil
 }
 
