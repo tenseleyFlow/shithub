@@ -92,6 +92,40 @@ func (q *Queries) GetDeviceAuthorizationByCodeHash(ctx context.Context, db DBTX,
 	return i, err
 }
 
+const getDeviceAuthorizationByCodeHashForUpdate = `-- name: GetDeviceAuthorizationByCodeHashForUpdate :one
+SELECT id, device_code_hash, user_code, client_id, scopes, user_id,
+       approved_at, denied_at, issued_token_id, interval_seconds,
+       expires_at, last_polled_at, created_at
+FROM device_authorizations
+WHERE device_code_hash = $1
+FOR UPDATE
+`
+
+// Same SELECT body, but with FOR UPDATE so concurrent Exchange polls on
+// the same device_code serialize. Used by the Exchange path inside its
+// transaction; the non-FOR-UPDATE variant stays for read-only lookups
+// (e.g. the HTML consent page).
+func (q *Queries) GetDeviceAuthorizationByCodeHashForUpdate(ctx context.Context, db DBTX, deviceCodeHash []byte) (DeviceAuthorization, error) {
+	row := db.QueryRow(ctx, getDeviceAuthorizationByCodeHashForUpdate, deviceCodeHash)
+	var i DeviceAuthorization
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceCodeHash,
+		&i.UserCode,
+		&i.ClientID,
+		&i.Scopes,
+		&i.UserID,
+		&i.ApprovedAt,
+		&i.DeniedAt,
+		&i.IssuedTokenID,
+		&i.IntervalSeconds,
+		&i.ExpiresAt,
+		&i.LastPolledAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getDeviceAuthorizationByUserCode = `-- name: GetDeviceAuthorizationByUserCode :one
 SELECT id, device_code_hash, user_code, client_id, scopes, user_id,
        approved_at, denied_at, issued_token_id, interval_seconds,
@@ -171,6 +205,27 @@ func (q *Queries) InsertDeviceAuthorization(ctx context.Context, db DBTX, arg In
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const stampIssuedTokenID = `-- name: StampIssuedTokenID :exec
+UPDATE device_authorizations
+SET issued_token_id = $2
+WHERE id = $1
+`
+
+type StampIssuedTokenIDParams struct {
+	ID            int64
+	IssuedTokenID pgtype.Int8
+}
+
+// Records the user_tokens.id minted by Exchange against the grant row.
+// Runs inside the Exchange transaction so the PAT insert and this stamp
+// commit atomically — no orphan PATs if the process dies mid-Exchange,
+// no double-mint if two polls land concurrently (the FOR UPDATE in
+// GetDeviceAuthorizationByCodeHashForUpdate serializes them).
+func (q *Queries) StampIssuedTokenID(ctx context.Context, db DBTX, arg StampIssuedTokenIDParams) error {
+	_, err := db.Exec(ctx, stampIssuedTokenID, arg.ID, arg.IssuedTokenID)
+	return err
 }
 
 const touchDeviceAuthorizationPoll = `-- name: TouchDeviceAuthorizationPoll :exec
