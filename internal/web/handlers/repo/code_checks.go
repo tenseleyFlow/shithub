@@ -148,7 +148,7 @@ func checkSummaryLabel(count, total int, state string) string {
 
 func codeCheckSummaryHref(owner, repoName string, runs []checksdb.CheckRun) string {
 	for _, run := range runs {
-		if href := strings.TrimSpace(run.DetailsUrl); safeLocalPath(href) {
+		if href := sameRepoLocalDetailsHref(owner, repoName, run.DetailsUrl); href != "" {
 			return href
 		}
 	}

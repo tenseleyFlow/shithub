@@ -19,6 +19,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/billing"
+	checksdomain "github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
@@ -27,6 +28,7 @@ import (
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
+	"github.com/tenseleyFlow/shithub/internal/repos/protection"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/social"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -42,17 +44,32 @@ type pullPageStats struct {
 	PendingChecks    int
 	FailedChecks     int
 	CheckState       string
+	CheckSummary     codeCommitCheckSummary
 }
 
 type pullCheckRunView struct {
 	R           checksdb.CheckRun
 	SummaryHTML template.HTML
 	AppSlug     string
+	DetailsHref string
+	RerunHref   string
+	CanRerun    bool
+	StateClass  string
+	StateIcon   string
 }
 
 type pullCheckSuiteView struct {
 	Suite checksdb.CheckSuite
 	Runs  []pullCheckRunView
+}
+
+type pullRequiredChecksView struct {
+	HasRequired bool
+	Names       []string
+	Missing     []string
+	Satisfied   bool
+	Reason      string
+	Error       string
 }
 
 type pullFileView struct {
@@ -153,10 +170,16 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	type listItem struct {
 		Row        pullsdb.ListPullRequestsByRepoRow
 		AuthorName string
+		Checks     codeCommitCheckSummary
 	}
+	headSHAs := make([]string, 0, len(rows))
+	for _, lr := range rows {
+		headSHAs = append(headSHAs, lr.HeadOid)
+	}
+	checkSummaries := h.codeCommitCheckSummaries(r.Context(), owner.Username, row.Name, row.ID, headSHAs)
 	items := make([]listItem, 0, len(rows))
 	for _, lr := range rows {
-		it := listItem{Row: lr}
+		it := listItem{Row: lr, Checks: checkSummaries[lr.HeadOid]}
 		if lr.AuthorUserID.Valid {
 			if u, err := h.uq.GetUserByID(r.Context(), h.d.Pool, lr.AuthorUserID.Int64); err == nil {
 				it.AuthorName = u.Username
@@ -411,6 +434,7 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	canMergePull := policy.Can(r.Context(), pdeps, actor, policy.ActionPullMerge, repoRef).Allow
 	canSetPullState := policy.Can(r.Context(), pdeps, actor, policy.ActionPullClose, stateRef).Allow
 	canReadyPull := policy.Can(r.Context(), pdeps, actor, policy.ActionPullCreate, repoRef).Allow
+	canRerunChecks := policy.Can(r.Context(), pdeps, actor, policy.ActionRepoWrite, repoRef).Allow
 	headOwner := owner.Username
 	if pr.HeadRepoID != 0 {
 		if headRepo, err := h.rq.GetRepoOwnerUsernameByID(r.Context(), h.d.Pool, pr.HeadRepoID); err == nil {
@@ -431,8 +455,9 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	if defaultMethod == "" {
 		defaultMethod = "merge"
 	}
-	checkGroups := h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid)
-	stats := h.pullStats(r.Context(), pr, checkGroups)
+	checkGroups := h.pullCheckGroups(r.Context(), owner.Username, row.Name, row.ID, pr.HeadOid, canRerunChecks)
+	stats := h.pullStats(r.Context(), pr, owner.Username, row.Name, checkGroups)
+	requiredChecks := h.pullRequiredChecksView(r.Context(), row.ID, pr.BaseRef, pr.HeadOid)
 	data := map[string]any{
 		"Title":                 "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
 		"Owner":                 owner.Username,
@@ -443,6 +468,7 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		"Tab":                   tab,
 		"PullStats":             stats,
 		"CheckGroups":           checkGroups,
+		"RequiredChecks":        requiredChecks,
 		"CSRFToken":             middleware.CSRFTokenForRequest(r),
 		"RepoActions":           h.repoActions(r, row.ID),
 		"RepoCounts":            h.subnavCounts(r.Context(), row.ID, row.ForkCount),
@@ -502,7 +528,7 @@ func (h *Handlers) mergeAuthorLine(ctx context.Context, viewer middleware.Curren
 	return "This commit will be authored by " + email + "."
 }
 
-func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRepoAndNumberRow, checkGroups []pullCheckSuiteView) pullPageStats {
+func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRepoAndNumberRow, owner, repoName string, checkGroups []pullCheckSuiteView) pullPageStats {
 	stats := pullPageStats{CheckState: "none"}
 	if comments, err := h.iq.ListIssueComments(ctx, h.d.Pool, pr.IID); err == nil {
 		stats.Comments = len(comments)
@@ -513,22 +539,21 @@ func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRep
 	if files, err := h.pq.ListPullRequestFiles(ctx, h.d.Pool, pr.IID); err == nil {
 		stats.Files = len(files)
 	}
-	for _, group := range checkGroups {
-		for _, run := range group.Runs {
-			stats.Checks++
-			if run.R.Conclusion.Valid {
-				switch run.R.Conclusion.CheckConclusion {
-				case checksdb.CheckConclusionSuccess, checksdb.CheckConclusionSkipped, checksdb.CheckConclusionNeutral:
-					stats.SuccessfulChecks++
-				case checksdb.CheckConclusionFailure, checksdb.CheckConclusionCancelled, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired, checksdb.CheckConclusionStale:
-					stats.FailedChecks++
-				default:
-					stats.PendingChecks++
-				}
-				continue
+	latestRuns := latestPullCheckRuns(checkGroups)
+	for _, run := range latestRuns {
+		stats.Checks++
+		if run.Conclusion.Valid {
+			switch run.Conclusion.CheckConclusion {
+			case checksdb.CheckConclusionSuccess, checksdb.CheckConclusionSkipped, checksdb.CheckConclusionNeutral:
+				stats.SuccessfulChecks++
+			case checksdb.CheckConclusionFailure, checksdb.CheckConclusionCancelled, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired, checksdb.CheckConclusionStale:
+				stats.FailedChecks++
+			default:
+				stats.PendingChecks++
 			}
-			stats.PendingChecks++
+			continue
 		}
+		stats.PendingChecks++
 	}
 	switch {
 	case stats.Checks == 0:
@@ -540,10 +565,41 @@ func (h *Handlers) pullStats(ctx context.Context, pr pullsdb.GetPullRequestByRep
 	default:
 		stats.CheckState = "success"
 	}
+	stats.CheckSummary = summarizeCodeCommitChecks(latestRuns)
+	if stats.CheckSummary.Show {
+		stats.CheckSummary.Href = codeCheckSummaryHref(owner, repoName, latestRuns)
+	}
 	return stats
 }
 
-func (h *Handlers) pullCheckGroups(ctx context.Context, repoID int64, headOID string) []pullCheckSuiteView {
+func latestPullCheckRuns(checkGroups []pullCheckSuiteView) []checksdb.CheckRun {
+	byName := map[string]checksdb.CheckRun{}
+	for _, group := range checkGroups {
+		for _, run := range group.Runs {
+			cur, ok := byName[run.R.Name]
+			if !ok || checkRunNewer(run.R, cur) {
+				byName[run.R.Name] = run.R
+			}
+		}
+	}
+	out := make([]checksdb.CheckRun, 0, len(byName))
+	for _, run := range byName {
+		out = append(out, run)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func checkRunNewer(a, b checksdb.CheckRun) bool {
+	if a.CreatedAt.Valid && b.CreatedAt.Valid && !a.CreatedAt.Time.Equal(b.CreatedAt.Time) {
+		return a.CreatedAt.Time.After(b.CreatedAt.Time)
+	}
+	return a.ID > b.ID
+}
+
+func (h *Handlers) pullCheckGroups(ctx context.Context, owner, repoName string, repoID int64, headOID string, canRerun bool) []pullCheckSuiteView {
 	groups := []pullCheckSuiteView{}
 	if headOID == "" {
 		return groups
@@ -555,15 +611,94 @@ func (h *Handlers) pullCheckGroups(ctx context.Context, repoID int64, headOID st
 		runs, _ := h.cq.ListCheckRunsBySuite(ctx, h.d.Pool, suite.ID)
 		rs := make([]pullCheckRunView, 0, len(runs))
 		for _, run := range runs {
+			detailsHref := sameRepoLocalDetailsHref(owner, repoName, run.DetailsUrl)
+			rerunHref, isActionsRun := localActionsRunRerunHref(owner, repoName, run.DetailsUrl)
+			isShithubActions := suite.AppSlug == "shithub-actions"
 			rs = append(rs, pullCheckRunView{
 				R:           run,
 				SummaryHTML: renderCheckSummary(run.Output),
 				AppSlug:     suite.AppSlug,
+				DetailsHref: detailsHref,
+				RerunHref:   rerunHref,
+				CanRerun:    canRerun && isShithubActions && isActionsRun && run.Status == checksdb.CheckStatusCompleted,
+				StateClass:  pullCheckRunStateClass(run),
+				StateIcon:   pullCheckRunStateIcon(run),
 			})
 		}
 		groups = append(groups, pullCheckSuiteView{Suite: suite, Runs: rs})
 	}
 	return groups
+}
+
+func pullCheckRunStateClass(run checksdb.CheckRun) string {
+	if run.Status != checksdb.CheckStatusCompleted || !run.Conclusion.Valid {
+		return "pending"
+	}
+	switch run.Conclusion.CheckConclusion {
+	case checksdb.CheckConclusionSuccess:
+		return "success"
+	case checksdb.CheckConclusionFailure, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired:
+		return "failure"
+	case checksdb.CheckConclusionCancelled:
+		return "cancelled"
+	case checksdb.CheckConclusionSkipped:
+		return "skipped"
+	case checksdb.CheckConclusionNeutral, checksdb.CheckConclusionStale:
+		return "neutral"
+	default:
+		return "neutral"
+	}
+}
+
+func pullCheckRunStateIcon(run checksdb.CheckRun) string {
+	if run.Status != checksdb.CheckStatusCompleted || !run.Conclusion.Valid {
+		return "dot-fill"
+	}
+	switch run.Conclusion.CheckConclusion {
+	case checksdb.CheckConclusionSuccess:
+		return "check-circle"
+	case checksdb.CheckConclusionFailure, checksdb.CheckConclusionTimedOut, checksdb.CheckConclusionActionRequired:
+		return "x-circle"
+	case checksdb.CheckConclusionCancelled:
+		return "stop"
+	case checksdb.CheckConclusionSkipped:
+		return "dash"
+	default:
+		return "dot-fill"
+	}
+}
+
+func (h *Handlers) pullRequiredChecksView(ctx context.Context, repoID int64, baseRef, headOID string) pullRequiredChecksView {
+	rules, err := h.rq.ListBranchProtectionRules(ctx, h.d.Pool, repoID)
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "pulls: ListBranchProtectionRules", "repo_id", repoID, "error", err)
+		return pullRequiredChecksView{Error: "Required check rules could not be loaded."}
+	}
+	rule, ok := protection.MatchLongestRule(rules, baseRef)
+	if !ok || len(rule.StatusChecksRequired) == 0 {
+		return pullRequiredChecksView{Satisfied: true}
+	}
+	names := append([]string(nil), rule.StatusChecksRequired...)
+	result, err := checksdomain.EvaluateRequiredChecks(ctx, h.d.Pool, checksdomain.GateInputs{
+		RepoID:        repoID,
+		HeadSHA:       headOID,
+		RequiredNames: names,
+	})
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "pulls: EvaluateRequiredChecks", "repo_id", repoID, "head_sha", headOID, "error", err)
+		return pullRequiredChecksView{
+			HasRequired: true,
+			Names:       names,
+			Error:       "Required checks could not be evaluated.",
+		}
+	}
+	return pullRequiredChecksView{
+		HasRequired: true,
+		Names:       names,
+		Missing:     append([]string(nil), result.Missing...),
+		Satisfied:   result.Satisfied,
+		Reason:      result.Reason,
+	}
 }
 
 // pullView renders the Conversation tab.
@@ -923,17 +1058,7 @@ func (h *Handlers) pullRawDiff(w http.ResponseWriter, r *http.Request) {
 // suite for the PR's head_oid, plus the markdown-rendered output.summary
 // for each run.
 func (h *Handlers) pullChecks(w http.ResponseWriter, r *http.Request) {
-	row, _, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullRead)
-	if !ok {
-		return
-	}
-	pr, ok := h.loadPullByNumber(w, r, row.ID)
-	if !ok {
-		return
-	}
-	h.renderPullPage(w, r, "checks", map[string]any{
-		"CheckGroups": h.pullCheckGroups(r.Context(), row.ID, pr.HeadOid),
-	})
+	h.renderPullPage(w, r, "checks", nil)
 }
 
 // renderCheckSummary parses the JSON `output` blob and renders the

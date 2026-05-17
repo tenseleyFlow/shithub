@@ -20,6 +20,11 @@
               <span class="shithub-button shithub-pull-head-status">{{ octicon "dot-fill" }} Checking</span>
             {{ end }}
           {{ end }}
+          {{ if .PullStats.CheckSummary.Show }}
+            <a class="shithub-button shithub-pull-head-check shithub-actions-state-{{ .PullStats.CheckSummary.StateClass }}" href="{{ .PullStats.CheckSummary.Href }}" aria-label="{{ .PullStats.CheckSummary.Label }}">
+              {{ octicon .PullStats.CheckSummary.StateIcon }} {{ .PullStats.CheckSummary.Label }}
+            </a>
+          {{ end }}
           <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/tree/{{ .PR.HeadRef }}">{{ octicon "code" }} Code</a>
         </div>
       </div>
@@ -52,6 +57,15 @@
           </span>
         {{ end }}
       </div>
+
+      {{ if .PullStats.CheckSummary.Show }}
+      <div class="shithub-pull-check-summary-line">
+        <a class="shithub-pull-check-summary-link shithub-actions-state-{{ .PullStats.CheckSummary.StateClass }}" href="{{ .PullStats.CheckSummary.Href }}">
+          {{ octicon .PullStats.CheckSummary.StateIcon }}
+          <span>{{ .PullStats.CheckSummary.Label }}</span>
+        </a>
+      </div>
+      {{ end }}
 
       <nav class="shithub-pull-tabs" aria-label="Pull request navigation tabs">
         <a class="shithub-pull-tab {{ if eq .Tab "conversation" }}shithub-pull-tab-active{{ end }}"
@@ -200,18 +214,46 @@
                 </div>
               </div>
 
+              {{ if .RequiredChecks.HasRequired }}
+              <div class="shithub-pull-merge-row shithub-pull-required-row {{ if .RequiredChecks.Satisfied }}shithub-pull-required-row-success{{ else }}shithub-pull-required-row-pending{{ end }}">
+                <span class="shithub-pull-status-icon">
+                  {{ if .RequiredChecks.Satisfied }}{{ octicon "check-circle" }}{{ else }}{{ octicon "lock" }}{{ end }}
+                </span>
+                <div>
+                  {{ if .RequiredChecks.Satisfied }}
+                    <strong>All required checks have passed</strong>
+                    <p class="shithub-muted">{{ len .RequiredChecks.Names }} required check{{ if ne (len .RequiredChecks.Names) 1 }}s{{ end }} satisfied for <code>{{ .PR.HeadOid }}</code>.</p>
+                  {{ else if .RequiredChecks.Error }}
+                    <strong>Required checks could not be evaluated</strong>
+                    <p class="shithub-muted">{{ .RequiredChecks.Error }}</p>
+                  {{ else }}
+                    <strong>Required checks are waiting</strong>
+                    <p class="shithub-muted">{{ if .RequiredChecks.Reason }}{{ .RequiredChecks.Reason }}{{ else }}Some required checks have not passed yet.{{ end }}</p>
+                    {{ if .RequiredChecks.Missing }}
+                    <ul class="shithub-pull-required-missing">
+                      {{ range .RequiredChecks.Missing }}<li><code>{{ . }}</code></li>{{ end }}
+                    </ul>
+                    {{ end }}
+                  {{ end }}
+                </div>
+              </div>
+              {{ end }}
+
               {{ if .CheckGroups }}
               <ul class="shithub-pull-merge-checks">
                 {{ range .CheckGroups }}
                   {{ range .Runs }}
                   <li>
-                    {{ if .R.Conclusion.Valid }}
-                      {{ if eq (printf "%s" .R.Conclusion.CheckConclusion) "success" }}<span class="shithub-pull-check-status-completed">✓</span>{{ else }}<span class="shithub-pull-check-conclusion-failure">●</span>{{ end }}
-                    {{ else }}
-                      <span class="shithub-pull-check-status-{{ printf "%s" .R.Status }}">●</span>
-                    {{ end }}
+                    <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
                     <strong>{{ .AppSlug }} / {{ .R.Name }}</strong>
                     {{ if .R.CompletedAt.Valid }}<small>{{ relativeTime .R.CompletedAt.Time }}</small>{{ else }}<small>{{ printf "%s" .R.Status }}</small>{{ end }}
+                    {{ if .DetailsHref }}<a class="shithub-pull-check-action" href="{{ .DetailsHref }}">Details</a>{{ end }}
+                    {{ if .CanRerun }}
+                    <form method="post" action="{{ .RerunHref }}" class="shithub-inline-form shithub-pull-check-rerun">
+                      <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                      <button type="submit" class="shithub-link-button">Re-run</button>
+                    </form>
+                    {{ end }}
                   </li>
                   {{ end }}
                 {{ end }}
@@ -741,11 +783,7 @@
             {{ range .CheckGroups }}
               {{ range .Runs }}
               <a href="#check-run-{{ .R.ID }}" class="shithub-checks-sidebar-item">
-                {{ if .R.Conclusion.Valid }}
-                  {{ if eq (printf "%s" .R.Conclusion.CheckConclusion) "success" }}<span class="shithub-pull-check-status-completed">●</span>{{ else }}<span class="shithub-pull-check-conclusion-failure">●</span>{{ end }}
-                {{ else }}
-                  <span class="shithub-pull-check-status-{{ printf "%s" .R.Status }}">●</span>
-                {{ end }}
+                <span class="shithub-actions-state shithub-actions-state-{{ .StateClass }}">{{ octicon .StateIcon }}</span>
                 <span>{{ .R.Name }}</span>
               </a>
               {{ end }}
@@ -798,12 +836,8 @@
             <div class="shithub-checks-workflow-map">
               {{ range .Runs }}
               <article id="check-run-{{ .R.ID }}" class="shithub-checks-run-card">
-                <span class="shithub-checks-run-icon">
-                  {{ if .R.Conclusion.Valid }}
-                    {{ if eq (printf "%s" .R.Conclusion.CheckConclusion) "success" }}{{ octicon "check-circle" }}{{ else }}{{ octicon "x-circle" }}{{ end }}
-                  {{ else }}
-                    {{ octicon "dot-fill" }}
-                  {{ end }}
+                <span class="shithub-checks-run-icon shithub-actions-state-{{ .StateClass }}">
+                  {{ octicon .StateIcon }}
                 </span>
                 <div>
                   <strong>{{ .R.Name }}</strong>
@@ -812,7 +846,15 @@
                     {{ if .R.CompletedAt.Valid }} · {{ relativeTime .R.CompletedAt.Time }}{{ end }}
                   </p>
                 </div>
-                {{ if .R.DetailsUrl }}<a href="{{ .R.DetailsUrl }}" rel="noopener noreferrer">details</a>{{ end }}
+                <div class="shithub-checks-run-actions">
+                  {{ if .DetailsHref }}<a href="{{ .DetailsHref }}">Details</a>{{ end }}
+                  {{ if .CanRerun }}
+                  <form method="post" action="{{ .RerunHref }}" class="shithub-inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-link-button">Re-run</button>
+                  </form>
+                  {{ end }}
+                </div>
               </article>
               {{ end }}
             </div>
