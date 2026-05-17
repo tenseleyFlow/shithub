@@ -23,8 +23,12 @@ func SearchUsers(ctx context.Context, deps Deps, q ParsedQuery, limit, offset in
 	}
 
 	args := []any{tsText, limit, offset}
+	// PRO-EXT_SR2-15: select u.plan and set IsPro so the Users tab on
+	// /search renders the Pro pill consistent with every other
+	// user-bearing surface.
 	queryStr := fmt.Sprintf(`
 		SELECT u.id, u.username::text, u.display_name, coalesce(u.bio, ''),
+		       u.plan,
 		       ts_rank_cd(s.tsv, %[1]s('shithub_search', $1)) AS rank
 		FROM users_search s
 		JOIN users u ON u.id = s.user_id
@@ -41,10 +45,14 @@ func SearchUsers(ctx context.Context, deps Deps, q ParsedQuery, limit, offset in
 	defer rows.Close()
 	out := make([]UserResult, 0, limit)
 	for rows.Next() {
-		var r UserResult
-		if err := rows.Scan(&r.ID, &r.Username, &r.DisplayName, &r.Bio, &r.Rank); err != nil {
+		var (
+			r    UserResult
+			plan string
+		)
+		if err := rows.Scan(&r.ID, &r.Username, &r.DisplayName, &r.Bio, &plan, &r.Rank); err != nil {
 			return nil, 0, err
 		}
+		r.IsPro = plan == "pro"
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

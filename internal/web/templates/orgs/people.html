@@ -71,7 +71,7 @@
               <img src="/avatars/{{ .Username }}" alt="" width="48" height="48">
             </a>
             <div class="shithub-org-people-member">
-              <a class="shithub-org-people-name" href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+              <a class="shithub-org-people-name" href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>{{ template "pro-badge" (index $.ProUsernames .Username) }}
               <span class="shithub-org-people-username">{{ .Username }}</span>
             </div>
             <div class="shithub-org-people-meta">

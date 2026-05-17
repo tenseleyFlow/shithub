@@ -513,8 +513,7 @@ type UpdateUserProfileParams struct {
 }
 
 func (q *Queries) UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error {
-	_, err := db.Exec(
-		ctx, updateUserProfile,
+	_, err := db.Exec(ctx, updateUserProfile,
 		arg.ID,
 		arg.DisplayName,
 		arg.Bio,

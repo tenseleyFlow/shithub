@@ -136,7 +136,7 @@
                 <img src="/avatars/{{ .Username }}" alt="" width="48" height="48" class="shithub-search-user-avatar">
                 <div class="shithub-search-result-main">
                   <h2 class="shithub-search-result-title">
-                    <a href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+                    <a href="/{{ .Username }}">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>{{ template "pro-badge" .IsPro }}
                     <span class="shithub-search-user-login">{{ .Username }}</span>
                   </h2>
                   {{ if .Bio }}<p class="shithub-search-result-desc">{{ .Bio }}</p>{{ end }}

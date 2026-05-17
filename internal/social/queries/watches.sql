@@ -30,7 +30,8 @@ DELETE FROM watches WHERE user_id = $1 AND repo_id = $2;
 -- name: ListWatchersForRepo :many
 -- Watchers list. `level <> 'ignore'` excludes users who have actively
 -- muted the repo. Excludes suspended users from public surfaces.
-SELECT w.user_id, w.level, w.updated_at, u.username, u.display_name
+-- PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
+SELECT w.user_id, w.level, w.updated_at, u.username, u.display_name, u.plan
 FROM watches w
 JOIN users u ON u.id = w.user_id
 WHERE w.repo_id = $1

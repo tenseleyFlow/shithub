@@ -148,7 +148,7 @@ func (q *Queries) IsFollowingUser(ctx context.Context, db DBTX, arg IsFollowingU
 }
 
 const listFollowersForOrg = `-- name: ListFollowersForOrg :many
-SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name
+SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.follower_user_id
 WHERE f.followee_org_id = $1
@@ -169,8 +169,10 @@ type ListFollowersForOrgRow struct {
 	FollowedAt  pgtype.Timestamptz
 	Username    string
 	DisplayName string
+	Plan        UserPlan
 }
 
+// PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
 func (q *Queries) ListFollowersForOrg(ctx context.Context, db DBTX, arg ListFollowersForOrgParams) ([]ListFollowersForOrgRow, error) {
 	rows, err := db.Query(ctx, listFollowersForOrg, arg.FolloweeOrgID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -185,6 +187,7 @@ func (q *Queries) ListFollowersForOrg(ctx context.Context, db DBTX, arg ListFoll
 			&i.FollowedAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
@@ -197,7 +200,7 @@ func (q *Queries) ListFollowersForOrg(ctx context.Context, db DBTX, arg ListFoll
 }
 
 const listFollowersForUser = `-- name: ListFollowersForUser :many
-SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name
+SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.follower_user_id
 WHERE f.followee_user_id = $1
@@ -218,8 +221,12 @@ type ListFollowersForUserRow struct {
 	FollowedAt  pgtype.Timestamptz
 	Username    string
 	DisplayName string
+	Plan        UserPlan
 }
 
+// PRO-EXT_SR2-15: select u.plan so the follows list renders a Pro
+// pill next to Pro users (matches the discovery-surface treatment
+// applied to every other user-bearing template).
 func (q *Queries) ListFollowersForUser(ctx context.Context, db DBTX, arg ListFollowersForUserParams) ([]ListFollowersForUserRow, error) {
 	rows, err := db.Query(ctx, listFollowersForUser, arg.FolloweeUserID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -234,6 +241,7 @@ func (q *Queries) ListFollowersForUser(ctx context.Context, db DBTX, arg ListFol
 			&i.FollowedAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +303,7 @@ func (q *Queries) ListFollowingOrgsForUser(ctx context.Context, db DBTX, arg Lis
 }
 
 const listFollowingUsersForUser = `-- name: ListFollowingUsersForUser :many
-SELECT f.followee_user_id AS user_id, f.followed_at, u.username, u.display_name
+SELECT f.followee_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.followee_user_id
 WHERE f.follower_user_id = $1
@@ -316,8 +324,10 @@ type ListFollowingUsersForUserRow struct {
 	FollowedAt  pgtype.Timestamptz
 	Username    string
 	DisplayName string
+	Plan        UserPlan
 }
 
+// PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
 func (q *Queries) ListFollowingUsersForUser(ctx context.Context, db DBTX, arg ListFollowingUsersForUserParams) ([]ListFollowingUsersForUserRow, error) {
 	rows, err := db.Query(ctx, listFollowingUsersForUser, arg.FollowerUserID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -332,6 +342,7 @@ func (q *Queries) ListFollowingUsersForUser(ctx context.Context, db DBTX, arg Li
 			&i.FollowedAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}

@@ -92,7 +92,7 @@ func (q *Queries) InsertStar(ctx context.Context, db DBTX, arg InsertStarParams)
 }
 
 const listStargazersForRepo = `-- name: ListStargazersForRepo :many
-SELECT s.user_id, s.starred_at, u.username, u.display_name
+SELECT s.user_id, s.starred_at, u.username, u.display_name, u.plan
 FROM stars s
 JOIN users u ON u.id = s.user_id
 WHERE s.repo_id = $1
@@ -112,11 +112,13 @@ type ListStargazersForRepoRow struct {
 	StarredAt   pgtype.Timestamptz
 	Username    string
 	DisplayName string
+	Plan        UserPlan
 }
 
 // Public-repo stargazer list. Paginated by `starred_at DESC`.
 // Excludes suspended users so they don't taint public lists. The
 // private-repo gate is at the handler layer (policy.IsVisibleTo).
+// PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
 func (q *Queries) ListStargazersForRepo(ctx context.Context, db DBTX, arg ListStargazersForRepoParams) ([]ListStargazersForRepoRow, error) {
 	rows, err := db.Query(ctx, listStargazersForRepo, arg.RepoID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -131,6 +133,7 @@ func (q *Queries) ListStargazersForRepo(ctx context.Context, db DBTX, arg ListSt
 			&i.StarredAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}

@@ -740,6 +740,13 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	notice := peopleNoticeMessage(r.URL.Query().Get("notice"), org.Slug, h.billingConfigured())
+	// PRO-EXT_SR2-15: collect Pro-member set for the badge.
+	proUsernames := make(map[string]bool, len(filteredMembers))
+	for _, m := range filteredMembers {
+		if m.Plan == orgsdb.UserPlanPro {
+			proUsernames[m.Username] = true
+		}
+	}
 	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
 		"Title":            org.Slug + " · people",
 		"CSRFToken":        middleware.CSRFTokenForRequest(r),
@@ -748,6 +755,7 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		"ActiveOrgNav":     "people",
 		"RepoCount":        navCounts.RepoCount,
 		"Members":          filteredMembers,
+		"ProUsernames":     proUsernames,
 		"MemberCount":      navCounts.MemberCount,
 		"TeamCount":        navCounts.TeamCount,
 		"Pending":          pending,

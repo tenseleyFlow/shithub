@@ -122,7 +122,7 @@ func (q *Queries) ListRepoWatchersByLevel(ctx context.Context, db DBTX, arg List
 }
 
 const listWatchersForRepo = `-- name: ListWatchersForRepo :many
-SELECT w.user_id, w.level, w.updated_at, u.username, u.display_name
+SELECT w.user_id, w.level, w.updated_at, u.username, u.display_name, u.plan
 FROM watches w
 JOIN users u ON u.id = w.user_id
 WHERE w.repo_id = $1
@@ -144,10 +144,12 @@ type ListWatchersForRepoRow struct {
 	UpdatedAt   pgtype.Timestamptz
 	Username    string
 	DisplayName string
+	Plan        UserPlan
 }
 
 // Watchers list. `level <> 'ignore'` excludes users who have actively
 // muted the repo. Excludes suspended users from public surfaces.
+// PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
 func (q *Queries) ListWatchersForRepo(ctx context.Context, db DBTX, arg ListWatchersForRepoParams) ([]ListWatchersForRepoRow, error) {
 	rows, err := db.Query(ctx, listWatchersForRepo, arg.RepoID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -163,6 +165,7 @@ func (q *Queries) ListWatchersForRepo(ctx context.Context, db DBTX, arg ListWatc
 			&i.UpdatedAt,
 			&i.Username,
 			&i.DisplayName,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}

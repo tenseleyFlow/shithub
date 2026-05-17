@@ -51,9 +51,14 @@ type Querier interface {
 	// Repo-scoped events, recency-sorted. No visibility filter — the
 	// caller has already established read access to the repo.
 	ListEventsForRepo(ctx context.Context, db DBTX, arg ListEventsForRepoParams) ([]DomainEvent, error)
+	// PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
 	ListFollowersForOrg(ctx context.Context, db DBTX, arg ListFollowersForOrgParams) ([]ListFollowersForOrgRow, error)
+	// PRO-EXT_SR2-15: select u.plan so the follows list renders a Pro
+	// pill next to Pro users (matches the discovery-surface treatment
+	// applied to every other user-bearing template).
 	ListFollowersForUser(ctx context.Context, db DBTX, arg ListFollowersForUserParams) ([]ListFollowersForUserRow, error)
 	ListFollowingOrgsForUser(ctx context.Context, db DBTX, arg ListFollowingOrgsForUserParams) ([]ListFollowingOrgsForUserRow, error)
+	// PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
 	ListFollowingUsersForUser(ctx context.Context, db DBTX, arg ListFollowingUsersForUserParams) ([]ListFollowingUsersForUserRow, error)
 	// Public activity-feed slice for a user's profile. Returns only
 	// public rows, recency-sorted. The handler additionally filters by
@@ -69,6 +74,7 @@ type Querier interface {
 	// Public-repo stargazer list. Paginated by `starred_at DESC`.
 	// Excludes suspended users so they don't taint public lists. The
 	// private-repo gate is at the handler layer (policy.IsVisibleTo).
+	// PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
 	ListStargazersForRepo(ctx context.Context, db DBTX, arg ListStargazersForRepoParams) ([]ListStargazersForRepoRow, error)
 	// The "Stars" profile tab. The handler layer post-filters for repo
 	// visibility against the viewer; this query returns everything the
@@ -79,6 +85,7 @@ type Querier interface {
 	ListTrendingUsers(ctx context.Context, db DBTX, arg ListTrendingUsersParams) ([]ListTrendingUsersRow, error)
 	// Watchers list. `level <> 'ignore'` excludes users who have actively
 	// muted the repo. Excludes suspended users from public surfaces.
+	// PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
 	ListWatchersForRepo(ctx context.Context, db DBTX, arg ListWatchersForRepoParams) ([]ListWatchersForRepoRow, error)
 	UnfollowOrg(ctx context.Context, db DBTX, arg UnfollowOrgParams) (int64, error)
 	UnfollowUser(ctx context.Context, db DBTX, arg UnfollowUserParams) (int64, error)
