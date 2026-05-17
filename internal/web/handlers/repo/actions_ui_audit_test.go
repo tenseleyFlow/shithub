@@ -63,6 +63,19 @@ func TestActionsProductionTemplatesRenderParityLandmarks(t *testing.T) {
 			},
 		},
 		{
+			name: "new workflow picker",
+			path: "/alice/public-repo/actions/new",
+			want: []string{
+				`class="shithub-actions-page shithub-actions-new-page"`,
+				`<h1>New workflow</h1>`,
+				`Starter workflows`,
+				`Minimal shell smoke`,
+				`href="/alice/public-repo/actions/new?template=smoke"`,
+				`GitHub templates not offered yet`,
+				`Matrix build`,
+			},
+		},
+		{
 			name: "run summary graph",
 			path: "/alice/public-repo/actions/runs/41",
 			want: []string{

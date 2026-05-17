@@ -204,6 +204,149 @@ func TestActionsWorkflowRouteRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestRepoActionsNewWorkflowPickerShowsRunnableAndUnsupportedTemplates(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/new", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"NEW=/alice/public-repo/actions/new;",
+		"TEMPLATE=smoke:Minimal shell smoke:smoke.yml:/alice/public-repo/actions/new?template=smoke;",
+		"TEMPLATE=checkout-test:Checkout plus test:checkout.yml:/alice/public-repo/actions/new?template=checkout-test;",
+		"UNSUPPORTED=go-ci:Go CI:",
+		"UNSUPPORTED=matrix-build:Matrix build:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q in %s", want, body)
+		}
+	}
+}
+
+func TestRepoActionsNewWorkflowRequiresWrite(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/new", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRepoActionsNewWorkflowPrivateRepoLeakSafe(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/private-repo/actions/new", nil)
+	f.actionsMux(viewerFor(f.stranger)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRepoActionsNewWorkflowArchivedBlocksAuthoring(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	if err := f.handlers.rq.ArchiveRepo(context.Background(), f.pool, f.publicRepo.ID); err != nil {
+		t.Fatalf("ArchiveRepo: %v", err)
+	}
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/actions/new", nil)
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRepoActionsCreateWorkflowRejectsInvalidPath(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	before := f.seedRepoBase(t)
+
+	form := url.Values{}
+	form.Set("path", ".shithub/workflows/../escape.yml")
+	form.Set("content", runnableWorkflowForAuthoring)
+	form.Set("commit_message", "Create bad workflow")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/new", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "ERROR=Enter a workflow file path under .shithub/workflows/") {
+		t.Fatalf("missing path error in %s", resp.Body.String())
+	}
+	f.assertPublicHead(t, before)
+}
+
+func TestRepoActionsCreateWorkflowRejectsUnsupportedSyntaxWithoutCommit(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	before := f.seedRepoBase(t)
+
+	form := url.Values{}
+	form.Set("path", ".shithub/workflows/go.yml")
+	form.Set("content", `name: Go
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+      - run: go test ./...
+`)
+	form.Set("commit_message", "Create Go workflow")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/new", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "ERROR=Fix the workflow syntax before committing.") ||
+		!strings.Contains(body, "DIAG=Error:jobs.test.steps[0].uses:unsupported `uses:` reference") {
+		t.Fatalf("missing unsupported syntax diagnostics in %s", body)
+	}
+	f.assertPublicHead(t, before)
+}
+
+func TestRepoActionsCreateWorkflowCommitsTemplate(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	f.verifyOwnerPrimaryEmail(t)
+	f.seedRepoBase(t)
+
+	form := url.Values{}
+	form.Set("path", ".shithub/workflows/smoke.yml")
+	form.Set("content", runnableWorkflowForAuthoring)
+	form.Set("commit_message", "Create smoke workflow")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/alice/public-repo/actions/new", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	f.actionsMux(viewerFor(f.owner)).ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if loc := resp.Header().Get("Location"); loc != "/alice/public-repo/actions/workflows/smoke.yml" {
+		t.Fatalf("Location=%q", loc)
+	}
+	body := f.readPublicBlob(t, "trunk", ".shithub/workflows/smoke.yml")
+	if !strings.Contains(body, "shithub actions smoke passed") {
+		t.Fatalf("workflow body not committed: %s", body)
+	}
+}
+
 func TestParseActionsFilterQuerySupportsQuotedValuesAndAliases(t *testing.T) {
 	t.Parallel()
 	got := parseActionsFilterQuery(`workflow:"CI Smoke" branch:feature/x is:success actor:"octo cat"`)
@@ -1376,12 +1519,14 @@ func (f *repoFixture) actionsMux(viewer middleware.CurrentUser) http.Handler {
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", f.handlers.repoActionStepLog)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", f.handlers.repoActionRunStatus)
 	mux.Get("/{owner}/{repo}/actions/runs/{runIndex}", f.handlers.repoActionRun)
-	mux.Get("/{owner}/{repo}/actions/workflows/*", f.handlers.repoActionsWorkflow)
 	mux.Get("/{owner}/{repo}/actions/caches", f.handlers.repoActionsCaches)
 	mux.Get("/{owner}/{repo}/actions/attestations", f.handlers.repoActionsAttestations)
 	mux.Get("/{owner}/{repo}/actions/runners", f.handlers.repoActionsRunners)
 	mux.Get("/{owner}/{repo}/actions/metrics/usage", f.handlers.repoActionsUsageMetrics)
 	mux.Get("/{owner}/{repo}/actions/metrics/performance", f.handlers.repoActionsPerformanceMetrics)
+	mux.Get("/{owner}/{repo}/actions/new", f.handlers.repoActionsNewWorkflow)
+	mux.Post("/{owner}/{repo}/actions/new", f.handlers.repoActionsCreateWorkflow)
+	mux.Get("/{owner}/{repo}/actions/workflows/*", f.handlers.repoActionsWorkflow)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", f.handlers.repoActionRunCancel)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", f.handlers.repoActionRunRerun)
 	mux.Post("/{owner}/{repo}/actions/runs/{runIndex}/approve", f.handlers.repoActionRunApprove)
@@ -1475,6 +1620,94 @@ func (f *repoFixture) seedWorkflowFile(t *testing.T, name, body string) string {
 		t.Fatalf("InitialCommit.Build: %v", err)
 	}
 	return commit
+}
+
+const runnableWorkflowForAuthoring = `name: Smoke
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke
+        run: printf 'shithub actions smoke passed\n'
+`
+
+func (f *repoFixture) seedRepoBase(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	gitDir := f.publicGitDir(t)
+	if err := f.handlers.d.RepoFS.InitBare(ctx, gitDir); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+	commit, err := (repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Branch:      "trunk",
+		Message:     "Initial commit",
+		When:        time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC),
+		Files: []repogit.FileEntry{
+			{Path: "README.md", Body: []byte("# public-repo\n")},
+		},
+	}).Build(ctx)
+	if err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+	return commit
+}
+
+func (f *repoFixture) publicGitDir(t *testing.T) string {
+	t.Helper()
+	gitDir, err := f.handlers.d.RepoFS.RepoPath(f.owner.Username, f.publicRepo.Name)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	return gitDir
+}
+
+func (f *repoFixture) verifyOwnerPrimaryEmail(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	var emailID int64
+	if err := f.pool.QueryRow(ctx,
+		`INSERT INTO user_emails (user_id, email, is_primary, verified, verified_at)
+		 VALUES ($1, $2, true, true, now())
+		 RETURNING id`,
+		f.owner.ID, "alice@example.test").Scan(&emailID); err != nil {
+		t.Fatalf("insert verified email: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx,
+		`UPDATE users SET primary_email_id = $1, email_verified = true WHERE id = $2`,
+		emailID, f.owner.ID); err != nil {
+		t.Fatalf("set primary email: %v", err)
+	}
+}
+
+func (f *repoFixture) assertPublicHead(t *testing.T, want string) {
+	t.Helper()
+	commit, ok, err := repogit.CommitAt(context.Background(), f.publicGitDir(t), "trunk")
+	if err != nil {
+		t.Fatalf("CommitAt: %v", err)
+	}
+	if !ok {
+		t.Fatal("trunk head not found")
+	}
+	if commit.OID != want {
+		t.Fatalf("trunk head = %s, want %s", commit.OID, want)
+	}
+}
+
+func (f *repoFixture) readPublicBlob(t *testing.T, ref, p string) string {
+	t.Helper()
+	body, err := repogit.ReadBlobBytes(context.Background(), f.publicGitDir(t), ref, p, 1<<20)
+	if err != nil {
+		t.Fatalf("ReadBlobBytes(%s): %v", p, err)
+	}
+	return string(body)
 }
 
 type workflowRunFixture struct {
