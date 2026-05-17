@@ -83,6 +83,12 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	if source.IsArchived {
 		return CreateResult{}, ErrSourceArchived
 	}
+	if source.IsPaused {
+		// PRO-EXT01-15: a paused source is "frozen pending decision"
+		// from the owner — declining to seed downstream forks during
+		// that window matches the spirit of pause.
+		return CreateResult{}, ErrSourcePaused
+	}
 
 	targetName := strings.TrimSpace(p.TargetName)
 	if targetName == "" {
