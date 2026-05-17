@@ -57,30 +57,47 @@ func (h *Handlers) mountPulls(r chi.Router) {
 
 // ─── presentation ───────────────────────────────────────────────────
 
-type pullResponse struct {
-	ID             int64  `json:"id"`
-	Number         int64  `json:"number"`
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	State          string `json:"state"`
-	Draft          bool   `json:"draft"`
-	BaseRef        string `json:"base_ref"`
-	HeadRef        string `json:"head_ref"`
-	BaseOID        string `json:"base_oid"`
-	HeadOID        string `json:"head_oid"`
-	Mergeable      *bool  `json:"mergeable,omitempty"`
-	MergeableState string `json:"mergeable_state"`
-	Merged         bool   `json:"merged"`
-	MergeCommit    string `json:"merge_commit_sha,omitempty"`
-	MergeMethod    string `json:"merge_method,omitempty"`
-	MergedAt       string `json:"merged_at,omitempty"`
-	AuthorID       int64  `json:"author_id,omitempty"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	ClosedAt       string `json:"closed_at,omitempty"`
+// prRefEnvelope mirrors GitHub's nested base/head shape. The CLI's
+// pulls.PullRequest type maps base/head as `{ref, sha, repo}` so the
+// pre-S60 flat `base_ref`/`base_oid`/... fields rendered as empty
+// strings in `shithub pr view`. We emit both shapes during transition.
+type prRefEnvelope struct {
+	Ref string `json:"ref"`
+	SHA string `json:"sha"`
 }
 
-func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest) pullResponse {
+type pullResponse struct {
+	ID     int64  `json:"id"`
+	Number int64  `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	Draft  bool   `json:"draft"`
+	// Legacy flat fields; kept for one release cycle alongside the
+	// nested envelopes. Prefer base/head for new clients.
+	BaseRef string `json:"base_ref"`
+	HeadRef string `json:"head_ref"`
+	BaseOID string `json:"base_oid"`
+	HeadOID string `json:"head_oid"`
+	// GitHub-compat nested envelopes.
+	Base           *prRefEnvelope `json:"base,omitempty"`
+	Head           *prRefEnvelope `json:"head,omitempty"`
+	Mergeable      *bool          `json:"mergeable,omitempty"`
+	MergeableState string         `json:"mergeable_state"`
+	Merged         bool           `json:"merged"`
+	MergeCommit    string         `json:"merge_commit_sha,omitempty"`
+	MergeMethod    string         `json:"merge_method,omitempty"`
+	MergedAt       string         `json:"merged_at,omitempty"`
+	// AuthorID is the legacy flat foreign key. Kept alongside the new
+	// `user` envelope for one release cycle (S60 audit migration).
+	AuthorID  int64         `json:"author_id,omitempty"`
+	User      *userEnvelope `json:"user,omitempty"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
+	ClosedAt  string        `json:"closed_at,omitempty"`
+}
+
+func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelope) pullResponse {
 	out := pullResponse{
 		ID:             issue.ID,
 		Number:         issue.Number,
@@ -92,8 +109,11 @@ func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest) pullResponse {
 		HeadRef:        pr.HeadRef,
 		BaseOID:        pr.BaseOid,
 		HeadOID:        pr.HeadOid,
+		Base:           &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid},
+		Head:           &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid},
 		MergeableState: string(pr.MergeableState),
 		Merged:         pr.MergedAt.Valid,
+		User:           user,
 		CreatedAt:      issue.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt:      issue.UpdatedAt.Time.UTC().Format(time.RFC3339),
 	}
@@ -178,8 +198,19 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	if link != "" {
 		w.Header().Set("Link", link)
 	}
+	authorIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if row.AuthorUserID.Valid {
+			authorIDs = append(authorIDs, row.AuthorUserID.Int64)
+		}
+	}
+	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
 	out := make([]pullResponse, 0, len(rows))
 	for _, row := range rows {
+		var u *userEnvelope
+		if row.AuthorUserID.Valid {
+			u = users[row.AuthorUserID.Int64]
+		}
 		out = append(out, presentPull(issuesdb.Issue{
 			ID:           row.ID,
 			RepoID:       row.RepoID,
@@ -204,7 +235,7 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 			MergedAt:       row.MergedAt,
 			MergedByUserID: row.MergedByUserID,
 			MergeMethod:    row.MergeMethod,
-		}))
+		}, u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -231,7 +262,11 @@ func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, presentPull(issue, pr))
+	var u *userEnvelope
+	if issue.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentPull(issue, pr, u))
 }
 
 // ─── create ─────────────────────────────────────────────────────────
@@ -275,7 +310,8 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		writePullsError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentPull(res.Issue, res.PullRequest))
+	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
+	writeJSON(w, http.StatusCreated, presentPull(res.Issue, res.PullRequest, u))
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
@@ -372,7 +408,11 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	// Reload everything for the response.
 	freshIssue, _ := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, issue.ID)
 	freshPR, _ := pullsdb.New().GetPullRequestByIssueID(r.Context(), h.d.Pool, issue.ID)
-	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR))
+	var u *userEnvelope
+	if freshIssue.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR, u))
 }
 
 // ─── commits + files ────────────────────────────────────────────────
@@ -498,7 +538,11 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	freshIssue, _ := issuesdb.New().GetIssueByID(r.Context(), h.d.Pool, pr.IssueID)
 	freshPR, _ := pullsdb.New().GetPullRequestByIssueID(r.Context(), h.d.Pool, pr.IssueID)
-	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR))
+	var u *userEnvelope
+	if freshIssue.AuthorUserID.Valid {
+		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
+	}
+	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR, u))
 }
 
 // ─── helpers ────────────────────────────────────────────────────────
