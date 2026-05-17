@@ -89,6 +89,7 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	page := pageFromRequest(r)
 	filter := filterFromRequest(r)
 	onlyUnread := filter == "unread"
+	tab := strings.TrimSpace(r.URL.Query().Get("tab"))
 
 	q := notifdb.New()
 	rows, err := q.ListNotificationsForRecipient(r.Context(), h.d.Pool, notifdb.ListNotificationsForRecipientParams{
@@ -96,6 +97,7 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		Column2:         onlyUnread,
 		Limit:           int32(pageSize),
 		Offset:          int32((page - 1) * pageSize),
+		Column5:         tab,
 	})
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "notifications: list", "error", err)
@@ -107,6 +109,7 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		RecipientUserID: viewer.ID,
 		Column2:         false,
 	})
+	tabs, _ := q.ListInboxTabsForRecipient(r.Context(), h.d.Pool, viewer.ID)
 
 	data := map[string]any{
 		"Title":         "Notifications",
@@ -114,8 +117,11 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		"AllCount":      allCount,
 		"UnreadCount":   unreadCount,
 		"Filter":        filter,
+		"ActiveTab":     tab,
+		"Tabs":          tabs,
 		"AllHref":       notificationsPageHref("", 1),
 		"UnreadHref":    notificationsPageHref("unread", 1),
+		"InboxHref":     "/notifications",
 		"CurrentURL":    r.URL.RequestURI(),
 		"Page":          page,
 		"HasPrev":       page > 1,
@@ -382,6 +388,11 @@ type notificationInboxItem struct {
 	ActorUsername string
 	ActorURL      string
 	LastEventAt   time.Time
+	// PRO-EXT01-16c: rule-engine annotations rendered as inline
+	// badges. Empty TabLabel = default Inbox bucket. SnoozedUntil
+	// zero = not snoozed.
+	TabLabel     string
+	SnoozedUntil time.Time
 }
 
 func notificationInboxItems(rows []notifdb.ListNotificationsForRecipientRow) []notificationInboxItem {
@@ -404,6 +415,12 @@ func notificationInboxItemFromRow(row notifdb.ListNotificationsForRecipientRow) 
 		ThreadNumber:  row.ThreadNumber,
 		ActorUsername: row.ActorUsername,
 		LastEventAt:   row.LastEventAt.Time,
+	}
+	if row.TabLabel.Valid {
+		item.TabLabel = row.TabLabel.String
+	}
+	if row.SnoozedUntil.Valid {
+		item.SnoozedUntil = row.SnoozedUntil.Time
 	}
 	if row.ActorUsername != "" {
 		item.ActorURL = "/" + url.PathEscape(row.ActorUsername)

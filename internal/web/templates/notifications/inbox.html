@@ -12,6 +12,21 @@
           <span class="shithub-notifications-filter-count">{{ .UnreadCount }}</span>
         </a>
       </nav>
+
+      {{ if .Tabs }}
+      <nav class="shithub-notifications-filter-list" aria-label="Inbox tabs">
+        <h2 class="shithub-notifications-tabs-heading">Tabs</h2>
+        <a href="/notifications" class="shithub-notifications-filter{{ if eq .ActiveTab "" }} is-selected{{ end }}">
+          <span class="shithub-notifications-filter-label">{{ octicon "inbox" }} Default</span>
+        </a>
+        {{ range .Tabs }}
+        <a href="/notifications?tab={{ .Label }}" class="shithub-notifications-filter{{ if eq $.ActiveTab .Label }} is-selected{{ end }}">
+          <span class="shithub-notifications-filter-label">{{ octicon "tag" }} {{ .Label }}</span>
+          <span class="shithub-notifications-filter-count">{{ .Count }}</span>
+        </a>
+        {{ end }}
+      </nav>
+      {{ end }}
     </aside>
 
     <div class="shithub-notifications-main">
@@ -64,6 +79,12 @@
                   <span>by <a href="{{ .ActorURL }}">@{{ .ActorUsername }}</a></span>
                 {{ end }}
                 <time datetime="{{ .LastEventAt.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .LastEventAt }}</time>
+                {{ if .TabLabel }}
+                  <span class="shithub-notification-tab">{{ octicon "tag" }} {{ .TabLabel }}</span>
+                {{ end }}
+                {{ if not .SnoozedUntil.IsZero }}
+                  <span class="shithub-notification-snooze">{{ octicon "clock" }} Snoozed until {{ .SnoozedUntil.Format "2006-01-02 15:04 UTC" }}</span>
+                {{ end }}
               </div>
             </div>
             <div class="shithub-notification-actions">
