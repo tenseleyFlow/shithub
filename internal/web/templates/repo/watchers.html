@@ -12,7 +12,7 @@
     <li>
       <a href="/{{ .Username }}" class="shithub-social-avatar"><img src="/avatars/{{ .Username }}" alt="" width="40" height="40"></a>
       <div class="shithub-social-person">
-        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
+        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>{{ template "pro-badge" (index $.ProUsernames .Username) }}
         <span>@{{ .Username }}</span>
       </div>
       <div class="shithub-social-meta">

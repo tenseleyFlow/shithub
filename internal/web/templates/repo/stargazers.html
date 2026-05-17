@@ -16,7 +16,7 @@
     <li>
       <a href="/{{ .Username }}" class="shithub-social-avatar"><img src="/avatars/{{ .Username }}" alt="" width="40" height="40"></a>
       <div class="shithub-social-person">
-        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>
+        <a href="/{{ .Username }}"><strong>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</strong></a>{{ template "pro-badge" (index $.ProUsernames .Username) }}
         <span>@{{ .Username }}</span>
       </div>
       <time class="shithub-social-time" datetime="{{ .StarredAt.Time.Format "2006-01-02T15:04:05Z" }}">Starred {{ relativeTime .StarredAt.Time }}</time>

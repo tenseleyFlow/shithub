@@ -19,7 +19,8 @@ SELECT EXISTS (
 -- Public-repo stargazer list. Paginated by `starred_at DESC`.
 -- Excludes suspended users so they don't taint public lists. The
 -- private-repo gate is at the handler layer (policy.IsVisibleTo).
-SELECT s.user_id, s.starred_at, u.username, u.display_name
+-- PRO-EXT_SR2-15: select u.plan so the list renders Pro badges.
+SELECT s.user_id, s.starred_at, u.username, u.display_name, u.plan
 FROM stars s
 JOIN users u ON u.id = s.user_id
 WHERE s.repo_id = $1

@@ -126,17 +126,25 @@ func (h *Handlers) stargazersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	count, _ := q.CountStargazersForRepo(r.Context(), h.d.Pool, row.ID)
+	// PRO-EXT_SR2-15: collect the Pro-stargazer set for the badge.
+	proUsernames := make(map[string]bool, len(rows))
+	for _, sr := range rows {
+		if sr.Plan == socialdb.UserPlanPro {
+			proUsernames[sr.Username] = true
+		}
+	}
 	common := map[string]any{
-		"Title":       "Stargazers · " + row.Name,
-		"Owner":       owner,
-		"Repo":        row,
-		"Stargazers":  rows,
-		"Total":       count,
-		"Page":        page,
-		"HasNext":     int64(page*socialPageSize) < count,
-		"HasPrev":     page > 1,
-		"RepoCounts":  h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings": h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"Title":        "Stargazers · " + row.Name,
+		"Owner":        owner,
+		"Repo":         row,
+		"Stargazers":   rows,
+		"ProUsernames": proUsernames,
+		"Total":        count,
+		"Page":         page,
+		"HasNext":      int64(page*socialPageSize) < count,
+		"HasPrev":      page > 1,
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 	}
 	if err := h.d.Render.RenderPage(w, r, "repo/stargazers", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "stargazers render", "error", err)
@@ -163,17 +171,25 @@ func (h *Handlers) watchersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	count, _ := q.CountWatchersForRepo(r.Context(), h.d.Pool, row.ID)
+	// PRO-EXT_SR2-15: collect the Pro-watcher set for the badge.
+	proUsernames := make(map[string]bool, len(rows))
+	for _, wr := range rows {
+		if wr.Plan == socialdb.UserPlanPro {
+			proUsernames[wr.Username] = true
+		}
+	}
 	common := map[string]any{
-		"Title":       "Watchers · " + row.Name,
-		"Owner":       owner,
-		"Repo":        row,
-		"Watchers":    rows,
-		"Total":       count,
-		"Page":        page,
-		"HasNext":     int64(page*socialPageSize) < count,
-		"HasPrev":     page > 1,
-		"RepoCounts":  h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings": h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"Title":        "Watchers · " + row.Name,
+		"Owner":        owner,
+		"Repo":         row,
+		"Watchers":     rows,
+		"ProUsernames": proUsernames,
+		"Total":        count,
+		"Page":         page,
+		"HasNext":      int64(page*socialPageSize) < count,
+		"HasPrev":      page > 1,
+		"RepoCounts":   h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":  h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 	}
 	if err := h.d.Render.RenderPage(w, r, "repo/watchers", common); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "watchers render", "error", err)
