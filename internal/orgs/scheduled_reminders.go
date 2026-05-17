@@ -362,6 +362,15 @@ func sweepOneScheduledReminder(ctx context.Context, deps ScheduledReminderSweepD
 	if nextErr != nil {
 		status = orgsdb.OrgScheduledReminderStatusError
 		errText = pgtype.Text{String: nextErr.Error(), Valid: true}
+		if err := orgsdb.New().AdvanceOrgScheduledReminder(ctx, deps.Pool, orgsdb.AdvanceOrgScheduledReminderParams{
+			ID:            row.ID,
+			NextRunAt:     row.NextRunAt,
+			LastRunStatus: status,
+			LastRunError:  errText,
+		}); err != nil && deps.Logger != nil {
+			deps.Logger.WarnContext(ctx, "scheduled reminders: record invalid stored schedule failed",
+				"schedule_id", row.ID, "error", err)
+		}
 		if err := orgsdb.New().PauseOrgScheduledReminder(ctx, deps.Pool, orgsdb.PauseOrgScheduledReminderParams{
 			ID:    row.ID,
 			OrgID: row.OrgID,
