@@ -641,7 +641,6 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		rs = append(rs, rr)
 	}
-	requests, _ := h.pq.ListPRReviewRequests(r.Context(), h.d.Pool, pr.IID)
 	requestTargets, _ := h.pq.ListPRReviewRequestTargets(r.Context(), h.d.Pool, pr.IID)
 	type reqRow struct {
 		R        pullsdb.ListPRReviewRequestTargetsRow
