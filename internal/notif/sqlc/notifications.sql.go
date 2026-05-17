@@ -31,9 +31,15 @@ func (q *Queries) CountNotificationsForRecipient(ctx context.Context, db DBTX, a
 
 const countUnreadForRecipient = `-- name: CountUnreadForRecipient :one
 SELECT count(*) FROM notifications
-WHERE recipient_user_id = $1 AND unread = true
+WHERE recipient_user_id = $1
+  AND unread = true
+  AND (tab_label IS NULL OR tab_label <> 'dropped')
+  AND (snoozed_until IS NULL OR snoozed_until <= now())
 `
 
+// Inbox badge count. PRO-EXT01-16c: matches the default-view filter
+// so a user with all their notifications snoozed sees a clean 0 in
+// the nav, not a misleading total that includes asleep rows.
 func (q *Queries) CountUnreadForRecipient(ctx context.Context, db DBTX, recipientUserID int64) (int64, error) {
 	row := db.QueryRow(ctx, countUnreadForRecipient, recipientUserID)
 	var count int64
@@ -141,11 +147,52 @@ func (q *Queries) InsertThreadlessNotification(ctx context.Context, db DBTX, arg
 	return i, err
 }
 
+const listInboxTabsForRecipient = `-- name: ListInboxTabsForRecipient :many
+SELECT tab_label::text AS label, count(*)::int AS count
+FROM notifications
+WHERE recipient_user_id = $1
+  AND tab_label IS NOT NULL
+  AND tab_label <> 'dropped'
+GROUP BY tab_label
+ORDER BY tab_label ASC
+`
+
+type ListInboxTabsForRecipientRow struct {
+	Label string
+	Count int32
+}
+
+// Surfaces the distinct tab labels the user has rules routing into,
+// with a count per tab. The inbox nav renders one chip per result so
+// the user can switch tabs. 'dropped' is excluded from the chip list
+// (it's auditable via ?tab=dropped but doesn't deserve nav real
+// estate by default).
+func (q *Queries) ListInboxTabsForRecipient(ctx context.Context, db DBTX, recipientUserID int64) ([]ListInboxTabsForRecipientRow, error) {
+	rows, err := db.Query(ctx, listInboxTabsForRecipient, recipientUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInboxTabsForRecipientRow{}
+	for rows.Next() {
+		var i ListInboxTabsForRecipientRow
+		if err := rows.Scan(&i.Label, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNotificationsForRecipient = `-- name: ListNotificationsForRecipient :many
 SELECT n.id, n.recipient_user_id, n.kind, n.reason, n.repo_id,
        n.thread_kind, n.thread_id, n.source_event_id, n.unread,
        n.last_event_at, n.last_actor_user_id, n.summary,
        n.created_at, n.updated_at,
+       n.snoozed_until, n.tab_label, n.matched_rule_id,
        coalesce(u.username, '') AS actor_username,
        coalesce(r.name, '') AS repo_name,
        coalesce(ru.username, '') AS repo_owner_username,
@@ -158,6 +205,15 @@ LEFT JOIN users ru ON ru.id = r.owner_user_id
 LEFT JOIN issues i ON i.id = n.thread_id
 WHERE n.recipient_user_id = $1
   AND ($2::boolean = false OR n.unread = true)
+  AND (
+    -- @tab_filter = '' → default Inbox view: hide dropped + hide
+    -- snoozes that haven't yet woken up.
+    ($5::text = '' AND (n.tab_label IS NULL OR n.tab_label <> 'dropped')
+                 AND (n.snoozed_until IS NULL OR n.snoozed_until <= now()))
+    -- Non-empty filter → exact tab match (works for 'dropped' too,
+    -- so an investigation user can audit what their rules ate).
+    OR ($5::text <> '' AND n.tab_label = $5::text)
+  )
 ORDER BY n.last_event_at DESC
 LIMIT $3 OFFSET $4
 `
@@ -167,6 +223,7 @@ type ListNotificationsForRecipientParams struct {
 	Column2         bool
 	Limit           int32
 	Offset          int32
+	Column5         string
 }
 
 type ListNotificationsForRecipientRow struct {
@@ -184,6 +241,9 @@ type ListNotificationsForRecipientRow struct {
 	Summary           []byte
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+	SnoozedUntil      pgtype.Timestamptz
+	TabLabel          pgtype.Text
+	MatchedRuleID     pgtype.Int8
 	ActorUsername     string
 	RepoName          string
 	RepoOwnerUsername string
@@ -191,14 +251,20 @@ type ListNotificationsForRecipientRow struct {
 	ThreadTitle       string
 }
 
-// Inbox view, recency-sorted. `onlyUnread` toggles the inbox
-// filter ("Unread" tab vs "All").
+// Inbox view, recency-sorted. PRO-EXT01-16c extends the original
+// with:
+//   - snoozed_until / tab_label / matched_rule_id from the rule
+//     engine (PRO-EXT01-16a), so the template can render the badges.
+//   - @tab_filter — when non-empty, restrict to that tab. Empty
+//     string returns the default Inbox view (tab_label IS NULL or
+//     awake snoozes), hiding snoozed-but-not-yet-due + dropped rows.
 func (q *Queries) ListNotificationsForRecipient(ctx context.Context, db DBTX, arg ListNotificationsForRecipientParams) ([]ListNotificationsForRecipientRow, error) {
 	rows, err := db.Query(ctx, listNotificationsForRecipient,
 		arg.RecipientUserID,
 		arg.Column2,
 		arg.Limit,
 		arg.Offset,
+		arg.Column5,
 	)
 	if err != nil {
 		return nil, err
@@ -222,6 +288,9 @@ func (q *Queries) ListNotificationsForRecipient(ctx context.Context, db DBTX, ar
 			&i.Summary,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SnoozedUntil,
+			&i.TabLabel,
+			&i.MatchedRuleID,
 			&i.ActorUsername,
 			&i.RepoName,
 			&i.RepoOwnerUsername,

@@ -36,6 +36,9 @@ type Querier interface {
 	// to the cap.
 	CountEmailsForRecipientThreadSince(ctx context.Context, db DBTX, arg CountEmailsForRecipientThreadSinceParams) (int64, error)
 	CountNotificationsForRecipient(ctx context.Context, db DBTX, arg CountNotificationsForRecipientParams) (int64, error)
+	// Inbox badge count. PRO-EXT01-16c: matches the default-view filter
+	// so a user with all their notifications snoozed sees a clean 0 in
+	// the nav, not a misleading total that includes asleep rows.
 	CountUnreadForRecipient(ctx context.Context, db DBTX, recipientUserID int64) (int64, error)
 	DeleteNotificationThread(ctx context.Context, db DBTX, arg DeleteNotificationThreadParams) error
 	DeleteUserNotificationDigest(ctx context.Context, db DBTX, userID int64) error
@@ -72,8 +75,19 @@ type Querier interface {
 	// `user_notification_rules_user_enabled_idx` partial index makes this
 	// a single index seek.
 	ListEnabledUserNotificationRules(ctx context.Context, db DBTX, userID int64) ([]UserNotificationRule, error)
-	// Inbox view, recency-sorted. `onlyUnread` toggles the inbox
-	// filter ("Unread" tab vs "All").
+	// Surfaces the distinct tab labels the user has rules routing into,
+	// with a count per tab. The inbox nav renders one chip per result so
+	// the user can switch tabs. 'dropped' is excluded from the chip list
+	// (it's auditable via ?tab=dropped but doesn't deserve nav real
+	// estate by default).
+	ListInboxTabsForRecipient(ctx context.Context, db DBTX, recipientUserID int64) ([]ListInboxTabsForRecipientRow, error)
+	// Inbox view, recency-sorted. PRO-EXT01-16c extends the original
+	// with:
+	//   * snoozed_until / tab_label / matched_rule_id from the rule
+	//     engine (PRO-EXT01-16a), so the template can render the badges.
+	//   * @tab_filter — when non-empty, restrict to that tab. Empty
+	//     string returns the default Inbox view (tab_label IS NULL or
+	//     awake snoozes), hiding snoozed-but-not-yet-due + dropped rows.
 	ListNotificationsForRecipient(ctx context.Context, db DBTX, arg ListNotificationsForRecipientParams) ([]ListNotificationsForRecipientRow, error)
 	// Fan-out helper: returns recipients who explicitly subscribed to a
 	// thread. The fan-out worker unions this with the per-repo `watches`
