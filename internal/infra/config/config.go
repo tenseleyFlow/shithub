@@ -225,6 +225,11 @@ type EnforceConfig struct {
 	// gates both the write path AND the runner-read path so a Free
 	// user can't sneak rows through during the soak window.
 	UserActionsSecrets bool `toml:"user_actions_secrets"`
+	// UserActionsVariables: when true, Free users are blocked from
+	// creating personal Actions variables AND the runner-side
+	// resolution drops the user-scope layer for Free owners. Off by
+	// default → report-only. PRO-EXT01-12c.
+	UserActionsVariables bool `toml:"user_actions_variables"`
 	// UserWebhookRelay: when true, Free users are blocked from
 	// creating webhook relays AND inbound POSTs to existing relays
 	// owned by Free users return 403. Off by default → report-only
