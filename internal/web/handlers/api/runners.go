@@ -1195,9 +1195,9 @@ func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretRes
 // personal secrets across busy CI this was the only user-scope path
 // that grew per-user rather than per-repo/per-org.
 //
-// The repo/org variants below have the same N+1 shape but were not
-// flagged by the audit; tracked as a follow-up (mergeRepoSecrets,
-// mergeOrgSecrets) for a future cleanup.
+// PRO-EXT_SR2-12 (audit Q1): same fix applied to the repo + org
+// variants below — runners no longer issue 1 + N round-trips when
+// resolving a job's secret namespace.
 func (h *Handlers) mergeUserSecrets(ctx context.Context, db actionsdb.DBTX, userID int64, out map[string]string) error {
 	q := actionsdb.New()
 	items, err := q.ListUserSecretsWithCiphertext(ctx, db,
@@ -1248,19 +1248,13 @@ func (h *Handlers) userActionsSecretsAllowedForRunner(ctx context.Context, userI
 
 func (h *Handlers) mergeRepoSecrets(ctx context.Context, db actionsdb.DBTX, repoID int64, out map[string]string) error {
 	q := actionsdb.New()
-	items, err := q.ListRepoSecrets(ctx, db, pgtype.Int8{Int64: repoID, Valid: true})
+	items, err := q.ListRepoSecretsWithCiphertext(ctx, db,
+		pgtype.Int8{Int64: repoID, Valid: true})
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		row, err := q.GetRepoSecret(ctx, db, actionsdb.GetRepoSecretParams{
-			RepoID: pgtype.Int8{Int64: repoID, Valid: true},
-			Name:   item.Name,
-		})
-		if err != nil {
-			return err
-		}
-		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+		plaintext, err := h.d.SecretBox.Open(item.Ciphertext, item.Nonce)
 		if err != nil {
 			return err
 		}
@@ -1271,19 +1265,13 @@ func (h *Handlers) mergeRepoSecrets(ctx context.Context, db actionsdb.DBTX, repo
 
 func (h *Handlers) mergeOrgSecrets(ctx context.Context, db actionsdb.DBTX, orgID int64, out map[string]string) error {
 	q := actionsdb.New()
-	items, err := q.ListOrgSecrets(ctx, db, pgtype.Int8{Int64: orgID, Valid: true})
+	items, err := q.ListOrgSecretsWithCiphertext(ctx, db,
+		pgtype.Int8{Int64: orgID, Valid: true})
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		row, err := q.GetOrgSecret(ctx, db, actionsdb.GetOrgSecretParams{
-			OrgID: pgtype.Int8{Int64: orgID, Valid: true},
-			Name:  item.Name,
-		})
-		if err != nil {
-			return err
-		}
-		plaintext, err := h.d.SecretBox.Open(row.Ciphertext, row.Nonce)
+		plaintext, err := h.d.SecretBox.Open(item.Ciphertext, item.Nonce)
 		if err != nil {
 			return err
 		}

@@ -91,3 +91,21 @@ ORDER BY name ASC;
 SELECT id, name, created_by_user_id, created_at, updated_at
 FROM workflow_secrets
 WHERE user_id = $1 AND name = $2;
+
+-- PRO-EXT_SR2-12 (audit Q1): retire the same 1+N pattern for the
+-- repo and org variants that previously haunted mergeUserSecrets.
+-- Runners resolving a job that uses N repo or org secrets used to
+-- do 1 List + N GetRepoSecret/GetOrgSecret round-trips; this returns
+-- ciphertext + nonce in the single list query.
+
+-- name: ListRepoSecretsWithCiphertext :many
+SELECT id, name, ciphertext, nonce, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE repo_id = $1
+ORDER BY name ASC;
+
+-- name: ListOrgSecretsWithCiphertext :many
+SELECT id, name, ciphertext, nonce, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE org_id = $1
+ORDER BY name ASC;
