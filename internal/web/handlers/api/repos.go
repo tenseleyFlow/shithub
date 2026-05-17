@@ -532,6 +532,13 @@ type repoPatchRequest struct {
 	HasPulls    *bool   `json:"has_pulls,omitempty"`
 	Archived    *bool   `json:"archived,omitempty"`
 	Visibility  *string `json:"visibility,omitempty"`
+	// Name is parsed only so we can reject it cleanly: PATCH-time
+	// rename via REST is not implemented yet, and silently dropping
+	// the field (the pre-D1 behavior) let CLI clients render
+	// "Renamed to <old name>" success lines for no-op operations
+	// (C-audit C7). Until rename is wired, surfacing a 422 is the
+	// correct UX.
+	Name *string `json:"name,omitempty"`
 }
 
 func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
@@ -543,6 +550,14 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 	var body repoPatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	// C7: refuse rename requests instead of silently dropping them.
+	// REST-driven rename is on the roadmap; for now, surface a clear
+	// 422 so `shithub repo rename` errors out instead of reporting a
+	// fake success against the old name.
+	if body.Name != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "renaming via REST is not yet supported")
 		return
 	}
 	// General settings (description, has_issues, has_pulls) go through
