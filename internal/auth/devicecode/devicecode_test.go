@@ -268,6 +268,68 @@ func TestCreate_PersistsRow(t *testing.T) {
 	}
 }
 
+// TestExchange_StampsIssuedTokenAtomically covers the TX wrap from
+// remediation #1. Approve a grant, run Exchange to completion, verify
+// that exactly one user_tokens row exists AND device_authorizations
+// .issued_token_id points at it. The historical bug was that mint and
+// stamp were two un-coordinated DB calls; if the process died between
+// them an orphan PAT remained. The TX in Exchange now binds them, so
+// either both land or neither does. The "process dies mid-TX" failure
+// path can't be exercised without a test seam, but the happy-path
+// atomicity check + the existing one-shot-disclosure coverage in
+// TestExchange_PendingThenApprovedThenOneShot together pin the
+// invariant.
+func TestExchange_StampsIssuedTokenAtomically(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	deps := devicecode.Deps{Pool: pool}
+	userID := seedUser(t, pool, "alice")
+
+	auth, err := devicecode.Create(context.Background(), deps, defaultsForTest(), "shithub-cli", "user:read")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	row, err := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
+	if err != nil {
+		t.Fatalf("LookupByUserCode: %v", err)
+	}
+	if err := devicecode.Approve(context.Background(), deps, row.ID, userID); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	// Rewind last_polled_at far enough that slow_down can't fire.
+	if _, err := pool.Exec(context.Background(),
+		"UPDATE device_authorizations SET last_polled_at = now() - interval '10 seconds' WHERE id = $1",
+		row.ID); err != nil {
+		t.Fatalf("rewind last_polled_at: %v", err)
+	}
+
+	res, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "tx-test")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if !strings.HasPrefix(res.AccessToken, "shithub_pat_") {
+		t.Fatalf("access token shape: %q", res.AccessToken)
+	}
+
+	// Exactly one user_tokens row for this user.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM user_tokens WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		t.Fatalf("count user_tokens: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("user_tokens count: want 1, got %d", count)
+	}
+
+	// device_authorizations.issued_token_id points at that row.
+	got, err := usersdb.New().GetDeviceAuthorizationByUserCode(context.Background(), pool, auth.UserCode)
+	if err != nil {
+		t.Fatalf("re-lookup: %v", err)
+	}
+	if !got.IssuedTokenID.Valid {
+		t.Errorf("issued_token_id not stamped after Exchange")
+	}
+}
+
 // Defensive: a pgx.Int8 zero-value should marshal cleanly when we
 // Approve a row that uses it for IssuedTokenID. This is a sanity check
 // that the Approve query accepts a "null" issued_token_id at SQL level
