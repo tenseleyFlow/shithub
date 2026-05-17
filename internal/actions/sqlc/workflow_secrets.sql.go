@@ -476,8 +476,7 @@ type UpsertOrgSecretRow struct {
 }
 
 func (q *Queries) UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (UpsertOrgSecretRow, error) {
-	row := db.QueryRow(
-		ctx, upsertOrgSecret,
+	row := db.QueryRow(ctx, upsertOrgSecret,
 		arg.OrgID,
 		arg.Name,
 		arg.Ciphertext,
@@ -533,8 +532,7 @@ type UpsertRepoSecretRow struct {
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 func (q *Queries) UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (UpsertRepoSecretRow, error) {
-	row := db.QueryRow(
-		ctx, upsertRepoSecret,
+	row := db.QueryRow(ctx, upsertRepoSecret,
 		arg.RepoID,
 		arg.Name,
 		arg.Ciphertext,
@@ -592,8 +590,7 @@ type UpsertUserSecretRow struct {
 // (repo_id, org_id) variants — same encrypted storage, same XOR
 // discriminator (now 3-way), separate partial unique index per scope.
 func (q *Queries) UpsertUserSecret(ctx context.Context, db DBTX, arg UpsertUserSecretParams) (UpsertUserSecretRow, error) {
-	row := db.QueryRow(
-		ctx, upsertUserSecret,
+	row := db.QueryRow(ctx, upsertUserSecret,
 		arg.UserID,
 		arg.Name,
 		arg.Ciphertext,
