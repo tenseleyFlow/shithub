@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 	relaydb "github.com/tenseleyFlow/shithub/internal/webhookrelay/sqlc"
 )
 
@@ -24,19 +25,37 @@ import (
 const MaxDestinations = 8
 
 // Errors surfaced by the Store. Callers map these to HTTP status:
-// ErrNotFound → 404, ErrDisabled → 410, ErrTooManyDestinations → 400.
+// ErrNotFound → 404, ErrDisabled → 410, ErrTooManyDestinations → 400,
+// ErrInvalidDestination → 400.
 var (
 	ErrNotFound            = errors.New("webhookrelay: not found")
 	ErrDisabled            = errors.New("webhookrelay: relay disabled")
 	ErrTooManyDestinations = fmt.Errorf("webhookrelay: too many destinations (max %d)", MaxDestinations)
 	ErrEmptyName           = errors.New("webhookrelay: name must be non-empty")
+	// ErrInvalidDestination wraps an SSRF or scheme failure on a
+	// destination URL at create time. PRO-EXT_SR2-10 (audit H1):
+	// previously destinations rode unchecked into the DB; an operator
+	// SSRF policy change after a relay was created would only catch
+	// the bad destination at delivery time, leaving an always-failing
+	// relay in place. Validation at create time gives users an
+	// immediate "fix this" signal.
+	ErrInvalidDestination = errors.New("webhookrelay: invalid destination URL")
 )
 
 // Deps wires the store. SecretBox encrypts the per-relay HMAC secret
-// used to sign outbound deliveries.
+// used to sign outbound deliveries. SSRF, when zero-valued, defaults
+// to webhook.DefaultSSRFConfig() at validate time (see Create).
 type Deps struct {
 	Pool *pgxpool.Pool
 	Box  *secretbox.Box
+	SSRF webhook.SSRFConfig
+}
+
+func (d Deps) ssrfConfig() webhook.SSRFConfig {
+	if len(d.SSRF.AllowedSchemes) == 0 {
+		return webhook.DefaultSSRFConfig()
+	}
+	return d.SSRF
 }
 
 // Destination is a single fan-out target. The shape is intentionally
@@ -86,6 +105,18 @@ func (d Deps) Create(ctx context.Context, in CreateInput) (CreateResult, error) 
 	}
 	if len(in.Destinations) > MaxDestinations {
 		return CreateResult{}, ErrTooManyDestinations
+	}
+	// PRO-EXT_SR2-10 (audit H1): validate every destination URL at
+	// create time so the persisted relay can't already be pointing at
+	// 169.254.169.254 / localhost / non-http schemes. Deliver-time
+	// validation (in deliver.go) is the defense-in-depth — this is
+	// the user-feedback layer.
+	ssrfCfg := d.ssrfConfig()
+	for i, dest := range in.Destinations {
+		if err := ssrfCfg.ValidateWithResolve(ctx, dest.URL); err != nil {
+			return CreateResult{}, fmt.Errorf("%w (destination %d: %s): %s",
+				ErrInvalidDestination, i+1, dest.URL, err.Error())
+		}
 	}
 	raw, hash, prefix, err := Mint()
 	if err != nil {

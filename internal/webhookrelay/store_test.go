@@ -44,7 +44,11 @@ func setup(t testing.TB) fx {
 		t.Fatalf("FromBytes: %v", err)
 	}
 	return fx{
-		deps:   webhookrelay.Deps{Pool: pool, Box: box},
+		// PRO-EXT_SR2-10: Deps.Create now SSRF-validates each
+		// destination at creation time. Tests use loopback URLs +
+		// the permissive loopbackSSRF() so they keep their existing
+		// shape; production deployments use the default (strict).
+		deps:   webhookrelay.Deps{Pool: pool, Box: box, SSRF: loopbackSSRF()},
 		userID: user.ID,
 		pool:   pool,
 	}
@@ -58,8 +62,8 @@ func TestCreate_ReturnsRawTokenAndStoresHash(t *testing.T) {
 		Name:       "github-mirror",
 		HMACSecret: []byte("shared-secret-bytes"),
 		Destinations: []webhookrelay.Destination{
-			{URL: "https://dev.example.test/hook"},
-			{URL: "https://staging.example.test/hook"},
+			{URL: "http://127.0.0.1:8011/hook"},
+			{URL: "http://127.0.0.1:8012/hook"},
 		},
 	}
 	res, err := f.deps.Create(context.Background(), in)
@@ -105,7 +109,7 @@ func TestCreate_RejectsTooManyDestinations(t *testing.T) {
 	f := setup(t)
 	dests := make([]webhookrelay.Destination, webhookrelay.MaxDestinations+1)
 	for i := range dests {
-		dests[i].URL = "https://example.test/"
+		dests[i].URL = "http://127.0.0.1:8000/"
 	}
 	_, err := f.deps.Create(context.Background(), webhookrelay.CreateInput{
 		UserID: f.userID, Name: "n", HMACSecret: []byte("k"), Destinations: dests,

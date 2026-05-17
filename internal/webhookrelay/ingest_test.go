@@ -18,9 +18,9 @@ func TestIngest_CreatesDeliveryPerDestination(t *testing.T) {
 	res, err := f.deps.Create(context.Background(), webhookrelay.CreateInput{
 		UserID: f.userID, Name: "n", HMACSecret: []byte("k"),
 		Destinations: []webhookrelay.Destination{
-			{URL: "https://a.example.test/"},
-			{URL: "https://b.example.test/"},
-			{URL: "https://c.example.test/"},
+			{URL: "http://127.0.0.1:8001/a"},
+			{URL: "http://127.0.0.1:8002/b"},
+			{URL: "http://127.0.0.1:8003/c"},
 		},
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestIngest_DisabledRelayRejected(t *testing.T) {
 	f := setup(t)
 	res, err := f.deps.Create(context.Background(), webhookrelay.CreateInput{
 		UserID: f.userID, Name: "n", HMACSecret: []byte("k"),
-		Destinations: []webhookrelay.Destination{{URL: "https://a.example.test/"}},
+		Destinations: []webhookrelay.Destination{{URL: "http://127.0.0.1:8001/a"}},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -123,7 +123,7 @@ func TestIngest_ClampsTooManyDestinations(t *testing.T) {
 	}
 	tooMany := make([]webhookrelay.Destination, webhookrelay.MaxDestinations+2)
 	for i := range tooMany {
-		tooMany[i].URL = "https://a.example.test/"
+		tooMany[i].URL = "http://127.0.0.1:8001/a"
 	}
 	relay := res.Relay
 	relay.Destinations = tooMany
