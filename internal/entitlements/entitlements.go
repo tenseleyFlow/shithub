@@ -31,6 +31,11 @@ const (
 	FeaturePrivateCollaboration     Feature = "private_collaboration_limit"
 	FeatureStorageQuota             Feature = "storage_quota"
 	FeatureActionsMinutesQuota      Feature = "actions_minutes_quota"
+	// FeatureScheduledReminders gates GitHub Team-style scheduled
+	// reminders for private org repositories. Public-repo reminders
+	// remain available to Free orgs; any reminder target that can
+	// touch private repos requires Team.
+	FeatureScheduledReminders Feature = "scheduled_reminders"
 	// PRO07 additions.
 	//
 	// FeatureProfilePinsBeyondFree gates raising the personal profile
@@ -288,6 +293,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeaturePrivateCollaboration:     {billing.SubjectKindOrg},
 	FeatureStorageQuota:             {billing.SubjectKindOrg}, // user pending SP08
 	FeatureActionsMinutesQuota:      {billing.SubjectKindOrg}, // user pending SP08
+	FeatureScheduledReminders:       {billing.SubjectKindOrg},
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:            {billing.SubjectKindUser},

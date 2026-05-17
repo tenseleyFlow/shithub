@@ -21,6 +21,7 @@ func TestAppliesToOrgOnlyFeatures(t *testing.T) {
 		entitlements.FeaturePrivateCollaboration,
 		entitlements.FeatureStorageQuota,
 		entitlements.FeatureActionsMinutesQuota,
+		entitlements.FeatureScheduledReminders,
 	}
 	for _, f := range orgOnly {
 		if !entitlements.FeatureAppliesToKind(f, billing.SubjectKindOrg) {

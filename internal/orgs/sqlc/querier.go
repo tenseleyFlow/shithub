@@ -21,11 +21,15 @@ type Querier interface {
 	AddOrgMember(ctx context.Context, db DBTX, arg AddOrgMemberParams) error
 	// ─── team_members ─────────────────────────────────────────────────
 	AddTeamMember(ctx context.Context, db DBTX, arg AddTeamMemberParams) error
+	AdvanceOrgScheduledReminder(ctx context.Context, db DBTX, arg AdvanceOrgScheduledReminderParams) error
 	CancelOrgInvitation(ctx context.Context, db DBTX, id int64) error
 	ChangeOrgMemberRole(ctx context.Context, db DBTX, arg ChangeOrgMemberRoleParams) error
+	ClaimDueOrgScheduledReminders(ctx context.Context, db DBTX, limit int32) ([]OrgScheduledReminder, error)
+	ClaimOrgScheduledReminderDelivery(ctx context.Context, db DBTX, arg ClaimOrgScheduledReminderDeliveryParams) (OrgScheduledReminderDelivery, error)
 	// Used by the last-owner protection: refuses to remove or demote the
 	// only owner. Caller compares `count = 1` before allowing the change.
 	CountOrgOwners(ctx context.Context, db DBTX, orgID int64) (int64, error)
+	CountPrivateReposForScheduledReminderTarget(ctx context.Context, db DBTX, arg CountPrivateReposForScheduledReminderTargetParams) (int32, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── orgs ──────────────────────────────────────────────────────────
 	// Inserts a new org. The trigger on `orgs` populates `principals` for
@@ -38,9 +42,13 @@ type Querier interface {
 	// ─── org_invitations ───────────────────────────────────────────────
 	CreateOrgInvitation(ctx context.Context, db DBTX, arg CreateOrgInvitationParams) (OrgInvitation, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// ─── org_scheduled_reminders ─────────────────────────────────────
+	CreateOrgScheduledReminder(ctx context.Context, db DBTX, arg CreateOrgScheduledReminderParams) (OrgScheduledReminder, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── teams ─────────────────────────────────────────────────────────
 	CreateTeam(ctx context.Context, db DBTX, arg CreateTeamParams) (Team, error)
 	DeclineOrgInvitation(ctx context.Context, db DBTX, id int64) error
+	DeleteOrgScheduledReminder(ctx context.Context, db DBTX, arg DeleteOrgScheduledReminderParams) error
 	// Children's parent_team_id flips to NULL via the FK ON DELETE SET NULL,
 	// promoting them to top-level — matches the "deleting parent doesn't
 	// delete children" intent in the spec's pitfalls.
@@ -62,6 +70,7 @@ type Querier interface {
 	GetOrgInvitationByID(ctx context.Context, db DBTX, id int64) (OrgInvitation, error)
 	GetOrgInvitationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (OrgInvitation, error)
 	GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberParams) (OrgMember, error)
+	GetOrgScheduledReminder(ctx context.Context, db DBTX, id int64) (OrgScheduledReminder, error)
 	GetTeamByID(ctx context.Context, db DBTX, id int64) (Team, error)
 	GetTeamByOrgAndSlug(ctx context.Context, db DBTX, arg GetTeamByOrgAndSlugParams) (Team, error)
 	GetTeamRepoAccess(ctx context.Context, db DBTX, arg GetTeamRepoAccessParams) (TeamRepoAccess, error)
@@ -76,6 +85,7 @@ type Querier interface {
 	// gate for secret teams.
 	IsTeamMember(ctx context.Context, db DBTX, arg IsTeamMemberParams) (bool, error)
 	ListChildTeams(ctx context.Context, db DBTX, parentTeamID pgtype.Int8) ([]Team, error)
+	ListDirectReviewReminderCandidates(ctx context.Context, db DBTX, id int64) ([]ListDirectReviewReminderCandidatesRow, error)
 	ListOrgGithubImportRepos(ctx context.Context, db DBTX, importID int64) ([]OrgGithubImportRepo, error)
 	ListOrgGithubImportsForOrg(ctx context.Context, db DBTX, arg ListOrgGithubImportsForOrgParams) ([]OrgGithubImport, error)
 	// Sweep input for the lifecycle worker: every soft-deleted org whose
@@ -90,6 +100,7 @@ type Querier interface {
 	// All repo IDs (including soft-deleted) belonging to an org. Used by
 	// the org hard-delete cascade to fan out per-repo destruction.
 	ListOrgRepoIDs(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]int64, error)
+	ListOrgScheduledReminders(ctx context.Context, db DBTX, orgID int64) ([]ListOrgScheduledRemindersRow, error)
 	// Profile-page input: every org a user is a member of, with role.
 	ListOrgsForUser(ctx context.Context, db DBTX, userID int64) ([]ListOrgsForUserRow, error)
 	ListPendingInvitationsForEmail(ctx context.Context, db DBTX, targetEmail pgtype.Text) ([]ListPendingInvitationsForEmailRow, error)
@@ -107,6 +118,7 @@ type Querier interface {
 	ListTeamMembers(ctx context.Context, db DBTX, teamID int64) ([]ListTeamMembersRow, error)
 	// All repos the team has any grant on; for the team-view page.
 	ListTeamRepoAccess(ctx context.Context, db DBTX, teamID int64) ([]ListTeamRepoAccessRow, error)
+	ListTeamReviewReminderCandidates(ctx context.Context, db DBTX, id int64) ([]ListTeamReviewReminderCandidatesRow, error)
 	ListTeamsForOrg(ctx context.Context, db DBTX, orgID int64) ([]Team, error)
 	// Returns the teams a user directly belongs to within an org. The
 	// policy aggregator unions this with each row's parent_team_id to
@@ -121,6 +133,8 @@ type Querier interface {
 	MarkOrgGithubImportRepoImported(ctx context.Context, db DBTX, arg MarkOrgGithubImportRepoImportedParams) error
 	MarkOrgGithubImportRepoImporting(ctx context.Context, db DBTX, id int64) error
 	MarkOrgGithubImportRepoSkipped(ctx context.Context, db DBTX, arg MarkOrgGithubImportRepoSkippedParams) error
+	MarkOrgScheduledReminderDeliverySent(ctx context.Context, db DBTX, arg MarkOrgScheduledReminderDeliverySentParams) error
+	PauseOrgScheduledReminder(ctx context.Context, db DBTX, arg PauseOrgScheduledReminderParams) error
 	RemoveOrgMember(ctx context.Context, db DBTX, arg RemoveOrgMemberParams) error
 	RemoveTeamMember(ctx context.Context, db DBTX, arg RemoveTeamMemberParams) error
 	// ─── principals (read-only from this domain) ───────────────────────
@@ -130,6 +144,7 @@ type Querier interface {
 	// impossible at the DB layer.
 	ResolvePrincipal(ctx context.Context, db DBTX, slug string) (Principal, error)
 	RestoreOrg(ctx context.Context, db DBTX, id int64) error
+	ResumeOrgScheduledReminder(ctx context.Context, db DBTX, arg ResumeOrgScheduledReminderParams) (OrgScheduledReminder, error)
 	RevokeTeamRepoAccess(ctx context.Context, db DBTX, arg RevokeTeamRepoAccessParams) error
 	SetOrgAllowMemberRepoCreate(ctx context.Context, db DBTX, arg SetOrgAllowMemberRepoCreateParams) error
 	SetOrgAvatarKey(ctx context.Context, db DBTX, arg SetOrgAvatarKeyParams) error
@@ -140,6 +155,7 @@ type Querier interface {
 	SetTeamParent(ctx context.Context, db DBTX, arg SetTeamParentParams) error
 	SoftDeleteOrg(ctx context.Context, db DBTX, id int64) error
 	UpdateOrgProfile(ctx context.Context, db DBTX, arg UpdateOrgProfileParams) error
+	UpdateOrgScheduledReminder(ctx context.Context, db DBTX, arg UpdateOrgScheduledReminderParams) (OrgScheduledReminder, error)
 	UpdateTeamProfile(ctx context.Context, db DBTX, arg UpdateTeamProfileParams) error
 }
 
