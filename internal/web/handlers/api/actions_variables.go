@@ -95,7 +95,8 @@ func (h *Handlers) actionsVariablesListRepo(w http.ResponseWriter, r *http.Reque
 	for _, v := range rows {
 		out = append(out, presentVariable(v))
 	}
-	writeJSON(w, http.StatusOK, out)
+	// S62 audit B13.
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "variables": out})
 }
 
 func (h *Handlers) actionsVariablesGetRepo(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +190,7 @@ func (h *Handlers) actionsVariablesListOrg(w http.ResponseWriter, r *http.Reques
 	for _, v := range rows {
 		out = append(out, presentVariable(v))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "variables": out})
 }
 
 func (h *Handlers) actionsVariablesGetOrg(w http.ResponseWriter, r *http.Request) {
