@@ -42,8 +42,8 @@
 
     <section class="shithub-border-grid-row">
       <h2 class="shithub-repo-about-section-heading">Packages</h2>
-      <p class="shithub-muted">No packages published</p>
-      {{ if .CanSettings }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/packages/new">Publish your first package</a>{{ end }}
+      <p class="shithub-muted">Repository packages</p>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/packages">View packages</a>
     </section>
 
     <section class="shithub-border-grid-row">

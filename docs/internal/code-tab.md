@@ -52,15 +52,19 @@ quality, Insights, and Settings when visible to the viewer. Forks remain
 available from the repo action button and About sidebar, but are not a
 top-level tab on GitHub.
 
-Actions, Security and quality, Insights, Packages, and Releases still
-render honest parked shells via `repo/deferred_tab`. Projects and Wiki
-are SP21 product surfaces:
+Actions, Security and quality, Insights, and Releases still render
+honest parked shells via `repo/deferred_tab`. Projects, Wiki, and
+Packages are product surfaces:
 
 - Projects list repository project boards, create/update/close/delete
   projects, and let issue/PR sidebars attach an item to an open
   project.
 - Wiki lists pages, renders sanitized Markdown through the canonical
   markdown package, and supports create/edit/delete for repo writers.
+- Packages lists generic package metadata and files, supports
+  organization-repository upload/download/delete flows, stores files in
+  object storage, and counts package bytes toward organization storage
+  quotas.
 
 Project and Wiki reads are public read surfaces gated by
 `ActionRepoRead`, so private repo existence behavior matches

@@ -525,8 +525,9 @@ func TestOrgBillingSettingsRendersUsageThresholds(t *testing.T) {
 	start, end := orgbilling.MonthlyUsagePeriod(time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC))
 	if _, err := orgbilling.UpsertOrgUsageCounters(ctx, orgbilling.Deps{Pool: pool}, orgbilling.UsageCounterSnapshot{
 		OrgID:                orgID,
-		RepoStorageBytes:     490 * 1024 * 1024,
-		ObjectStorageBytes:   0,
+		RepoStorageBytes:     480 * 1024 * 1024,
+		ObjectStorageBytes:   10 * 1024 * 1024,
+		PackageStorageBytes:  10 * 1024 * 1024,
 		ActionsLogBytes:      0,
 		ActionsArtifactBytes: 0,
 		ActionsMinutesUsed:   1600,
@@ -547,6 +548,9 @@ func TestOrgBillingSettingsRendersUsageThresholds(t *testing.T) {
 	}
 	if !strings.Contains(body, "USAGE=storage:490 MiB/500 MiB/98%/is-danger;") {
 		t.Fatalf("settings did not render storage usage threshold: %s", body)
+	}
+	if !strings.Contains(body, "USAGE=package-storage:10 MiB/Included in storage/—/is-muted;") {
+		t.Fatalf("settings did not render package storage usage: %s", body)
 	}
 	if !strings.Contains(body, "USAGE=actions-minutes:1600 minutes/2000 minutes/80%/is-warning;") {
 		t.Fatalf("settings did not render actions usage threshold: %s", body)

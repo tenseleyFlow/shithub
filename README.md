@@ -12,7 +12,7 @@
 
 **Status: v0.1.0 launched — early days. Honest about WIP areas.**
 
-shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are not there yet. The core forge loop works end-to-end (see "What works today"); large surfaces such as GraphQL, Packages, Pages, Projects, Releases, and Gists are still explicitly outside the current shipped surface.
+shithub is an attempt to recreate GitHub — the platform, the UI, the workflows — as faithfully as we can, as a self-hostable open-source forge. The goal is "you should barely notice you switched." We are not there yet. The core forge loop works end-to-end (see "What works today"); large surfaces such as GraphQL, Pages, Releases, and Gists are still explicitly outside the current shipped surface.
 
 The hosted instance is at **[shithub.sh](https://shithub.sh)**. The project's own source has migrated here from GitHub; this GitHub repo is a one-way mirror for the first 90 days post-launch as a recovery surface.
 
@@ -34,13 +34,14 @@ The core forge loop works end-to-end against the codebase you're reading:
 - **Repo settings** — General (description, topics, features, merge methods), Access (collaborators + team grants), Branches (protection rules), Danger (rename/transfer/archive/visibility/delete).
 - **Webhooks** — outbound delivery with HMAC-SHA256 signing, exponential backoff with jitter, auto-disable on persistent failure, SSRF defense (DNS resolve + IP block-list + dial-the-IP transport, no redirect-following), redelivery UI, ping events.
 - **Actions / CI v1** — `.shithub/workflows` parser, push/PR/schedule/dispatch triggers, per-repo/org secrets and variables, runner registration, single-use job JWTs, scoped checkout, containerized `run:` steps, live logs, cancel/re-run, retention, check-run sync, Atom feed, and monitoring. v1 intentionally supports `actions/checkout@v4` plus `run:` steps, not arbitrary marketplace actions.
+- **Repository products** — Wikis, repository Projects, and generic Packages for organization repositories, with package bytes counted toward organization storage quotas.
 
 ## What doesn't work yet
 
 Pulled directly from the sprint plan we're working through:
 
 - **Actions marketplace parity** — shithub Actions does not execute arbitrary `uses:` steps, matrix builds, service containers, composite actions, or hosted runner images. The project's full CI remains on GitHub Actions until the first-party runner image/Nix toolchain can run it without marketplace setup actions; `.shithub/workflows/checkout-canary.yml` is the current dogfood canary.
-- **Packages, Pages, Projects, Releases, Gists** — none of these surfaces exist yet.
+- **Package ecosystem parity, Pages, Releases, Gists** — generic repository package uploads exist, but npm/container/rubygems-style protocol parity is not shipped yet. Pages, Releases, and Gists are still deferred.
 - **GraphQL API** — a documented REST API ships under `/api/v1` (see `docs/public/api/`); a GraphQL surface is not yet planned.
 - **Visual polish** — most pages render correctly but do not look like GitHub yet. Spacing, typography, header/footer chrome, color tokens, octicon coverage, empty-state illustrations, focus states — all still drifting from Primer. Closing this gap is ongoing; expect rough edges page-to-page.
 - **Mobile / responsive** — the current CSS is desktop-first. Small viewports work but aren't tuned.

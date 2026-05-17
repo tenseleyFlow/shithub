@@ -763,8 +763,17 @@ func (h *Handlers) billingUsageBreakdown(r *http.Request, orgID int64) billingUs
 				"Storage",
 				totalStorage,
 				storageLimit,
-				"Repository storage "+formatBytes(counters.RepoStorageBytes)+"; object storage "+formatBytes(counters.ObjectStorageBytes)+" including "+formatBytes(counters.ActionsLogBytes)+" of Actions logs and "+formatBytes(counters.ActionsArtifactBytes)+" of artifacts.",
+				"Repository storage "+formatBytes(counters.RepoStorageBytes)+"; object storage "+formatBytes(counters.ObjectStorageBytes)+" including "+formatBytes(counters.PackageStorageBytes)+" of package files, "+formatBytes(counters.ActionsLogBytes)+" of Actions logs, and "+formatBytes(counters.ActionsArtifactBytes)+" of artifacts.",
 			),
+			{
+				Key:          "package-storage",
+				Label:        "Package storage",
+				UsedLabel:    formatBytes(counters.PackageStorageBytes),
+				LimitLabel:   "Included in storage",
+				PercentLabel: "—",
+				Detail:       "Generic package files published from repository Packages.",
+				StatusClass:  "is-muted",
+			},
 			billingUsageRowForLimit(
 				"actions-minutes",
 				"Actions minutes",
@@ -787,6 +796,7 @@ func unavailableBillingUsage(message string) billingUsageBreakdown {
 		},
 		Rows: []billingUsageRow{
 			{Key: "storage", Label: "Storage", UsedLabel: "Unavailable", LimitLabel: "Unavailable", PercentLabel: "—", Detail: "Usage data is unavailable.", StatusClass: "is-muted"},
+			{Key: "package-storage", Label: "Package storage", UsedLabel: "Unavailable", LimitLabel: "Included in storage", PercentLabel: "—", Detail: "Usage data is unavailable.", StatusClass: "is-muted"},
 			{Key: "actions-minutes", Label: "Actions minutes", UsedLabel: "Unavailable", LimitLabel: "Unavailable", PercentLabel: "—", Detail: "Usage data is unavailable.", StatusClass: "is-muted"},
 		},
 	}

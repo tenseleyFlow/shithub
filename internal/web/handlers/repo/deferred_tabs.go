@@ -52,18 +52,6 @@ func (h *Handlers) repoTabInsights(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) repoTabPackages(w http.ResponseWriter, r *http.Request) {
-	h.renderDeferredRepoTab(w, r, repoDeferredTab{
-		Active:      "packages",
-		Heading:     "Packages",
-		Description: "Publish and install packages associated with this repository.",
-		Icon:        "package",
-		Sections: []repoDeferredSection{
-			{Anchor: "repository-packages", Title: "Repository packages", Body: "No packages have been published for this repository."},
-		},
-	})
-}
-
 func (h *Handlers) repoTabReleases(w http.ResponseWriter, r *http.Request) {
 	h.renderDeferredRepoTab(w, r, repoDeferredTab{
 		Active:      "releases",
