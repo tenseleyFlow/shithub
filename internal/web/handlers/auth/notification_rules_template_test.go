@@ -30,6 +30,15 @@ func notificationsData(rulesAllowed bool, rules []notifdb.UserNotificationRule) 
 		"RuleActionTab":      string(notifdb.UserNotificationRuleActionTab),
 		"RuleActionMarkRead": string(notifdb.UserNotificationRuleActionMarkRead),
 		"RuleActionDrop":     string(notifdb.UserNotificationRuleActionDrop),
+		// Digest section data (PRO-EXT01-16b). Default to allowed +
+		// no existing schedule so the rules-focused tests don't
+		// accidentally trigger digest-locked rendering.
+		"Digest":           notifdb.UserNotificationDigest{HourUtc: 9, Frequency: notifdb.UserNotificationDigestFrequencyDaily},
+		"HasDigest":        false,
+		"DigestAllowed":    rulesAllowed,
+		"DigestFeatureKey": "inbox_digests",
+		"DigestFreqDaily":  string(notifdb.UserNotificationDigestFrequencyDaily),
+		"DigestFreqWeekly": string(notifdb.UserNotificationDigestFrequencyWeekly),
 	})
 }
 
