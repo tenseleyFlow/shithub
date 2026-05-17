@@ -20,6 +20,8 @@ internal/notif/
     sqlc/            — generated DB code
 
 internal/worker/jobs/notify_fanout.go   — wraps FanoutOnce as a worker job
+internal/worker/jobs/org_scheduled_reminder_sweep.go
+                                 — due PR review reminder fan-out
 internal/web/handlers/notifications/    — /notifications + thread sub
 internal/web/templates/notifications/   — inbox.html, unsubscribed.html
 ```
@@ -62,6 +64,16 @@ caller (issues/pulls/etc) ──▶ notif.Emit(...)
                                 └── maybeSendEmail (storm-dampened)
 ```
 
+Scheduled PR reminders do not originate from `domain_events`. The
+`org:scheduled_reminder_sweep` worker claims due organization reminder
+schedules, finds outstanding user or team review requests that are old
+enough for the configured conditions, re-checks each recipient's repo
+access through policy, skips suspended users, and upserts one inbox row
+per `(reminder, run, PR, recipient)`. The resulting notification uses
+`kind='scheduled_reminder'`, `reason='scheduled_reminder'`, and a PR
+thread so the normal inbox UI can link back to the pull request without
+duplicating delivery on worker retries.
+
 ## Routing matrix
 
 `Routing(kind, relation)` is the single source of truth for "who
@@ -82,6 +94,7 @@ it'll graduate to a table-driven shape.
 | `issue_closed`, `issue_reopened`, `pr_closed`, `pr_reopened`, `pr_merged` | author / assignee / sub / watch | ✓ | ✓/no | no | author/assignment/subscribed/watching |
 | `review_requested`                   | reviewer        | ✓    | ✓     | **yes**         | review_requested  |
 | `review_submitted`                   | author / sub    | ✓    | ✓/no  | no              | author/subscribed |
+| `scheduled_reminder`                 | reviewer        | ✓    | no    | no              | scheduled_reminder |
 | `mentioned` (standalone)             | mention         | ✓    | ✓     | **yes**         | mention           |
 | `check_failed`, `check_fixed`        | author          | ✓    | no    | no              | author            |
 | `repo_archived` and S16 lifecycle    | repo_owner      | ✓    | ✓     | no              | repo_admin_action |
