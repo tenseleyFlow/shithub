@@ -150,12 +150,19 @@ type BillingConfig struct {
 	Enforce EnforceConfig `toml:"enforce"`
 }
 
-// EnforceConfig is the PRO07 per-feature enforcement matrix. Defaults
-// (all false) keep production in report-only mode; operators flip
-// features individually after the 7-day telemetry soak ratifies that
-// no Free user is currently exercising the gate. The flag order and
-// names are stable — flipping any to true is a one-way deploy that
-// operators back out with the same knob, not by reverting code.
+// EnforceConfig is the PRO07 per-feature enforcement matrix.
+//
+// PRO-EXT01 originally shipped every flag false (report-only) so the
+// 7-day soak could measure deny rates before flipping. At campaign
+// close we audited the user base, confirmed no Free users had built
+// up reliance on any gated feature, and flipped every default to
+// true in defaultEnforce() — see the post-campaign retro at
+// docs/internal/retro/PRO-EXT01.md.
+//
+// Operators can still selectively *disable* enforcement per feature
+// by setting the corresponding TOML field to false; BurntSushi/toml
+// only overwrites fields the operator explicitly names, so unset
+// fields keep the all-true default.
 type EnforceConfig struct {
 	// UserAdvancedBranchProtection: when true, Free users on private
 	// personal repos are blocked from setting prevent_force_push,
@@ -173,47 +180,37 @@ type EnforceConfig struct {
 	// UserPrivateRepoTemplates: when true, Free users cannot mark a
 	// private personal repo as a template, and create-from-template
 	// requests targeting a private template whose owner is not currently
-	// Pro are rejected. Off by default → report-only; PRO-EXT01-17 flips
-	// after the standard 7-day soak.
+	// Pro are rejected. PRO-EXT01-06; enforced by default post-17.
 	UserPrivateRepoTemplates bool `toml:"user_private_repo_templates"`
 	// UserSavedRepliesUnlimited: when true, Free users hitting the
 	// FreeSavedRepliesCap are blocked from creating an N+1 reply.
-	// Off by default → report-only (the would-deny is logged and the
-	// insert lands). PRO-EXT01-07a; promoted in PRO-EXT01-17.
+	// PRO-EXT01-07a; enforced by default post-17.
 	UserSavedRepliesUnlimited bool `toml:"user_saved_replies_unlimited"`
 	// UserScheduledIssues: when true, Free users attempting to schedule
 	// an issue have the schedule_at field ignored and the issue is
-	// created immediately. Off by default → report-only (the schedule
-	// honoured + logged). PRO-EXT01-07b; promoted in PRO-EXT01-17.
+	// created immediately. PRO-EXT01-07b; enforced by default post-17.
 	UserScheduledIssues bool `toml:"user_scheduled_issues"`
 	// UserAdvancedCodeSearch: when true, Free users are blocked from
 	// creating saved code-search queries (PRO-EXT01-08a) and from
-	// using regex query syntax (PRO-EXT01-08b). Off by default →
-	// report-only (the would-deny is logged but the action lands).
-	// Promoted in PRO-EXT01-17.
+	// using regex query syntax (PRO-EXT01-08b). Enforced by default
+	// post-17.
 	UserAdvancedCodeSearch bool `toml:"user_advanced_code_search"`
 	// UserContributionPrivacy: when true, Free users are blocked from
-	// adding per-repo opt-outs to their contribution graph. Off by
-	// default → report-only (the opt-out lands but the would-deny is
-	// logged). PRO-EXT01-09; promoted in PRO-EXT01-17.
+	// adding per-repo opt-outs to their contribution graph.
+	// PRO-EXT01-09; enforced by default post-17.
 	UserContributionPrivacy bool `toml:"user_contribution_privacy"`
 	// UserSecretScanHistory: when true, secret-scan worker jobs queued
-	// against a Free user's repo short-circuit without scanning. Off by
-	// default → report-only (the would-deny is logged + the scan runs).
-	// PRO-EXT01-10b; promoted in PRO-EXT01-17.
+	// against a Free user's repo short-circuit without scanning.
+	// PRO-EXT01-10b; enforced by default post-17.
 	UserSecretScanHistory bool `toml:"user_secret_scan_history"`
 	// UserSecretScanAlerts: when true, Free users are blocked from
 	// *configuring* secret-scan alert prefs AND the alert worker drops
 	// any queued send to a Free owner without firing the email / POSTing
-	// the webhook. Off by default → report-only (config writes land,
-	// alert sends fire, would-deny is logged). PRO-EXT01-10d.
+	// the webhook. PRO-EXT01-10d; enforced by default post-17.
 	UserSecretScanAlerts bool `toml:"user_secret_scan_alerts"`
 	// UserFineGrainedPATs: when true, Free users are blocked from
 	// *attaching* PAT restrictions (IP allowlist now; repo binding in
-	// 11b). Off by default → report-only (the restriction lands but the
-	// would-deny is logged). 14-day soak before PRO-EXT01-17 flip
-	// (longer than the campaign default 7) — credential-escalation
-	// blast radius if the gate has a bug.
+	// 11b). PRO-EXT01-11; enforced by default post-17.
 	//
 	// NOTE: this flag governs the WRITE path. The middleware ALWAYS
 	// enforces an IP allowlist that exists on a token, regardless of
@@ -222,69 +219,51 @@ type EnforceConfig struct {
 	// UserActionsSecrets: when true, Free users are blocked from
 	// creating user-scoped Actions secrets / variables AND user-scoped
 	// rows are filtered out of runner-side secret resolution for Free
-	// users' workflows. Off by default → report-only (write succeeds,
-	// runners still see the rows). PRO-EXT01-12; promoted in
-	// PRO-EXT01-17.
+	// users' workflows. PRO-EXT01-12; enforced by default post-17.
 	//
 	// SECURITY-CRITICAL: runner secret resolution is a credential
-	// boundary. PRO-EXT01-12b wires the runner-side filter; this flag
-	// gates both the write path AND the runner-read path so a Free
-	// user can't sneak rows through during the soak window.
+	// boundary. The flag gates both the write path AND the runner-read
+	// path so a Free user can't sneak rows through.
 	UserActionsSecrets bool `toml:"user_actions_secrets"`
 	// UserActionsVariables: when true, Free users are blocked from
 	// creating personal Actions variables AND the runner-side
-	// resolution drops the user-scope layer for Free owners. Off by
-	// default → report-only. PRO-EXT01-12c.
+	// resolution drops the user-scope layer for Free owners.
+	// PRO-EXT01-12c; enforced by default post-17.
 	UserActionsVariables bool `toml:"user_actions_variables"`
 	// AnimatedAvatars: when true, multi-frame GIF uploads from Free
 	// users are flattened to a static PNG; Pro users keep the animated
-	// bytes. Off by default → report-only: animation is *preserved* for
-	// everyone (Free included) during soak so we can measure who uses
-	// it, but the would-deny is logged on every Free upload of an
-	// animated GIF. Flip to true to start flattening. PRO-EXT01-04b.
+	// bytes. PRO-EXT01-04b; enforced by default post-17.
 	AnimatedAvatars bool `toml:"animated_avatars"`
 	// UserWebhookRelay: when true, Free users are blocked from
 	// creating webhook relays AND inbound POSTs to existing relays
-	// owned by Free users return 403. Off by default → report-only
-	// (create and inbound succeed; the would-deny is logged).
-	// PRO-EXT01-13a; promoted in PRO-EXT01-17.
+	// owned by Free users return 403. PRO-EXT01-13a; enforced by
+	// default post-17.
 	//
 	// SECURITY-CRITICAL: a relay is a 1-in → N-out amplification
-	// surface. Soak with the operator-visible report-only log
-	// stream before flipping enforce.
+	// surface — keep enforced.
 	UserWebhookRelay bool `toml:"user_webhook_relay"`
 	// UserCronWorkflowDispatch: when true, Free users are blocked
 	// from creating cron-scheduled workflow dispatches AND in-flight
-	// dispatches owned by Free users are skipped on each tick. Off
-	// by default → report-only (create succeeds; the would-deny is
-	// logged on each scheduled fire). PRO-EXT01-13b; promoted in
-	// PRO-EXT01-17.
+	// dispatches owned by Free users are skipped on each tick.
+	// PRO-EXT01-13b; enforced by default post-17.
 	UserCronWorkflowDispatch bool `toml:"user_cron_workflow_dispatch"`
 	// UserPersonalStatusPage: when true, Free users requesting their
 	// personal status page get the locked teaser (or 402 SVG for the
-	// badge endpoint) instead of placeholder data. Off by default →
-	// report-only (Free users see the teaser regardless; the gate
-	// emits the would-deny log either way). PRO-EXT01-14.
+	// badge endpoint) instead of placeholder data. PRO-EXT01-14;
+	// enforced by default post-17.
 	UserPersonalStatusPage bool `toml:"user_personal_status_page"`
 	// UserRepoTimeMachine: when true, Free users attempting to pause
 	// a repo get a 402 with an upgrade banner; the pause UI button is
-	// disabled. Off by default → report-only (the would-deny is
-	// logged but the pause is allowed through; useful to validate the
-	// admin path before flipping for real). PRO-EXT01-15; promoted in
-	// PRO-EXT01-17.
+	// disabled. PRO-EXT01-15; enforced by default post-17.
 	UserRepoTimeMachine bool `toml:"user_repo_time_machine"`
 	// UserInboxRules: when true, Free users attempting to create a
 	// notification routing rule get a 402; rules already created (e.g.
-	// from a Pro→Free downgrade) stop firing at fanout. Off by default
-	// → report-only (rule creates allowed but a would-deny log is
-	// emitted; existing rules continue to apply). PRO-EXT01-16a;
-	// promoted in PRO-EXT01-17.
+	// from a Pro→Free downgrade) stop firing at fanout. PRO-EXT01-16a;
+	// enforced by default post-17.
 	UserInboxRules bool `toml:"user_inbox_rules"`
 	// UserInboxDigests: when true, the digest sweep skips Free users'
-	// schedules entirely; CRUD on the schedule rejects with 402. Off
-	// by default → report-only (sweep still delivers + would-deny is
-	// logged so we can validate the email path before flipping the
-	// gate). PRO-EXT01-16b; promoted in PRO-EXT01-17.
+	// schedules entirely; CRUD on the schedule rejects with 402.
+	// PRO-EXT01-16b; enforced by default post-17.
 	UserInboxDigests bool `toml:"user_inbox_digests"`
 }
 
@@ -425,6 +404,40 @@ type S3StorageConfig struct {
 	ForcePathStyle  bool   `toml:"force_path_style"`  // true for MinIO, false for Spaces
 }
 
+// defaultEnforce returns the post-PRO-EXT01-17 baseline: every Pro
+// gate enforces. Operators selectively turn a feature back off via
+// TOML when running a deployment that has Free users built up around
+// a feature pre-flip (none, at the moment this flipped — see retro).
+//
+// Listed explicitly rather than via reflection so a new
+// EnforceConfig field added later doesn't silently inherit the
+// all-true default — the compiler will flag the new field as unset
+// here and force a deliberate choice.
+func defaultEnforce() EnforceConfig {
+	return EnforceConfig{
+		UserAdvancedBranchProtection: true,
+		UserRequiredReviewers:        true,
+		UserProfilePinsBeyondFree:    true,
+		UserPrivateRepoTemplates:     true,
+		UserSavedRepliesUnlimited:    true,
+		UserScheduledIssues:          true,
+		UserAdvancedCodeSearch:       true,
+		UserContributionPrivacy:      true,
+		UserSecretScanHistory:        true,
+		UserSecretScanAlerts:         true,
+		UserFineGrainedPATs:          true,
+		UserActionsSecrets:           true,
+		UserActionsVariables:         true,
+		AnimatedAvatars:              true,
+		UserWebhookRelay:             true,
+		UserCronWorkflowDispatch:     true,
+		UserPersonalStatusPage:       true,
+		UserRepoTimeMachine:          true,
+		UserInboxRules:               true,
+		UserInboxDigests:             true,
+	}
+}
+
 // Defaults returns the zero-config baseline.
 func Defaults() Config {
 	return Config{
@@ -454,6 +467,7 @@ func Defaults() Config {
 		},
 		Billing: BillingConfig{
 			GracePeriod: 14 * 24 * time.Hour,
+			Enforce:     defaultEnforce(),
 		},
 		Session: SessionConfig{
 			MaxAge: 30 * 24 * time.Hour,

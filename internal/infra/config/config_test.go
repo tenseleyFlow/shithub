@@ -16,6 +16,43 @@ func TestDefaults_Validate(t *testing.T) {
 	}
 }
 
+// TestDefaults_EnforceFlagsAllOn pins the PRO-EXT01-17 wrap decision:
+// every Pro gate enforces by default. A new EnforceConfig field that
+// forgets to set itself in defaultEnforce() defaults to false and this
+// test will fail — exactly the trip-wire we want when extending the
+// matrix without thinking.
+func TestDefaults_EnforceFlagsAllOn(t *testing.T) {
+	t.Parallel()
+	e := Defaults().Billing.Enforce
+	cases := map[string]bool{
+		"UserAdvancedBranchProtection": e.UserAdvancedBranchProtection,
+		"UserRequiredReviewers":        e.UserRequiredReviewers,
+		"UserProfilePinsBeyondFree":    e.UserProfilePinsBeyondFree,
+		"UserPrivateRepoTemplates":     e.UserPrivateRepoTemplates,
+		"UserSavedRepliesUnlimited":    e.UserSavedRepliesUnlimited,
+		"UserScheduledIssues":          e.UserScheduledIssues,
+		"UserAdvancedCodeSearch":       e.UserAdvancedCodeSearch,
+		"UserContributionPrivacy":      e.UserContributionPrivacy,
+		"UserSecretScanHistory":        e.UserSecretScanHistory,
+		"UserSecretScanAlerts":         e.UserSecretScanAlerts,
+		"UserFineGrainedPATs":          e.UserFineGrainedPATs,
+		"UserActionsSecrets":           e.UserActionsSecrets,
+		"UserActionsVariables":         e.UserActionsVariables,
+		"AnimatedAvatars":              e.AnimatedAvatars,
+		"UserWebhookRelay":             e.UserWebhookRelay,
+		"UserCronWorkflowDispatch":     e.UserCronWorkflowDispatch,
+		"UserPersonalStatusPage":       e.UserPersonalStatusPage,
+		"UserRepoTimeMachine":          e.UserRepoTimeMachine,
+		"UserInboxRules":               e.UserInboxRules,
+		"UserInboxDigests":             e.UserInboxDigests,
+	}
+	for name, on := range cases {
+		if !on {
+			t.Errorf("EnforceConfig.%s defaulted to false; defaultEnforce() must set every flag true", name)
+		}
+	}
+}
+
 func TestValidate_RejectsBadEnv(t *testing.T) {
 	t.Parallel()
 	cfg := Defaults()

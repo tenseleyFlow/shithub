@@ -30,6 +30,14 @@ The flag stays `false` until the operator has visibility into
 the would-deny rate via these logs, then flips it via a
 config change + redeploy.
 
+> **Post-PRO-EXT01-17:** the campaign-wrap PR flipped every
+> EnforceConfig default to `true` for the greenfield deployment
+> case. Operators running with existing Free-user traffic that
+> built up around a gated feature can selectively *re-disable*
+> a flag by setting the matching TOML field to `false`; the
+> guidance in this runbook then applies symmetrically for the
+> revert direction.
+
 ## Soak window
 
 - **Default: 7 days** of report-only logs in production.
