@@ -5,11 +5,19 @@
 -- (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
 -- array default rather than a NOT NULL constraint violation.
 -- repo_id is nullable — NULL means "no binding".
-INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist, repo_id)
-VALUES ($1, $2, $3, $4, $5, $6, COALESCE(sqlc.arg(ip_allowlist)::text[], '{}'::text[]), $7)
+-- source defaults to 'user_created' so existing call sites stay
+-- source-naive; the device-flow Exchange path (internal/auth/devicecode)
+-- passes 'oauth_device' explicitly. The empty-string sentinel maps to
+-- the column DEFAULT via NULLIF + COALESCE so a caller that hasn't yet
+-- been updated to set Source compiles and behaves correctly.
+INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist, repo_id, source)
+VALUES ($1, $2, $3, $4, $5, $6,
+        COALESCE(sqlc.arg(ip_allowlist)::text[], '{}'::text[]),
+        $7,
+        COALESCE(NULLIF(sqlc.arg(source)::text, ''), 'user_created'))
 RETURNING id, user_id, name, token_hash, token_prefix, scopes,
           expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-          ip_allowlist, repo_id;
+          ip_allowlist, repo_id, source;
 
 -- name: UpdateUserTokenIPAllowlist :exec
 -- Scoped by user_id so a hijacked handler can't reach into someone
@@ -22,7 +30,7 @@ WHERE id = $1 AND user_id = $2;
 -- name: ListUserTokens :many
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
        expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-       ip_allowlist, repo_id
+       ip_allowlist, repo_id, source
 FROM user_tokens
 WHERE user_id = $1
 ORDER BY revoked_at IS NOT NULL, created_at DESC;

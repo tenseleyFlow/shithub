@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/finalize"
 	"github.com/tenseleyFlow/shithub/internal/actions/trigger"
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
+	"github.com/tenseleyFlow/shithub/internal/auth/devicecode"
 	"github.com/tenseleyFlow/shithub/internal/auth/email"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
@@ -267,6 +268,15 @@ var workerCmd = &cobra.Command{
 			Logger:         logger,
 			RepoFS:         rfs,
 			BillingEnforce: cfg.Billing.Enforce,
+		}))
+
+		// S55-remediation #5 — daily device-authorizations sweep.
+		// Operator's systemd timer enqueues KindDeviceAuthorizationSweep
+		// once per day; the handler deletes terminal/expired grants
+		// past their 24h forensics window.
+		p.Register(devicecode.KindDeviceAuthorizationSweep, jobs.DeviceAuthorizationSweep(jobs.DeviceAuthorizationSweepDeps{
+			Pool:   pool,
+			Logger: logger,
 		}))
 
 		// Actions trigger pipeline (S41b). Discovers .shithub/workflows/

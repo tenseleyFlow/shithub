@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/devicecode"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -157,7 +158,7 @@ func TestExchange_DeniedReturnsAccessDenied(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	row, _ := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
-	if err := devicecode.Deny(context.Background(), deps, row.ID); err != nil {
+	if err := devicecode.Deny(context.Background(), deps, row.ID, 0); err != nil {
 		t.Fatalf("Deny: %v", err)
 	}
 	if _, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "test"); !errors.Is(err, devicecode.ErrAccessDenied) {
@@ -265,6 +266,132 @@ func TestCreate_PersistsRow(t *testing.T) {
 	}
 	if row.UserID.Valid {
 		t.Errorf("user_id should be unset before approval; got %v", row.UserID)
+	}
+}
+
+// TestExchange_StampsIssuedTokenAtomically covers the TX wrap from
+// remediation #1. Approve a grant, run Exchange to completion, verify
+// that exactly one user_tokens row exists AND device_authorizations
+// .issued_token_id points at it. The historical bug was that mint and
+// stamp were two un-coordinated DB calls; if the process died between
+// them an orphan PAT remained. The TX in Exchange now binds them, so
+// either both land or neither does. The "process dies mid-TX" failure
+// path can't be exercised without a test seam, but the happy-path
+// atomicity check + the existing one-shot-disclosure coverage in
+// TestExchange_PendingThenApprovedThenOneShot together pin the
+// invariant.
+func TestExchange_StampsIssuedTokenAtomically(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	deps := devicecode.Deps{Pool: pool}
+	userID := seedUser(t, pool, "alice")
+
+	auth, err := devicecode.Create(context.Background(), deps, defaultsForTest(), "shithub-cli", "user:read")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	row, err := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
+	if err != nil {
+		t.Fatalf("LookupByUserCode: %v", err)
+	}
+	if err := devicecode.Approve(context.Background(), deps, row.ID, userID); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	// Rewind last_polled_at far enough that slow_down can't fire.
+	if _, err := pool.Exec(context.Background(),
+		"UPDATE device_authorizations SET last_polled_at = now() - interval '10 seconds' WHERE id = $1",
+		row.ID); err != nil {
+		t.Fatalf("rewind last_polled_at: %v", err)
+	}
+
+	res, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "tx-test")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if !strings.HasPrefix(res.AccessToken, "shithub_pat_") {
+		t.Fatalf("access token shape: %q", res.AccessToken)
+	}
+
+	// Exactly one user_tokens row for this user.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM user_tokens WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		t.Fatalf("count user_tokens: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("user_tokens count: want 1, got %d", count)
+	}
+
+	// device_authorizations.issued_token_id points at that row.
+	got, err := usersdb.New().GetDeviceAuthorizationByUserCode(context.Background(), pool, auth.UserCode)
+	if err != nil {
+		t.Fatalf("re-lookup: %v", err)
+	}
+	if !got.IssuedTokenID.Valid {
+		t.Errorf("issued_token_id not stamped after Exchange")
+	}
+
+	// And the source column on user_tokens reflects the device-flow
+	// origin (remediation #3). Settings-page-minted tokens stay at
+	// 'user_created'; this code path explicitly stamps 'oauth_device'.
+	var source string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT source FROM user_tokens WHERE id = $1`, got.IssuedTokenID.Int64).Scan(&source); err != nil {
+		t.Fatalf("source lookup: %v", err)
+	}
+	if source != "oauth_device" {
+		t.Errorf("user_tokens.source: want oauth_device, got %q", source)
+	}
+}
+
+// TestLifecycle_AuditRowsFire covers remediation #4: the audit log
+// receives device_grant_requested + device_grant_approved entries for
+// a happy-path Create → Approve → Exchange cycle, and a pat_created
+// entry fires at Exchange time (the issuance event).
+func TestLifecycle_AuditRowsFire(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	userID := seedUser(t, pool, "alice")
+	deps := devicecode.Deps{
+		Pool:    pool,
+		Audit:   audit.NewRecorder(),
+		ActorIP: "203.0.113.42",
+	}
+
+	auth, err := devicecode.Create(context.Background(), deps, defaultsForTest(), "shithub-cli", "user:read")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	row, _ := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
+	if err := devicecode.Approve(context.Background(), deps, row.ID, userID); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		"UPDATE device_authorizations SET last_polled_at = now() - interval '10 seconds' WHERE id = $1",
+		row.ID); err != nil {
+		t.Fatalf("rewind last_polled_at: %v", err)
+	}
+	if _, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "test"); err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+
+	count := func(action string) int {
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM auth_audit_log WHERE action = $1`, action).Scan(&n); err != nil {
+			t.Fatalf("count(%s): %v", action, err)
+		}
+		return n
+	}
+	if got := count("device_grant_requested"); got != 1 {
+		t.Errorf("device_grant_requested: want 1, got %d", got)
+	}
+	if got := count("device_grant_approved"); got != 1 {
+		t.Errorf("device_grant_approved: want 1, got %d", got)
+	}
+	if got := count("device_grant_denied"); got != 0 {
+		t.Errorf("device_grant_denied: want 0 (no deny in this flow), got %d", got)
+	}
+	if got := count("pat_created"); got != 1 {
+		t.Errorf("pat_created: want 1 (from Exchange), got %d", got)
 	}
 }
 

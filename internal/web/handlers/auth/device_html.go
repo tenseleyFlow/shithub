@@ -96,12 +96,12 @@ func (h *Handlers) deviceCodeSubmit(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	deps := devicecode.Deps{Pool: h.d.Pool}
+	deps := devicecode.Deps{Pool: h.d.Pool, Audit: h.d.Audit}
 	switch action {
 	case "approve":
 		err = devicecode.Approve(r.Context(), deps, row.ID, user.ID)
 	case "deny":
-		err = devicecode.Deny(r.Context(), deps, row.ID)
+		err = devicecode.Deny(r.Context(), deps, row.ID, user.ID)
 	default:
 		http.Redirect(w, r, "/login/device?user_code="+url.QueryEscape(userCode), http.StatusSeeOther)
 		return
