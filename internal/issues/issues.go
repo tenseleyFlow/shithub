@@ -205,7 +205,13 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 		}
 		return issuesdb.IssueComment{}, err
 	}
-	if issue.Locked && !p.IsCollab {
+	// C-audit C19: strict lock enforcement. Pre-D fix, collaborators
+	// (including the locker themselves) bypassed the lock and could
+	// still comment — so "lock" was theatrical from the locker's POV.
+	// Strict semantic: a lock locks for everyone; explicit unlock is
+	// required before any further comments. The handler maps the
+	// ErrIssueLocked back to HTTP 423.
+	if issue.Locked {
 		return issuesdb.IssueComment{}, ErrIssueLocked
 	}
 
