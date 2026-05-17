@@ -3405,6 +3405,7 @@ type UserToken struct {
 	CreatedAt   pgtype.Timestamptz
 	IpAllowlist []string
 	RepoID      pgtype.Int8
+	Source      string
 }
 
 type UserTokenUsageEvent struct {
