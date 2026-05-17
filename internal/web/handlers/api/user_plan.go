@@ -19,16 +19,20 @@ import (
 // so a CLI client can render its own locked UI from a single read.
 //
 // Keep this in sync with featureKinds in
-// internal/entitlements/entitlements.go — every new Feature* added by a
-// PRO-EXT01-NN sprint should land here so third-party tools see the
-// new gate. PRO-EXT01-17 plans a per-feature Prometheus counter that
-// will also iterate this list.
+// internal/entitlements/entitlements.go — every new Feature* added by
+// a PRO-EXT01-NN sprint should land here so third-party tools see the
+// new gate. The PRO-EXT_SR2-09 contract test
+// (TestUserPlan_ContractEnumeratesEveryUserFeature) iterates
+// entitlements.UserApplicableFeatures() and fails if any user-kind
+// feature is missing, so a future sprint can't quietly drop the API
+// out of sync with the entitlement matrix.
 var userPlanFeatures = []entitlements.Feature{
 	entitlements.FeatureProfilePinsBeyondFree,
 	entitlements.FeatureRequiredReviewers,
 	entitlements.FeatureAdvancedBranchProtection,
 	entitlements.FeatureCodeOwnersReview,
 	entitlements.FeatureProfileVanity,
+	entitlements.FeatureAnimatedAvatars,
 	entitlements.FeatureUsernameReservations,
 	entitlements.FeaturePrivateRepoTemplates,
 	entitlements.FeatureSavedRepliesUnlimited,
@@ -36,8 +40,16 @@ var userPlanFeatures = []entitlements.Feature{
 	entitlements.FeatureAdvancedCodeSearch,
 	entitlements.FeatureContributionPrivacy,
 	entitlements.FeatureSecretScanHistory,
+	entitlements.FeatureSecretScanAlerts,
 	entitlements.FeatureFineGrainedPATs,
 	entitlements.FeatureUserActionsSecrets,
+	entitlements.FeatureUserActionsVariables,
+	entitlements.FeatureWebhookRelay,
+	entitlements.FeatureCronWorkflowDispatch,
+	entitlements.FeaturePersonalStatusPage,
+	entitlements.FeatureRepoTimeMachine,
+	entitlements.FeatureInboxRules,
+	entitlements.FeatureInboxDigests,
 }
 
 // userPlanResponse is the JSON shape for GET /api/v1/user/plan.
