@@ -23,29 +23,39 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 )
 
+// apiUser mirrors the server's userEnvelope minus the optional
+// avatar/html_url fields the tests don't assert on.
+type apiUser struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
 type apiIssue struct {
-	ID          int64    `json:"id"`
-	Number      int64    `json:"number"`
-	Title       string   `json:"title"`
-	Body        string   `json:"body"`
-	State       string   `json:"state"`
-	StateReason string   `json:"state_reason"`
-	Locked      bool     `json:"locked"`
-	LockReason  string   `json:"lock_reason"`
-	AuthorID    int64    `json:"author_id"`
-	Labels      []string `json:"labels"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
-	ClosedAt    string   `json:"closed_at"`
+	ID          int64      `json:"id"`
+	Number      int64      `json:"number"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	State       string     `json:"state"`
+	StateReason string     `json:"state_reason"`
+	Locked      bool       `json:"locked"`
+	LockReason  string     `json:"lock_reason"`
+	AuthorID    int64      `json:"author_id"`
+	User        *apiUser   `json:"user"`
+	Labels      []apiLabel `json:"labels"`
+	CreatedAt   string     `json:"created_at"`
+	UpdatedAt   string     `json:"updated_at"`
+	ClosedAt    string     `json:"closed_at"`
 }
 
 type apiComment struct {
-	ID        int64  `json:"id"`
-	IssueID   int64  `json:"issue_id"`
-	AuthorID  int64  `json:"author_id"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        int64    `json:"id"`
+	IssueID   int64    `json:"issue_id"`
+	AuthorID  int64    `json:"author_id"`
+	User      *apiUser `json:"user"`
+	Body      string   `json:"body"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
 }
 
 // seedIssuesEnv stands up a one-shot test environment: pool + router +
@@ -382,5 +392,71 @@ func TestIssues_LockUnlock(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("unlock status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestIssues_UserEnvelope pins the S60 audit-finding A12 fix: every
+// issue + comment response carries a nested `user: {id, login, type}`
+// envelope alongside the legacy `author_id` so gh-compat clients (the
+// shithub-cli, which renders `ghost` when user is missing) work
+// directly without a separate /users/{id} round-trip.
+func TestIssues_UserEnvelope(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{"title": "envelope-check", "body": "x"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var created apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.User == nil {
+		t.Fatalf("issue.user envelope missing; body=%s", rr.Body.String())
+	}
+	if created.User.Login != "alice" || created.User.Type != "User" {
+		t.Errorf("user envelope shape: %+v", created.User)
+	}
+	if created.User.ID != created.AuthorID {
+		t.Errorf("user.id (%d) != author_id (%d)", created.User.ID, created.AuthorID)
+	}
+
+	// Single GET path also exercises the resolveUserEnvelope code path
+	// (vs the create path which uses the authenticated caller's id).
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get status: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var fetched apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if fetched.User == nil || fetched.User.Login != "alice" {
+		t.Errorf("fetched user envelope: %+v", fetched.User)
+	}
+
+	// Posting a comment exercises presentComment + envelope on the
+	// /comments POST path.
+	cbody, _ := json.Marshal(map[string]any{"body": "first reply"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues/1/comments", bytes.NewReader(cbody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("comment status: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var c apiComment
+	if err := json.Unmarshal(rr.Body.Bytes(), &c); err != nil {
+		t.Fatalf("decode comment: %v", err)
+	}
+	if c.User == nil || c.User.Login != "alice" {
+		t.Errorf("comment user envelope: %+v", c.User)
 	}
 }

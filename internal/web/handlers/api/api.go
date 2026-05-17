@@ -14,6 +14,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -146,6 +147,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireScope(pat.ScopeUserRead))
 			r.Get("/api/v1/user", h.userMe)
+			// S60 audit A5: gh-style public profile lookup. Distinct from
+			// /user (own authenticated profile). Trims email + private
+			// preferences before responding.
+			r.Get("/api/v1/users/{username}", h.userByName)
 		})
 		// PRO-EXT01-03 — GET /api/v1/user/plan: plan + entitlement read
 		// so CLIs can render their own locked UI. Lives in its own
@@ -241,9 +246,14 @@ func (h *Handlers) Mount(r chi.Router) {
 
 // userResponse is the public shape of a user record. Mirrors GitHub's
 // /user response in spirit; we'll grow it organically as features land.
+//
+// S60 audit migration: emits both `username` (legacy) and `login`
+// (gh-canonical) so clients keying on either field work. New clients
+// should consume `login`.
 type userResponse struct {
 	ID        int64  `json:"id"`
 	Username  string `json:"username"`
+	Login     string `json:"login"`
 	Name      string `json:"name,omitempty"`
 	Verified  bool   `json:"email_verified"`
 	CreatedAt string `json:"created_at"`
@@ -263,10 +273,59 @@ func (h *Handlers) userMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, userResponse{
 		ID:        user.ID,
 		Username:  user.Username,
+		Login:     user.Username,
 		Name:      user.DisplayName,
 		Verified:  user.EmailVerified,
 		CreatedAt: user.CreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
 	})
+}
+
+// userByName is the public-profile lookup for /api/v1/users/{username}.
+// Strict subset of userMe — no email_verified flag, no plan, no admin
+// markers — because the caller may not be the user being looked up.
+func (h *Handlers) userByName(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimSpace(chi.URLParam(r, "username"))
+	if username == "" {
+		writeAPIError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	user, err := h.q.GetUserByUsername(r.Context(), h.d.Pool, username)
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, publicUserResponse{
+		ID:        user.ID,
+		Login:     user.Username,
+		Name:      user.DisplayName,
+		Bio:       user.Bio,
+		Location:  user.Location,
+		Website:   user.Website,
+		Company:   user.Company,
+		Pronouns:  user.Pronouns,
+		Type:      "User",
+		HTMLURL:   strings.TrimRight(h.d.BaseURL, "/") + "/" + user.Username,
+		CreatedAt: user.CreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+	})
+}
+
+// publicUserResponse is the trimmed user shape served on
+// /api/v1/users/{username}. Mirrors /user in field shape (login,
+// not username, plus the user-profile-page fields) while dropping
+// fields that leak information about the looked-up user's
+// authentication state.
+type publicUserResponse struct {
+	ID        int64  `json:"id"`
+	Login     string `json:"login"`
+	Name      string `json:"name,omitempty"`
+	Bio       string `json:"bio,omitempty"`
+	Location  string `json:"location,omitempty"`
+	Website   string `json:"website,omitempty"`
+	Company   string `json:"company,omitempty"`
+	Pronouns  string `json:"pronouns,omitempty"`
+	Type      string `json:"type,omitempty"`
+	HTMLURL   string `json:"html_url,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
