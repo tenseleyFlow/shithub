@@ -478,7 +478,9 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	repoRef := policy.NewRepoRefFromRepo(row)
 	stateRef := issueStateRepoRef(row, issue)
 	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
-	canCommentThroughLock := policy.HasRoleAtLeast(r.Context(), pdeps, actor, repoRef, policy.RoleTriage)
+	// canCommentThroughLock was dropped in C19 (strict lock); leaving
+	// the helper unused is the explicit signal to future readers that
+	// the role-based escape-hatch is intentionally not applied.
 	canSetIssueState := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, stateRef).Allow
 	timeline := h.issueTimelineRows(comments, events, allLabels, milestones, usernameFor)
 	viewerAssigned := false
@@ -527,7 +529,12 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"Milestones":            milestones,
 		"Projects":              issueProjects,
 		"ProjectOptions":        projectOptions,
-		"CanComment":            canCommentAction && (!issue.Locked || canCommentThroughLock),
+		// C-audit C19: lock is strict. The `canCommentThroughLock`
+		// escape-hatch was incoherent with the stricter REST behavior
+		// (UI showed a comment box, server rejected with 423) so we
+		// align the UI to the server: a locked issue hides the comment
+		// box from everyone until the issue is explicitly unlocked.
+		"CanComment":            canCommentAction && !issue.Locked,
 		"CanSetIssueState":      canSetIssueState,
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
