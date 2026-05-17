@@ -23,7 +23,7 @@ CREATE INDEX repo_projects_repo_state_idx
 
 CREATE TRIGGER tg_repo_projects_updated_at
     BEFORE UPDATE ON repo_projects
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION tg_set_updated_at();
 
 CREATE TABLE repo_project_items (
     id                 bigserial PRIMARY KEY,
@@ -62,7 +62,7 @@ CREATE INDEX repo_wiki_pages_repo_updated_idx
 
 CREATE TRIGGER tg_repo_wiki_pages_updated_at
     BEFORE UPDATE ON repo_wiki_pages
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION tg_set_updated_at();
 
 -- +goose Down
 
