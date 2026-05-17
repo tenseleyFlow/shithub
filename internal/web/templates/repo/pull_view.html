@@ -389,7 +389,7 @@
                 <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls/{{ .PR.INumber }}/reviewers" class="shithub-popover">
                   <strong>Select reviewers</strong>
                   <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-                  <input type="text" name="username" placeholder="Filter reviewers" required>
+                  <input type="text" name="username" placeholder="Filter reviewers or teams" required>
                   <button type="submit" class="shithub-button">Request</button>
                 </form>
               </details>
@@ -400,7 +400,11 @@
                 {{ range .ReviewRequests }}
                   {{ if not .R.DismissedAt.Valid }}
                   <li>
+                    {{ if .R.RequestedTeamID.Valid }}
+                    <a href="/{{ .OrgSlug }}/teams/{{ .TeamSlug }}">@{{ .OrgSlug }}/{{ .TeamSlug }}</a>
+                    {{ else }}
                     <a href="/{{ .Username }}">@{{ .Username }}</a>{{ template "pro-badge" (index $.ProUsernames .Username) }}
+                    {{ end }}
                     {{ if .R.SatisfiedByReviewID.Valid }}<small>reviewed</small>{{ else }}<small>pending</small>{{ end }}
                   </li>
                   {{ end }}
