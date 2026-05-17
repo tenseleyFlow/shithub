@@ -85,11 +85,15 @@ user-secrets merge.
 
 ## What we left for follow-up
 - **Operator playbook for the actual flips.** This campaign shipped
-  the *machinery* for the report-only → enforce flip. No flag was
-  flipped in this campaign because no real-world soak has elapsed.
-  Operators flip per the runbook
-  (`docs/internal/runbooks/pro-enforce-flip.md`) once their
-  per-feature Prometheus signal stabilises.
+  the *machinery* for the report-only → enforce flip. In the
+  follow-up commit that ships with sprint 17 we flipped every
+  EnforceConfig default to `true` after confirming the deployment
+  has no built-up Free-user reliance on any gated feature. Operators
+  running a deployment with existing Free traffic can selectively
+  disable enforcement per-feature in TOML (BurntSushi/toml only
+  overwrites named fields). The runbook
+  (`docs/internal/runbooks/pro-enforce-flip.md`) describes the
+  observation cadence; for greenfield it's not load-bearing.
 - **Webhook relay retry** (sprint 13a): the delivery worker retries
   in-band; harden into a separate retry queue with backoff during a
   future SR round.
@@ -119,4 +123,5 @@ user-secrets merge.
 - 18 new `Feature*` constants across `internal/entitlements`.
 - 16 new `EnforceConfig.*` fields.
 - 1 new Prometheus counter.
-- 0 enforce flags promoted (operator-side, post-campaign work).
+- 20 enforce flags flipped to enforce-by-default in the wrap PR
+  (greenfield deployment; no prior Free-user reliance to migrate).
