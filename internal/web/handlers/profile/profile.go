@@ -94,6 +94,10 @@ func (h *Handlers) MountProfile(r chi.Router) {
 		r.Post("/{username}/unfollow", h.profileUnfollow)
 		r.Post("/{username}/pins", h.pinsUpdate)
 	})
+	r.Get("/{username}/status", h.serveStatus)
+	// status badge: /<username>.status.svg. Registered before the
+	// catch-all so chi's trie picks the literal suffix match first.
+	r.Get("/{slug}.status.svg", h.serveStatusBadge)
 	r.Get("/{username}", h.serveProfile)
 }
 
