@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
+	AddIssueToRepoProject(ctx context.Context, db DBTX, arg AddIssueToRepoProjectParams) (RepoProjectItem, error)
 	// Bypasses the soft-delete grace window (admin only — S34): set
 	// deleted_at to a year ago so the next lifecycle sweep hard-deletes
 	// without waiting. Replaces the inline UPDATE in admin/repos.go
@@ -27,6 +28,7 @@ type Querier interface {
 	// row is the audit trail for renames; counting them per repo gives a
 	// reliable cap.
 	CountRecentRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) (int32, error)
+	CountRepoWikiPages(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	// ─── S27 forks ─────────────────────────────────────────────────────
@@ -43,6 +45,11 @@ type Querier interface {
 	// WITHOUT setting fork_of_repo_id — the new repo is independent
 	// of the template (no alternates, no fork-count bump).
 	CreateRepoFromTemplate(ctx context.Context, db DBTX, arg CreateRepoFromTemplateParams) (Repo, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	// ─── repo projects ─────────────────────────────────────────────────
+	CreateRepoProject(ctx context.Context, db DBTX, arg CreateRepoProjectParams) (RepoProject, error)
+	// ─── repo wiki pages ───────────────────────────────────────────────
+	CreateRepoWikiPage(ctx context.Context, db DBTX, arg CreateRepoWikiPageParams) (RepoWikiPage, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
 	DeleteBranchProtectionRule(ctx context.Context, db DBTX, id int64) error
 	// Used by tests to reset cache state between cases. Not called from
@@ -57,7 +64,9 @@ type Querier interface {
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).
 	DeleteRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) error
+	DeleteRepoProject(ctx context.Context, db DBTX, arg DeleteRepoProjectParams) error
 	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
+	DeleteRepoWikiPage(ctx context.Context, db DBTX, arg DeleteRepoWikiPageParams) error
 	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
 	// Called by the periodic worker (transfers:expire) — flips pending
@@ -89,8 +98,10 @@ type Querier interface {
 	// other jobs that need the bare-repo on-disk path. Org-owned repos use the
 	// org slug in the same path position as user-owned repos.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
+	GetRepoProject(ctx context.Context, db DBTX, arg GetRepoProjectParams) (RepoProject, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)
+	GetRepoWikiPageBySlug(ctx context.Context, db DBTX, arg GetRepoWikiPageBySlugParams) (RepoWikiPage, error)
 	GetSoftDeletedRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerOrgAndNameParams) (Repo, error)
 	GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerUserAndNameParams) (Repo, error)
 	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
@@ -144,8 +155,12 @@ type Querier interface {
 	// destruction. The 7-day grace is hard-coded here; if we add a config
 	// knob later, change this to a parameter.
 	ListRepoIDsPastSoftDeleteGrace(ctx context.Context, db DBTX) ([]int64, error)
+	ListRepoProjectItems(ctx context.Context, db DBTX, projectID int64) ([]ListRepoProjectItemsRow, error)
+	ListRepoProjects(ctx context.Context, db DBTX, repoID int64) ([]RepoProject, error)
+	ListRepoProjectsForIssue(ctx context.Context, db DBTX, issueID int64) ([]RepoProject, error)
 	// ─── repo_topics (S32) ─────────────────────────────────────────────
 	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
+	ListRepoWikiPages(ctx context.Context, db DBTX, repoID int64) ([]RepoWikiPage, error)
 	ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error)
 	// Paginated mirror of ListReposForOwnerOrg for the REST list endpoint
 	// when the viewer is an org member and may see private repos.
@@ -184,6 +199,7 @@ type Querier interface {
 	// handler guarantees we don't pause an already-archived repo, but
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
+	RemoveIssueFromRepoProject(ctx context.Context, db DBTX, arg RemoveIssueFromRepoProjectParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// S16 lifecycle queries. Kept in a separate file from repos.sql so the
@@ -206,6 +222,7 @@ type Querier interface {
 	// the user sees a "preparing your fork" placeholder while the worker
 	// runs `git clone --bare --shared`.
 	SetRepoInitStatus(ctx context.Context, db DBTX, arg SetRepoInitStatusParams) error
+	SetRepoProjectState(ctx context.Context, db DBTX, arg SetRepoProjectStateParams) (RepoProject, error)
 	SetRepoVisibility(ctx context.Context, db DBTX, arg SetRepoVisibilityParams) error
 	SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	// Distinct name from S11's SoftDeleteRepo so future code that wants to
@@ -242,6 +259,8 @@ type Querier interface {
 	// restricts private templates to Pro users without a migration.
 	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
 	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
+	UpdateRepoProject(ctx context.Context, db DBTX, arg UpdateRepoProjectParams) (RepoProject, error)
+	UpdateRepoWikiPage(ctx context.Context, db DBTX, arg UpdateRepoWikiPageParams) (RepoWikiPage, error)
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Idempotent upsert. The verification orchestrator + backfill worker

@@ -1227,6 +1227,48 @@ func (ns NullRepoInitStatus) Value() (driver.Value, error) {
 	return string(ns.RepoInitStatus), nil
 }
 
+type RepoProjectState string
+
+const (
+	RepoProjectStateOpen   RepoProjectState = "open"
+	RepoProjectStateClosed RepoProjectState = "closed"
+)
+
+func (e *RepoProjectState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RepoProjectState(s)
+	case string:
+		*e = RepoProjectState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RepoProjectState: %T", src)
+	}
+	return nil
+}
+
+type NullRepoProjectState struct {
+	RepoProjectState RepoProjectState
+	Valid            bool // Valid is true if RepoProjectState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRepoProjectState) Scan(value interface{}) error {
+	if value == nil {
+		ns.RepoProjectState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RepoProjectState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRepoProjectState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RepoProjectState), nil
+}
+
 type RepoVisibility string
 
 const (
@@ -3135,6 +3177,26 @@ type RepoIssueCounter struct {
 	NextNumber int64
 }
 
+type RepoProject struct {
+	ID              int64
+	RepoID          int64
+	Title           string
+	Description     string
+	State           RepoProjectState
+	CreatedByUserID pgtype.Int8
+	ClosedAt        pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type RepoProjectItem struct {
+	ID            int64
+	ProjectID     int64
+	IssueID       int64
+	AddedByUserID pgtype.Int8
+	CreatedAt     pgtype.Timestamptz
+}
+
 type RepoRedirect struct {
 	OldOwnerUserID pgtype.Int8
 	OldOwnerOrgID  pgtype.Int8
@@ -3171,6 +3233,19 @@ type RepoTransferRequest struct {
 	AcceptedAt      pgtype.Timestamptz
 	DeclinedAt      pgtype.Timestamptz
 	CanceledAt      pgtype.Timestamptz
+}
+
+type RepoWikiPage struct {
+	ID              int64
+	RepoID          int64
+	Slug            string
+	Title           string
+	Body            string
+	BodyHtmlCached  pgtype.Text
+	CreatedByUserID pgtype.Int8
+	UpdatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 type ReposSearch struct {

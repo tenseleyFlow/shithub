@@ -12,6 +12,7 @@ repo_issue_counter   — per-repo monotonic numbering (issues + PRs share)
 issues               — the row; kind discriminator covers PR rows in S22
 issue_comments       — per-issue threaded comments
 issue_assignees      — many-to-many issue ↔ user
+repo_project_items   — many-to-many issue/PR ↔ repository project
 labels               — repo-scoped labels
 issue_labels         — many-to-many issue ↔ label
 milestones           — repo-scoped milestones
@@ -79,6 +80,7 @@ SQL `INSERT … ON CONFLICT DO NOTHING`.
 | `POST /{owner}/{repo}/issues/{number}/labels`                  | RequireUser   |
 | `POST /{owner}/{repo}/issues/{number}/milestone`               | RequireUser   |
 | `POST /{owner}/{repo}/issues/{number}/assignees`               | RequireUser   |
+| `POST /{owner}/{repo}/issues/{number}/projects`                | RequireUser   |
 | `POST /{owner}/{repo}/labels` + `/{id}/update` + `/{id}/delete` | RequireUser  |
 | `POST /{owner}/{repo}/milestones` + `/{id}/update`             | RequireUser   |
 | `POST /{owner}/{repo}/milestones/{id}/state` + `/{id}/delete`  | RequireUser   |
@@ -95,9 +97,21 @@ The issue page is capability-driven:
 - The comment box appears only when `policy.Can(issue:comment)` allows
   and the issue is not locked, unless the viewer is triage+.
 - Close/reopen appears for triage+ users and for the issue author.
-- Labels, assignees, milestones, and lock controls appear only for the
+- Labels, assignees, milestones, projects, and lock controls appear only for the
   matching triage-level policy action. Public participants should not
   see forms that only lead to 403s.
+
+SP21 adds a paid collaboration gate for private organization
+repositories: adding a second assignee to an issue or pull request
+requires the organization's Team entitlement. The first assignee remains
+available on Free private org repos, public repos are unrestricted, and
+removing assignees is never gated. The same issue row backs pull
+requests, so the gate applies uniformly to issue and PR sidebars.
+
+Project assignment is likewise writable only for users who pass the
+issue-label policy gate and, on private organization repositories, the
+Team `repo_projects` entitlement. Downgrades preserve existing project
+items; they only block expansion until billing is restored.
 
 ## Cross-reference indexing
 

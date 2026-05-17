@@ -168,7 +168,7 @@ func (h *Handlers) scheduledReminderTargets(r *http.Request, orgID int64) ([]sch
 	}
 	repoOptions := make([]scheduledReminderRepoOption, 0, len(repos))
 	for _, repo := range repos {
-		if repo.DeletedAt.Valid || repo.IsArchived {
+		if scheduledReminderRepoUnavailable(repo) {
 			continue
 		}
 		repoOptions = append(repoOptions, scheduledReminderRepoOption{
@@ -190,6 +190,10 @@ func (h *Handlers) scheduledReminderTargets(r *http.Request, orgID int64) ([]sch
 		})
 	}
 	return repoOptions, teamOptions, nil
+}
+
+func scheduledReminderRepoUnavailable(repo reposdb.Repo) bool {
+	return repo.DeletedAt.Valid || repo.IsArchived
 }
 
 func defaultScheduledReminderForm() scheduledReminderForm {

@@ -1,0 +1,65 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-wiki-page">
+    <aside class="shithub-wiki-sidebar">
+      <div class="shithub-wiki-sidebar-head">
+        <h2>Pages</h2>
+        {{ if .CanWriteWiki }}<a href="/{{ .Owner }}/{{ .Repo.Name }}/wiki/new" class="shithub-button">New page</a>{{ end }}
+      </div>
+      {{ if .Pages }}
+      <nav aria-label="Wiki pages">
+        {{ range .Pages }}
+        {{ $page := . }}
+        <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/wiki/{{ .Slug }}"{{ with $.SelectedPage }}{{ if eq .Page.ID $page.ID }} class="is-active" aria-current="page"{{ end }}{{ end }}>
+          {{ .Title }}
+        </a>
+        {{ end }}
+      </nav>
+      {{ else }}
+      <p class="shithub-muted">No wiki pages yet.</p>
+      {{ end }}
+    </aside>
+
+    <main class="shithub-wiki-main">
+      {{ with .WikiGateBanner }}
+      <div class="shithub-collab-banner">
+        <strong>{{ .Message }}</strong>
+        <a href="{{ .ActionHref }}" class="shithub-button">{{ .ActionText }}</a>
+      </div>
+      {{ end }}
+
+      {{ if .SelectedPage }}
+      <article class="shithub-wiki-article">
+        <header>
+          <div>
+            <h1>{{ .SelectedPage.Page.Title }}</h1>
+            <p class="shithub-muted">Edited {{ relativeTime .SelectedPage.Page.UpdatedAt.Time }}</p>
+          </div>
+          {{ if .CanWriteWiki }}
+          <div class="shithub-wiki-actions">
+            <a href="/{{ .Owner }}/{{ .Repo.Name }}/wiki/{{ .SelectedPage.Page.Slug }}/edit" class="shithub-button">{{ octicon "pencil" }} Edit</a>
+            <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/wiki/{{ .SelectedPage.Page.Slug }}/delete">
+              <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+            </form>
+          </div>
+          {{ end }}
+        </header>
+        <div class="markdown-body shithub-wiki-markdown">
+          {{ .SelectedPage.HTML }}
+        </div>
+      </article>
+      {{ else }}
+      <div class="shithub-wiki-empty">
+        <h1>Create the first page</h1>
+        <p class="shithub-muted">Use this wiki to collect project documentation, runbooks, and design notes.</p>
+        {{ if .CanWriteWiki }}
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/wiki/new" class="shithub-button shithub-button-primary">Create the first page</a>
+        {{ end }}
+      </div>
+      {{ end }}
+    </main>
+  </section>
+</section>
+{{- end }}

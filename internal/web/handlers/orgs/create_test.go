@@ -101,6 +101,9 @@ func TestOrgPlanSelectionIncludesSP17OwnedCompareRows(t *testing.T) {
 		"ROW=Code owners|SP19|.docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md|Shipped|Public repositories|Included",
 		"ROW=Team pull request reviewers|SP19|.docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md|Shipped|Public repositories|Included",
 		"ROW=Automatic code review assignment|SP19|.docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md|Shipped|Public repositories|Included",
+		"ROW=Repository projects|SP21|.docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md|Shipped|Public repositories|Included",
+		"ROW=Wikis|SP21|.docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md|Shipped|Public repositories|Included",
+		"ROW=Multiple issue and pull request assignees|SP21|.docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md|Shipped|Public repositories|Included",
 		"ROW=Private organization collaborators|SP06a|.docs/sprints/PAYMENTS/SP06a-private-collaboration-limits.md|Shipped|Limited|Billed by licensed seat",
 		"ROW=Enterprise account, SAML, SCIM, and managed users|SP09|.docs/sprints/PAYMENTS/SP09-enterprise-stub.md|Deferred|-|-",
 	} {

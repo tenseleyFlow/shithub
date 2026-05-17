@@ -19,6 +19,7 @@ type Querier interface {
 	AllocateIssueNumber(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	// ─── assignees ───────────────────────────────────────────────────────
 	AssignUserToIssue(ctx context.Context, db DBTX, arg AssignUserToIssueParams) error
+	CountIssueAssignees(ctx context.Context, db DBTX, issueID int64) (int64, error)
 	CountIssueEvents(ctx context.Context, db DBTX, issueID int64) (int64, error)
 	CountIssues(ctx context.Context, db DBTX, arg CountIssuesParams) (int64, error)
 	// ─── issues ──────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ type Querier interface {
 	// ─── events + references ─────────────────────────────────────────────
 	InsertIssueEvent(ctx context.Context, db DBTX, arg InsertIssueEventParams) (IssueEvent, error)
 	InsertIssueReference(ctx context.Context, db DBTX, arg InsertIssueReferenceParams) error
+	IssueAssigneeExists(ctx context.Context, db DBTX, arg IssueAssigneeExistsParams) (bool, error)
 	ListIssueAssignees(ctx context.Context, db DBTX, issueID int64) ([]ListIssueAssigneesRow, error)
 	ListIssueComments(ctx context.Context, db DBTX, issueID int64) ([]IssueComment, error)
 	ListIssueEvents(ctx context.Context, db DBTX, issueID int64) ([]IssueEvent, error)

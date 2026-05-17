@@ -1,0 +1,104 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-repo-collab-page">
+    <header class="shithub-repo-collab-head">
+      <div>
+        <h1>Projects</h1>
+        <p>Coordinate work across issues and pull requests in this repository.</p>
+      </div>
+      {{ if .CanManageProjects }}
+      <details class="shithub-collab-create">
+        <summary class="shithub-button shithub-button-primary">New project</summary>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/projects" class="shithub-collab-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Project name</span>
+            <input type="text" name="title" maxlength="200" required>
+          </label>
+          <label>
+            <span>Description</span>
+            <textarea name="description" rows="3" maxlength="2000"></textarea>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Create project</button>
+        </form>
+      </details>
+      {{ end }}
+    </header>
+
+    {{ with .ProjectGateBanner }}
+    <div class="shithub-collab-banner">
+      <strong>{{ .Message }}</strong>
+      <a href="{{ .ActionHref }}" class="shithub-button">{{ .ActionText }}</a>
+    </div>
+    {{ end }}
+
+    {{ if .Projects }}
+    <div class="shithub-project-list">
+      {{ range .Projects }}
+      <article class="shithub-project-card">
+        <header>
+          <div>
+            <h2>{{ .Project.Title }}</h2>
+            <p class="shithub-muted">{{ if .Project.Description }}{{ .Project.Description }}{{ else }}No description provided.{{ end }}</p>
+          </div>
+          <span class="shithub-pill shithub-issues-state-{{ printf "%s" .Project.State }}">{{ printf "%s" .Project.State }}</span>
+        </header>
+        {{ if $.CanManageProjects }}
+        <details class="shithub-project-edit">
+          <summary class="shithub-link-button">{{ octicon "pencil" }} Edit</summary>
+          <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/projects/{{ .Project.ID }}/update" class="shithub-collab-form">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <label>
+              <span>Project name</span>
+              <input type="text" name="title" value="{{ .Project.Title }}" maxlength="200" required>
+            </label>
+            <label>
+              <span>Description</span>
+              <textarea name="description" rows="3" maxlength="2000">{{ .Project.Description }}</textarea>
+            </label>
+            <button type="submit" class="shithub-button">Save changes</button>
+          </form>
+        </details>
+        <div class="shithub-project-actions">
+          <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/projects/{{ .Project.ID }}/state">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            {{ if eq (printf "%s" .Project.State) "open" }}
+            <button type="submit" name="state" value="closed" class="shithub-button">Close</button>
+            {{ else }}
+            <button type="submit" name="state" value="open" class="shithub-button">Reopen</button>
+            {{ end }}
+          </form>
+          <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/projects/{{ .Project.ID }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+          </form>
+        </div>
+        {{ end }}
+        {{ if .Items }}
+        <ul class="shithub-project-items">
+          {{ range .Items }}
+          <li>
+            {{ if eq (printf "%s" .IssueKind) "pr" }}
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .IssueNumber }}">{{ octicon "git-pull-request" }} {{ .IssueTitle }}</a>
+            {{ else }}
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/issues/{{ .IssueNumber }}">{{ octicon "issue-opened" }} {{ .IssueTitle }}</a>
+            {{ end }}
+            <span class="shithub-muted">#{{ .IssueNumber }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="shithub-muted shithub-project-empty">No items added yet.</p>
+        {{ end }}
+      </article>
+      {{ end }}
+    </div>
+    {{ else }}
+    <div class="shithub-issues-empty">
+      No projects have been created for this repository.
+    </div>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

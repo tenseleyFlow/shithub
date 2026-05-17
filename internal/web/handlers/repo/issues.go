@@ -55,6 +55,7 @@ func (h *Handlers) MountIssues(r chi.Router) {
 		r.Post("/{owner}/{repo}/issues/{number}/labels", h.issueApplyLabels)
 		r.Post("/{owner}/{repo}/issues/{number}/milestone", h.issueAssignMilestone)
 		r.Post("/{owner}/{repo}/issues/{number}/assignees", h.issueToggleAssignee)
+		r.Post("/{owner}/{repo}/issues/{number}/projects", h.issueToggleProject)
 
 		r.Post("/{owner}/{repo}/labels", h.labelCreate)
 		r.Post("/{owner}/{repo}/labels/{id}/update", h.labelUpdate)
@@ -423,6 +424,7 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	assignees, _ := h.iq.ListIssueAssignees(r.Context(), h.d.Pool, issue.ID)
 	allLabels, _ := h.iq.ListLabels(r.Context(), h.d.Pool, row.ID)
 	milestones, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
+	issueProjects, projectOptions := h.issueProjectData(r.Context(), row, issue.ID)
 
 	// PRO-EXT01-04c: discovery surface — every author/actor/participant
 	// rendered on this page gets a Pro pill next to their handle. We
@@ -523,11 +525,14 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"ViewerAssigned":        viewerAssigned,
 		"AllLabels":             allLabels,
 		"Milestones":            milestones,
+		"Projects":              issueProjects,
+		"ProjectOptions":        projectOptions,
 		"CanComment":            canCommentAction && (!issue.Locked || canCommentThroughLock),
 		"CanSetIssueState":      canSetIssueState,
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
 		"CanEditIssueMilestone": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
+		"CanEditIssueProjects":  h.canEditIssueProjects(r.Context(), row, owner.Username, actor),
 		"CanLockIssue":          policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, repoRef).Allow,
 		"CSRFToken":             middleware.CSRFTokenForRequest(r),
 		"RepoActions":           h.repoActions(r, row.ID),
@@ -969,6 +974,8 @@ func (h *Handlers) handleIssueWriteError(w http.ResponseWriter, r *http.Request,
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "comment body required")
 	case errors.Is(err, issues.ErrCommentTooLong):
 		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "comment too long")
+	case errors.Is(err, issues.ErrMultipleAssigneesRequireTeam):
+		h.d.Render.HTTPError(w, r, http.StatusPaymentRequired, "multiple assignees require Team")
 	default:
 		var t *throttle.ErrThrottled
 		if errors.As(err, &t) {

@@ -554,8 +554,30 @@
           </section>
 
           <section>
-            <div class="shithub-sidebar-heading"><h3>Projects</h3><span class="shithub-sidebar-icon">{{ octicon "gear" }}</span></div>
-            <p class="shithub-muted">None yet</p>
+            <div class="shithub-sidebar-heading">
+              <h3>Projects</h3>
+              {{ if and .CanEditIssueProjects .ProjectOptions }}
+              <details class="shithub-sidebar-editor">
+                <summary aria-label="Edit projects">{{ octicon "gear" }}</summary>
+                <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/issues/{{ .PR.INumber }}/projects" class="shithub-popover">
+                  <strong>Select projects</strong>
+                  <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                  <select name="project_id" required>
+                    {{ range .ProjectOptions }}
+                    <option value="{{ .Project.ID }}">{{ if .Selected }}Selected - {{ end }}{{ .Project.Title }}</option>
+                    {{ end }}
+                  </select>
+                  <div class="shithub-form-actions shithub-form-actions-start">
+                    <button type="submit" name="mode" value="add" class="shithub-button">Add</button>
+                    <button type="submit" name="mode" value="remove" class="shithub-button">Remove</button>
+                  </div>
+                </form>
+              </details>
+              {{ end }}
+            </div>
+            {{ if .Projects }}
+              {{ range .Projects }}<a href="/{{ $.Owner }}/{{ $.Repo.Name }}/projects">{{ .Title }}</a>{{ end }}
+            {{ else }}<p class="shithub-muted">None yet</p>{{ end }}
           </section>
 
           <section>

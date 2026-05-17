@@ -57,6 +57,10 @@ var (
 	ErrLabelInvalidColor = errors.New("issues: label color must be 6 hex chars")
 	ErrMilestoneExists   = errors.New("issues: milestone title already taken on this repo")
 	ErrIssueNotFound     = errors.New("issues: issue not found")
+	// SP21: Free orgs may keep one assignee on private-org issues and
+	// PRs. Expanding a private org issue/PR to multiple assignees is a
+	// Team collaboration feature. Removing assignees is never gated.
+	ErrMultipleAssigneesRequireTeam = errors.New("issues: multiple assignees on private organization repositories require Team")
 )
 
 // CreateParams describes a new-issue request.

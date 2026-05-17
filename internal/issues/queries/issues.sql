@@ -122,6 +122,16 @@ JOIN users u ON u.id = a.user_id
 WHERE a.issue_id = $1
 ORDER BY a.assigned_at;
 
+-- name: CountIssueAssignees :one
+SELECT count(*) FROM issue_assignees WHERE issue_id = $1;
+
+-- name: IssueAssigneeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM issue_assignees
+    WHERE issue_id = $1 AND user_id = $2
+);
+
 
 -- ─── labels ──────────────────────────────────────────────────────────
 

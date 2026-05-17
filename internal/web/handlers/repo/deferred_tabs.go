@@ -24,31 +24,6 @@ type repoDeferredSection struct {
 	Body   string
 }
 
-func (h *Handlers) repoTabProjects(w http.ResponseWriter, r *http.Request) {
-	h.renderDeferredRepoTab(w, r, repoDeferredTab{
-		Active:      "projects",
-		Heading:     "Projects",
-		Description: "Organize issues and pull requests with repository project views.",
-		Icon:        "table",
-		Sections: []repoDeferredSection{
-			{Anchor: "open", Title: "Open", Body: "No projects have been created for this repository."},
-			{Anchor: "closed", Title: "Closed", Body: "Closed repository projects will appear here."},
-		},
-	})
-}
-
-func (h *Handlers) repoTabWiki(w http.ResponseWriter, r *http.Request) {
-	h.renderDeferredRepoTab(w, r, repoDeferredTab{
-		Active:      "wiki",
-		Heading:     "Wiki",
-		Description: "Create long-form documentation pages connected to this repository.",
-		Icon:        "book",
-		Sections: []repoDeferredSection{
-			{Anchor: "pages", Title: "Pages", Body: "No wiki pages have been created yet."},
-		},
-	})
-}
-
 func (h *Handlers) repoTabSecurity(w http.ResponseWriter, r *http.Request) {
 	h.renderDeferredRepoTab(w, r, repoDeferredTab{
 		Active:      "security",

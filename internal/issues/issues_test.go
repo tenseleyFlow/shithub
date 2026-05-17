@@ -5,18 +5,22 @@ package issues_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -150,6 +154,75 @@ func TestCreate_RendersHTMLAndSanitizesScripts(t *testing.T) {
 	}
 	if !strings.Contains(html, "<strong>") {
 		t.Errorf("markdown should render bold: %q", html)
+	}
+}
+
+func TestAssignUserPrivateOrgMultipleAssigneesRequiresTeam(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	uq := usersdb.New()
+	owner, err := uq.CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "owner", DisplayName: "Owner", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser owner: %v", err)
+	}
+	second, err := uq.CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "second", DisplayName: "Second", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser second: %v", err)
+	}
+	org, err := orgs.Create(ctx, orgs.Deps{Pool: pool}, orgs.CreateParams{Slug: "acme", CreatedByUserID: owner.ID})
+	if err != nil {
+		t.Fatalf("Create org: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "secret",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("Create repo: %v", err)
+	}
+	if err := issuesdb.New().EnsureRepoIssueCounter(ctx, pool, repo.ID); err != nil {
+		t.Fatalf("EnsureRepoIssueCounter: %v", err)
+	}
+	deps := issues.Deps{
+		Pool:    pool,
+		Limiter: throttle.NewLimiter(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	issue, err := issues.Create(ctx, deps, issues.CreateParams{
+		RepoID: repo.ID, AuthorUserID: owner.ID, Title: "gate assignees", Body: "",
+	})
+	if err != nil {
+		t.Fatalf("Create issue: %v", err)
+	}
+	if err := issues.AssignUser(ctx, deps, owner.ID, issue.ID, owner.ID); err != nil {
+		t.Fatalf("first assignment: %v", err)
+	}
+	err = issues.AssignUser(ctx, deps, owner.ID, issue.ID, second.ID)
+	if !errors.Is(err, issues.ErrMultipleAssigneesRequireTeam) {
+		t.Fatalf("second free assignment err=%v, want ErrMultipleAssigneesRequireTeam", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := billing.ApplySubscriptionSnapshot(ctx, billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
+		OrgID:                    org.ID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_sp21_assignees",
+		StripeSubscriptionItemID: "si_sp21_assignees",
+		CurrentPeriodStart:       now,
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_sp21_assignees",
+	}); err != nil {
+		t.Fatalf("activate team: %v", err)
+	}
+	if err := issues.AssignUser(ctx, deps, owner.ID, issue.ID, second.ID); err != nil {
+		t.Fatalf("team second assignment: %v", err)
 	}
 }
 
