@@ -49,6 +49,17 @@ jobs:
 The same file should work in any repository that is allowed by the site, org,
 and repo Actions policies. It should not need a repo-specific runner label.
 
+## Creating a workflow in the web UI
+
+Repository writers can open **Actions** and choose **New workflow** to create a
+workflow file under `.shithub/workflows/`. The picker offers supported starter
+templates for minimal shell smoke tests, checkout verification, scheduled
+smoke runs, and manual `workflow_dispatch` runs.
+
+The form validates the path, target branch, file collision, and workflow syntax
+before committing. Common GitHub templates that need setup/cache/matrix/service
+features are shown as unavailable instead of being offered as broken workflows.
+
 ## What works today
 
 - `push`, `pull_request`, `schedule`, and `workflow_dispatch` triggers
