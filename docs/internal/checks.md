@@ -144,6 +144,20 @@ pipeline (Goldmark + bluemonday UGCPolicy). When no checks have
 reported on the head SHA, an empty-state message points at the
 POST endpoint.
 
+The surrounding PR surfaces reuse the same check-run data:
+
+- the PR list and PR header render the commit rollup used by code
+  surfaces, including success, failure, pending, skipped, cancelled,
+  and neutral states;
+- the merge box renders the overall check state and, when branch
+  protection declares required status checks, the result from
+  `internal/checks/required_eval.go::EvaluateRequiredChecks`;
+- same-repo local Actions details URLs (`/{owner}/{repo}/actions/runs/{n}`)
+  link back to the run page and expose a CSRF-protected rerun form only to
+  viewers with repo write permission;
+- external or cross-repo `details_url` values remain readable through the
+  API/check data, but PR templates do not render them as browser links.
+
 ## Stale-on-push
 
 Opt-in via `branch_protection_rules.dismiss_stale_status_checks_on_push`

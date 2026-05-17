@@ -102,11 +102,35 @@ func TestCodeCheckSummaryHrefUsesOnlySafeLocalDetailsURL(t *testing.T) {
 	runs := []checksdb.CheckRun{
 		{DetailsUrl: "https://evil.example/actions/runs/1"},
 		{DetailsUrl: "//evil.example/actions/runs/2"},
+		{DetailsUrl: "/mallory/other-repo/actions/runs/4"},
 		{DetailsUrl: "/alice/public-repo/actions/runs/3"},
 	}
 	got := codeCheckSummaryHref("alice", "public-repo", runs)
 	if got != "/alice/public-repo/actions/runs/3" {
 		t.Fatalf("href = %q, want safe local details URL", got)
+	}
+}
+
+func TestLocalActionsRunRerunHrefRequiresSameRepoActionRun(t *testing.T) {
+	tests := []struct {
+		name string
+		href string
+		want string
+		ok   bool
+	}{
+		{name: "run", href: "/alice/public-repo/actions/runs/3", want: "/alice/public-repo/actions/runs/3/rerun", ok: true},
+		{name: "wrong repo", href: "/alice/other/actions/runs/3"},
+		{name: "wrong path", href: "/alice/public-repo/actions"},
+		{name: "external", href: "https://evil.example/alice/public-repo/actions/runs/3"},
+		{name: "non numeric run", href: "/alice/public-repo/actions/runs/latest"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := localActionsRunRerunHref("alice", "public-repo", tt.href)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("localActionsRunRerunHref = %q, %t; want %q, %t", got, ok, tt.want, tt.ok)
+			}
+		})
 	}
 }
 

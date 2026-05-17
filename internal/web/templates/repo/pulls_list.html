@@ -40,6 +40,12 @@
           {{ if .AuthorName }}by <a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
         </div>
       </div>
+      {{ if .Checks.Show }}
+      <a class="shithub-pr-list-check shithub-actions-state-{{ .Checks.StateClass }}" href="{{ .Checks.Href }}" aria-label="{{ .Checks.Label }}" title="{{ .Checks.Label }}">
+        {{ octicon .Checks.StateIcon }}
+        <span>{{ .Checks.Label }}</span>
+      </a>
+      {{ end }}
     </li>
     {{ end }}
   </ul>
