@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -57,55 +58,144 @@ func (h *Handlers) mountRepos(r chi.Router) {
 	})
 }
 
-// repoResponse mirrors GitHub's repo shape. Field selection is the
-// minimum the CLI's `gh repo view` / clone logic needs to operate.
-type repoResponse struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	FullName      string `json:"full_name"`
-	OwnerLogin    string `json:"owner_login"`
-	OwnerType     string `json:"owner_type"` // "user" | "org"
-	Description   string `json:"description"`
-	Visibility    string `json:"visibility"`
-	Private       bool   `json:"private"`
-	DefaultBranch string `json:"default_branch"`
-	Fork          bool   `json:"fork"`
-	Archived      bool   `json:"archived"`
-	HasIssues     bool   `json:"has_issues"`
-	HasPulls      bool   `json:"has_pulls"`
-	StarCount     int64  `json:"star_count"`
-	WatcherCount  int64  `json:"watcher_count"`
-	ForkCount     int64  `json:"fork_count"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+// repoOwnerEnvelope is the nested owner shape gh-compat clients
+// (shithub-cli's repos.Repo, gh CLI's Repository) expect. Lives
+// alongside the legacy flat OwnerLogin / OwnerType fields during
+// the S62 audit migration (one release cycle, same as S60 users).
+type repoOwnerEnvelope struct {
+	Login string `json:"login"`
+	Type  string `json:"type"`
+	ID    int64  `json:"id,omitempty"`
 }
 
-func presentRepo(r reposdb.Repo, ownerLogin string) repoResponse {
+// repoLicenseEnvelope is the gh-compat license shape. SPDX id is what
+// the CLI displays under `repo view`; we fill it from the stored
+// license_key column and leave name/url empty when we don't have a
+// catalog lookup yet.
+type repoLicenseEnvelope struct {
+	Key string `json:"key"`
+}
+
+// repoResponse mirrors GitHub's repo shape. The S62 audit (B14)
+// added the nested owner envelope + html_url + topics + license +
+// language + size + pushed_at. Legacy flat fields stay during the
+// transition so existing clients keep parsing; new clients should
+// consume the envelopes / gh-canonical fields.
+type repoResponse struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	// Legacy flat owner fields.
+	OwnerLogin string `json:"owner_login"`
+	OwnerType  string `json:"owner_type"` // "user" | "org"
+	// GitHub-compat nested envelope.
+	Owner         *repoOwnerEnvelope   `json:"owner,omitempty"`
+	Description   string               `json:"description"`
+	Visibility    string               `json:"visibility"`
+	Private       bool                 `json:"private"`
+	HTMLURL       string               `json:"html_url,omitempty"`
+	DefaultBranch string               `json:"default_branch"`
+	Fork          bool                 `json:"fork"`
+	Archived      bool                 `json:"archived"`
+	IsTemplate    bool                 `json:"is_template"`
+	HasIssues     bool                 `json:"has_issues"`
+	HasPulls      bool                 `json:"has_pulls"`
+	StarCount     int64                `json:"star_count"`
+	WatcherCount  int64                `json:"watcher_count"`
+	ForkCount     int64                `json:"fork_count"`
+	Topics        []string             `json:"topics,omitempty"`
+	License       *repoLicenseEnvelope `json:"license,omitempty"`
+	Language      string               `json:"language,omitempty"`
+	// Size is reported in KB to match gh-compat; the DB stores bytes.
+	Size      int64  `json:"size"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	// PushedAt is best-effort: we don't track a separate push time
+	// column, so emit updated_at. Active repos see them converge in
+	// gh-compat anyway.
+	PushedAt string `json:"pushed_at,omitempty"`
+}
+
+// presentRepo builds the gh-compat response for one repo. Topics +
+// baseURL are passed in so the function stays pure; callers that
+// don't have them (e.g. legacy code paths) can supply nil + "" to get
+// a response without those fields populated.
+func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL string) repoResponse {
 	ownerType := "user"
 	if r.OwnerOrgID.Valid {
 		ownerType = "org"
 	}
 	repoRef := policy.NewRepoRefFromRepo(r)
-	return repoResponse{
-		ID:            r.ID,
-		Name:          r.Name,
-		FullName:      ownerLogin + "/" + r.Name,
-		OwnerLogin:    ownerLogin,
-		OwnerType:     ownerType,
+	resp := repoResponse{
+		ID:         r.ID,
+		Name:       r.Name,
+		FullName:   ownerLogin + "/" + r.Name,
+		OwnerLogin: ownerLogin,
+		OwnerType:  ownerType,
+		Owner: &repoOwnerEnvelope{
+			Login: ownerLogin,
+			Type:  capitalizeFirst(ownerType),
+		},
 		Description:   r.Description,
 		Visibility:    string(r.Visibility),
 		Private:       repoRef.IsPrivate(),
 		DefaultBranch: r.DefaultBranch,
 		Fork:          r.ForkOfRepoID.Valid,
 		Archived:      r.IsArchived,
+		IsTemplate:    r.IsTemplate,
 		HasIssues:     r.HasIssues,
 		HasPulls:      r.HasPulls,
 		StarCount:     r.StarCount,
 		WatcherCount:  r.WatcherCount,
 		ForkCount:     r.ForkCount,
+		Size:          r.DiskUsedBytes / 1024,
 		CreatedAt:     r.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt:     r.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		PushedAt:      r.UpdatedAt.Time.UTC().Format(time.RFC3339),
 	}
+	if r.OwnerUserID.Valid {
+		resp.Owner.ID = r.OwnerUserID.Int64
+	} else if r.OwnerOrgID.Valid {
+		resp.Owner.ID = r.OwnerOrgID.Int64
+	}
+	if r.LicenseKey.Valid && r.LicenseKey.String != "" {
+		resp.License = &repoLicenseEnvelope{Key: r.LicenseKey.String}
+	}
+	if r.PrimaryLanguage.Valid {
+		resp.Language = r.PrimaryLanguage.String
+	}
+	if len(topics) > 0 {
+		resp.Topics = topics
+	}
+	if baseURL != "" {
+		resp.HTMLURL = strings.TrimRight(baseURL, "/") + "/" + ownerLogin + "/" + r.Name
+	}
+	return resp
+}
+
+// topicsFor fetches the topic set for a repo. Returns nil on lookup
+// failure (best-effort: a topic lookup error must not break the
+// repo response).
+func (h *Handlers) topicsFor(ctx context.Context, repoID int64) []string {
+	rows, err := reposdb.New().ListRepoTopics(ctx, h.d.Pool, repoID)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	return rows
+}
+
+// capitalizeFirst returns s with its first rune upper-cased. Used to
+// project the internal lowercase owner_type ("user"|"org") onto the
+// GitHub-compat title-case form ("User"|"Organization"-ish — we use
+// "User" / "Organization" exactly).
+func capitalizeFirst(s string) string {
+	switch s {
+	case "user":
+		return "User"
+	case "org":
+		return "Organization"
+	}
+	return s
 }
 
 // ─── list endpoints ─────────────────────────────────────────────────
@@ -255,7 +345,9 @@ func (h *Handlers) writeRepoListPage(w http.ResponseWriter, r *http.Request, pag
 	}
 	out := make([]repoResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, presentRepo(row, ownerLogin))
+		// List endpoint: skip topics lookup to avoid N+1. The single
+		// GET path populates them; CLI list views don't render them.
+		out = append(out, presentRepo(row, ownerLogin, nil, h.d.BaseURL))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -267,7 +359,7 @@ func (h *Handlers) repoGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, presentRepo(repo, ownerLogin))
+	writeJSON(w, http.StatusOK, presentRepo(repo, ownerLogin, h.topicsFor(r.Context(), repo.ID), h.d.BaseURL))
 }
 
 // ─── create endpoints ───────────────────────────────────────────────
@@ -409,7 +501,8 @@ func (h *Handlers) runRepoCreate(w http.ResponseWriter, r *http.Request, params 
 		writeRepoCreateError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, presentRepo(res.Repo, ownerLogin))
+	// Brand-new repo — no topics yet, skip the lookup.
+	writeJSON(w, http.StatusCreated, presentRepo(res.Repo, ownerLogin, nil, h.d.BaseURL))
 }
 
 func writeRepoCreateError(w http.ResponseWriter, err error) {
@@ -529,7 +622,7 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "reload failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, presentRepo(fresh, ownerLogin))
+	writeJSON(w, http.StatusOK, presentRepo(fresh, ownerLogin, h.topicsFor(r.Context(), fresh.ID), h.d.BaseURL))
 }
 
 func (h *Handlers) repoDelete(w http.ResponseWriter, r *http.Request) {

@@ -76,10 +76,15 @@ func TestActionsRuns_List(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []apiActionsRun
-	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+	// S62 envelope.
+	var env struct {
+		TotalCount   int             `json:"total_count"`
+		WorkflowRuns []apiActionsRun `json:"workflow_runs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	listed := env.WorkflowRuns
 	if len(listed) != 2 {
 		t.Fatalf("len: got %d, want 2; payload=%+v", len(listed), listed)
 	}
@@ -97,8 +102,11 @@ func TestActionsRuns_FilterByWorkflowFile(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []apiActionsRun
-	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	var env struct {
+		WorkflowRuns []apiActionsRun `json:"workflow_runs"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &env)
+	listed := env.WorkflowRuns
 	if len(listed) != 1 || listed[0].WorkflowFile != ".shithub/workflows/release.yml" {
 		t.Errorf("expected only release.yml; got %+v", listed)
 	}
@@ -173,10 +181,14 @@ func TestActionsRuns_JobsListEmpty(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []apiActionsJob
-	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+	var env struct {
+		TotalCount int             `json:"total_count"`
+		Jobs       []apiActionsJob `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	listed := env.Jobs
 	if len(listed) != 0 {
 		t.Errorf("expected empty jobs list; got %+v", listed)
 	}

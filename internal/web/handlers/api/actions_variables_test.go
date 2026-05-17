@@ -35,8 +35,12 @@ func TestActionsVariables_CreateListGetUpdateDelete(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	var listEnv struct {
+		TotalCount int              `json:"total_count"`
+		Variables  []map[string]any `json:"variables"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &listEnv)
+	listed := listEnv.Variables
 	if len(listed) != 1 || listed[0]["name"] != "API_URL" || listed[0]["value"] != "https://api.example" {
 		t.Errorf("list shape: %+v", listed)
 	}

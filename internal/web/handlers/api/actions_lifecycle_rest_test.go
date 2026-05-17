@@ -49,8 +49,11 @@ func TestActionsLifecycle_DisableThenEnableWorkflow(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+readToken)
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
-	var listed []apiWorkflow
-	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	var envDisabled struct {
+		Workflows []apiWorkflow `json:"workflows"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &envDisabled)
+	listed := envDisabled.Workflows
 	if len(listed) == 0 || listed[0].State != "disabled" {
 		t.Errorf("list after disable: got %+v", listed)
 	}
@@ -69,7 +72,11 @@ func TestActionsLifecycle_DisableThenEnableWorkflow(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+readToken)
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
-	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	var envEnabled struct {
+		Workflows []apiWorkflow `json:"workflows"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &envEnabled)
+	listed = envEnabled.Workflows
 	if len(listed) == 0 || listed[0].State != "active" {
 		t.Errorf("list after enable: got %+v", listed)
 	}

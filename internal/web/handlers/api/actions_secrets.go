@@ -126,7 +126,8 @@ func (h *Handlers) actionsSecretsListRepo(w http.ResponseWriter, r *http.Request
 	for _, m := range rows {
 		out = append(out, presentSecretMeta(m))
 	}
-	writeJSON(w, http.StatusOK, out)
+	// S62 audit B12.
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "secrets": out})
 }
 
 func (h *Handlers) actionsSecretsGetRepo(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +210,7 @@ func (h *Handlers) actionsSecretsListOrg(w http.ResponseWriter, r *http.Request)
 	for _, m := range rows {
 		out = append(out, presentSecretMeta(m))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "secrets": out})
 }
 
 func (h *Handlers) actionsSecretsGetOrg(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +431,7 @@ func (h *Handlers) actionsSecretsListUser(w http.ResponseWriter, r *http.Request
 	for _, m := range rows {
 		out = append(out, presentSecretMeta(m))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "secrets": out})
 }
 
 func (h *Handlers) actionsSecretsGetUser(w http.ResponseWriter, r *http.Request) {

@@ -125,7 +125,13 @@ func (h *Handlers) actionsWorkflowsList(w http.ResponseWriter, r *http.Request) 
 		out = append(out, wr)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	writeJSON(w, http.StatusOK, out)
+	// S62 audit B9: gh-compat clients expect a `{total_count, workflows: [...]}`
+	// envelope; pre-S62 we returned a bare array which broke
+	// `shithub workflow list` (json decode panic).
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total_count": len(out),
+		"workflows":   out,
+	})
 }
 
 func (h *Handlers) actionsWorkflowsGet(w http.ResponseWriter, r *http.Request) {

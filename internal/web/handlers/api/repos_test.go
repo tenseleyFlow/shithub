@@ -28,25 +28,45 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
 )
 
+// apiRepoOwner mirrors repoOwnerEnvelope.
+type apiRepoOwner struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
+// apiRepoLicense mirrors repoLicenseEnvelope.
+type apiRepoLicense struct {
+	Key string `json:"key"`
+}
+
 type apiRepo struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	FullName      string `json:"full_name"`
-	OwnerLogin    string `json:"owner_login"`
-	OwnerType     string `json:"owner_type"`
-	Description   string `json:"description"`
-	Visibility    string `json:"visibility"`
-	Private       bool   `json:"private"`
-	DefaultBranch string `json:"default_branch"`
-	Fork          bool   `json:"fork"`
-	Archived      bool   `json:"archived"`
-	HasIssues     bool   `json:"has_issues"`
-	HasPulls      bool   `json:"has_pulls"`
-	StarCount     int64  `json:"star_count"`
-	WatcherCount  int64  `json:"watcher_count"`
-	ForkCount     int64  `json:"fork_count"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ID            int64           `json:"id"`
+	Name          string          `json:"name"`
+	FullName      string          `json:"full_name"`
+	OwnerLogin    string          `json:"owner_login"`
+	OwnerType     string          `json:"owner_type"`
+	Owner         *apiRepoOwner   `json:"owner"`
+	Description   string          `json:"description"`
+	Visibility    string          `json:"visibility"`
+	Private       bool            `json:"private"`
+	HTMLURL       string          `json:"html_url"`
+	DefaultBranch string          `json:"default_branch"`
+	Fork          bool            `json:"fork"`
+	Archived      bool            `json:"archived"`
+	IsTemplate    bool            `json:"is_template"`
+	HasIssues     bool            `json:"has_issues"`
+	HasPulls      bool            `json:"has_pulls"`
+	StarCount     int64           `json:"star_count"`
+	WatcherCount  int64           `json:"watcher_count"`
+	ForkCount     int64           `json:"fork_count"`
+	Topics        []string        `json:"topics"`
+	License       *apiRepoLicense `json:"license"`
+	Language      string          `json:"language"`
+	Size          int64           `json:"size"`
+	CreatedAt     string          `json:"created_at"`
+	UpdatedAt     string          `json:"updated_at"`
+	PushedAt      string          `json:"pushed_at"`
 }
 
 // newReposAPIRouter builds an API router with the repo-create stack
@@ -148,6 +168,22 @@ func TestRepos_CreatePersonalAndGet(t *testing.T) {
 	if created.DefaultBranch != "trunk" {
 		t.Errorf("default_branch: got %q, want trunk", created.DefaultBranch)
 	}
+	// S62 audit B14: nested owner envelope populated alongside legacy
+	// flat fields. CLI's `repo view --json owner` rendered {login:"",
+	// type:""} before this; pin the envelope so a future regression
+	// surfaces in CI instead of in a user's terminal.
+	if created.Owner == nil || created.Owner.Login != "alice" || created.Owner.Type != "User" {
+		t.Errorf("owner envelope: %+v", created.Owner)
+	}
+	// HTMLURL is BaseURL + "/" + full_name. The test router uses
+	// "https://shithub.test" so we can assert the prefix.
+	if !strings.HasPrefix(created.HTMLURL, "https://shithub.test/alice/demo") {
+		t.Errorf("html_url: got %q, want https://shithub.test/alice/demo*", created.HTMLURL)
+	}
+	// pushed_at is best-effort (= updated_at); just confirm it is set.
+	if created.PushedAt == "" {
+		t.Error("pushed_at should be populated")
+	}
 
 	// GET single repo.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
@@ -156,6 +192,16 @@ func TestRepos_CreatePersonalAndGet(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var fetched apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode get: %v", err)
+	}
+	if fetched.Owner == nil || fetched.Owner.Login != "alice" {
+		t.Errorf("fetched owner envelope: %+v", fetched.Owner)
+	}
+	if fetched.HTMLURL == "" {
+		t.Error("fetched html_url should be populated")
 	}
 }
 

@@ -202,7 +202,11 @@ func (h *Handlers) actionsRunsList(w http.ResponseWriter, r *http.Request) {
 	if link != "" {
 		w.Header().Set("Link", link)
 	}
-	writeJSON(w, http.StatusOK, out)
+	// S62 audit B10: gh-compat envelope.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total_count":   int(total),
+		"workflow_runs": out,
+	})
 }
 
 func (h *Handlers) actionsRunGet(w http.ResponseWriter, r *http.Request) {
@@ -286,5 +290,9 @@ func (h *Handlers) actionsRunJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, job)
 	}
-	writeJSON(w, http.StatusOK, out)
+	// S62: jobs list also wrapped for gh-compat parity.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total_count": len(out),
+		"jobs":        out,
+	})
 }
