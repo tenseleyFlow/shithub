@@ -262,6 +262,12 @@ type EnforceConfig struct {
 	// emitted; existing rules continue to apply). PRO-EXT01-16a;
 	// promoted in PRO-EXT01-17.
 	UserInboxRules bool `toml:"user_inbox_rules"`
+	// UserInboxDigests: when true, the digest sweep skips Free users'
+	// schedules entirely; CRUD on the schedule rejects with 402. Off
+	// by default → report-only (sweep still delivers + would-deny is
+	// logged so we can validate the email path before flipping the
+	// gate). PRO-EXT01-16b; promoted in PRO-EXT01-17.
+	UserInboxDigests bool `toml:"user_inbox_digests"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

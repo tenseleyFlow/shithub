@@ -164,6 +164,13 @@ const (
 	// from a downgrade) keep working in report-only mode until enforce
 	// flips. Kinds: user only.
 	FeatureInboxRules Feature = "inbox_rules"
+	// FeatureInboxDigests gates Pro-tier scheduled digest emails
+	// (PRO-EXT01-16b). A digest collapses the last window of unread
+	// notifications into a single email at a user-chosen cadence
+	// (daily or weekly). Free users can't enable the schedule; the
+	// sweep worker skips any row whose owner's entitlement denies.
+	// Kinds: user only.
+	FeatureInboxDigests Feature = "inbox_digests"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -270,6 +277,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
 	FeatureRepoTimeMachine:          {billing.SubjectKindUser},
 	FeatureInboxRules:               {billing.SubjectKindUser},
+	FeatureInboxDigests:             {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
