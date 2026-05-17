@@ -145,6 +145,59 @@
         {{ end }}
       </form>
     </section>
+
+    <section class="shithub-settings-section">
+      <h2>Digest email {{ if not .DigestAllowed }}{{ template "pro-badge" true }}{{ end }}</h2>
+      <p>
+        Pro feature. Collapses your unread notifications into a single
+        email at a chosen cadence. Snoozed and dropped notifications
+        are skipped; the most recent 50 unread items are included.
+      </p>
+
+      {{ if and .HasDigest .Digest.Enabled }}
+      <p class="shithub-flash shithub-flash-notice" role="status">
+        Digest is <strong>on</strong>: <code>{{ .Digest.Frequency }}</code>
+        at <code>{{ printf "%02d:00" .Digest.HourUtc }}</code> UTC
+        {{ if .Digest.DayOfWeek.Valid }}(day {{ .Digest.DayOfWeek.Int16 }}){{ end }}
+        {{ if .Digest.NextSendAt.Valid }}— next send {{ .Digest.NextSendAt.Time.Format "2006-01-02 15:04 UTC" }}{{ end }}.
+      </p>
+      <form method="POST" action="/settings/notifications/digest/disable" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <button type="submit" class="shithub-button">Disable digest</button>
+      </form>
+      {{ end }}
+
+      <h3>{{ if and .HasDigest .Digest.Enabled }}Update schedule{{ else }}Enable digest{{ end }}</h3>
+      <form method="POST" action="/settings/notifications/digest" novalidate
+            {{ if not .DigestAllowed }}class="shithub-pro-lock" data-pro-feature="{{ .DigestFeatureKey }}"{{ end }}>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Frequency</span>
+          <select name="frequency" {{ if not .DigestAllowed }}disabled aria-disabled="true"{{ end }}>
+            <option value="{{ .DigestFreqDaily }}"{{ if eq (printf "%s" .Digest.Frequency) .DigestFreqDaily }} selected{{ end }}>Daily</option>
+            <option value="{{ .DigestFreqWeekly }}"{{ if eq (printf "%s" .Digest.Frequency) .DigestFreqWeekly }} selected{{ end }}>Weekly</option>
+          </select>
+        </label>
+        <label>
+          <span>Hour (UTC, 0-23)</span>
+          <input type="number" name="hour_utc" min="0" max="23" value="{{ .Digest.HourUtc }}"
+                 {{ if not .DigestAllowed }}disabled aria-disabled="true"{{ end }}>
+        </label>
+        <label>
+          <span>Day of week <small>(0=Sun..6=Sat, weekly only)</small></span>
+          <input type="number" name="day_of_week" min="0" max="6"
+                 {{ if .Digest.DayOfWeek.Valid }}value="{{ .Digest.DayOfWeek.Int16 }}"{{ end }}
+                 {{ if not .DigestAllowed }}disabled aria-disabled="true"{{ end }}>
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary"
+                {{ if not .DigestAllowed }}disabled aria-disabled="true"{{ end }}>Save schedule</button>
+        {{ if not .DigestAllowed }}
+        <a class="shithub-pro-lock-cta" href="/settings/billing" data-pro-feature="{{ .DigestFeatureKey }}">
+          {{ template "pro-badge" true }} Upgrade to Pro
+        </a>
+        {{ end }}
+      </form>
+    </section>
   </div>
 </div>
 {{- end }}

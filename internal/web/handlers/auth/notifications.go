@@ -153,6 +153,8 @@ func (h *Handlers) renderNotificationsForm(w http.ResponseWriter, r *http.Reques
 
 	rules, _ := notifdb.New().ListUserNotificationRules(r.Context(), h.d.Pool, user.ID)
 	rulesAllowed := h.inboxRulesAllowed(r, user.ID)
+	digest, hasDigest := h.loadDigest(r, user.ID)
+	digestAllowed := h.inboxDigestsAllowed(r, user.ID)
 
 	h.renderPage(w, r, "settings/notifications", map[string]any{
 		"Title":              "Notifications",
@@ -167,7 +169,35 @@ func (h *Handlers) renderNotificationsForm(w http.ResponseWriter, r *http.Reques
 		"RuleActionTab":      string(notifdb.UserNotificationRuleActionTab),
 		"RuleActionMarkRead": string(notifdb.UserNotificationRuleActionMarkRead),
 		"RuleActionDrop":     string(notifdb.UserNotificationRuleActionDrop),
+		"Digest":             digest,
+		"HasDigest":          hasDigest,
+		"DigestAllowed":      digestAllowed,
+		"DigestFeatureKey":   string(entitlements.FeatureInboxDigests),
+		"DigestFreqDaily":    string(notifdb.UserNotificationDigestFrequencyDaily),
+		"DigestFreqWeekly":   string(notifdb.UserNotificationDigestFrequencyWeekly),
 	})
+}
+
+// loadDigest fetches the user's digest row, returning a zero value
+// + ok=false if none exists. Lets the template default the form to
+// "daily at 09:00 UTC" without a separate branch.
+func (h *Handlers) loadDigest(r *http.Request, userID int64) (notifdb.UserNotificationDigest, bool) {
+	row, err := notifdb.New().GetUserNotificationDigest(r.Context(), h.d.Pool, userID)
+	if err != nil {
+		return notifdb.UserNotificationDigest{HourUtc: 9, Frequency: notifdb.UserNotificationDigestFrequencyDaily}, false
+	}
+	return row, true
+}
+
+// inboxDigestsAllowed mirrors inboxRulesAllowed for the digest feature.
+func (h *Handlers) inboxDigestsAllowed(r *http.Request, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID), entitlements.FeatureInboxDigests)
+	if err != nil {
+		return false
+	}
+	return decision.Allowed
 }
 
 // inboxRulesAllowed reports whether the user's entitlement permits
