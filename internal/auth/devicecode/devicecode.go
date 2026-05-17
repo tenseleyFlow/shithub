@@ -98,9 +98,9 @@ func (c Config) effective() Config {
 // middleware.RealIPFromContext; empty string means "skip the ip key in
 // the audit meta JSON" so testfixtures don't carry junk values.
 type Deps struct {
-	Pool     *pgxpool.Pool
-	Audit    *audit.Recorder
-	ActorIP  string
+	Pool    *pgxpool.Pool
+	Audit   *audit.Recorder
+	ActorIP string
 }
 
 func (d Deps) recordAudit(ctx context.Context, actorID int64, action audit.Action, targetID int64, meta map[string]any) {
