@@ -45,6 +45,11 @@ func (h *Handlers) settingsBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	gitDir, _ := h.d.RepoFS.RepoPath(owner.Username, row.Name)
 	refs, _ := repogit.ListRefs(r.Context(), gitDir)
+	governance, err := h.branchProtectionGovernanceView(r.Context(), row, owner.Username)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
 
 	h.d.Render.RenderPage(w, r, "repo/settings_branches", map[string]any{
 		"Title":          "Branch protection · " + row.Name,
@@ -53,6 +58,7 @@ func (h *Handlers) settingsBranches(w http.ResponseWriter, r *http.Request) {
 		"Repo":           row,
 		"Rules":          rules,
 		"Branches":       refs.Branches,
+		"Governance":     governance,
 		"Notice":         settingsBranchesNoticeMessage(r.URL.Query().Get("notice")),
 		"SettingsActive": "branches",
 	})
@@ -219,6 +225,167 @@ type branchProtectionInputs struct {
 	RequireSignedCommits bool
 	RequiredChecks       []string
 	DismissStaleChecks   bool
+}
+
+type branchProtectionGovernanceView struct {
+	Scope                          string
+	State                          string
+	Message                        string
+	BillingHref                    string
+	RulesetsAPIHref                string
+	BranchRulesAPIHref             string
+	IsPrivate                      bool
+	IsPrivateOrgRepo               bool
+	TeamRequired                   bool
+	CanUseRequiredReviewers        bool
+	CanUseAdvancedBranchProtection bool
+	Features                       []branchProtectionGovernanceFeature
+}
+
+type branchProtectionGovernanceFeature struct {
+	Name        string
+	Description string
+	State       string
+	Gated       bool
+}
+
+func (h *Handlers) branchProtectionGovernanceView(ctx context.Context, row reposdb.Repo, ownerSlug string) (branchProtectionGovernanceView, error) {
+	view := branchProtectionGovernanceView{
+		Scope:                          "Public repository",
+		State:                          "Available",
+		Message:                        "Branch rules, required reviews, and required status checks are available on public repositories.",
+		RulesetsAPIHref:                "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rulesets",
+		BranchRulesAPIHref:             "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rules/branches/" + row.DefaultBranch,
+		CanUseRequiredReviewers:        true,
+		CanUseAdvancedBranchProtection: true,
+	}
+	if row.Visibility == reposdb.RepoVisibilityPrivate {
+		view.IsPrivate = true
+		principal, ok := principalFromRepo(row)
+		if !ok {
+			view.Scope = "Private repository"
+			view.State = "Unavailable"
+			view.Message = "This repository does not have a billable owner, so paid governance checks cannot be evaluated."
+			view.CanUseRequiredReviewers = false
+			view.CanUseAdvancedBranchProtection = false
+			view.Features = branchProtectionGovernanceFeatures(view, nil, nil)
+			return view, nil
+		}
+		view.Scope = "Private personal repository"
+		view.BillingHref = "/settings/billing"
+		if principal.IsOrg() {
+			view.Scope = "Private organization repository"
+			view.BillingHref = "/organizations/" + ownerSlug + "/settings/billing"
+			view.IsPrivateOrgRepo = true
+			view.TeamRequired = true
+		}
+		reviewDecision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeatureRequiredReviewers)
+		if err != nil {
+			return branchProtectionGovernanceView{}, err
+		}
+		advancedDecision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeatureAdvancedBranchProtection)
+		if err != nil {
+			return branchProtectionGovernanceView{}, err
+		}
+		view.CanUseRequiredReviewers = reviewDecision.Allowed
+		view.CanUseAdvancedBranchProtection = advancedDecision.Allowed
+		view.State = branchProtectionGovernanceState(principal, reviewDecision, advancedDecision)
+		view.Message = branchProtectionGovernanceMessage(principal, reviewDecision, advancedDecision)
+		view.Features = branchProtectionGovernanceFeatures(view, &reviewDecision, &advancedDecision)
+		return view, nil
+	}
+	view.Features = branchProtectionGovernanceFeatures(view, nil, nil)
+	return view, nil
+}
+
+func branchProtectionGovernanceState(principal billing.Principal, decisions ...entitlements.Decision) string {
+	allAllowed := true
+	for _, decision := range decisions {
+		if decision.Allowed {
+			continue
+		}
+		allAllowed = false
+		switch decision.Reason {
+		case entitlements.ReasonBillingActionNeeded:
+			return "Billing action needed"
+		case entitlements.ReasonEnterpriseContactSales:
+			return "Contact sales"
+		}
+	}
+	if allAllowed {
+		return "Active"
+	}
+	if principal.IsUser() {
+		return "Pro required"
+	}
+	return "Team required"
+}
+
+func branchProtectionGovernanceMessage(principal billing.Principal, decisions ...entitlements.Decision) string {
+	state := branchProtectionGovernanceState(principal, decisions...)
+	switch state {
+	case "Active":
+		if principal.IsOrg() {
+			return "Team governance is active for this private repository."
+		}
+		return "Pro governance is active for this private repository."
+	case "Billing action needed":
+		return "Existing rules remain readable and removable, but gated settings cannot be expanded until billing is current."
+	case "Contact sales":
+		return "Enterprise-preview governance is not self-serve yet. Contact sales to enable private repository rules."
+	case "Pro required":
+		return "Private personal repository governance requires Pro before required reviewers or advanced branch rules can be added."
+	default:
+		return "Private organization repository governance requires Team before required reviewers or advanced branch rules can be added."
+	}
+}
+
+func branchProtectionGovernanceFeatures(view branchProtectionGovernanceView, reviews, advanced *entitlements.Decision) []branchProtectionGovernanceFeature {
+	reviewState, reviewGated := branchProtectionFeatureState(view.CanUseRequiredReviewers, reviews)
+	advancedState, advancedGated := branchProtectionFeatureState(view.CanUseAdvancedBranchProtection, advanced)
+	return []branchProtectionGovernanceFeature{
+		{
+			Name:        "Required pull request reviews",
+			Description: "Require approving reviews before protected branches can merge.",
+			State:       reviewState,
+			Gated:       reviewGated,
+		},
+		{
+			Name:        "Multiple required reviewers",
+			Description: "Require more than one approval for private organization changes.",
+			State:       reviewState,
+			Gated:       reviewGated,
+		},
+		{
+			Name:        "Required status checks",
+			Description: "Require named check runs to pass on the pull request head SHA.",
+			State:       advancedState,
+			Gated:       advancedGated,
+		},
+		{
+			Name:        "Branch rules",
+			Description: "Block force-pushes and deletions, require pull requests, and expose rulesets through the API.",
+			State:       advancedState,
+			Gated:       advancedGated,
+		},
+	}
+}
+
+func branchProtectionFeatureState(allowed bool, decision *entitlements.Decision) (string, bool) {
+	if allowed {
+		return "Included", false
+	}
+	if decision == nil {
+		return "Unavailable", true
+	}
+	switch decision.Reason {
+	case entitlements.ReasonBillingActionNeeded:
+		return "Billing action needed", true
+	case entitlements.ReasonEnterpriseContactSales:
+		return "Contact sales", true
+	default:
+		return "Upgrade required", true
+	}
 }
 
 // branchProtectionEntitlementNotice gates the required-reviewers and

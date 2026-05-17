@@ -81,6 +81,14 @@ The in-browser file editor uses `repo:write` for every mutation route
 when the same action allows the current web actor on a named branch, and
 the POST handlers re-run the policy check before committing.
 
+Paid feature checks are a second gate, not a substitute for policy.
+Handlers must first ask `policy.Can` for the action, then ask
+`internal/entitlements` for plan-dependent writes. SP18's private org
+branch-rule settings follow this pattern: `repo:settings:branches`
+decides whether the actor may edit branch settings at all, and
+`advanced_branch_protection` / `required_reviewers` decide whether that
+authorized actor may add private-repo Team governance settings.
+
 ## Decision precedence
 
 `Can()` evaluates in a fixed order; the first matching rule produces

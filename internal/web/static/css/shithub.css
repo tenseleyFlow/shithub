@@ -2432,6 +2432,7 @@ button.shithub-contrib-setting-item:hover {
 .shithub-settings-section input[type=text],
 .shithub-settings-section input[type=email],
 .shithub-settings-section input[type=password],
+.shithub-settings-section input[type=number],
 .shithub-settings-section input[type=url],
 .shithub-settings-section textarea,
 .shithub-settings-section select {
@@ -9445,6 +9446,84 @@ button.shithub-repo-action {
 .shithub-branches-table td .shithub-code-check-status {
   margin-right: 0.25rem;
   vertical-align: text-bottom;
+}
+.shithub-branch-governance .shithub-settings-section-head {
+  align-items: flex-start;
+}
+.shithub-governance-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border-muted, var(--border-default));
+  border-bottom: 1px solid var(--border-muted, var(--border-default));
+}
+.shithub-governance-summary span,
+.shithub-governance-feature-head span {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.shithub-governance-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.shithub-governance-feature {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-subtle);
+}
+.shithub-governance-feature.is-gated {
+  border-color: var(--border-muted, var(--border-default));
+}
+.shithub-governance-feature-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.shithub-governance-feature p,
+.shithub-governance-api-links {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-branch-rule-form {
+  max-width: 44rem;
+}
+.shithub-branch-rule-form fieldset {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border-muted, var(--border-default));
+  border-radius: 6px;
+}
+.shithub-branch-rule-form legend {
+  padding: 0 0.35rem;
+  color: var(--fg-default);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .shithub-governance-feature-grid {
+    grid-template-columns: 1fr;
+  }
+  .shithub-governance-summary,
+  .shithub-governance-feature-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
 }
 .shithub-compare-flow {
   max-width: 62.5rem;

@@ -604,9 +604,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Baseline shipped",
 				},
 				{
-					Name: "Repository rules", Description: "Enforce branch and tag restrictions across organization repositories.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP18",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Planned",
+					Name: "Branch rules", Description: "Enforce branch restrictions and required status checks across organization repositories.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP18",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Shipped",
 				},
 				{
 					Name: "Code owners", Description: "Request reviews from responsible owners when protected files change.",
@@ -655,8 +655,8 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 				},
 				{
 					Name: "Multiple reviewers in pull requests", Description: "Require more than one reviewer before private-repo changes merge.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP18",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Planned",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP18",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Shipped",
 				},
 				{
 					Name: "Scheduled reminders", Description: "Remind teams about pending pull requests.",

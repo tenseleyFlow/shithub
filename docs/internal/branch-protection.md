@@ -78,7 +78,8 @@ Stored in `branch_protection_rules`:
 | `require_pr_for_push`      | `false` | enforced for direct git pushes and web edits |
 | `allowed_pusher_user_ids`  | `{}`    | enforced; empty = no restriction              |
 | `require_signed_commits`   | `false` | placeholder — post-MVP                       |
-| `status_checks_required`   | `{}`    | placeholder — S24 wires real checks          |
+| `status_checks_required`   | `{}`    | enforced through the S24 check-run gate      |
+| `required_review_count`    | `0`     | enforced through the PR review gate          |
 
 ### Pattern matching
 
@@ -125,6 +126,28 @@ an error; the hook prints "transient; retry" to stderr and exits
 non-zero. **Fail closed**, per the S20 lean: better to reject a
 legitimate push than to allow a force-push past a missing rule.
 
+## Paid governance gates
+
+SP18 makes the private organization repository governance surface a
+Team entitlement while keeping public repositories generous. The web
+settings handler first authorizes `repo:settings:branches` through
+`internal/auth/policy`, then asks `internal/entitlements` whether the
+billable repo owner can use:
+
+- `advanced_branch_protection` for force-push/deletion/signature
+  toggles and required status checks.
+- `required_reviewers` for required approvals and multiple required
+  reviewers.
+
+Free private org repositories can read and remove existing rules, but
+cannot add or expand gated settings. Team orgs with active or trialing
+billing can use the controls. Past-due/canceled Team orgs keep rule
+data and receive billing-action messaging until billing is restored.
+
+Personal private repositories use the same feature keys with user-kind
+entitlements; the Pro enforcement flags live in operator config and
+are documented in `docs/internal/billing.md`.
+
 ## Default-branch change
 
 `POST /settings/default-branch` validates the target exists, updates
@@ -170,8 +193,6 @@ land, the meta blob carries `action: "default_branch_changed"`/
 ## Deferred to later sprints
 
 - **`require_signed_commits` enforcement** → post-MVP signing surface.
-- **`status_checks_required`** → S24 ships the check engine.
-- **Required reviewers attached to rules** → S23.
 - **Per-team allowed-pushers** → S31 (orgs/teams).
 - **Tag protection** → post-MVP.
 - **Ahead/behind caching on push** → S36.

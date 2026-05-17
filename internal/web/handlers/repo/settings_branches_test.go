@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,73 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
+
+func TestSettingsBranchesRendersTeamGovernanceUpgradeForPrivateOrgRepo(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/acme/private-org-repo/settings/branches", nil)
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	for _, want := range []string{
+		"GOV=Private organization repository:Team required:false:false:/organizations/acme/settings/billing",
+		"FEATURE=Required pull request reviews:Upgrade required:true",
+		"FEATURE=Multiple required reviewers:Upgrade required:true",
+		"FEATURE=Required status checks:Upgrade required:true",
+		"RULES=0",
+	} {
+		if !strings.Contains(resp.Body.String(), want) {
+			t.Fatalf("missing %q in body: %s", want, resp.Body.String())
+		}
+	}
+}
+
+func TestSettingsBranchesRendersActiveGovernanceForPaidPrivateOrgRepo(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	now := time.Now().UTC()
+	if _, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: f.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_branches_render_test",
+		StripeSubscriptionItemID: "si_branches_render_test",
+		CurrentPeriodStart:       now.Add(-time.Hour),
+		CurrentPeriodEnd:         now.Add(24 * time.Hour),
+		LastWebhookEventID:       "evt_branches_render_test",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/acme/private-org-repo/settings/branches", nil)
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	for _, want := range []string{
+		"GOV=Private organization repository:Active:true:true:/organizations/acme/settings/billing",
+		"FEATURE=Required pull request reviews:Included:false",
+		"FEATURE=Multiple required reviewers:Included:false",
+		"FEATURE=Required status checks:Included:false",
+	} {
+		if !strings.Contains(resp.Body.String(), want) {
+			t.Fatalf("missing %q in body: %s", want, resp.Body.String())
+		}
+	}
+}
 
 func TestSettingsBranchesBlocksRequiredReviewersWithoutEntitlement(t *testing.T) {
 	t.Parallel()
