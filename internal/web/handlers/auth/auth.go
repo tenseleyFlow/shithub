@@ -215,6 +215,9 @@ func (h *Handlers) Mount(r chi.Router) {
 			r.Post("/settings/notifications/rules", h.settingsRuleCreate)
 			r.Post("/settings/notifications/rules/{id}/delete", h.settingsRuleDelete)
 			r.Post("/settings/notifications/rules/{id}/toggle", h.settingsRuleToggle)
+			// PRO-EXT01-16b: scheduled digest emails.
+			r.Post("/settings/notifications/digest", h.settingsDigestSave)
+			r.Post("/settings/notifications/digest/disable", h.settingsDigestDisable)
 			r.Get("/settings/sessions", h.settingsSessionsList)
 			r.Post("/settings/sessions/logout-everywhere", h.settingsSessionsLogoutAll)
 			r.Get("/settings/danger", h.settingsDangerForm)

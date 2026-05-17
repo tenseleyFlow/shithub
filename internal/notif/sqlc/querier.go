@@ -9,6 +9,10 @@ import (
 )
 
 type Querier interface {
+	// After a successful send, bump the cursor + record last_sent_at.
+	// The handler computes the next tick (frequency + hour + DOW) so
+	// the SQL stays plan-stable.
+	AdvanceUserNotificationDigest(ctx context.Context, db DBTX, arg AdvanceUserNotificationDigestParams) error
 	// "drop" hides via a dedicated tab label; we still keep the row so
 	// the user can find it if a rule misfires.
 	ApplyRuleDrop(ctx context.Context, db DBTX, arg ApplyRuleDropParams) error
@@ -19,6 +23,11 @@ type Querier interface {
 	// with the same rule has the same effect.
 	ApplyRuleSnooze(ctx context.Context, db DBTX, arg ApplyRuleSnoozeParams) error
 	ApplyRuleTab(ctx context.Context, db DBTX, arg ApplyRuleTabParams) error
+	// Sweep claim. FOR UPDATE SKIP LOCKED so multiple worker processes
+	// can drain in parallel without dispatching the same row twice.
+	// Limited to a small batch per tick so a backlog can't monopolize
+	// one worker.
+	ClaimDueNotificationDigests(ctx context.Context, db DBTX, limit int32) ([]UserNotificationDigest, error)
 	// Per-recipient absolute rate cap: how many total emails to this
 	// recipient in the last $2 minutes?
 	CountEmailsForRecipientSince(ctx context.Context, db DBTX, arg CountEmailsForRecipientSinceParams) (int64, error)
@@ -29,6 +38,7 @@ type Querier interface {
 	CountNotificationsForRecipient(ctx context.Context, db DBTX, arg CountNotificationsForRecipientParams) (int64, error)
 	CountUnreadForRecipient(ctx context.Context, db DBTX, recipientUserID int64) (int64, error)
 	DeleteNotificationThread(ctx context.Context, db DBTX, arg DeleteNotificationThreadParams) error
+	DeleteUserNotificationDigest(ctx context.Context, db DBTX, userID int64) error
 	// execrows lets the handler distinguish "deleted" from "not found"
 	// without a prior GET.
 	DeleteUserNotificationRule(ctx context.Context, db DBTX, arg DeleteUserNotificationRuleParams) (int64, error)
@@ -37,6 +47,10 @@ type Querier interface {
 	GetNotification(ctx context.Context, db DBTX, id int64) (GetNotificationRow, error)
 	// ─── notification_threads ──────────────────────────────────────────
 	GetNotificationThread(ctx context.Context, db DBTX, arg GetNotificationThreadParams) (NotificationThread, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-16b: scheduled digest emails.
+	GetUserNotificationDigest(ctx context.Context, db DBTX, userID int64) (UserNotificationDigest, error)
 	// By-id read with user_id guard. Empty result on cross-user access
 	// forces the handler to 404 — no existence leak.
 	GetUserNotificationRule(ctx context.Context, db DBTX, arg GetUserNotificationRuleParams) (UserNotificationRule, error)
@@ -68,6 +82,10 @@ type Querier interface {
 	// The fan-out worker's read cursor. Bounded so a single tick
 	// doesn't try to drain a million-row backlog.
 	ListUnprocessedDomainEvents(ctx context.Context, db DBTX, arg ListUnprocessedDomainEventsParams) ([]DomainEvent, error)
+	// Body source for the digest: unread, not snoozed past the send
+	// window, not dropped. Limited to the most recent 50 so a user with
+	// a giant unread backlog gets a manageable email.
+	ListUnreadNotificationsForDigest(ctx context.Context, db DBTX, recipientUserID int64) ([]ListUnreadNotificationsForDigestRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// PRO-EXT01-16a: notification routing rules CRUD + fanout-side load.
@@ -106,6 +124,10 @@ type Querier interface {
 	// handlers and by the auto-subscription rules in the fan-out
 	// worker.
 	UpsertNotificationThread(ctx context.Context, db DBTX, arg UpsertNotificationThreadParams) error
+	// Settings save: insert or update the user's single digest row.
+	// next_send_at is supplied by the handler (which computes the next
+	// tick given frequency + hour + DOW).
+	UpsertUserNotificationDigest(ctx context.Context, db DBTX, arg UpsertUserNotificationDigestParams) (UserNotificationDigest, error)
 }
 
 var _ Querier = (*Queries)(nil)

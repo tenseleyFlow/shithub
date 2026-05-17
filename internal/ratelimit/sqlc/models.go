@@ -1663,6 +1663,48 @@ func (ns NullUserCronDispatchLastStatus) Value() (driver.Value, error) {
 	return string(ns.UserCronDispatchLastStatus), nil
 }
 
+type UserNotificationDigestFrequency string
+
+const (
+	UserNotificationDigestFrequencyDaily  UserNotificationDigestFrequency = "daily"
+	UserNotificationDigestFrequencyWeekly UserNotificationDigestFrequency = "weekly"
+)
+
+func (e *UserNotificationDigestFrequency) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserNotificationDigestFrequency(s)
+	case string:
+		*e = UserNotificationDigestFrequency(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserNotificationDigestFrequency: %T", src)
+	}
+	return nil
+}
+
+type NullUserNotificationDigestFrequency struct {
+	UserNotificationDigestFrequency UserNotificationDigestFrequency
+	Valid                           bool // Valid is true if UserNotificationDigestFrequency is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserNotificationDigestFrequency) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserNotificationDigestFrequency, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserNotificationDigestFrequency.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserNotificationDigestFrequency) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserNotificationDigestFrequency), nil
+}
+
 type UserNotificationRuleAction string
 
 const (
@@ -3255,6 +3297,18 @@ type UserGpgSubkey struct {
 	ExpiresAt         pgtype.Timestamptz
 	RevokedAt         pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
+}
+
+type UserNotificationDigest struct {
+	UserID     int64
+	Enabled    bool
+	Frequency  UserNotificationDigestFrequency
+	HourUtc    int16
+	DayOfWeek  pgtype.Int2
+	LastSentAt pgtype.Timestamptz
+	NextSendAt pgtype.Timestamptz
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
 }
 
 type UserNotificationPref struct {
