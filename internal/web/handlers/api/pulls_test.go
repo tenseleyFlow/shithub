@@ -23,23 +23,36 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 )
 
+// apiPRRef mirrors the server's prRefEnvelope. S60 added the nested
+// base/head shape so gh-compat clients (the shithub-cli pr view path)
+// can read branch + SHA without parsing the legacy flat fields.
+type apiPRRef struct {
+	Ref string `json:"ref"`
+	SHA string `json:"sha"`
+}
+
 type apiPull struct {
-	ID             int64  `json:"id"`
-	Number         int64  `json:"number"`
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	State          string `json:"state"`
-	Draft          bool   `json:"draft"`
-	BaseRef        string `json:"base_ref"`
-	HeadRef        string `json:"head_ref"`
-	BaseOID        string `json:"base_oid"`
-	HeadOID        string `json:"head_oid"`
-	MergeableState string `json:"mergeable_state"`
-	Merged         bool   `json:"merged"`
-	MergeCommit    string `json:"merge_commit_sha"`
-	MergeMethod    string `json:"merge_method"`
-	MergedAt       string `json:"merged_at"`
-	AuthorID       int64  `json:"author_id"`
+	ID    int64  `json:"id"`
+	Number int64 `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	Draft  bool   `json:"draft"`
+	// Legacy flat fields (S60 keeps them during transition).
+	BaseRef string `json:"base_ref"`
+	HeadRef string `json:"head_ref"`
+	BaseOID string `json:"base_oid"`
+	HeadOID string `json:"head_oid"`
+	// GitHub-compat nested envelopes.
+	Base           *apiPRRef `json:"base"`
+	Head           *apiPRRef `json:"head"`
+	MergeableState string    `json:"mergeable_state"`
+	Merged         bool      `json:"merged"`
+	MergeCommit    string    `json:"merge_commit_sha"`
+	MergeMethod    string    `json:"merge_method"`
+	MergedAt       string    `json:"merged_at"`
+	AuthorID       int64     `json:"author_id"`
+	User           *apiUser  `json:"user"`
 }
 
 // gitCmdAPI is the test-side git shell wrapper — every invocation runs
@@ -147,6 +160,20 @@ func TestPulls_CreateAndGet(t *testing.T) {
 	}
 	if created.State != "open" || created.Merged {
 		t.Errorf("state: %+v", created)
+	}
+	// S60 audit A16: GitHub-compat nested base/head envelope must
+	// arrive populated alongside the legacy flat fields so gh-compat
+	// clients render "base: trunk ← head: feature" instead of two
+	// empty strings.
+	if created.Base == nil || created.Base.Ref != "trunk" {
+		t.Errorf("base envelope: %+v", created.Base)
+	}
+	if created.Head == nil || created.Head.Ref != "feature" {
+		t.Errorf("head envelope: %+v", created.Head)
+	}
+	// S60 audit A12: user envelope arrives alongside author_id.
+	if created.User == nil || created.User.Login != "alice" {
+		t.Errorf("user envelope: %+v", created.User)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
