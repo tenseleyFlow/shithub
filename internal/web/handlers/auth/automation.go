@@ -138,7 +138,7 @@ func (h *Handlers) settingsAutomationRelayCreate(w http.ResponseWriter, r *http.
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
-	_, err = (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}).Create(
+	_, err = (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.d.WebhookSSRF}).Create(
 		r.Context(),
 		webhookrelay.CreateInput{
 			UserID: user.ID, Name: name, HMACSecret: hmacSecret,
@@ -150,6 +150,12 @@ func (h *Handlers) settingsAutomationRelayCreate(w http.ResponseWriter, r *http.
 		h.renderAutomationPage(w, r, "Name is required.", "")
 		return
 	case errors.Is(err, webhookrelay.ErrTooManyDestinations):
+		h.renderAutomationPage(w, r, err.Error(), "")
+		return
+	case errors.Is(err, webhookrelay.ErrInvalidDestination):
+		// PRO-EXT_SR2-10 (audit H1): SSRF/scheme rejection at create.
+		// Surface the message verbatim so the user can identify which
+		// destination index failed without log-diving.
 		h.renderAutomationPage(w, r, err.Error(), "")
 		return
 	case err != nil:

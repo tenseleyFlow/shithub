@@ -126,6 +126,16 @@ func (h *Handlers) resolveStarTargetRepo(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return reposdb.Repo{}, false
 	}
+	// PRO-EXT_SR2-10 (audit C2): the resolved repo must also be
+	// inside the request PAT's repo-binding set if the binding
+	// applies. Otherwise a PAT bound to repo X could star/unstar
+	// repo Y via this surface — the binding contract docced at
+	// internal/web/middleware/pat.go:30 requires every repo-scoped
+	// route enforce this.
+	if !patBindingAllowsRepo(r, repo.ID) {
+		writeAPIError(w, http.StatusNotFound, "repo not found")
+		return reposdb.Repo{}, false
+	}
 	return repo, true
 }
 

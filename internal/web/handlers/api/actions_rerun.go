@@ -76,6 +76,15 @@ func (h *Handlers) resolveLifecycleRun(
 		writeAPIError(w, http.StatusNotFound, "run not found")
 		return actionsdb.WorkflowRun{}, reposdb.Repo{}, false
 	}
+	// PRO-EXT_SR2-10 (audit C2): the run lookup went via run id, not
+	// owner/repo, so resolveLifecycleRun is one of the surfaces the
+	// pat.go:30 contract calls out — the request PAT may be bound to
+	// a different repo than the run's. Treat a binding mismatch as
+	// 404 to preserve the "PAT can't probe other repos" property.
+	if !patBindingAllowsRepo(r, repo.ID) {
+		writeAPIError(w, http.StatusNotFound, "run not found")
+		return actionsdb.WorkflowRun{}, reposdb.Repo{}, false
+	}
 	return run, repo, true
 }
 

@@ -216,6 +216,12 @@ var workerCmd = &cobra.Command{
 			SiteName:      cfg.Auth.SiteName,
 			BaseURL:       cfg.Auth.BaseURL,
 			EnforceAlerts: cfg.Billing.Enforce.UserSecretScanAlerts,
+			// PRO-EXT_SR2-10 (audit C1): the AlertDeps zero value
+			// short-circuits to webhook.DefaultSSRFConfig(), but
+			// pass it explicitly so a future config flag (e.g.
+			// allow_private_networks for staging) has an obvious
+			// wire site.
+			SSRF: webhook.DefaultSSRFConfig(),
 		}))
 		p.Register(worker.KindTrendingCompute, jobs.TrendingCompute(jobs.TrendingComputeDeps{
 			Pool: pool, Logger: logger,

@@ -34,7 +34,24 @@ import (
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
+
+// loopbackSSRF mirrors the webhookrelay test helper of the same name —
+// production blocks 127.0.0.1 and only allows ports {80,443,8080,8443};
+// httptest binds to loopback at a random high port. Opt in to both for
+// tests, never in production.
+func loopbackSSRF() webhook.SSRFConfig {
+	ports := make([]int, 65535)
+	for i := range ports {
+		ports[i] = i + 1
+	}
+	return webhook.SSRFConfig{
+		AllowedSchemes:       []string{"http", "https"},
+		AllowedPorts:         ports,
+		AllowPrivateNetworks: true,
+	}
+}
 
 const fixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
 	"AAAAAAAAAAAAAAAA$" +
@@ -200,6 +217,9 @@ func TestDispatch_WebhookSignsAndPosts(t *testing.T) {
 		EmailFrom:  "noreply@shithub.test",
 		SiteName:   "shithub",
 		BaseURL:    "https://shithub.test",
+		// httptest binds to loopback which the production SSRF
+		// config rejects (correctly). Opt in for the test only.
+		SSRF: loopbackSSRF(),
 	})
 	if err := dispatch(context.Background(),
 		mustMarshal(t, secretscan.AlertPayload{UserID: user.ID, RepoID: repo.ID, FindingID: finding.ID})); err != nil {
@@ -225,6 +245,50 @@ func TestDispatch_WebhookSignsAndPosts(t *testing.T) {
 	}
 	if body["repo"] == nil || body["finding"] == nil {
 		t.Errorf("missing repo or finding object: %s", gotBody)
+	}
+}
+
+// TestDispatch_WebhookRefusesSSRFTarget pins the PRO-EXT_SR2-10 fix
+// for audit C1. With production SSRF defaults (no AllowPrivateNetworks),
+// a webhook URL pointing at 127.0.0.1 / metadata-service / private IP
+// must NOT be POSTed to. Logger captures the failure so we assert the
+// reason rather than relying on "no request received" alone.
+func TestDispatch_WebhookRefusesSSRFTarget(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	user := mkUser(t, pool, "ssrf-target")
+	upgradeToPro(t, pool, user.ID)
+	repo, finding := seedRepoAndFinding(t, pool, user.ID)
+
+	secret := mustRandom(t, 32)
+	// 127.0.0.1:1 is a loopback port that's effectively never bound —
+	// production SSRF default blocks both the loopback IP and any
+	// non-{80,443,8080,8443} port, so this MUST fail validation.
+	upsertPrefs(t, pool, user.ID, false, "http://127.0.0.1:1/exfil", secret)
+
+	logBuf := &bytes.Buffer{}
+	dispatch := secretscan.DispatchAlert(secretscan.AlertDeps{
+		Pool:      pool,
+		Logger:    slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		EmailFrom: "noreply@shithub.test",
+		SiteName:  "shithub",
+		BaseURL:   "https://shithub.test",
+		// No SSRF override: helper defaults to webhook.DefaultSSRFConfig().
+	})
+	if err := dispatch(context.Background(),
+		mustMarshal(t, secretscan.AlertPayload{UserID: user.ID, RepoID: repo.ID, FindingID: finding.ID})); err != nil {
+		t.Fatalf("dispatch returned error (should swallow + log): %v", err)
+	}
+	out := logBuf.String()
+	if !strings.Contains(out, "secretscan alert webhook failed") {
+		t.Errorf("expected webhook-failed log line: %s", out)
+	}
+	// The error path could be either ssrf-validate or dial-time block;
+	// both indicate the defense fired. Asserting the substring "ssrf"
+	// is enough to differentiate "we didn't try" (ssrf rejected) from
+	// "we tried and the server didn't respond" (the bug we're closing).
+	if !strings.Contains(out, "ssrf") && !strings.Contains(out, "forbidden") {
+		t.Errorf("expected ssrf or forbidden in log; got: %s", out)
 	}
 }
 

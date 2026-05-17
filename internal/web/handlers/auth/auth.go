@@ -54,6 +54,7 @@ import (
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 // usernameRE mirrors the path whitelist used by RepoFS.
@@ -115,6 +116,11 @@ type Deps struct {
 	// Used to construct Stripe return URLs when no per-route override
 	// is configured.
 	BaseURL string
+	// WebhookSSRF is the SSRF policy applied at webhook-relay create.
+	// Zero value falls through to webhook.DefaultSSRFConfig() inside
+	// the webhookrelay store; tests inject a permissive config to
+	// allow loopback URLs. PRO-EXT_SR2-10 (audit H1).
+	WebhookSSRF webhook.SSRFConfig
 }
 
 // Handlers is the registered handler set. Construct with New.

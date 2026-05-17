@@ -80,7 +80,7 @@ func (h *Handlers) userWebhookRelaysList(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	rows, err := webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}.
+	rows, err := webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.webhookSSRFConfig()}.
 		ListForUser(r.Context(), userID)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: list webhook relays", "error", err)
@@ -117,7 +117,7 @@ func (h *Handlers) userWebhookRelaysCreate(w http.ResponseWriter, r *http.Reques
 		writeAPIError(w, http.StatusInternalServerError, "secret gen failed")
 		return
 	}
-	deps := webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}
+	deps := webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.webhookSSRFConfig()}
 	res, err := deps.Create(r.Context(), webhookrelay.CreateInput{
 		UserID:       userID,
 		Name:         body.Name,
@@ -129,6 +129,11 @@ func (h *Handlers) userWebhookRelaysCreate(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, webhookrelay.ErrEmptyName):
 			writeAPIError(w, http.StatusBadRequest, "name is required")
 		case errors.Is(err, webhookrelay.ErrTooManyDestinations):
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, webhookrelay.ErrInvalidDestination):
+			// PRO-EXT_SR2-10 (audit H1): surface the wrapped reason
+			// so CLI clients can identify which destination index
+			// failed and why.
 			writeAPIError(w, http.StatusBadRequest, err.Error())
 		default:
 			h.d.Logger.ErrorContext(r.Context(), "api: create webhook relay", "error", err)
@@ -156,7 +161,7 @@ func (h *Handlers) userWebhookRelaysDelete(w http.ResponseWriter, r *http.Reques
 	if !h.assertRelayOwner(r.Context(), w, id, userID) {
 		return
 	}
-	if err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}).
+	if err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.webhookSSRFConfig()}).
 		Delete(r.Context(), id); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: delete webhook relay", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "delete failed")
@@ -177,7 +182,7 @@ func (h *Handlers) userWebhookRelaysDisable(w http.ResponseWriter, r *http.Reque
 	if !h.assertRelayOwner(r.Context(), w, id, userID) {
 		return
 	}
-	if err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}).
+	if err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.webhookSSRFConfig()}).
 		Disable(r.Context(), id); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: disable webhook relay", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "disable failed")
@@ -190,7 +195,7 @@ func (h *Handlers) userWebhookRelaysDisable(w http.ResponseWriter, r *http.Reque
 // true to proceed. 404 collapses missing + not-owner so attackers
 // can't probe IDs.
 func (h *Handlers) assertRelayOwner(ctx context.Context, w http.ResponseWriter, id, userID int64) bool {
-	relay, _, err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox}).
+	relay, _, err := (webhookrelay.Deps{Pool: h.d.Pool, Box: h.d.SecretBox, SSRF: h.webhookSSRFConfig()}).
 		GetByID(ctx, id)
 	if err != nil || relay.UserID != userID {
 		writeAPIError(w, http.StatusNotFound, "not found")

@@ -23,6 +23,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	apih "github.com/tenseleyFlow/shithub/internal/web/handlers/api"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apilimit"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
 )
 
@@ -66,6 +67,11 @@ func newRelayEnv(t *testing.T, enforce bool) *relayEnv {
 			AuthedPerHour: 5000, AnonPerHour: 60, Logger: logger,
 		},
 		BillingEnforce: config.EnforceConfig{UserWebhookRelay: enforce},
+		// PRO-EXT_SR2-10: handler now uses h.webhookSSRFConfig() to
+		// gate destination URLs at create time. Tests inject the
+		// loopback-permitting policy so the existing 127.0.0.1
+		// fixtures keep round-tripping.
+		WebhookSSRF: relayTestSSRF(),
 	})
 	if err != nil {
 		t.Fatalf("apih.New: %v", err)
@@ -87,7 +93,11 @@ func newRelayEnv(t *testing.T, enforce bool) *relayEnv {
 // reads at `/webhook-relay/{token}`.
 func (e *relayEnv) seedRelay(t *testing.T, dests ...webhookrelay.Destination) (string, int64) {
 	t.Helper()
-	res, err := (webhookrelay.Deps{Pool: e.pool, Box: e.secretBox}).Create(
+	// PRO-EXT_SR2-10: Deps.Create now SSRF-validates each destination.
+	// Test fixture passes AllowPrivateNetworks so tests can use the
+	// loopback URLs they convert to below; production deployments
+	// retain the strict default.
+	res, err := (webhookrelay.Deps{Pool: e.pool, Box: e.secretBox, SSRF: relayTestSSRF()}).Create(
 		context.Background(), webhookrelay.CreateInput{
 			UserID: e.userID, Name: "test-relay", HMACSecret: []byte("k"),
 			Destinations: dests,
@@ -99,9 +109,23 @@ func (e *relayEnv) seedRelay(t *testing.T, dests ...webhookrelay.Destination) (s
 	return res.RawToken, res.ID
 }
 
+// relayTestSSRF is the loopback-permitting config the API webhook
+// relay tests use to seed rows.
+func relayTestSSRF() webhook.SSRFConfig {
+	ports := make([]int, 65535)
+	for i := range ports {
+		ports[i] = i + 1
+	}
+	return webhook.SSRFConfig{
+		AllowedSchemes:       []string{"http", "https"},
+		AllowedPorts:         ports,
+		AllowPrivateNetworks: true,
+	}
+}
+
 func TestRelayReceiver_HappyPathReturns202(t *testing.T) {
 	env := newRelayEnv(t, false)
-	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "https://dest.example.test/"})
+	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8021/dest"})
 	req := httptest.NewRequest(http.MethodPost, "/webhook-relay/"+token,
 		bytes.NewReader([]byte(`{"x":1}`)))
 	rr := httptest.NewRecorder()
@@ -145,7 +169,7 @@ func TestRelayReceiver_MalformedTokenAlsoReturns404(t *testing.T) {
 
 func TestRelayReceiver_DisabledRelayReturns410(t *testing.T) {
 	env := newRelayEnv(t, false)
-	token, id := env.seedRelay(t, webhookrelay.Destination{URL: "https://dest.example.test/"})
+	token, id := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8021/dest"})
 	if err := (webhookrelay.Deps{Pool: env.pool, Box: env.secretBox}).Disable(
 		context.Background(), id,
 	); err != nil {
@@ -162,7 +186,7 @@ func TestRelayReceiver_DisabledRelayReturns410(t *testing.T) {
 
 func TestRelayReceiver_OversizedBodyReturns413(t *testing.T) {
 	env := newRelayEnv(t, false)
-	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "https://dest.example.test/"})
+	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8021/dest"})
 	// 1 MiB + 1 byte — over the receiver's MaxInboundBody.
 	big := bytes.Repeat([]byte{'x'}, webhookrelay.MaxInboundBody+1)
 	req := httptest.NewRequest(http.MethodPost, "/webhook-relay/"+token,
@@ -176,7 +200,7 @@ func TestRelayReceiver_OversizedBodyReturns413(t *testing.T) {
 
 func TestRelayReceiver_FreeUserEnforceReturns403(t *testing.T) {
 	env := newRelayEnv(t, true) // enforce on
-	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "https://dest.example.test/"})
+	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8021/dest"})
 	req := httptest.NewRequest(http.MethodPost, "/webhook-relay/"+token,
 		bytes.NewReader([]byte(`{}`)))
 	rr := httptest.NewRecorder()
@@ -191,7 +215,7 @@ func TestRelayReceiver_FreeUserEnforceReturns403(t *testing.T) {
 
 func TestRelayReceiver_FreeUserReportOnlyEmitsLogAndAccepts(t *testing.T) {
 	env := newRelayEnv(t, false) // enforce off → report-only
-	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "https://dest.example.test/"})
+	token, _ := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8021/dest"})
 	req := httptest.NewRequest(http.MethodPost, "/webhook-relay/"+token,
 		bytes.NewReader([]byte(`{}`)))
 	rr := httptest.NewRecorder()

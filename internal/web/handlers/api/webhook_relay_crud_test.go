@@ -35,7 +35,7 @@ func TestUserWebhookRelaysCRUD_CreateListDelete(t *testing.T) {
 	createBody, _ := json.Marshal(map[string]any{
 		"name": "github-mirror",
 		"destinations": []map[string]any{
-			{"url": "https://dev.example.test/"},
+			{"url": "http://127.0.0.1:8023/dev"},
 		},
 	})
 	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/user/webhook-relays", bytes.NewReader(createBody))
@@ -105,7 +105,7 @@ func TestUserWebhookRelaysCRUD_RepoScopeRejected(t *testing.T) {
 
 func TestUserWebhookRelaysCRUD_DeleteNonOwnedReturns404(t *testing.T) {
 	env := newRelayEnv(t, false)
-	_, otherID := env.seedRelay(t, webhookrelay.Destination{URL: "https://x.example.test/"})
+	_, otherID := env.seedRelay(t, webhookrelay.Destination{URL: "http://127.0.0.1:8022/x"})
 
 	// A different user with a valid PAT tries to delete alice's relay.
 	bobID := seedRepoCreatorUser(t, env.pool, "bob")
