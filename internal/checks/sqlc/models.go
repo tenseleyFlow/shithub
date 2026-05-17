@@ -2909,6 +2909,9 @@ type Repo struct {
 	InitStatus         RepoInitStatus
 	LastIndexedOid     pgtype.Text
 	IsTemplate         bool
+	IsPaused           bool
+	PausedAt           pgtype.Timestamptz
+	PauseReason        pgtype.Text
 }
 
 type RepoCollaborator struct {

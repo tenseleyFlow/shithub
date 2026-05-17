@@ -27,6 +27,26 @@ UPDATE repos SET is_archived = true, archived_at = now(), updated_at = now() WHE
 -- name: UnarchiveRepo :exec
 UPDATE repos SET is_archived = false, archived_at = NULL, updated_at = now() WHERE id = $1;
 
+-- name: PauseRepo :exec
+-- PRO-EXT01-15. Owner-initiated pause. The (is_archived, is_paused)
+-- mutex is enforced by the repos_pause_archive_mutex check; the
+-- handler guarantees we don't pause an already-archived repo, but
+-- the constraint defends in depth.
+UPDATE repos
+SET is_paused = true,
+    paused_at = now(),
+    pause_reason = sqlc.narg(pause_reason)::text,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UnpauseRepo :exec
+UPDATE repos
+SET is_paused = false,
+    paused_at = NULL,
+    pause_reason = NULL,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: SetRepoVisibility :exec
 UPDATE repos SET visibility = $2, updated_at = now() WHERE id = $1;
 

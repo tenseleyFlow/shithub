@@ -13,7 +13,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid, is_template;
+          last_indexed_oid, is_template,
+          is_paused, paused_at, pause_reason;
 
 -- name: LockRepoOwnerName :exec
 -- Serializes DB + filesystem operations for one logical owner/name
@@ -29,7 +30,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE id = $1;
 
@@ -50,7 +52,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -61,7 +64,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -80,7 +84,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
@@ -92,7 +97,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL AND is_archived = false
 ORDER BY lower(name), name;
@@ -112,7 +118,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -127,7 +134,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_user_id = $1
   AND visibility = 'public'
@@ -151,7 +159,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL;
 
@@ -162,7 +171,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -181,7 +191,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC;
@@ -195,7 +206,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -214,7 +226,8 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        has_issues, has_pulls, created_at, updated_at, default_branch_oid,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
-       last_indexed_oid, is_template
+       last_indexed_oid, is_template,
+       is_paused, paused_at, pause_reason
 FROM repos
 WHERE owner_org_id = $1
   AND visibility = 'public'
@@ -421,7 +434,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid, is_template;
+          last_indexed_oid, is_template,
+          is_paused, paused_at, pause_reason;
 
 -- name: CreateRepoFromTemplate :one
 -- PRO-EXT01-06pre-b: insert a template-init shell. Mirrors
@@ -441,7 +455,8 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           has_issues, has_pulls, created_at, updated_at, default_branch_oid,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
-          last_indexed_oid, is_template;
+          last_indexed_oid, is_template,
+          is_paused, paused_at, pause_reason;
 
 -- name: SetLastIndexedOID :exec
 -- S28 code-search: the worker writes the OID it finished indexing

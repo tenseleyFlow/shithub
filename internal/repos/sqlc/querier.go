@@ -179,6 +179,11 @@ type Querier interface {
 	// Children pointing at this repo lose their fork-of pointer. Mirrors
 	// GitHub's behavior when an upstream is deleted.
 	OrphanForksOf(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
+	// PRO-EXT01-15. Owner-initiated pause. The (is_archived, is_paused)
+	// mutex is enforced by the repos_pause_archive_mutex check; the
+	// handler guarantees we don't pause an already-archived repo, but
+	// the constraint defends in depth.
+	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// S16 lifecycle queries. Kept in a separate file from repos.sql so the
@@ -211,6 +216,7 @@ type Querier interface {
 	// so a user→org transfer flips both columns atomically.
 	TransferRepoOwner(ctx context.Context, db DBTX, arg TransferRepoOwnerParams) error
 	UnarchiveRepo(ctx context.Context, db DBTX, id int64) error
+	UnpauseRepo(ctx context.Context, db DBTX, id int64) error
 	// S24 surface for the required-status-check knobs. Branch-protection
 	// edit handler calls this alongside UpdateBranchProtectionRule.
 	UpdateBranchProtectionCheckSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionCheckSettingsParams) error
