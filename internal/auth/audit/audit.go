@@ -53,6 +53,8 @@ const (
 	ActionRepoRenamed           Action = "repo_renamed"
 	ActionRepoArchived          Action = "repo_archived"
 	ActionRepoUnarchived        Action = "repo_unarchived"
+	ActionRepoPaused            Action = "repo_paused"
+	ActionRepoUnpaused          Action = "repo_unpaused"
 	ActionRepoVisibilityChanged Action = "repo_visibility_changed"
 	ActionRepoSoftDeleted       Action = "repo_soft_deleted"
 	ActionRepoRestored          Action = "repo_restored"

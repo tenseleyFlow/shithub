@@ -55,9 +55,16 @@ var (
 	ErrTransferExpired   = errors.New("lifecycle: transfer expired")
 	ErrAlreadyArchived   = errors.New("lifecycle: repo is already archived")
 	ErrNotArchived       = errors.New("lifecycle: repo is not archived")
-	ErrAlreadyDeleted    = errors.New("lifecycle: repo is already soft-deleted")
-	ErrNotDeleted        = errors.New("lifecycle: repo is not soft-deleted")
-	ErrPastGrace         = errors.New("lifecycle: soft-delete grace expired; restore unavailable")
+	ErrAlreadyPaused     = errors.New("lifecycle: repo is already paused")
+	ErrNotPaused         = errors.New("lifecycle: repo is not paused")
+	// ErrCannotPauseArchived covers the case where an owner tries to
+	// pause an archived repo. The DB constraint would also reject
+	// this, but the handler error path looks cleaner if we catch it
+	// before the round-trip.
+	ErrCannotPauseArchived = errors.New("lifecycle: cannot pause an archived repo; unarchive first")
+	ErrAlreadyDeleted      = errors.New("lifecycle: repo is already soft-deleted")
+	ErrNotDeleted          = errors.New("lifecycle: repo is not soft-deleted")
+	ErrPastGrace           = errors.New("lifecycle: soft-delete grace expired; restore unavailable")
 )
 
 // renameRateLimitWindow / renameRateLimitMax mirror the spec's lean.

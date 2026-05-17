@@ -403,6 +403,26 @@ func TestCreate_SourceArchived(t *testing.T) {
 	}
 }
 
+// TestCreate_SourcePaused: PRO-EXT01-15 — a paused source can't be
+// forked. Distinct from archived (which is a permanent retirement);
+// pause is the temporary "frozen pending decision" state.
+func TestCreate_SourcePaused(t *testing.T) {
+	f := setup(t)
+	_, err := f.pool.Exec(context.Background(),
+		"UPDATE repos SET is_paused = true, paused_at = now() WHERE id = $1", f.source.ID)
+	if err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	_, err = fork.Create(context.Background(), f.deps, fork.CreateParams{
+		SourceRepoID:  f.source.ID,
+		ActorUserID:   f.other.ID,
+		TargetOwnerID: f.other.ID,
+	})
+	if !errors.Is(err, fork.ErrSourcePaused) {
+		t.Errorf("expected ErrSourcePaused, got %v", err)
+	}
+}
+
 // TestForkCount_DecrementOnDelete confirms the fork_count trigger
 // honors the AFTER DELETE path (the spec promises this and S16's
 // hard-delete cascade depends on it).

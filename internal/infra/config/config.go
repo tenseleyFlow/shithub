@@ -248,6 +248,13 @@ type EnforceConfig struct {
 	// report-only (Free users see the teaser regardless; the gate
 	// emits the would-deny log either way). PRO-EXT01-14.
 	UserPersonalStatusPage bool `toml:"user_personal_status_page"`
+	// UserRepoTimeMachine: when true, Free users attempting to pause
+	// a repo get a 402 with an upgrade banner; the pause UI button is
+	// disabled. Off by default → report-only (the would-deny is
+	// logged but the pause is allowed through; useful to validate the
+	// admin path before flipping for real). PRO-EXT01-15; promoted in
+	// PRO-EXT01-17.
+	UserRepoTimeMachine bool `toml:"user_repo_time_machine"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal

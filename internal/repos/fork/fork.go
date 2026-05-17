@@ -37,6 +37,7 @@ var (
 	ErrVisibilityFloor     = errors.New("fork: target visibility cannot exceed source visibility")
 	ErrSelfForkSameName    = errors.New("fork: forking into the same owner requires a different name")
 	ErrSourceArchived      = errors.New("fork: source repo is archived")
+	ErrSourcePaused        = errors.New("fork: source repo is paused")
 	ErrSourceDeleted       = errors.New("fork: source repo is deleted")
 	ErrSyncDiverged        = errors.New("fork: fork has diverged from upstream; sync via your client")
 	ErrSyncUpToDate        = errors.New("fork: already up to date")

@@ -3,6 +3,7 @@
 package repo
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -43,6 +44,8 @@ func (h *Handlers) MountLifecycle(r chi.Router) {
 	r.Post("/{owner}/{repo}/settings/transfer", h.repoTransferRequest)
 	r.Post("/{owner}/{repo}/settings/archive", h.repoArchive)
 	r.Post("/{owner}/{repo}/settings/unarchive", h.repoUnarchive)
+	r.Post("/{owner}/{repo}/settings/pause", h.repoPause)
+	r.Post("/{owner}/{repo}/settings/unpause", h.repoUnpause)
 	r.Post("/{owner}/{repo}/settings/visibility", h.repoVisibility)
 	r.Post("/{owner}/{repo}/settings/delete", h.repoSoftDelete)
 	r.Post("/transfers/{id}/accept", h.transferAccept)
@@ -130,14 +133,33 @@ func (h *Handlers) repoSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	transfers, _ := h.rq.ListTransfersForRepo(r.Context(), h.d.Pool, row.ID)
+	pauseAllowed := h.repoPauseFeatureAllowed(r.Context(), row)
 	h.d.Render.RenderPage(w, r, "repo/settings", map[string]any{
-		"Title":          "Settings · " + row.Name,
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"Owner":          owner.Username,
-		"Repo":           row,
-		"Transfers":      transfers,
-		"SettingsActive": "danger",
+		"Title":           "Settings · " + row.Name,
+		"CSRFToken":       middleware.CSRFTokenForRequest(r),
+		"Owner":           owner.Username,
+		"Repo":            row,
+		"Transfers":       transfers,
+		"SettingsActive":  "danger",
+		"PauseAllowed":    pauseAllowed,
+		"PauseFeatureKey": string(entitlements.FeatureRepoTimeMachine),
 	})
+}
+
+// repoPauseFeatureAllowed reports whether the owner's entitlements
+// permit pausing. Used to decide whether the Danger Zone Pause
+// button is rendered enabled or disabled-with-Pro-tooltip.
+func (h *Handlers) repoPauseFeatureAllowed(ctx context.Context, row reposdb.Repo) bool {
+	principal, ok := principalFromRepo(row)
+	if !ok {
+		return false
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeatureRepoTimeMachine)
+	if err != nil {
+		return false
+	}
+	return decision.Allowed
 }
 
 func (h *Handlers) repoRename(w http.ResponseWriter, r *http.Request) {
@@ -400,8 +422,12 @@ func (h *Handlers) lifecycleError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, lifecycle.ErrAlreadyArchived),
 		errors.Is(err, lifecycle.ErrNotArchived),
 		errors.Is(err, lifecycle.ErrAlreadyDeleted),
-		errors.Is(err, lifecycle.ErrNotDeleted):
+		errors.Is(err, lifecycle.ErrNotDeleted),
+		errors.Is(err, lifecycle.ErrAlreadyPaused),
+		errors.Is(err, lifecycle.ErrNotPaused):
 		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, lifecycle.ErrCannotPauseArchived):
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, lifecycle.ErrTransferTerminal),
 		errors.Is(err, lifecycle.ErrTransferExpired):
 		http.Error(w, "transfer no longer pending", http.StatusConflict)

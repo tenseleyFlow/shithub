@@ -204,6 +204,8 @@ func writeForkError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusNotFound, "source repo not found")
 	case errors.Is(err, fork.ErrSourceArchived):
 		writeAPIError(w, http.StatusConflict, "source repo is archived")
+	case errors.Is(err, fork.ErrSourcePaused):
+		writeAPIError(w, http.StatusConflict, "source repo is paused")
 	case errors.Is(err, fork.ErrTargetNameTaken):
 		writeAPIError(w, http.StatusConflict, "you already own a repository with that name")
 	case errors.Is(err, fork.ErrSelfForkSameName):

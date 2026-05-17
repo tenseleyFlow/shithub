@@ -58,6 +58,7 @@ const (
 	MsgRepoNotFound = "shithub: repository not found"
 	MsgPermDenied   = "shithub: permission denied"
 	MsgArchived     = "shithub: this repository is archived; pushes are disabled"
+	MsgPaused       = "shithub: this repository is paused; pushes are disabled until the owner unpauses"
 	MsgSuspended    = "shithub: your account is suspended"
 )
 
@@ -66,6 +67,7 @@ var (
 	ErrSSHRepoNotFound = errors.New("ssh dispatch: repo not found")
 	ErrSSHPermDenied   = errors.New("ssh dispatch: permission denied")
 	ErrSSHArchived     = errors.New("ssh dispatch: archived")
+	ErrSSHPaused       = errors.New("ssh dispatch: paused")
 	ErrSSHSuspended    = errors.New("ssh dispatch: suspended")
 	ErrSSHInternal     = errors.New("ssh dispatch: internal error")
 )
@@ -142,6 +144,8 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 			return nil, parsed, ErrSSHSuspended
 		case policy.DenyArchived:
 			return nil, parsed, ErrSSHArchived
+		case policy.DenyPaused:
+			return nil, parsed, ErrSSHPaused
 		case policy.DenyVisibility, policy.DenyRepoDeleted:
 			// Existence-leak guard: pretend the repo doesn't exist.
 			return nil, parsed, ErrSSHRepoNotFound
@@ -179,6 +183,8 @@ func FriendlyMessageFor(err error, requestID string) string {
 		return MsgPermDenied
 	case errors.Is(err, ErrSSHArchived):
 		return MsgArchived
+	case errors.Is(err, ErrSSHPaused):
+		return MsgPaused
 	case errors.Is(err, ErrSSHSuspended):
 		return MsgSuspended
 	case errors.Is(err, ErrUnknownSSHCommand):
