@@ -27,7 +27,7 @@
         <li class="shithub-follow-list-row">
           <a href="{{ .URL }}" class="shithub-follow-avatar"><img src="{{ .AvatarURL }}" alt="" width="48" height="48"></a>
           <div class="shithub-follow-list-body">
-            <a href="{{ .URL }}" class="shithub-follow-list-name">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>
+            <a href="{{ .URL }}" class="shithub-follow-list-name">{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Username }}{{ end }}</a>{{ if eq .Kind "user" }}{{ template "pro-badge" (index $.ProUsernames .Username) }}{{ end }}
             <span class="shithub-follow-list-handle">{{ if eq .Kind "org" }}@{{ .Username }} · organization{{ else }}@{{ .Username }}{{ end }}</span>
             <span class="shithub-muted">Followed {{ .FollowedAt }}</span>
           </div>

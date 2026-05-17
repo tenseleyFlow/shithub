@@ -38,6 +38,10 @@ type followListItem struct {
 	AvatarURL   string
 	URL         string
 	FollowedAt  string
+	// IsPro is set for user rows whose plan is the Pro user plan. Org
+	// rows always carry false. PRO-EXT_SR2-15 — the template uses this
+	// to decide whether to render the pro-badge next to the handle.
+	IsPro bool
 }
 
 func (h *Handlers) socialDeps() social.Deps {
@@ -204,7 +208,7 @@ func (h *Handlers) serveFollowersTab(w http.ResponseWriter, r *http.Request, use
 	state := h.userFollowState(r.Context(), user.ID, viewer)
 	items := make([]followListItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, userFollowListItem(row.Username, row.DisplayName, row.FollowedAt))
+		items = append(items, userFollowListItem(row.Username, row.DisplayName, row.FollowedAt, row.Plan))
 	}
 	h.renderFollowsTab(w, r, user, isSelf, "followers", state, items, page)
 }
@@ -233,7 +237,7 @@ func (h *Handlers) serveFollowingTab(w http.ResponseWriter, r *http.Request, use
 	state := h.userFollowState(r.Context(), user.ID, viewer)
 	items := make([]followListItem, 0, len(userRows)+len(orgRows))
 	for _, row := range userRows {
-		items = append(items, userFollowListItem(row.Username, row.DisplayName, row.FollowedAt))
+		items = append(items, userFollowListItem(row.Username, row.DisplayName, row.FollowedAt, row.Plan))
 	}
 	for _, row := range orgRows {
 		items = append(items, orgFollowListItem(row.Slug, row.DisplayName, row.FollowedAt))
@@ -246,6 +250,15 @@ func (h *Handlers) renderFollowsTab(w http.ResponseWriter, r *http.Request, user
 	if displayName == "" {
 		displayName = user.Username
 	}
+	// PRO-EXT_SR2-15: derive the Pro-username set from items so the
+	// template can render the Pro badge next to Pro users (matches
+	// every other user-bearing surface).
+	proUsernames := make(map[string]bool, len(items))
+	for _, it := range items {
+		if it.IsPro {
+			proUsernames[it.Username] = true
+		}
+	}
 	data := map[string]any{
 		"Title":          followTabTitle(active) + " · " + user.Username,
 		"User":           user,
@@ -257,6 +270,7 @@ func (h *Handlers) renderFollowsTab(w http.ResponseWriter, r *http.Request, user
 		"FollowersCount": state.FollowersCount,
 		"FollowingCount": state.FollowingCount,
 		"Items":          items,
+		"ProUsernames":   proUsernames,
 		"Page":           page,
 		"HasPrev":        page > 1,
 		"HasNext":        len(items) == followsPageSize,
@@ -285,11 +299,12 @@ func pageFromRequest(r *http.Request) int {
 	return v
 }
 
-func userFollowListItem(username, displayName string, followedAt pgtype.Timestamptz) followListItem {
+func userFollowListItem(username, displayName string, followedAt pgtype.Timestamptz, plan socialdb.UserPlan) followListItem {
 	return followListItem{
 		Kind: "user", Username: username, DisplayName: displayName,
 		AvatarURL: "/avatars/" + url.PathEscape(username), URL: "/" + username,
 		FollowedAt: followedAt.Time.Format("Jan 2, 2006"),
+		IsPro:      plan == socialdb.UserPlanPro,
 	}
 }
 

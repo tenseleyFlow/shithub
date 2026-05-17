@@ -69,7 +69,10 @@ WHERE f.followee_org_id = $1
   AND u.deleted_at IS NULL;
 
 -- name: ListFollowersForUser :many
-SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name
+-- PRO-EXT_SR2-15: select u.plan so the follows list renders a Pro
+-- pill next to Pro users (matches the discovery-surface treatment
+-- applied to every other user-bearing template).
+SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.follower_user_id
 WHERE f.followee_user_id = $1
@@ -79,7 +82,8 @@ ORDER BY f.followed_at DESC, f.id DESC
 LIMIT $2 OFFSET $3;
 
 -- name: ListFollowingUsersForUser :many
-SELECT f.followee_user_id AS user_id, f.followed_at, u.username, u.display_name
+-- PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
+SELECT f.followee_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.followee_user_id
 WHERE f.follower_user_id = $1
@@ -99,7 +103,8 @@ ORDER BY f.followed_at DESC, f.id DESC
 LIMIT $2 OFFSET $3;
 
 -- name: ListFollowersForOrg :many
-SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name
+-- PRO-EXT_SR2-15: same Pro-pill rationale as ListFollowersForUser.
+SELECT f.follower_user_id AS user_id, f.followed_at, u.username, u.display_name, u.plan
 FROM follows f
 JOIN users u ON u.id = f.follower_user_id
 WHERE f.followee_org_id = $1
