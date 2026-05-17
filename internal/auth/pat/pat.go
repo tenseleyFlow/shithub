@@ -22,7 +22,7 @@ import (
 const Prefix = "shithub_pat_"
 
 // Source discriminates how a user_tokens row was minted. Stored in the
-// user_tokens.source column (migration 0102_user_tokens_source.sql).
+// user_tokens.source column (migration 0103_user_tokens_source.sql).
 // New values land here without a DB migration; the column is plain
 // text with a Go-side enum.
 const (
