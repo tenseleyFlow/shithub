@@ -166,6 +166,8 @@ type Querier interface {
 	// the filter. Sorted by last_accessed_at DESC so an operator sees the
 	// live caches first.
 	ListWorkflowCachesForRepo(ctx context.Context, db DBTX, arg ListWorkflowCachesForRepoParams) ([]WorkflowCache, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	ListWorkflowPinsForUserRepo(ctx context.Context, db DBTX, arg ListWorkflowPinsForUserRepoParams) ([]UserActionWorkflowPin, error)
 	ListWorkflowRunWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListWorkflowRunWorkflowsForRepoRow, error)
 	ListWorkflowRunsForRepo(ctx context.Context, db DBTX, arg ListWorkflowRunsForRepoParams) ([]ListWorkflowRunsForRepoRow, error)
 	LockRunnerByID(ctx context.Context, db DBTX, id int64) (LockRunnerByIDRow, error)
@@ -186,6 +188,7 @@ type Querier interface {
 	// Cast to bigint so sqlc generates int64 (the column type) rather
 	// than int32 (the type the +1 literal would default to).
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
+	PinWorkflowForUserRepo(ctx context.Context, db DBTX, arg PinWorkflowForUserRepoParams) (UserActionWorkflowPin, error)
 	RejectWorkflowRunApproval(ctx context.Context, db DBTX, arg RejectWorkflowRunApprovalParams) (WorkflowRunApproval, error)
 	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
@@ -197,8 +200,10 @@ type Querier interface {
 	// Bumps last_accessed_at on cache hit. Called by the future
 	// restore-side handler.
 	TouchWorkflowCache(ctx context.Context, db DBTX, id int64) error
+	UnpinWorkflowForUserRepo(ctx context.Context, db DBTX, arg UnpinWorkflowForUserRepoParams) (int64, error)
 	UpdateStepLogChunk(ctx context.Context, db DBTX, arg UpdateStepLogChunkParams) error
 	UpdateWorkflowJobStatus(ctx context.Context, db DBTX, arg UpdateWorkflowJobStatusParams) (WorkflowJob, error)
+	UpdateWorkflowPinPosition(ctx context.Context, db DBTX, arg UpdateWorkflowPinPositionParams) (int64, error)
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
 	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)
 	UpsertActionsRepoPolicy(ctx context.Context, db DBTX, arg UpsertActionsRepoPolicyParams) (ActionsRepoPolicy, error)
