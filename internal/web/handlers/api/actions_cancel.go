@@ -96,5 +96,12 @@ func (h *Handlers) resolveCancellableJob(
 		writeAPIError(w, http.StatusNotFound, "job not found")
 		return actionsdb.WorkflowJob{}, actionsdb.WorkflowRun{}, reposdb.Repo{}, false
 	}
+	// PRO-EXT_SR2-10 (audit C2): job-id → run-id → repo-id chain
+	// bypasses lookupRepoByLogin, so the PAT binding check is not
+	// implicit. Verify the resolved repo is in the binding set.
+	if !patBindingAllowsRepo(r, repo.ID) {
+		writeAPIError(w, http.StatusNotFound, "job not found")
+		return actionsdb.WorkflowJob{}, actionsdb.WorkflowRun{}, reposdb.Repo{}, false
+	}
 	return job, run, repo, true
 }

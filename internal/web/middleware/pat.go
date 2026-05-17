@@ -31,6 +31,15 @@ var patAuthKey = ctxKey{name: "pat_auth"}
 // matches before serving data. Non-repo routes (e.g. /api/v1/user) are
 // not affected — the binding limits which repo the token can act on,
 // not whether the token can authenticate at all.
+//
+// **Contract for new handlers:** any code path that resolves to a repo
+// (via owner/name URL params, run id → repo, job id → repo, etc.) must
+// gate on patBindingAllowsRepo before returning data. The
+// lookupRepoByLogin helper in handlers/api/repos.go already enforces
+// this; ad-hoc lookups via GetRepoByID / GetRepoByOwnerUserAndName /
+// GetRepoByOwnerOrgAndName must add the check themselves. PRO-EXT_SR2-10
+// (audit C2) hardened stars.go, actions_rerun.go, actions_cancel.go
+// after the auditor found stars.go bypassing — keep the pattern.
 type PATAuth struct {
 	UserID      int64
 	Username    string
