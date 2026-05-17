@@ -55,11 +55,22 @@ Per-feature soaks run independently. Flipping
    The expected default for every PRO-EXT01 enforce flag is
    `false`.
 
-2. **Wait the soak window.** During the window, query the log
-   shipper for `entitlements.report_only_deny` entries with
-   `feature=<the-feature>`. PRO-EXT01-17 will ship a Prometheus
-   counter (`shithub_pro_gate_total{feature, outcome}`); until
-   then, log aggregation is the source of truth.
+2. **Wait the soak window.** During the window, query the
+   Prometheus counter shipped in PRO-EXT01-17:
+
+   ```promql
+   sum by (outcome) (rate(shithub_pro_gate_total{feature="<F>"}[1h]))
+   ```
+
+   Labels: `feature` (the `Feature*` slug), `kind` (`user` or
+   `org`), `outcome` (`allow` or `deny`). What you're looking
+   for: stable allow/deny ratio (no day-over-day climb) +
+   absence of unexpected `kind` labels for kind-scoped features.
+
+   The structured `entitlements.report_only_deny` log lines
+   remain the per-event source of truth for spot-checks (the
+   counter aggregates outcomes; the log carries `surface`,
+   `principal_id`, `reason`).
 
 3. **Review the report-only sample.** Look for:
    - Expected hits (real Free users trying the gated action).
@@ -128,6 +139,38 @@ If reverting:
 1. Set the flag back to `false` in Ansible.
 2. Redeploy.
 3. File the regression issue immediately and assign an owner.
+
+## Per-feature soak snapshot (PRO-EXT01-17 wrap)
+
+PRO-EXT01 left every flag at `false` (report-only). Operators
+flip per the soak rules above. Per-feature notes:
+
+| Feature key                      | Sprint  | Soak | Notes |
+|----------------------------------|---------|------|-------|
+| `user_profile_pins_beyond_free`  | 04      | 7d   | Cosmetic gate; low blast radius. |
+| `profile_vanity`                 | 04      | 7d   | Cosmetic. |
+| `animated_avatars`               | 04b     | 7d   | Free uploads flatten on flip. |
+| `username_reservations`          | 05      | 7d   | Mostly Pro-only writes. |
+| `private_repo_templates`         | 06      | 7d   | Toggle on settings/general. |
+| `saved_replies_unlimited`        | 07a     | 7d   | Cap-enforce; soft visible. |
+| `scheduled_issues`               | 07b     | 7d   | Worker-gated. |
+| `advanced_code_search`           | 08      | 7d   | Search-quality gate. |
+| `contribution_privacy`           | 09      | 7d   | Profile-visibility gate. |
+| `secret_scan_history`            | 10      | 7d   | Worker short-circuits Free. |
+| `secret_scan_alerts`             | 10d     | 7d   | Email + webhook delivery gate. |
+| **`fine_grained_pats`**          | 11      | **14d** | Credential-escalation surface. |
+| `user_actions_secrets`           | 12      | 7d   | Runner-side resolution. |
+| `user_actions_variables`         | 12c     | 7d   | Runner-side resolution. |
+| `webhook_relay`                  | 13a     | 7d   | Amplification surface. |
+| `cron_workflow_dispatch`         | 13b     | 7d   | Worker-scheduled. |
+| `personal_status_page`           | 14      | 7d   | Read-only page. |
+| `repo_time_machine`              | 15      | 7d   | Per-repo write gate. |
+| `inbox_rules`                    | 16a     | 7d   | Per-recipient rule eval. |
+| `inbox_digests`                  | 16b     | 7d   | Worker-sweeps. |
+
+When in doubt, the comment above the matching `EnforceConfig`
+field in `internal/infra/config/config.go` is authoritative —
+it carries any feature-specific landmines.
 
 ## Adding a new feature to this runbook
 
