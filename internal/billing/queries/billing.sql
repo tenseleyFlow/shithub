@@ -874,6 +874,7 @@ INSERT INTO org_usage_counters (
     org_id,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,
@@ -885,6 +886,7 @@ VALUES (
     sqlc.arg(org_id)::bigint,
     sqlc.arg(repo_storage_bytes)::bigint,
     sqlc.arg(object_storage_bytes)::bigint,
+    sqlc.arg(package_storage_bytes)::bigint,
     sqlc.arg(actions_log_bytes)::bigint,
     sqlc.arg(actions_artifact_bytes)::bigint,
     sqlc.arg(actions_minutes_used)::bigint,
@@ -895,6 +897,7 @@ VALUES (
 ON CONFLICT (org_id) DO UPDATE
    SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
        object_storage_bytes = EXCLUDED.object_storage_bytes,
+       package_storage_bytes = EXCLUDED.package_storage_bytes,
        actions_log_bytes = EXCLUDED.actions_log_bytes,
        actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
        actions_minutes_used = EXCLUDED.actions_minutes_used,
@@ -944,11 +947,21 @@ artifact_usage AS (
     JOIN repos repo ON repo.id = r.repo_id
     WHERE repo.owner_org_id = sqlc.arg(org_id)::bigint
 ),
+package_usage AS (
+    SELECT COALESCE(sum(f.size_bytes), 0)::bigint AS package_storage_bytes
+    FROM repo_package_files f
+    JOIN repo_package_versions v ON v.id = f.version_id
+    JOIN repo_packages p ON p.id = v.package_id
+    JOIN repos repo ON repo.id = p.repo_id
+    WHERE repo.owner_org_id = sqlc.arg(org_id)::bigint
+      AND repo.deleted_at IS NULL
+),
 upserted AS (
     INSERT INTO org_usage_counters (
         org_id,
         repo_storage_bytes,
         object_storage_bytes,
+        package_storage_bytes,
         actions_log_bytes,
         actions_artifact_bytes,
         actions_minutes_used,
@@ -959,17 +972,19 @@ upserted AS (
     SELECT
         sqlc.arg(org_id)::bigint,
         repo_usage.repo_storage_bytes,
-        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes,
+        action_usage.actions_log_bytes + artifact_usage.actions_artifact_bytes + package_usage.package_storage_bytes,
+        package_usage.package_storage_bytes,
         action_usage.actions_log_bytes,
         artifact_usage.actions_artifact_bytes,
         actions_minutes.actions_minutes_used,
         sqlc.arg(actions_period_start)::timestamptz,
         sqlc.arg(actions_period_end)::timestamptz,
         now()
-    FROM repo_usage, action_usage, actions_minutes, artifact_usage
+    FROM repo_usage, action_usage, actions_minutes, artifact_usage, package_usage
     ON CONFLICT (org_id) DO UPDATE
        SET repo_storage_bytes = EXCLUDED.repo_storage_bytes,
            object_storage_bytes = EXCLUDED.object_storage_bytes,
+           package_storage_bytes = EXCLUDED.package_storage_bytes,
            actions_log_bytes = EXCLUDED.actions_log_bytes,
            actions_artifact_bytes = EXCLUDED.actions_artifact_bytes,
            actions_minutes_used = EXCLUDED.actions_minutes_used,
@@ -994,6 +1009,7 @@ INSERT INTO org_usage_snapshots (
     source,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,
@@ -1005,6 +1021,7 @@ SELECT
     sqlc.arg(source)::text,
     repo_storage_bytes,
     object_storage_bytes,
+    package_storage_bytes,
     actions_log_bytes,
     actions_artifact_bytes,
     actions_minutes_used,

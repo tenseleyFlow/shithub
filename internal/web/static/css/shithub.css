@@ -6236,12 +6236,14 @@ button.shithub-repo-action {
   font-size: 0.9rem;
 }
 .shithub-repo-collab-page,
+.shithub-repo-packages-page,
 .shithub-wiki-page {
   max-width: 1280px;
   margin: 0 auto;
   padding: 1.5rem 1rem 2rem;
 }
 .shithub-repo-collab-head,
+.shithub-repo-packages-head,
 .shithub-wiki-article > header,
 .shithub-wiki-form > header {
   display: flex;
@@ -6251,12 +6253,14 @@ button.shithub-repo-action {
   margin-bottom: 1rem;
 }
 .shithub-repo-collab-head h1,
+.shithub-repo-packages-head h1,
 .shithub-wiki-article h1,
 .shithub-wiki-form h1 {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
 }
-.shithub-repo-collab-head p {
+.shithub-repo-collab-head p,
+.shithub-repo-packages-head p {
   margin: 0;
   color: var(--fg-muted);
 }
@@ -6277,11 +6281,13 @@ button.shithub-repo-action {
 }
 .shithub-collab-create > summary::-webkit-details-marker { display: none; }
 .shithub-collab-form,
+.shithub-package-upload-form,
 .shithub-wiki-form {
   display: grid;
   gap: 0.75rem;
 }
-.shithub-collab-form {
+.shithub-collab-form,
+.shithub-package-upload-form {
   min-width: min(28rem, calc(100vw - 2rem));
   margin-top: 0.75rem;
   padding: 0.75rem;
@@ -6291,6 +6297,7 @@ button.shithub-repo-action {
   box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
 }
 .shithub-collab-form label,
+.shithub-package-upload-form label,
 .shithub-wiki-form label {
   display: grid;
   gap: 0.35rem;
@@ -6299,6 +6306,9 @@ button.shithub-repo-action {
 }
 .shithub-collab-form input[type=text],
 .shithub-collab-form textarea,
+.shithub-package-upload-form input[type=text],
+.shithub-package-upload-form input[type=file],
+.shithub-package-upload-form textarea,
 .shithub-wiki-form input[type=text],
 .shithub-wiki-form textarea {
   width: 100%;
@@ -6308,6 +6318,93 @@ button.shithub-repo-action {
   background: var(--canvas-default);
   color: var(--fg-default);
   font: inherit;
+}
+.shithub-package-upload-form input[type=file] {
+  padding: 0.45rem 0.55rem;
+}
+.shithub-package-upload-form p {
+  margin: 0;
+}
+.shithub-package-list {
+  display: grid;
+  gap: 1rem;
+}
+.shithub-package-card {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  padding: 1rem;
+}
+.shithub-package-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.shithub-package-title {
+  display: flex;
+  min-width: 0;
+  gap: 0.75rem;
+}
+.shithub-package-title h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.1rem;
+}
+.shithub-package-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--accent-fg);
+  background: var(--canvas-subtle);
+}
+.shithub-package-meta,
+.shithub-package-summary {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.shithub-package-meta {
+  justify-content: flex-end;
+}
+.shithub-package-summary {
+  margin-top: 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-package-summary .octicon {
+  vertical-align: text-bottom;
+}
+.shithub-package-files {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border-muted);
+}
+.shithub-package-files li {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border-muted);
+}
+.shithub-package-files a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+.shithub-package-files span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.875rem;
+}
+.shithub-package-delete-form {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 .shithub-project-list {
   display: grid;

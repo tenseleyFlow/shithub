@@ -37,6 +37,7 @@ type UsageCounterSnapshot struct {
 	OrgID                int64
 	RepoStorageBytes     int64
 	ObjectStorageBytes   int64
+	PackageStorageBytes  int64
 	ActionsLogBytes      int64
 	ActionsArtifactBytes int64
 	ActionsMinutesUsed   int64
@@ -81,6 +82,7 @@ func UpsertOrgUsageCounters(ctx context.Context, deps Deps, snap UsageCounterSna
 		OrgID:                snap.OrgID,
 		RepoStorageBytes:     snap.RepoStorageBytes,
 		ObjectStorageBytes:   snap.ObjectStorageBytes,
+		PackageStorageBytes:  snap.PackageStorageBytes,
 		ActionsLogBytes:      snap.ActionsLogBytes,
 		ActionsArtifactBytes: snap.ActionsArtifactBytes,
 		ActionsMinutesUsed:   snap.ActionsMinutesUsed,
@@ -225,6 +227,7 @@ func validateUsageSnapshot(snap UsageCounterSnapshot) error {
 	}
 	if snap.RepoStorageBytes < 0 ||
 		snap.ObjectStorageBytes < 0 ||
+		snap.PackageStorageBytes < 0 ||
 		snap.ActionsLogBytes < 0 ||
 		snap.ActionsArtifactBytes < 0 ||
 		snap.ActionsMinutesUsed < 0 {

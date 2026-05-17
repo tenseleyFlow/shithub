@@ -2975,6 +2975,7 @@ type OrgUsageCounter struct {
 	CalculatedAt         pgtype.Timestamptz
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
+	PackageStorageBytes  int64
 }
 
 type OrgUsageSnapshot struct {
@@ -2989,6 +2990,7 @@ type OrgUsageSnapshot struct {
 	ActionsPeriodStart   pgtype.Timestamptz
 	ActionsPeriodEnd     pgtype.Timestamptz
 	CapturedAt           pgtype.Timestamptz
+	PackageStorageBytes  int64
 }
 
 type PasswordReset struct {
@@ -3175,6 +3177,42 @@ type RepoCollaborator struct {
 type RepoIssueCounter struct {
 	RepoID     int64
 	NextNumber int64
+}
+
+type RepoPackage struct {
+	ID              int64
+	RepoID          int64
+	Name            string
+	NormalizedName  pgtype.Text
+	PackageType     string
+	Description     string
+	LatestVersion   string
+	PackageBytes    int64
+	CreatedByUserID pgtype.Int8
+	UpdatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type RepoPackageFile struct {
+	ID              int64
+	VersionID       int64
+	Filename        string
+	ObjectKey       string
+	ContentType     string
+	SizeBytes       int64
+	Etag            string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+}
+
+type RepoPackageVersion struct {
+	ID              int64
+	PackageID       int64
+	Version         string
+	SizeBytes       int64
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
 }
 
 type RepoProject struct {

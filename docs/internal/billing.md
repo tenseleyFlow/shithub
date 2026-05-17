@@ -56,11 +56,13 @@ Rules for paid-org copy:
 - Do not promise SAML, SCIM, LDAP, managed users, audit exports, data
   residency, compliance attestations, contracts, or custom support
   until the matching implementation sprint ships.
-- Do not advertise Packages, Pages, Wikis, or Projects until those
-  surfaces exist. Storage and Actions quota copy may appear on
-  owner-only billing settings once usage accounting exists, but public
-  pricing pages must not present them as broadly enforced until the
-  matching hard-deny gates have shipped.
+- Do not advertise product surfaces until they exist. Generic
+  repository Packages, Wikis, and repository Projects have shipped
+  baseline surfaces; Pages and additional package ecosystems remain
+  deferred. Storage and Actions quota copy may appear on owner-only
+  billing settings once usage accounting exists, but public pricing
+  pages must not present them as broadly enforced until the matching
+  hard-deny gates have shipped.
 - Use upgrade language for unavailable Team features instead of hiding
   existing data. Downgrades preserve configuration and make gated
   settings read-only where possible.
@@ -101,7 +103,7 @@ Rules for paid-org copy:
 | Org-level Actions variables | Upgrade | Included | Contact sales |
 | Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
 | Actions artifacts/storage | Low quota once metered | Higher quota once metered | Contact sales |
-| Packages storage | Deferred until Packages is active | Deferred until Packages is active | Deferred |
+| Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
@@ -183,10 +185,12 @@ Present but still moving toward full enforcement:
 - Org-owned git pushes now hard-deny in pre-receive when the pushed
   repo's actual on-disk size would put the organization over its
   effective storage quota.
-- Object upload storage write paths still need hard-deny checks before
-  quota rows should be advertised on public pricing pages.
-- Packages storage cannot be sold until the Packages sprint is active
-  and quota enforcement exists.
+- New object-backed write paths must add hard-deny checks before their
+  bytes can be advertised as quota-enforced. Actions artifacts and
+  generic repository package uploads already enforce the storage quota.
+- Packages storage is active for generic repository package uploads.
+  Additional GitHub Packages ecosystems are deferred until follow-up
+  package protocol sprints.
 
 Deferred:
 
@@ -338,9 +342,10 @@ PAYMENTS SP08 starts hosted-cost metering:
 - Team organizations in good standing have a 2 GiB storage quota and
   3,000 Actions minutes per calendar month.
 - Storage usage is tracked as bare repository bytes plus tracked object
-  bytes. The first recalculation source uses `repos.disk_used_bytes`,
-  finalized Actions step log bytes, and Actions artifact byte counts;
-  other object surfaces must be added as their storage metadata becomes
+  bytes. The current recalculation source uses `repos.disk_used_bytes`,
+  finalized Actions step log bytes, Actions artifact byte counts, and
+  durable `repo_package_files.size_bytes` package file metadata; other
+  object surfaces must be added as their storage metadata becomes
   durable.
 - Actions minutes are counted from completed or canceled workflow job
   runtime, rounded up to the next whole minute, within the current
@@ -369,6 +374,10 @@ PAYMENTS SP08 starts hosted-cost metering:
 - Org-owned Actions artifact upload URL requests recalculate current
   storage usage before issuing a presigned PUT URL and reject uploads
   whose declared byte count would exceed the effective storage quota.
+- Org-owned generic package uploads recalculate current storage usage
+  before object storage writes and reject uploads whose declared byte
+  count would exceed the effective storage quota. Personal repositories
+  do not expose package publishing in the current web UI.
 - Site admins can save or clear temporary storage and Actions minutes
   quota overrides from the billing settings debug panel even when they
   are not organization owners. Overrides are attributed to the actor and

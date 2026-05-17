@@ -1,0 +1,96 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-repo-packages-page">
+    <header class="shithub-repo-packages-head">
+      <div>
+        <h1>Packages</h1>
+        <p>Publish and install packages associated with this repository.</p>
+        {{ with .PackageStorageLabel }}<p class="shithub-muted">Package storage used by this organization: {{ . }}</p>{{ end }}
+      </div>
+      {{ if .CanPublishPackages }}
+      <details class="shithub-collab-create">
+        <summary class="shithub-button shithub-button-primary">{{ octicon "package" }} Publish package</summary>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/packages" enctype="multipart/form-data" class="shithub-package-upload-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Package name</span>
+            <input type="text" name="name" value="{{ .UploadForm.Name }}" maxlength="128" required>
+          </label>
+          <label>
+            <span>Version</span>
+            <input type="text" name="version" value="{{ .UploadForm.Version }}" maxlength="128" required>
+          </label>
+          <label>
+            <span>Description</span>
+            <textarea name="description" rows="3" maxlength="1000">{{ .UploadForm.Description }}</textarea>
+          </label>
+          <label>
+            <span>Package file</span>
+            <input type="file" name="package_file" required>
+          </label>
+          <p class="shithub-muted">Generic packages up to {{ .MaxPackageFileSize }} count toward organization storage.</p>
+          <button type="submit" class="shithub-button shithub-button-primary">Publish package</button>
+        </form>
+      </details>
+      {{ end }}
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+    {{ with .PublishDisabledReason }}
+      {{ if not $.CanPublishPackages }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ end }}
+
+    {{ if .Packages }}
+    <div class="shithub-package-list">
+      {{ range .Packages }}
+      <article class="shithub-package-card">
+        <header>
+          <div class="shithub-package-title">
+            <span class="shithub-package-icon">{{ octicon "package" }}</span>
+            <div>
+              <h2>{{ .Name }}</h2>
+              <p class="shithub-muted">{{ if .Description }}{{ .Description }}{{ else }}No description provided.{{ end }}</p>
+            </div>
+          </div>
+          <div class="shithub-package-meta">
+            <span class="shithub-pill">{{ .PackageType }}</span>
+            <span class="shithub-muted">{{ .PackageBytes }}</span>
+          </div>
+        </header>
+        <div class="shithub-package-summary">
+          {{ if .LatestVersion }}<span>{{ octicon "tag" }} {{ .LatestVersion }}</span>{{ end }}
+          <span>{{ .VersionCount }} {{ pluralize .VersionCount "version" "versions" }}</span>
+          <span>{{ .FileCount }} {{ pluralize .FileCount "file" "files" }}</span>
+          <span>Updated {{ relativeTime .UpdatedAt }}</span>
+        </div>
+        {{ if .Files }}
+        <ul class="shithub-package-files">
+          {{ range .Files }}
+          <li>
+            <div>
+              <a href="{{ .DownloadURL }}">{{ octicon "download" }} {{ .Filename }}</a>
+              <span class="shithub-muted">Version {{ .Version }} · {{ .SizeLabel }} · {{ relativeTime .CreatedAt }}</span>
+            </div>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+        {{ if $.CanPublishPackages }}
+        <form method="post" action="{{ .DeleteURL }}" class="shithub-package-delete-form">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">Delete package</button>
+        </form>
+        {{ end }}
+      </article>
+      {{ end }}
+    </div>
+    {{ else }}
+    <div class="shithub-issues-empty">
+      No packages have been published for this repository.
+    </div>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

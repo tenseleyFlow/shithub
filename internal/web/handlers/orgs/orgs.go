@@ -650,9 +650,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md", State: "Planned",
 				},
 				{
-					Name: "Packages storage", Description: "Host project packages with plan-aware storage limits.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP22",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP22-packages-product-and-storage-quotas.md", State: "Planned",
+					Name: "Packages storage", Description: "Host generic repository packages with plan-aware storage limits.",
+					Free: "500 MB", Team: "2 GB", Enterprise: "Contact sales", Owner: "SP22",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP22-packages-product-and-storage-quotas.md", State: "Shipped baseline",
 				},
 			},
 		},

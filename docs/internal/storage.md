@@ -162,9 +162,14 @@ pushes that would exceed the effective quota. `RepoFS.DiskUsageBytes`
 is the shared source-size helper used by both the hook and
 `repo:size_recalc`.
 
-Object upload quota enforcement is tracked separately; callers should
-use `internal/entitlements.CheckOrgStorageQuota` once their write path
-knows the owner organization and incoming byte count.
+Object upload quota enforcement is tracked separately per write path.
+Org-owned Actions artifact uploads and generic repository package
+uploads recalculate current usage, call
+`internal/entitlements.CheckOrgStorageQuota`, and reject uploads before
+issuing or writing object storage bytes when the declared incoming byte
+count would exceed the effective organization quota. Future object
+surfaces must follow the same pattern once they know the owner
+organization and incoming byte count.
 
 ## Testing
 
