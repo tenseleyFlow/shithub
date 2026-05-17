@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/devicecode"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -157,7 +158,7 @@ func TestExchange_DeniedReturnsAccessDenied(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	row, _ := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
-	if err := devicecode.Deny(context.Background(), deps, row.ID); err != nil {
+	if err := devicecode.Deny(context.Background(), deps, row.ID, 0); err != nil {
 		t.Fatalf("Deny: %v", err)
 	}
 	if _, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "test"); !errors.Is(err, devicecode.ErrAccessDenied) {
@@ -339,6 +340,58 @@ func TestExchange_StampsIssuedTokenAtomically(t *testing.T) {
 	}
 	if source != "oauth_device" {
 		t.Errorf("user_tokens.source: want oauth_device, got %q", source)
+	}
+}
+
+// TestLifecycle_AuditRowsFire covers remediation #4: the audit log
+// receives device_grant_requested + device_grant_approved entries for
+// a happy-path Create → Approve → Exchange cycle, and a pat_created
+// entry fires at Exchange time (the issuance event).
+func TestLifecycle_AuditRowsFire(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	userID := seedUser(t, pool, "alice")
+	deps := devicecode.Deps{
+		Pool:    pool,
+		Audit:   audit.NewRecorder(),
+		ActorIP: "203.0.113.42",
+	}
+
+	auth, err := devicecode.Create(context.Background(), deps, defaultsForTest(), "shithub-cli", "user:read")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	row, _ := devicecode.LookupByUserCode(context.Background(), deps, auth.UserCode)
+	if err := devicecode.Approve(context.Background(), deps, row.ID, userID); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		"UPDATE device_authorizations SET last_polled_at = now() - interval '10 seconds' WHERE id = $1",
+		row.ID); err != nil {
+		t.Fatalf("rewind last_polled_at: %v", err)
+	}
+	if _, err := devicecode.Exchange(context.Background(), deps, "shithub-cli", auth.DeviceCode, "test"); err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+
+	count := func(action string) int {
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM auth_audit_log WHERE action = $1`, action).Scan(&n); err != nil {
+			t.Fatalf("count(%s): %v", action, err)
+		}
+		return n
+	}
+	if got := count("device_grant_requested"); got != 1 {
+		t.Errorf("device_grant_requested: want 1, got %d", got)
+	}
+	if got := count("device_grant_approved"); got != 1 {
+		t.Errorf("device_grant_approved: want 1, got %d", got)
+	}
+	if got := count("device_grant_denied"); got != 0 {
+		t.Errorf("device_grant_denied: want 0 (no deny in this flow), got %d", got)
+	}
+	if got := count("pat_created"); got != 1 {
+		t.Errorf("pat_created: want 1 (from Exchange), got %d", got)
 	}
 }
 
