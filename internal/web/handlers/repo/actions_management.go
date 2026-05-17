@@ -14,6 +14,7 @@ import (
 
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
 const actionsManagementListLimit = int32(50)
@@ -133,11 +134,13 @@ func (h *Handlers) repoActionsManagementPage(w http.ResponseWriter, r *http.Requ
 
 	basePath := "/" + owner.Username + "/" + row.Name + "/actions"
 	workflows, allRunCount, _ := actionsWorkflowViews(workflowRows, actionsListFilters{}, basePath)
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row)).Allow
 
 	data := h.repoHeaderData(r, row, owner.Username, "actions")
 	data["Title"] = page.Title + " · " + row.Name
 	data["Page"] = page
-	data["ActionsSidebar"] = actionsSidebar(basePath, workflows, allRunCount, false, page.Key)
+	data["ActionsSidebar"] = actionsSidebar(basePath, workflows, allRunCount, false, page.Key, canManage)
 	data["RunCount"] = allRunCount
 	data["Workflows"] = workflows
 	if err := h.d.Render.RenderPage(w, r, "repo/actions_management", data); err != nil {

@@ -2,7 +2,11 @@
 <aside class="shithub-actions-sidebar" aria-label="Actions navigation">
   <div class="shithub-actions-sidebar-head">
     <h2>Actions</h2>
-    <span class="shithub-button shithub-button-primary shithub-actions-new-workflow is-disabled" aria-disabled="true" title="Workflow creation UI is coming later">New workflow</span>
+    {{ if .ActionsSidebar.CanCreateWorkflow }}
+      <a class="shithub-button shithub-button-primary shithub-actions-new-workflow" href="{{ .ActionsSidebar.NewWorkflowHref }}">New workflow</a>
+    {{ else }}
+      <span class="shithub-button shithub-button-primary shithub-actions-new-workflow is-disabled" aria-disabled="true">New workflow</span>
+    {{ end }}
   </div>
   <nav>
     <a href="{{ .ActionsSidebar.AllHref }}" class="shithub-actions-nav-item{{ if .ActionsSidebar.AllActive }} is-active{{ end }}"{{ if .ActionsSidebar.AllActive }} aria-current="page"{{ end }}>

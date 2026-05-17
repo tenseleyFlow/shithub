@@ -1,0 +1,55 @@
+{{ define "page" -}}
+{{ template "repo-header" . }}
+<section class="shithub-actions-page shithub-actions-new-page">
+  {{ template "actions-sidebar" . }}
+
+  <div class="shithub-actions-main">
+    <header class="shithub-actions-head">
+      <div>
+        <h1>New workflow</h1>
+        <p>Choose a supported shithub starter workflow or create a workflow file by hand.</p>
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    <section class="shithub-actions-template-section">
+      <header>
+        <h2>Starter workflows</h2>
+        <p>These templates use the v1 workflow dialect and can run on runners advertising <code>ubuntu-latest</code>.</p>
+      </header>
+      <div class="shithub-actions-template-grid">
+        {{ range .SupportedTemplates }}
+          <a class="shithub-actions-template-card" href="{{ .Href }}">
+            <span class="shithub-actions-template-icon" aria-hidden="true">{{ octicon "workflow" }}</span>
+            <span>
+              <strong>{{ .Name }}</strong>
+              <small>{{ .Description }}</small>
+              <code>{{ .Filename }}</code>
+            </span>
+          </a>
+        {{ end }}
+      </div>
+    </section>
+
+    <section class="shithub-actions-template-section">
+      <header>
+        <h2>GitHub templates not offered yet</h2>
+        <p>These common templates are parked until shithub supports the required runner features.</p>
+      </header>
+      <div class="shithub-actions-template-grid">
+        {{ range .UnsupportedTemplates }}
+          <article class="shithub-actions-template-card is-disabled" aria-disabled="true">
+            <span class="shithub-actions-template-icon" aria-hidden="true">{{ octicon "stop" }}</span>
+            <span>
+              <strong>{{ .Name }}</strong>
+              <small>{{ .Description }}</small>
+              <em>{{ .Reason }}</em>
+            </span>
+          </article>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+</section>
+{{- end }}

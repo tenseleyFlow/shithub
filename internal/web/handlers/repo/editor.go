@@ -20,30 +20,31 @@ import (
 )
 
 type codeEditorData struct {
-	Title       string
-	CSRFToken   string
-	Viewer      middleware.CurrentUser
-	Owner       string
-	Repo        any
-	Org         any
-	Ref         string
-	RefDisplay  string
-	BaseOID     string
-	Path        string
-	Crumbs      []Breadcrumb
-	Mode        string
-	FormAction  string
-	CancelURL   string
-	PreviewURL  string
-	PathValue   string
-	Content     string
-	UploadDir   string
-	Message     string
-	Description string
-	Primary     string
-	Error       string
-	Notice      string
-	IsMarkdown  bool
+	Title               string
+	CSRFToken           string
+	Viewer              middleware.CurrentUser
+	Owner               string
+	Repo                any
+	Org                 any
+	Ref                 string
+	RefDisplay          string
+	BaseOID             string
+	Path                string
+	Crumbs              []Breadcrumb
+	Mode                string
+	FormAction          string
+	CancelURL           string
+	PreviewURL          string
+	PathValue           string
+	Content             string
+	UploadDir           string
+	Message             string
+	Description         string
+	Primary             string
+	Error               string
+	Notice              string
+	IsMarkdown          bool
+	WorkflowDiagnostics []workflowDiagnosticView
 
 	OGTitle           string
 	OGDescription     string
