@@ -30,6 +30,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/notifications"
+	"github.com/tenseleyFlow/shithub/internal/secretscan"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -203,6 +204,18 @@ var workerCmd = &cobra.Command{
 			SiteName:       cfg.Auth.SiteName,
 			BaseURL:        cfg.Auth.BaseURL,
 			EnforceDigests: cfg.Billing.Enforce.UserInboxDigests,
+		}))
+		// PRO-EXT01-10d — per-finding alert dispatcher. The history
+		// worker enqueues one job per new finding (registered above);
+		// this handler sends the configured email + webhook channels.
+		p.Register(secretscan.KindSecretScanAlert, jobs.SecretScanAlertDispatch(secretscan.AlertDeps{
+			Pool:          pool,
+			Logger:        logger,
+			EmailSender:   notifSender,
+			EmailFrom:     cfg.Auth.EmailFrom,
+			SiteName:      cfg.Auth.SiteName,
+			BaseURL:       cfg.Auth.BaseURL,
+			EnforceAlerts: cfg.Billing.Enforce.UserSecretScanAlerts,
 		}))
 		p.Register(worker.KindTrendingCompute, jobs.TrendingCompute(jobs.TrendingComputeDeps{
 			Pool: pool, Logger: logger,

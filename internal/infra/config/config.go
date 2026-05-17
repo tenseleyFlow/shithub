@@ -202,6 +202,12 @@ type EnforceConfig struct {
 	// default → report-only (the would-deny is logged + the scan runs).
 	// PRO-EXT01-10b; promoted in PRO-EXT01-17.
 	UserSecretScanHistory bool `toml:"user_secret_scan_history"`
+	// UserSecretScanAlerts: when true, Free users are blocked from
+	// *configuring* secret-scan alert prefs AND the alert worker drops
+	// any queued send to a Free owner without firing the email / POSTing
+	// the webhook. Off by default → report-only (config writes land,
+	// alert sends fire, would-deny is logged). PRO-EXT01-10d.
+	UserSecretScanAlerts bool `toml:"user_secret_scan_alerts"`
 	// UserFineGrainedPATs: when true, Free users are blocked from
 	// *attaching* PAT restrictions (IP allowlist now; repo binding in
 	// 11b). Off by default → report-only (the restriction lands but the
