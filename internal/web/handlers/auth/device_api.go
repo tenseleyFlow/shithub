@@ -53,7 +53,11 @@ func (h *Handlers) deviceCodeIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := r.PostForm.Get("scope")
 
-	auth, err := devicecode.Create(r.Context(), devicecode.Deps{Pool: h.d.Pool}, h.d.DeviceCode, clientID, scope)
+	auth, err := devicecode.Create(r.Context(), devicecode.Deps{
+		Pool:    h.d.Pool,
+		Audit:   h.d.Audit,
+		ActorIP: middleware.RealIPFromContext(r.Context(), r),
+	}, h.d.DeviceCode, clientID, scope)
 	if err != nil {
 		writeDeviceCodeError(w, err)
 		return
@@ -95,7 +99,10 @@ func (h *Handlers) deviceCodeExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := devicecode.Exchange(r.Context(), devicecode.Deps{Pool: h.d.Pool}, clientID, deviceCode, deviceCodeTokenName(r))
+	res, err := devicecode.Exchange(r.Context(), devicecode.Deps{
+		Pool:  h.d.Pool,
+		Audit: h.d.Audit,
+	}, clientID, deviceCode, deviceCodeTokenName(r))
 	if err != nil {
 		writeDeviceCodeError(w, err)
 		return
