@@ -36,6 +36,7 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
@@ -64,6 +65,21 @@ type AlertDeps struct {
 	// FeatureSecretScanAlerts check denies. Off (the default) keeps
 	// sending and logs the would-deny — soak path before PRO-EXT01-17.
 	EnforceAlerts bool
+	// SSRF is the outbound-URL validator. Zero value short-circuits
+	// to webhook.DefaultSSRFConfig() — production deployments don't
+	// need to set this; tests opt into a loopback-permitting config
+	// via AllowPrivateNetworks. PRO-EXT_SR2-10 (audit C1): without
+	// this gate the webhook channel POSTs HMAC-signed payloads to
+	// any URL a user can configure, including 169.254.169.254 /
+	// localhost / etc.
+	SSRF webhook.SSRFConfig
+}
+
+func (d AlertDeps) ssrfConfig() webhook.SSRFConfig {
+	if len(d.SSRF.AllowedSchemes) == 0 {
+		return webhook.DefaultSSRFConfig()
+	}
+	return d.SSRF
 }
 
 // HTTPDoer matches *http.Client.Do so tests can drop in an in-memory
@@ -215,9 +231,22 @@ func sendWebhookAlert(
 	if !prefs.WebhookUrl.Valid {
 		return nil
 	}
+	ssrfCfg := deps.ssrfConfig()
+	// PRO-EXT_SR2-10 (audit C1): re-check at send time even though
+	// the settings save path validates too. The DB persisted what
+	// passed validation *then*; an operator policy change since (or
+	// a DNS rebind on a hostname) could make a previously-valid URL
+	// dangerous now. Cheap and fail-closed.
+	if err := ssrfCfg.ValidateWithResolve(ctx, prefs.WebhookUrl.String); err != nil {
+		return fmt.Errorf("ssrf validate: %w", err)
+	}
+
 	httpClient := deps.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: webhookTimeout}
+		// SSRF-aware client: enforces the rules at dial time too,
+		// defending against DNS rebinding between the resolve above
+		// and the actual TCP connect.
+		httpClient = ssrfCfg.HTTPClient()
 	}
 	payload, err := json.Marshal(webhookBody(repo, finding, deps.BaseURL))
 	if err != nil {
