@@ -156,6 +156,7 @@ func (h *Handlers) MountNew(r chi.Router) {
 func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
 	r.Get("/{owner}/{repo}/actions/new", h.repoActionsNewWorkflow)
 	r.Post("/{owner}/{repo}/actions/new", h.repoActionsCreateWorkflow)
+	r.Post("/{owner}/{repo}/actions/workflow-pins", h.repoActionsWorkflowPin)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", h.repoActionRunCancel)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", h.repoActionRunRerun)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/approve", h.repoActionRunApprove)

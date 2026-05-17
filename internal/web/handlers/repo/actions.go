@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,17 +37,23 @@ const (
 var errActionsLogStorageUnavailable = errors.New("actions archived log storage unavailable")
 
 type actionsWorkflowView struct {
-	File   string
-	Name   string
-	Count  int64
-	Href   string
-	Active bool
+	File        string
+	Name        string
+	Count       int64
+	Href        string
+	Active      bool
+	Pinned      bool
+	CanMoveUp   bool
+	CanMoveDown bool
 }
 
 type actionsSidebarView struct {
 	AllHref           string
 	NewWorkflowHref   string
+	PinWorkflowHref   string
+	ReturnTo          string
 	CanCreateWorkflow bool
+	CanPinWorkflows   bool
 	AllRunCount       int64
 	AllActive         bool
 	Workflows         []actionsWorkflowView
@@ -371,7 +378,14 @@ func (h *Handlers) repoActionsList(w http.ResponseWriter, r *http.Request, route
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row)).Allow
-	sidebar := actionsSidebar(basePath, workflows, allRunCount, filters.Workflow == "", "", canManage)
+	pins, err := h.actionsWorkflowPinsForViewer(r.Context(), viewer, row.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo actions: list workflow pins", "repo_id", row.ID, "user_id", viewer.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	workflows = actionsApplyWorkflowPins(workflows, pins)
+	sidebar := actionsSidebar(basePath, r.URL.RequestURI(), workflows, allRunCount, filters.Workflow == "", "", canManage, viewer.ID != 0)
 	runViews := make([]actionsListRunView, 0, len(runs))
 	now := time.Now()
 	for _, run := range runs {
@@ -408,7 +422,7 @@ func (h *Handlers) repoActionsList(w http.ResponseWriter, r *http.Request, route
 	}
 }
 
-func actionsSidebar(basePath string, workflows []actionsWorkflowView, allRunCount int64, allActive bool, activeManagement string, canCreateWorkflow bool) actionsSidebarView {
+func actionsSidebar(basePath, returnTo string, workflows []actionsWorkflowView, allRunCount int64, allActive bool, activeManagement string, canCreateWorkflow, canPinWorkflows bool) actionsSidebarView {
 	if activeManagement != "" {
 		allActive = false
 		workflows = inactiveActionsWorkflows(workflows)
@@ -416,7 +430,10 @@ func actionsSidebar(basePath string, workflows []actionsWorkflowView, allRunCoun
 	return actionsSidebarView{
 		AllHref:           basePath,
 		NewWorkflowHref:   basePath + "/new",
+		PinWorkflowHref:   basePath + "/workflow-pins",
+		ReturnTo:          returnTo,
 		CanCreateWorkflow: canCreateWorkflow,
+		CanPinWorkflows:   canPinWorkflows,
 		AllRunCount:       allRunCount,
 		AllActive:         allActive,
 		Workflows:         workflows,
@@ -429,6 +446,73 @@ func inactiveActionsWorkflows(workflows []actionsWorkflowView) []actionsWorkflow
 	copy(out, workflows)
 	for i := range out {
 		out[i].Active = false
+	}
+	return out
+}
+
+func (h *Handlers) actionsWorkflowPinsForViewer(ctx context.Context, viewer middleware.CurrentUser, repoID int64) ([]actionsdb.UserActionWorkflowPin, error) {
+	if viewer.ID == 0 {
+		return nil, nil
+	}
+	return actionsdb.New().ListWorkflowPinsForUserRepo(ctx, h.d.Pool, actionsdb.ListWorkflowPinsForUserRepoParams{
+		UserID: viewer.ID,
+		RepoID: repoID,
+	})
+}
+
+func actionsApplyWorkflowPins(workflows []actionsWorkflowView, pins []actionsdb.UserActionWorkflowPin) []actionsWorkflowView {
+	if len(workflows) == 0 {
+		return workflows
+	}
+	pinByFile := make(map[string]actionsdb.UserActionWorkflowPin, len(pins))
+	for _, pin := range pins {
+		if normalized, ok := normalizeActionsWorkflowFile(pin.WorkflowFile); ok {
+			pin.WorkflowFile = normalized
+			pinByFile[normalized] = pin
+		}
+	}
+	type decoratedWorkflow struct {
+		view     actionsWorkflowView
+		index    int
+		position int32
+	}
+	decorated := make([]decoratedWorkflow, 0, len(workflows))
+	for i, workflow := range workflows {
+		if pin, ok := pinByFile[workflow.File]; ok {
+			workflow.Pinned = true
+			decorated = append(decorated, decoratedWorkflow{view: workflow, index: i, position: pin.Position})
+			continue
+		}
+		decorated = append(decorated, decoratedWorkflow{view: workflow, index: i})
+	}
+	sort.SliceStable(decorated, func(i, j int) bool {
+		left := decorated[i]
+		right := decorated[j]
+		if left.view.Pinned != right.view.Pinned {
+			return left.view.Pinned
+		}
+		if left.view.Pinned && right.view.Pinned {
+			if left.position != right.position {
+				return left.position < right.position
+			}
+			if cmp := strings.Compare(strings.ToLower(left.view.Name), strings.ToLower(right.view.Name)); cmp != 0 {
+				return cmp < 0
+			}
+			return left.view.File < right.view.File
+		}
+		return left.index < right.index
+	})
+	out := make([]actionsWorkflowView, len(decorated))
+	pinnedCount := 0
+	for i, item := range decorated {
+		out[i] = item.view
+		if item.view.Pinned {
+			pinnedCount++
+		}
+	}
+	for i := 0; i < pinnedCount; i++ {
+		out[i].CanMoveUp = i > 0
+		out[i].CanMoveDown = i < pinnedCount-1
 	}
 	return out
 }

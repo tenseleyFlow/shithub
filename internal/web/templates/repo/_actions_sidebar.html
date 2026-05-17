@@ -16,10 +16,48 @@
       <h3>Workflows</h3>
       {{ if .ActionsSidebar.Workflows }}
         {{ range .ActionsSidebar.Workflows }}
-          <a href="{{ .Href }}" class="shithub-actions-nav-item{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }}>
-            <span>{{ .Name }}</span>
-            <span class="shithub-actions-pin-placeholder" aria-hidden="true">{{ octicon "pin" }}</span>
-          </a>
+          <div class="shithub-actions-nav-item shithub-actions-workflow-nav-item{{ if .Active }} is-active{{ end }}{{ if .Pinned }} is-pinned{{ end }}">
+            <a href="{{ .Href }}" class="shithub-actions-workflow-link"{{ if .Active }} aria-current="page"{{ end }}>
+              <span>{{ .Name }}</span>
+            </a>
+            {{ if $.ActionsSidebar.CanPinWorkflows }}
+              <div class="shithub-actions-pin-controls" aria-label="Workflow pin controls">
+                {{ if .Pinned }}
+                  <form method="POST" action="{{ $.ActionsSidebar.PinWorkflowHref }}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <input type="hidden" name="workflow_file" value="{{ .File }}">
+                    <input type="hidden" name="action" value="move_up">
+                    <input type="hidden" name="return_to" value="{{ $.ActionsSidebar.ReturnTo }}">
+                    <button type="submit" class="shithub-actions-pin-button shithub-actions-pin-move-up" aria-label="Move {{ .Name }} up"{{ if not .CanMoveUp }} disabled{{ end }}>{{ octicon "triangle-down" }}</button>
+                  </form>
+                  <form method="POST" action="{{ $.ActionsSidebar.PinWorkflowHref }}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <input type="hidden" name="workflow_file" value="{{ .File }}">
+                    <input type="hidden" name="action" value="move_down">
+                    <input type="hidden" name="return_to" value="{{ $.ActionsSidebar.ReturnTo }}">
+                    <button type="submit" class="shithub-actions-pin-button" aria-label="Move {{ .Name }} down"{{ if not .CanMoveDown }} disabled{{ end }}>{{ octicon "triangle-down" }}</button>
+                  </form>
+                  <form method="POST" action="{{ $.ActionsSidebar.PinWorkflowHref }}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <input type="hidden" name="workflow_file" value="{{ .File }}">
+                    <input type="hidden" name="action" value="unpin">
+                    <input type="hidden" name="return_to" value="{{ $.ActionsSidebar.ReturnTo }}">
+                    <button type="submit" class="shithub-actions-pin-button is-pinned" aria-label="Unpin {{ .Name }}">{{ octicon "pin" }}</button>
+                  </form>
+                {{ else }}
+                  <form method="POST" action="{{ $.ActionsSidebar.PinWorkflowHref }}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <input type="hidden" name="workflow_file" value="{{ .File }}">
+                    <input type="hidden" name="action" value="pin">
+                    <input type="hidden" name="return_to" value="{{ $.ActionsSidebar.ReturnTo }}">
+                    <button type="submit" class="shithub-actions-pin-button" aria-label="Pin {{ .Name }}">{{ octicon "pin" }}</button>
+                  </form>
+                {{ end }}
+              </div>
+            {{ else }}
+              <span class="shithub-actions-pin-placeholder" aria-hidden="true">{{ octicon "pin" }}</span>
+            {{ end }}
+          </div>
         {{ end }}
       {{ else }}
         <p>No workflows have run yet.</p>
