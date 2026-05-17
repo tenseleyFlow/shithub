@@ -69,8 +69,11 @@ func TestUserActionsSecrets_PutListGetDeleteRoundTrip(t *testing.T) {
 	if listRR.Code != http.StatusOK {
 		t.Fatalf("LIST status: %d body=%s", listRR.Code, listRR.Body.String())
 	}
-	var listed []map[string]any
-	_ = json.Unmarshal(listRR.Body.Bytes(), &listed)
+	var listEnv struct {
+		Secrets []map[string]any `json:"secrets"`
+	}
+	_ = json.Unmarshal(listRR.Body.Bytes(), &listEnv)
+	listed := listEnv.Secrets
 	if len(listed) != 1 || listed[0]["name"] != "PERSONAL_TOKEN" {
 		t.Fatalf("expected one PERSONAL_TOKEN; got %+v", listed)
 	}
@@ -130,10 +133,12 @@ func TestUserActionsSecrets_OwnerOnlySeesOwnSecrets(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("bob LIST: %d body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
-	if len(listed) != 0 {
-		t.Errorf("bob should see no secrets; got %+v", listed)
+	var bobEnv struct {
+		Secrets []map[string]any `json:"secrets"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &bobEnv)
+	if len(bobEnv.Secrets) != 0 {
+		t.Errorf("bob should see no secrets; got %+v", bobEnv.Secrets)
 	}
 }
 
