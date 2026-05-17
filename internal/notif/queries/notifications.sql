@@ -25,7 +25,8 @@ DO UPDATE SET
     updated_at         = now()
 RETURNING id, recipient_user_id, kind, reason, repo_id,
           thread_kind, thread_id, source_event_id, unread,
-          last_event_at, last_actor_user_id, summary, created_at, updated_at;
+          last_event_at, last_actor_user_id, summary, created_at, updated_at,
+          snoozed_until, tab_label, matched_rule_id;
 
 -- name: InsertThreadlessNotification :one
 -- For events with no thread (e.g. repo-admin lifecycle: archived).
@@ -36,7 +37,8 @@ INSERT INTO notifications (
 ) VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, recipient_user_id, kind, reason, repo_id,
           thread_kind, thread_id, source_event_id, unread,
-          last_event_at, last_actor_user_id, summary, created_at, updated_at;
+          last_event_at, last_actor_user_id, summary, created_at, updated_at,
+          snoozed_until, tab_label, matched_rule_id;
 
 -- name: ListNotificationsForRecipient :many
 -- Inbox view, recency-sorted. `onlyUnread` toggles the inbox

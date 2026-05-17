@@ -9,6 +9,16 @@ import (
 )
 
 type Querier interface {
+	// "drop" hides via a dedicated tab label; we still keep the row so
+	// the user can find it if a rule misfires.
+	ApplyRuleDrop(ctx context.Context, db DBTX, arg ApplyRuleDropParams) error
+	ApplyRuleMarkRead(ctx context.Context, db DBTX, arg ApplyRuleMarkReadParams) error
+	// ─── notification mutation queries (fanout-side apply) ─────────────
+	// Stamp snoozed_until + matched_rule_id on a freshly-upserted
+	// notification. Idempotent shape — re-running over the same row
+	// with the same rule has the same effect.
+	ApplyRuleSnooze(ctx context.Context, db DBTX, arg ApplyRuleSnoozeParams) error
+	ApplyRuleTab(ctx context.Context, db DBTX, arg ApplyRuleTabParams) error
 	// Per-recipient absolute rate cap: how many total emails to this
 	// recipient in the last $2 minutes?
 	CountEmailsForRecipientSince(ctx context.Context, db DBTX, arg CountEmailsForRecipientSinceParams) (int64, error)
@@ -19,11 +29,17 @@ type Querier interface {
 	CountNotificationsForRecipient(ctx context.Context, db DBTX, arg CountNotificationsForRecipientParams) (int64, error)
 	CountUnreadForRecipient(ctx context.Context, db DBTX, recipientUserID int64) (int64, error)
 	DeleteNotificationThread(ctx context.Context, db DBTX, arg DeleteNotificationThreadParams) error
+	// execrows lets the handler distinguish "deleted" from "not found"
+	// without a prior GET.
+	DeleteUserNotificationRule(ctx context.Context, db DBTX, arg DeleteUserNotificationRuleParams) (int64, error)
 	// ─── domain_events_processed ──────────────────────────────────────
 	GetEventCursor(ctx context.Context, db DBTX, consumer string) (DomainEventsProcessed, error)
-	GetNotification(ctx context.Context, db DBTX, id int64) (Notification, error)
+	GetNotification(ctx context.Context, db DBTX, id int64) (GetNotificationRow, error)
 	// ─── notification_threads ──────────────────────────────────────────
 	GetNotificationThread(ctx context.Context, db DBTX, arg GetNotificationThreadParams) (NotificationThread, error)
+	// By-id read with user_id guard. Empty result on cross-user access
+	// forces the handler to 404 — no existence leak.
+	GetUserNotificationRule(ctx context.Context, db DBTX, arg GetUserNotificationRuleParams) (UserNotificationRule, error)
 	// ─── notification_email_log ────────────────────────────────────────
 	// Records an email send. Caller decides what to bind for thread_id
 	// (NULL for thread-less notifications). MessageID is the SMTP /
@@ -37,6 +53,11 @@ type Querier interface {
 	// For events with no thread (e.g. repo-admin lifecycle: archived).
 	// These don't coalesce; each fires its own row. Used sparingly.
 	InsertThreadlessNotification(ctx context.Context, db DBTX, arg InsertThreadlessNotificationParams) (Notification, error)
+	InsertUserNotificationRule(ctx context.Context, db DBTX, arg InsertUserNotificationRuleParams) (UserNotificationRule, error)
+	// Fanout-side load: just the active rules in evaluation order. The
+	// `user_notification_rules_user_enabled_idx` partial index makes this
+	// a single index seek.
+	ListEnabledUserNotificationRules(ctx context.Context, db DBTX, userID int64) ([]UserNotificationRule, error)
 	// Inbox view, recency-sorted. `onlyUnread` toggles the inbox
 	// filter ("Unread" tab vs "All").
 	ListNotificationsForRecipient(ctx context.Context, db DBTX, arg ListNotificationsForRecipientParams) ([]ListNotificationsForRecipientRow, error)
@@ -47,9 +68,24 @@ type Querier interface {
 	// The fan-out worker's read cursor. Bounded so a single tick
 	// doesn't try to drain a million-row backlog.
 	ListUnprocessedDomainEvents(ctx context.Context, db DBTX, arg ListUnprocessedDomainEventsParams) ([]DomainEvent, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-16a: notification routing rules CRUD + fanout-side load.
+	//
+	// Read paths are by-user (settings list, fanout evaluation); write
+	// paths are by-id with a user_id guard so a leaked id can't be
+	// mutated cross-user.
+	// Settings page listing. All rules (enabled + disabled) so the user
+	// can toggle them. Position-ordered so the UI reflects evaluation
+	// order even when some rules are disabled.
+	ListUserNotificationRules(ctx context.Context, db DBTX, userID int64) ([]UserNotificationRule, error)
 	// Bounded sweep: a single call doesn't try to update millions of
 	// rows. Caller paginates via repeated calls when count > batch.
 	MarkAllReadForRecipient(ctx context.Context, db DBTX, recipientUserID int64) error
+	// Returns max(position)+1 for the user, or 0 if no rules exist.
+	// Used by insert to keep new rules at the end of the evaluation
+	// order; the user can reorder later.
+	NextUserNotificationRulePosition(ctx context.Context, db DBTX, userID int64) (int32, error)
 	// Always-write upsert so the worker doesn't have to special-case
 	// the missing-row branch (the migration seeds 'notify_fanout' at
 	// 0; future consumers like 'webhook_deliver' do the same on first
@@ -57,6 +93,7 @@ type Querier interface {
 	SetEventCursor(ctx context.Context, db DBTX, arg SetEventCursorParams) error
 	SetNotificationRead(ctx context.Context, db DBTX, arg SetNotificationReadParams) error
 	SetNotificationUnread(ctx context.Context, db DBTX, arg SetNotificationUnreadParams) error
+	SetUserNotificationRuleEnabled(ctx context.Context, db DBTX, arg SetUserNotificationRuleEnabledParams) (int64, error)
 	// ─── notifications ─────────────────────────────────────────────────
 	// Coalesce-or-insert: if a row exists for (recipient, thread), bump
 	// last_event_at + last_actor + reason and re-flip unread=true so the

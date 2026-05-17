@@ -48,9 +48,26 @@ SELECT id, recipient_user_id, kind, reason, repo_id,
 FROM notifications WHERE id = $1
 `
 
-func (q *Queries) GetNotification(ctx context.Context, db DBTX, id int64) (Notification, error) {
+type GetNotificationRow struct {
+	ID              int64
+	RecipientUserID int64
+	Kind            string
+	Reason          string
+	RepoID          pgtype.Int8
+	ThreadKind      NullNotificationThreadKind
+	ThreadID        pgtype.Int8
+	SourceEventID   pgtype.Int8
+	Unread          bool
+	LastEventAt     pgtype.Timestamptz
+	LastActorUserID pgtype.Int8
+	Summary         []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetNotification(ctx context.Context, db DBTX, id int64) (GetNotificationRow, error) {
 	row := db.QueryRow(ctx, getNotification, id)
-	var i Notification
+	var i GetNotificationRow
 	err := row.Scan(
 		&i.ID,
 		&i.RecipientUserID,
@@ -77,7 +94,8 @@ INSERT INTO notifications (
 ) VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, recipient_user_id, kind, reason, repo_id,
           thread_kind, thread_id, source_event_id, unread,
-          last_event_at, last_actor_user_id, summary, created_at, updated_at
+          last_event_at, last_actor_user_id, summary, created_at, updated_at,
+          snoozed_until, tab_label, matched_rule_id
 `
 
 type InsertThreadlessNotificationParams struct {
@@ -116,6 +134,9 @@ func (q *Queries) InsertThreadlessNotification(ctx context.Context, db DBTX, arg
 		&i.Summary,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SnoozedUntil,
+		&i.TabLabel,
+		&i.MatchedRuleID,
 	)
 	return i, err
 }
@@ -279,7 +300,8 @@ DO UPDATE SET
     updated_at         = now()
 RETURNING id, recipient_user_id, kind, reason, repo_id,
           thread_kind, thread_id, source_event_id, unread,
-          last_event_at, last_actor_user_id, summary, created_at, updated_at
+          last_event_at, last_actor_user_id, summary, created_at, updated_at,
+          snoozed_until, tab_label, matched_rule_id
 `
 
 type UpsertNotificationByThreadParams struct {
@@ -327,6 +349,9 @@ func (q *Queries) UpsertNotificationByThread(ctx context.Context, db DBTX, arg U
 		&i.Summary,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SnoozedUntil,
+		&i.TabLabel,
+		&i.MatchedRuleID,
 	)
 	return i, err
 }
