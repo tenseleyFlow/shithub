@@ -90,6 +90,11 @@ type Querier interface {
 	// Hot path for the polling /access_token endpoint. The middleware
 	// enforces interval_seconds via last_polled_at downstream.
 	GetDeviceAuthorizationByCodeHash(ctx context.Context, db DBTX, deviceCodeHash []byte) (DeviceAuthorization, error)
+	// Same SELECT body, but with FOR UPDATE so concurrent Exchange polls on
+	// the same device_code serialize. Used by the Exchange path inside its
+	// transaction; the non-FOR-UPDATE variant stays for read-only lookups
+	// (e.g. the HTML consent page).
+	GetDeviceAuthorizationByCodeHashForUpdate(ctx context.Context, db DBTX, deviceCodeHash []byte) (DeviceAuthorization, error)
 	// Lookup path for the verification page. Returns even non-pending rows
 	// so the handler can render a clean "already approved" / "expired" page
 	// instead of a generic 404.
@@ -150,10 +155,10 @@ type Querier interface {
 	// most one row. Caller MUST also check revoked_at IS NULL and
 	// expires_at handling. repo_id (PRO-EXT01-11b) is included so the
 	// middleware can propagate the binding to downstream route helpers.
-	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error)
+	GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (GetUserTokenByHashRow, error)
 	// Scoped fetch: only returns the row if it belongs to user_id. Used by
 	// the analytics handler to verify ownership before rendering.
-	GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (UserToken, error)
+	GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (GetUserTokenByIDForUserRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -193,6 +198,11 @@ type Querier interface {
 	// (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
 	// array default rather than a NOT NULL constraint violation.
 	// repo_id is nullable — NULL means "no binding".
+	// source defaults to 'user_created' so existing call sites stay
+	// source-naive; the device-flow Exchange path (internal/auth/devicecode)
+	// passes 'oauth_device' explicitly. The empty-string sentinel maps to
+	// the column DEFAULT via NULLIF + COALESCE so a caller that hasn't yet
+	// been updated to set Source compiles and behaves correctly.
 	InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Fire-and-forget from the PAT middleware. Non-fatal: a failed insert
@@ -287,6 +297,12 @@ type Querier interface {
 	// continuity. Returns the number of rows affected so the handler can
 	// distinguish "not found" from "deleted" without a follow-up query.
 	SoftDeleteUserGPGKey(ctx context.Context, db DBTX, arg SoftDeleteUserGPGKeyParams) (int64, error)
+	// Records the user_tokens.id minted by Exchange against the grant row.
+	// Runs inside the Exchange transaction so the PAT insert and this stamp
+	// commit atomically — no orphan PATs if the process dies mid-Exchange,
+	// no double-mint if two polls land concurrently (the FOR UPDATE in
+	// GetDeviceAuthorizationByCodeHashForUpdate serializes them).
+	StampIssuedTokenID(ctx context.Context, db DBTX, arg StampIssuedTokenIDParams) error
 	SuspendUser(ctx context.Context, db DBTX, arg SuspendUserParams) error
 	TouchDeviceAuthorizationPoll(ctx context.Context, db DBTX, id int64) error
 	TouchSSHKeyLastUsed(ctx context.Context, db DBTX, arg TouchSSHKeyLastUsedParams) error

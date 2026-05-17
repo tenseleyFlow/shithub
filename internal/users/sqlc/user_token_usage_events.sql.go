@@ -7,6 +7,7 @@ package usersdb
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -43,11 +44,27 @@ type GetUserTokenByIDForUserParams struct {
 	UserID int64
 }
 
+type GetUserTokenByIDForUserRow struct {
+	ID          int64
+	UserID      int64
+	Name        string
+	TokenHash   []byte
+	TokenPrefix string
+	Scopes      []string
+	ExpiresAt   pgtype.Timestamptz
+	LastUsedAt  pgtype.Timestamptz
+	LastUsedIp  *netip.Addr
+	RevokedAt   pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	IpAllowlist []string
+	RepoID      pgtype.Int8
+}
+
 // Scoped fetch: only returns the row if it belongs to user_id. Used by
 // the analytics handler to verify ownership before rendering.
-func (q *Queries) GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (UserToken, error) {
+func (q *Queries) GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (GetUserTokenByIDForUserRow, error) {
 	row := db.QueryRow(ctx, getUserTokenByIDForUser, arg.ID, arg.UserID)
-	var i UserToken
+	var i GetUserTokenByIDForUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,

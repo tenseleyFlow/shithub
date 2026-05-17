@@ -32,13 +32,29 @@ FROM user_tokens
 WHERE token_hash = $1
 `
 
+type GetUserTokenByHashRow struct {
+	ID          int64
+	UserID      int64
+	Name        string
+	TokenHash   []byte
+	TokenPrefix string
+	Scopes      []string
+	ExpiresAt   pgtype.Timestamptz
+	LastUsedAt  pgtype.Timestamptz
+	LastUsedIp  *netip.Addr
+	RevokedAt   pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	IpAllowlist []string
+	RepoID      pgtype.Int8
+}
+
 // Hot path for the auth middleware. token_hash is UNIQUE; returns at
 // most one row. Caller MUST also check revoked_at IS NULL and
 // expires_at handling. repo_id (PRO-EXT01-11b) is included so the
 // middleware can propagate the binding to downstream route helpers.
-func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (UserToken, error) {
+func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []byte) (GetUserTokenByHashRow, error) {
 	row := db.QueryRow(ctx, getUserTokenByHash, tokenHash)
-	var i UserToken
+	var i GetUserTokenByHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -59,11 +75,14 @@ func (q *Queries) GetUserTokenByHash(ctx context.Context, db DBTX, tokenHash []b
 
 const insertUserToken = `-- name: InsertUserToken :one
 
-INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist, repo_id)
-VALUES ($1, $2, $3, $4, $5, $6, COALESCE($8::text[], '{}'::text[]), $7)
+INSERT INTO user_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at, ip_allowlist, repo_id, source)
+VALUES ($1, $2, $3, $4, $5, $6,
+        COALESCE($8::text[], '{}'::text[]),
+        $7,
+        COALESCE(NULLIF($9::text, ''), 'user_created'))
 RETURNING id, user_id, name, token_hash, token_prefix, scopes,
           expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-          ip_allowlist, repo_id
+          ip_allowlist, repo_id, source
 `
 
 type InsertUserTokenParams struct {
@@ -75,6 +94,7 @@ type InsertUserTokenParams struct {
 	ExpiresAt   pgtype.Timestamptz
 	RepoID      pgtype.Int8
 	IpAllowlist []string
+	Source      string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -82,6 +102,11 @@ type InsertUserTokenParams struct {
 // (test helpers + the pre-PRO-EXT01-11a handler path) get the empty-
 // array default rather than a NOT NULL constraint violation.
 // repo_id is nullable — NULL means "no binding".
+// source defaults to 'user_created' so existing call sites stay
+// source-naive; the device-flow Exchange path (internal/auth/devicecode)
+// passes 'oauth_device' explicitly. The empty-string sentinel maps to
+// the column DEFAULT via NULLIF + COALESCE so a caller that hasn't yet
+// been updated to set Source compiles and behaves correctly.
 func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTokenParams) (UserToken, error) {
 	row := db.QueryRow(ctx, insertUserToken,
 		arg.UserID,
@@ -92,6 +117,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		arg.ExpiresAt,
 		arg.RepoID,
 		arg.IpAllowlist,
+		arg.Source,
 	)
 	var i UserToken
 	err := row.Scan(
@@ -108,6 +134,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 		&i.CreatedAt,
 		&i.IpAllowlist,
 		&i.RepoID,
+		&i.Source,
 	)
 	return i, err
 }
@@ -115,7 +142,7 @@ func (q *Queries) InsertUserToken(ctx context.Context, db DBTX, arg InsertUserTo
 const listUserTokens = `-- name: ListUserTokens :many
 SELECT id, user_id, name, token_hash, token_prefix, scopes,
        expires_at, last_used_at, last_used_ip, revoked_at, created_at,
-       ip_allowlist, repo_id
+       ip_allowlist, repo_id, source
 FROM user_tokens
 WHERE user_id = $1
 ORDER BY revoked_at IS NOT NULL, created_at DESC
@@ -144,6 +171,7 @@ func (q *Queries) ListUserTokens(ctx context.Context, db DBTX, userID int64) ([]
 			&i.CreatedAt,
 			&i.IpAllowlist,
 			&i.RepoID,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
