@@ -141,6 +141,13 @@ const (
 	// scheduler that consumes the gate ships in 13b.
 	// Kinds: user only.
 	FeatureCronWorkflowDispatch Feature = "cron_workflow_dispatch"
+	// FeaturePersonalStatusPage gates a Pro user's personal status
+	// page + SVG badge endpoint (PRO-EXT01-14). The page aggregates
+	// Actions success rate across the user's pinned repos. Free users
+	// see a teaser with placeholder data so the surface is
+	// discoverable; the badge endpoint returns a 402-styled SVG.
+	// Kinds: user only.
+	FeaturePersonalStatusPage Feature = "personal_status_page"
 )
 
 // Deprecated aliases. Old call sites continue to compile; PRO05's
@@ -244,6 +251,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
 	FeatureWebhookRelay:             {billing.SubjectKindUser},
 	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
+	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.

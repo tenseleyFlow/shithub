@@ -1,0 +1,90 @@
+{{ define "page" -}}
+<section class="shithub-status-page">
+  <header class="shithub-status-header">
+    <a class="shithub-status-avatar-link" href="/{{ .User.Username }}">
+      <img class="shithub-status-avatar" src="{{ .AvatarURL }}" alt="@{{ .User.Username }}" width="80" height="80">
+    </a>
+    <div class="shithub-status-names">
+      <h1>
+        {{ .DisplayName }}
+        <span class="shithub-status-handle">@{{ .User.Username }}</span>
+        {{ template "pro-badge" .ProfileOwnerIsPro }}
+      </h1>
+      <p class="shithub-status-subtitle">Personal status &mdash; pinned repositories</p>
+    </div>
+    <div class="shithub-status-overall shithub-status-overall-{{ .Summary.OverallState }}">
+      <span class="shithub-status-overall-label">Overall</span>
+      <strong>{{ .Summary.OverallState }}</strong>
+    </div>
+  </header>
+
+  {{ if .IsTeaser }}
+  <div class="shithub-flash shithub-flash-info shithub-pro-lock" data-pro-feature="personal_status_page" role="status">
+    <strong>This is a preview.</strong>
+    <p>
+      The rows below are placeholder data. With Pro, this page shows the
+      live success rate and latest workflow run for every repository
+      pinned to your profile, with an SVG badge you can embed in your
+      README.
+    </p>
+    <a class="shithub-pro-lock-cta" href="{{ .TeaserUpgradeHref }}" data-pro-feature="personal_status_page">
+      {{ template "pro-badge" true }} Upgrade to Pro
+    </a>
+  </div>
+  {{ end }}
+
+  <section class="shithub-status-badge-block">
+    <h2>Badge</h2>
+    <p>Embed this status in any README or dashboard:</p>
+    <p>
+      <img src="{{ .BadgeURL }}" alt="status: {{ .Summary.OverallState }}" width="120" height="20">
+    </p>
+    <pre><code>![status](&lt;your-site&gt;{{ .BadgeURL }})</code></pre>
+  </section>
+
+  {{ if .Summary.Repos }}
+  <table class="shithub-table shithub-status-table">
+    <thead>
+      <tr>
+        <th scope="col">Repository</th>
+        <th scope="col">Latest run</th>
+        <th scope="col">Success (30d)</th>
+        <th scope="col">Runs counted</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Summary.Repos }}
+      <tr>
+        <td>
+          <strong>{{ .Owner }}/{{ .Name }}</strong>
+          <span class="shithub-key-meta">({{ .DefaultBranch }})</span>
+        </td>
+        <td>
+          {{ if .LatestRun.Conclusion }}
+          <span class="shithub-status-pill shithub-status-pill-{{ .LatestRun.Conclusion }}">{{ .LatestRun.Conclusion }}</span>
+          <span class="shithub-key-meta">#{{ .LatestRun.RunIndex }} &middot; {{ .LatestRun.CompletedAt.Format "2006-01-02 15:04 UTC" }}</span>
+          {{ else }}
+          <span class="shithub-key-meta">no completed runs</span>
+          {{ end }}
+        </td>
+        <td>
+          {{ if ge .SuccessRate 0.0 }}
+          {{ percent .SuccessRate }}
+          {{ else }}
+          <span class="shithub-key-meta">&mdash;</span>
+          {{ end }}
+        </td>
+        <td>{{ .TotalRuns }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ else }}
+  <p class="shithub-key-empty">No pinned repositories. Pin a few from <a href="/{{ .User.Username }}">your profile</a> to start tracking their CI status here.</p>
+  {{ end }}
+
+  <footer class="shithub-status-footer">
+    <small>Updated {{ .Summary.GeneratedAt.Format "2006-01-02 15:04 UTC" }}</small>
+  </footer>
+</section>
+{{- end }}

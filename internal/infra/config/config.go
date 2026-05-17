@@ -242,6 +242,12 @@ type EnforceConfig struct {
 	// logged on each scheduled fire). PRO-EXT01-13b; promoted in
 	// PRO-EXT01-17.
 	UserCronWorkflowDispatch bool `toml:"user_cron_workflow_dispatch"`
+	// UserPersonalStatusPage: when true, Free users requesting their
+	// personal status page get the locked teaser (or 402 SVG for the
+	// badge endpoint) instead of placeholder data. Off by default →
+	// report-only (Free users see the teaser regardless; the gate
+	// emits the would-deny log either way). PRO-EXT01-14.
+	UserPersonalStatusPage bool `toml:"user_personal_status_page"`
 }
 
 // StripeBillingConfig holds Stripe Billing API settings. Checkout and portal
