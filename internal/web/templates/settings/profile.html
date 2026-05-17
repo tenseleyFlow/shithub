@@ -79,6 +79,11 @@
             <span>Upload new picture</span>
             <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif" required>
           </label>
+          {{ if .AnimatedAvatarsAllowed }}
+          <small class="shithub-pro-hint">Animated GIFs are preserved on your Pro account.</small>
+          {{ else }}
+          <small class="shithub-pro-locked" title="Pro feature">Animated GIFs are flattened to a still image — <a href="/settings/billing">upgrade to Pro</a> to keep animation.</small>
+          {{ end }}
           <button type="submit" class="shithub-button shithub-button-primary">Upload</button>
         </form>
         {{ if .HasAvatar }}
