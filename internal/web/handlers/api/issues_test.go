@@ -143,6 +143,121 @@ func TestIssues_CreateRequiresRepoWriteScope(t *testing.T) {
 	}
 }
 
+// TestIssues_CreateWithLabelsAssigneesMilestone covers the S63/B3
+// extension: POST /issues honoring labels[], assignees[], milestone.
+// Pre-S63 these fields were silently dropped on the server side and
+// gh-compat CLI flags (`shithub issue create --label bug --assignee
+// alice --milestone 1`) had to do a follow-up PATCH to take effect.
+func TestIssues_CreateWithLabelsAssigneesMilestone(t *testing.T) {
+	pool, router, _, repoID, token := seedIssuesEnv(t, "alice")
+	ctx := context.Background()
+
+	// Seed via the REST surface so we exercise the same paths the CLI
+	// hits. Names avoid the system-seeded defaults ("bug", "enhancement",
+	// etc.) — the labelCreate endpoint 409s on those.
+	for _, name := range []string{"triaged", "p1"} {
+		lbody, _ := json.Marshal(map[string]any{"name": name, "color": "ff0000"})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/labels", bytes.NewReader(lbody))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed label %q: %d %s", name, rr.Code, rr.Body.String())
+		}
+	}
+
+	// Milestone seeded directly — there's no milestone REST surface
+	// yet and we just need a row whose id we can pass through.
+	m, err := issuesdb.New().CreateMilestone(ctx, pool, issuesdb.CreateMilestoneParams{
+		RepoID: repoID, Title: "v1", DueOn: pgtype.Timestamptz{},
+	})
+	if err != nil {
+		t.Fatalf("seed milestone: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"title":     "with attachments",
+		"body":      "boom",
+		"labels":    []string{"bug", "p1"},
+		"assignees": []string{"alice"},
+		"milestone": m.ID,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var created apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := len(created.Labels); got != 2 {
+		t.Fatalf("labels: got %d, want 2; raw=%s", got, rr.Body.String())
+	}
+	names := map[string]bool{}
+	for _, l := range created.Labels {
+		names[l.Name] = true
+	}
+	if !names["bug"] || !names["p1"] {
+		t.Errorf("label names: got %+v", created.Labels)
+	}
+
+	// Server-side verify assignee + milestone landed on the issue row.
+	// (No REST GET for assignees yet; checking the table directly is
+	// the cheapest signal that the create handler wired them.)
+	assignees, err := issuesdb.New().ListIssueAssignees(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("ListIssueAssignees: %v", err)
+	}
+	if len(assignees) != 1 {
+		t.Errorf("assignees: got %d, want 1", len(assignees))
+	}
+	fresh, err := issuesdb.New().GetIssueByID(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("GetIssueByID: %v", err)
+	}
+	if !fresh.MilestoneID.Valid || fresh.MilestoneID.Int64 != m.ID {
+		t.Errorf("milestone: got %+v, want %d", fresh.MilestoneID, m.ID)
+	}
+}
+
+// TestIssues_CreateUnknownLabelRejected confirms the up-front
+// resolution path: a typo'd label name fails the request with 422 and
+// no issue row is written. Prevents the half-created-issue footgun.
+func TestIssues_CreateUnknownLabelRejected(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title":  "x",
+		"labels": []string{"does-not-exist"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// And confirm no issue was inserted — the list should be empty.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: %d", rr.Code)
+	}
+	var listed []apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listed) != 0 {
+		t.Errorf("expected no issues after rejected create, got %d", len(listed))
+	}
+}
+
 func TestIssues_ListFiltersByState(t *testing.T) {
 	pool, router, userID, repoID, token := seedIssuesEnv(t, "alice")
 	// Create two issues, close the second directly via sqlc.
