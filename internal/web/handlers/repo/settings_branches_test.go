@@ -137,6 +137,72 @@ func TestSettingsBranchesBlocksAdvancedChecksWithoutEntitlement(t *testing.T) {
 	assertBranchProtectionRuleCount(t, f, repo.ID, 0)
 }
 
+func TestSettingsBranchesBlocksCodeOwnersWithoutEntitlement(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/acme/private-org-repo/settings/branches", url.Values{
+		"pattern":                   {"trunk"},
+		"require_code_owner_review": {"on"},
+	})
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=codeowners-upgrade" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	assertBranchProtectionRuleCount(t, f, repo.ID, 0)
+}
+
+func TestSettingsBranchesAllowsPaidCodeOwners(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	now := time.Now().UTC()
+	if _, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: f.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_codeowners_test",
+		StripeSubscriptionItemID: "si_codeowners_test",
+		CurrentPeriodStart:       now.Add(-time.Hour),
+		CurrentPeriodEnd:         now.Add(24 * time.Hour),
+		LastWebhookEventID:       "evt_codeowners_test",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/acme/private-org-repo/settings/branches", url.Values{
+		"pattern":                   {"trunk"},
+		"require_code_owner_review": {"on"},
+	})
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=saved" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	rules, err := f.handlers.rq.ListBranchProtectionRules(context.Background(), f.pool, repo.ID)
+	if err != nil {
+		t.Fatalf("ListBranchProtectionRules: %v", err)
+	}
+	if len(rules) != 1 || !rules[0].RequireCodeOwnerReview {
+		t.Fatalf("expected code owner review rule, got %+v", rules)
+	}
+}
+
 func TestSettingsBranchesAllowsPublicOrgRepoAdvancedSettingsOnFreePlan(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)

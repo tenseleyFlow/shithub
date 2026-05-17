@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
@@ -216,6 +217,63 @@ func TestSubmit_AttachesPendingComments(t *testing.T) {
 		if !c.ReviewID.Valid || c.ReviewID.Int64 != rv.ID {
 			t.Errorf("comment %d review_id=%v, want %d", c.ID, c.ReviewID, rv.ID)
 		}
+	}
+}
+
+func TestSubmit_SatisfiesTeamReviewRequest(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add", "x.txt", "x\n")
+	pr := f.openPR(t, "trunk", "feature")
+
+	org, err := orgsdb.New().CreateOrg(ctx, f.pool, orgsdb.CreateOrgParams{
+		Slug:            "acme",
+		DisplayName:     "Acme",
+		BillingEmail:    "billing@example.com",
+		CreatedByUserID: pgtype.Int8{Int64: f.authorID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	team, err := orgsdb.New().CreateTeam(ctx, f.pool, orgsdb.CreateTeamParams{
+		OrgID:           org.ID,
+		Slug:            "reviewers",
+		DisplayName:     "Reviewers",
+		Privacy:         orgsdb.TeamPrivacyVisible,
+		CreatedByUserID: pgtype.Int8{Int64: f.authorID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	if err := orgsdb.New().AddTeamMember(ctx, f.pool, orgsdb.AddTeamMemberParams{
+		TeamID: team.ID,
+		UserID: f.reviewerID,
+		Role:   orgsdb.TeamRoleMember,
+	}); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+	if _, err := review.Request(ctx, f.reviewDeps, review.RequestParams{
+		PRIssueID:         pr.IssueID,
+		RequestedTeamID:   team.ID,
+		RequestedByUserID: f.authorID,
+	}); err != nil {
+		t.Fatalf("Request team: %v", err)
+	}
+
+	rv, err := review.Submit(ctx, f.reviewDeps, review.SubmitParams{
+		PRIssueID: pr.IssueID, AuthorUserID: f.reviewerID,
+		State: "approve", PRAuthorUserID: f.authorID,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	requests, err := pullsdb.New().ListPRReviewRequests(ctx, f.pool, pr.IssueID)
+	if err != nil {
+		t.Fatalf("ListPRReviewRequests: %v", err)
+	}
+	if len(requests) != 1 || !requests[0].SatisfiedByReviewID.Valid || requests[0].SatisfiedByReviewID.Int64 != rv.ID {
+		t.Fatalf("expected team request satisfied by review %d, got %+v", rv.ID, requests)
 	}
 }
 

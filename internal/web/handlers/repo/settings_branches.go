@@ -103,6 +103,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		requiredReviews = 0
 	}
 	dismissStale := r.PostFormValue("dismiss_stale_reviews_on_push") == "on"
+	requireCodeOwners := r.PostFormValue("require_code_owner_review") == "on"
 
 	// S24 required-status-check names: comma-separated input. Empty
 	// list means no required checks. Names are matched verbatim
@@ -116,6 +117,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		requireSignedCommits = false
 		requiredReviews = 0
 		dismissStale = false
+		requireCodeOwners = false
 		requiredChecks = []string{}
 		dismissStaleChecks = false
 	}
@@ -124,6 +126,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		Target:               target,
 		RequiredReviews:      requiredReviews,
 		DismissStale:         dismissStale,
+		RequireCodeOwners:    requireCodeOwners,
 		PreventForcePush:     preventForcePush,
 		PreventDeletion:      preventDeletion,
 		RequireSignedCommits: requireSignedCommits,
@@ -171,7 +174,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			ID:                        newID,
 			RequiredReviewCount:       int32(requiredReviews),
 			DismissStaleReviewsOnPush: dismissStale,
-			RequireCodeOwnerReview:    false,
+			RequireCodeOwnerReview:    requireCodeOwners,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
@@ -216,7 +219,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 			ID:                        id,
 			RequiredReviewCount:       int32(requiredReviews),
 			DismissStaleReviewsOnPush: dismissStale,
-			RequireCodeOwnerReview:    false,
+			RequireCodeOwnerReview:    requireCodeOwners,
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: review settings", "error", err)
 		}
@@ -242,6 +245,7 @@ type branchProtectionInputs struct {
 	Target               string
 	RequiredReviews      int
 	DismissStale         bool
+	RequireCodeOwners    bool
 	PreventForcePush     bool
 	PreventDeletion      bool
 	RequireSignedCommits bool
@@ -263,6 +267,7 @@ type branchProtectionGovernanceView struct {
 	TeamRequired                   bool
 	CanUseRequiredReviewers        bool
 	CanUseAdvancedBranchProtection bool
+	CanUseCodeOwners               bool
 	Features                       []branchProtectionGovernanceFeature
 }
 
@@ -283,6 +288,7 @@ func (h *Handlers) branchProtectionGovernanceView(ctx context.Context, row repos
 		TagRulesAPIHref:                "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rules/tags/v1.0.0",
 		CanUseRequiredReviewers:        true,
 		CanUseAdvancedBranchProtection: true,
+		CanUseCodeOwners:               true,
 	}
 	if row.Visibility == reposdb.RepoVisibilityPrivate {
 		view.IsPrivate = true
@@ -293,7 +299,8 @@ func (h *Handlers) branchProtectionGovernanceView(ctx context.Context, row repos
 			view.Message = "This repository does not have a billable owner, so paid governance checks cannot be evaluated."
 			view.CanUseRequiredReviewers = false
 			view.CanUseAdvancedBranchProtection = false
-			view.Features = branchProtectionGovernanceFeatures(view, nil, nil)
+			view.CanUseCodeOwners = false
+			view.Features = branchProtectionGovernanceFeatures(view, nil, nil, nil)
 			return view, nil
 		}
 		view.Scope = "Private personal repository"
@@ -312,14 +319,19 @@ func (h *Handlers) branchProtectionGovernanceView(ctx context.Context, row repos
 		if err != nil {
 			return branchProtectionGovernanceView{}, err
 		}
+		codeOwnersDecision, err := entitlements.CheckPrincipalFeature(ctx, entitlements.Deps{Pool: h.d.Pool}, principal, entitlements.FeatureCodeOwnersReview)
+		if err != nil {
+			return branchProtectionGovernanceView{}, err
+		}
 		view.CanUseRequiredReviewers = reviewDecision.Allowed
 		view.CanUseAdvancedBranchProtection = advancedDecision.Allowed
-		view.State = branchProtectionGovernanceState(principal, reviewDecision, advancedDecision)
-		view.Message = branchProtectionGovernanceMessage(principal, reviewDecision, advancedDecision)
-		view.Features = branchProtectionGovernanceFeatures(view, &reviewDecision, &advancedDecision)
+		view.CanUseCodeOwners = codeOwnersDecision.Allowed
+		view.State = branchProtectionGovernanceState(principal, reviewDecision, advancedDecision, codeOwnersDecision)
+		view.Message = branchProtectionGovernanceMessage(principal, reviewDecision, advancedDecision, codeOwnersDecision)
+		view.Features = branchProtectionGovernanceFeatures(view, &reviewDecision, &advancedDecision, &codeOwnersDecision)
 		return view, nil
 	}
-	view.Features = branchProtectionGovernanceFeatures(view, nil, nil)
+	view.Features = branchProtectionGovernanceFeatures(view, nil, nil, nil)
 	return view, nil
 }
 
@@ -365,9 +377,10 @@ func branchProtectionGovernanceMessage(principal billing.Principal, decisions ..
 	}
 }
 
-func branchProtectionGovernanceFeatures(view branchProtectionGovernanceView, reviews, advanced *entitlements.Decision) []branchProtectionGovernanceFeature {
+func branchProtectionGovernanceFeatures(view branchProtectionGovernanceView, reviews, advanced, codeOwners *entitlements.Decision) []branchProtectionGovernanceFeature {
 	reviewState, reviewGated := branchProtectionFeatureState(view.CanUseRequiredReviewers, reviews)
 	advancedState, advancedGated := branchProtectionFeatureState(view.CanUseAdvancedBranchProtection, advanced)
+	codeOwnerState, codeOwnerGated := branchProtectionFeatureState(view.CanUseCodeOwners, codeOwners)
 	return []branchProtectionGovernanceFeature{
 		{
 			Name:        "Required pull request reviews",
@@ -380,6 +393,12 @@ func branchProtectionGovernanceFeatures(view branchProtectionGovernanceView, rev
 			Description: "Require more than one approval for private organization changes.",
 			State:       reviewState,
 			Gated:       reviewGated,
+		},
+		{
+			Name:        "Code owners",
+			Description: "Require approval from matching CODEOWNERS users or teams when owned paths change.",
+			State:       codeOwnerState,
+			Gated:       codeOwnerGated,
 		},
 		{
 			Name:        "Required status checks",
@@ -448,6 +467,12 @@ func (h *Handlers) branchProtectionEntitlementNotice(ctx context.Context, row re
 	}
 	if inputs.RequiredReviews > 0 || inputs.DismissStale {
 		code, err := h.evaluateBranchProtectionFeature(ctx, principal, entitlements.FeatureRequiredReviewers, inputs.RequiredReviews)
+		if err != nil || code != "" {
+			return code, err
+		}
+	}
+	if inputs.RequireCodeOwners {
+		code, err := h.evaluateBranchProtectionFeature(ctx, principal, entitlements.FeatureCodeOwnersReview, 0)
 		if err != nil || code != "" {
 			return code, err
 		}
@@ -526,7 +551,7 @@ func (h *Handlers) evaluateBranchProtectionFeature(ctx context.Context, p billin
 // false; operators flip per feature after the 7-day telemetry soak.
 func (h *Handlers) userBranchProtectionEnforceOn(feature entitlements.Feature) bool {
 	switch feature {
-	case entitlements.FeatureRequiredReviewers:
+	case entitlements.FeatureRequiredReviewers, entitlements.FeatureCodeOwnersReview:
 		return h.d.BillingEnforce.UserRequiredReviewers
 	case entitlements.FeatureAdvancedBranchProtection:
 		return h.d.BillingEnforce.UserAdvancedBranchProtection
@@ -549,6 +574,18 @@ func (h *Handlers) userBranchProtectionEnforceOn(feature entitlements.Feature) b
 // Enterprise + billing-action-needed reasons retain their pre-PRO08
 // codes — they're independent of plan kind.
 func branchProtectionNoticeCode(decision entitlements.Decision, feature entitlements.Feature, p billing.Principal, attemptedReviewers int) string {
+	if feature == entitlements.FeatureCodeOwnersReview {
+		switch decision.Reason {
+		case entitlements.ReasonBillingActionNeeded:
+			return "codeowners-billing"
+		case entitlements.ReasonEnterpriseContactSales:
+			return "codeowners-enterprise"
+		}
+		if p.IsUser() {
+			return "codeowners-upgrade-pro"
+		}
+		return "codeowners-upgrade"
+	}
 	if feature == entitlements.FeatureRequiredReviewers {
 		switch decision.Reason {
 		case entitlements.ReasonBillingActionNeeded:
@@ -698,6 +735,14 @@ func settingsBranchesNoticeMessage(code string) string {
 		return "Required reviewers are read-only until billing is brought back into good standing."
 	case "required-reviewers-enterprise":
 		return "Required reviewers are unavailable for Enterprise preview organizations. Contact sales to enable them."
+	case "codeowners-upgrade":
+		return "Code owner review on private organization repositories requires Team billing."
+	case "codeowners-upgrade-pro":
+		return "Code owner review on private personal repositories requires Pro. Upgrade at /settings/billing."
+	case "codeowners-billing":
+		return "Code owner review is read-only until billing is brought back into good standing."
+	case "codeowners-enterprise":
+		return "Code owner review is unavailable for Enterprise preview organizations. Contact sales to enable it."
 	default:
 		return ""
 	}

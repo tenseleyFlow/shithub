@@ -92,7 +92,7 @@ Rules for paid-org copy:
 | Basic branch protection | Included | Included | Contact sales |
 | Advanced private-repo branch protection | Upgrade | Included | Contact sales |
 | Required reviewers on private org repos | Upgrade | Included | Contact sales |
-| CODEOWNERS review | Deferred | Deferred | Deferred |
+| Private-repo CODEOWNERS review | Upgrade | Included | Contact sales |
 | Org-level Actions secrets | Upgrade | Included | Contact sales |
 | Org-level Actions variables | Upgrade | Included | Contact sales |
 | Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
@@ -107,8 +107,8 @@ Rules for paid-org copy:
 ## Pro v1 user-tier matrix (PRO07)
 
 Pro is the user-tier paid plan (single seat, $4/month). PRO01 ratified
-the v1 feature set; PRO07 wires the enforcement matrix. CODEOWNERS is a
-registered placeholder with a no-op enforce path until the parser ships.
+the v1 feature set; PRO07 wires the enforcement matrix. SP19 ships the
+CODEOWNERS parser and private-repo review enforcement for Pro users.
 
 | Capability | Free | Pro |
 | --- | --- | --- |
@@ -116,7 +116,7 @@ registered placeholder with a no-op enforce path until the parser ships.
 | Required reviewers on private personal repos | Upgrade | Included |
 | Multi-reviewer (>1 approvals) on private personal repos | Upgrade | Included |
 | Advanced branch protection on private personal repos | Upgrade | Included |
-| CODEOWNERS review | Deferred | Deferred |
+| Private-repo CODEOWNERS review | Upgrade | Included |
 | Profile pins | 6 | 100 |
 
 Multi-reviewer is **not** a separate feature constant — the numeric
@@ -165,6 +165,8 @@ Already present and safe to gate:
 - Teams, including `privacy='secret'`.
 - Branch protection rules and required review counts.
 - PR review and reviewer-request substrate.
+- CODEOWNERS parsing, automatic code-owner reviewer requests, and
+  code-owner-required merge gates.
 - Org/repo Actions secrets and variables schema.
 
 Present but still moving toward full enforcement:
@@ -504,8 +506,28 @@ that Team can truthfully advertise:
   action needed, or contact-sales enterprise preview. Downgraded orgs
   keep existing rule data and can remove or clear gated settings.
 - The organization plan comparison now marks Branch and tag rules plus
-  Multiple reviewers as included for Team. Team-based bypass and
-  CODEOWNERS/team-reviewer semantics remain in later sprint files.
+  Multiple reviewers as included for Team. Team-based bypass remains a
+  later sprint target.
+
+PAYMENTS SP19 ships code-owner and team-reviewer governance:
+
+- `internal/repos/codeowners` parses CODEOWNERS from the GitHub search
+  locations on the PR base commit: `.github/CODEOWNERS`, root
+  `CODEOWNERS`, then `docs/CODEOWNERS`.
+- Public repositories can request and require code-owner review on
+  Free. Private organization repositories require Team; private
+  personal repositories require Pro.
+- CODEOWNERS user owners must resolve to users with effective write
+  access. CODEOWNERS team owners must belong to the repository owner
+  organization and have explicit `write`, `maintain`, or `admin`
+  team-repo access.
+- Pull request review requests now support teams. Team requests are
+  satisfied when a current team member submits an approval or request
+  changes review.
+- Branch settings expose "Require review from Code Owners" as a
+  branch-only rule control. Downgrades preserve existing configuration
+  and block only writes that expand gated private-repo CODEOWNERS
+  requirements.
 
 ## Entitlement architecture
 
@@ -528,6 +550,7 @@ Expected org feature keys:
 - `secret_teams`
 - `advanced_branch_protection`
 - `required_reviewers`
+- `codeowners_review`
 - `actions_org_secrets`
 - `actions_org_variables`
 - `private_collaboration_limit`

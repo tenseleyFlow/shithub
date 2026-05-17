@@ -13,8 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	policydb "github.com/tenseleyFlow/shithub/internal/auth/policy/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos"
+	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 )
 
 // addRepoCollaborator grants `role` on repoID to userID via the policy
@@ -57,6 +62,7 @@ type apiRequestedReviewer struct {
 	ID            int64 `json:"id"`
 	PullID        int64 `json:"pull_id"`
 	UserID        int64 `json:"user_id"`
+	TeamID        int64 `json:"team_id"`
 	RequestedByID int64 `json:"requested_by_id"`
 }
 
@@ -73,6 +79,66 @@ func openPRForReviewTest(t *testing.T) (router http.Handler, ownerToken, otherTo
 	otherToken = mintRunnerAPIPAT(t, pool, otherID, string(pat.ScopeRepoWrite))
 	addRepoCollaborator(t, pool, repoID, otherID, policydb.CollabRoleWrite)
 	return router, ownerToken, otherToken, ownerID, otherID
+}
+
+func openOrgPRForReviewTest(t *testing.T) (router http.Handler, ownerToken string, teamID int64) {
+	t.Helper()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	router, rfs := newReposAPIRouter(t, pool)
+	ownerID := seedRepoCreatorUser(t, pool, "alice")
+	ownerToken = mintRunnerAPIPAT(t, pool, ownerID, string(pat.ScopeRepoWrite))
+
+	org, err := orgsdb.New().CreateOrg(ctx, pool, orgsdb.CreateOrgParams{
+		Slug:            "acme",
+		DisplayName:     "Acme",
+		CreatedByUserID: pgtype.Int8{Int64: ownerID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	if err := orgsdb.New().AddOrgMember(ctx, pool, orgsdb.AddOrgMemberParams{
+		OrgID:  org.ID,
+		UserID: ownerID,
+		Role:   orgsdb.OrgRoleOwner,
+	}); err != nil {
+		t.Fatalf("AddOrgMember: %v", err)
+	}
+	res, err := repos.Create(ctx, repos.Deps{
+		Pool:    pool,
+		RepoFS:  rfs,
+		Audit:   audit.NewRecorder(),
+		Limiter: throttle.NewLimiter(),
+	}, repos.Params{
+		ActorUserID: ownerID,
+		OwnerOrgID:  org.ID,
+		OwnerSlug:   org.Slug,
+		Name:        "demo",
+		Description: "demo",
+		Visibility:  "public",
+	})
+	if err != nil {
+		t.Fatalf("repos.Create: %v", err)
+	}
+	gitDir, err := rfs.RepoPath(org.Slug, res.Repo.Name)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	commitOnRepoBranch(t, gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnRepoBranch(t, gitDir, "feature", "add foo", "foo.txt", "foo\n")
+	openPullFor(t, router, ownerToken, org.Slug, res.Repo.Name)
+
+	team, err := orgsdb.New().CreateTeam(ctx, pool, orgsdb.CreateTeamParams{
+		OrgID:           org.ID,
+		Slug:            "reviewers",
+		DisplayName:     "Reviewers",
+		Privacy:         orgsdb.TeamPrivacyVisible,
+		CreatedByUserID: pgtype.Int8{Int64: ownerID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	return router, ownerToken, team.ID
 }
 
 func TestReviews_SubmitComment(t *testing.T) {
@@ -331,6 +397,48 @@ func TestReviewers_RequestAndDismiss(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("dismiss-twice: got %d, want 404; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestReviewers_RequestAndDismissTeam(t *testing.T) {
+	router, ownerToken, teamID := openOrgPRForReviewTest(t)
+
+	body, _ := json.Marshal(map[string]any{"team_slug": "reviewers"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/acme/demo/pulls/1/requested_reviewers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("request: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var created apiRequestedReviewer
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.TeamID != teamID || created.UserID != 0 {
+		t.Errorf("shape: %+v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/acme/demo/pulls/1/requested_reviewers", nil)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: %d", rr.Code)
+	}
+	var listed []apiRequestedReviewer
+	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	if len(listed) != 1 || listed[0].TeamID != teamID {
+		t.Fatalf("listed team request mismatch: %+v", listed)
+	}
+
+	body, _ = json.Marshal(map[string]any{"team_id": teamID})
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/repos/acme/demo/pulls/1/requested_reviewers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("dismiss: %d; body=%s", rr.Code, rr.Body.String())
 	}
 }
 

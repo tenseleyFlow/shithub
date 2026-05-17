@@ -81,6 +81,7 @@ Stored in `branch_protection_rules`:
 | `require_signed_commits`   | `false` | placeholder — post-MVP; branch-only input    |
 | `status_checks_required`   | `{}`    | branch-only; enforced through the S24 check-run gate |
 | `required_review_count`    | `0`     | branch-only; enforced through the PR review gate |
+| `require_code_owner_review` | `false` | branch-only; enforced through the SP19 CODEOWNERS review gate |
 
 ### Pattern matching
 
@@ -149,6 +150,8 @@ billable repo owner can use:
   status checks.
 - `required_reviewers` for required approvals and multiple required
   reviewers.
+- `codeowners_review` for CODEOWNERS-driven required review on private
+  repositories.
 
 Free private org repositories can read and remove existing rules, but
 cannot add or expand gated settings. Team orgs with active or trialing
@@ -191,8 +194,9 @@ land, the meta blob carries `action: "default_branch_changed"`/
 ## Pitfalls handled
 
 - **Tag-only semantics**: tag rules deliberately ignore branch-only
-  PR review, required-status-check, and signed-commit knobs. The
-  settings handler strips those values on tag-targeted writes.
+  PR review, required-status-check, CODEOWNERS review, and
+  signed-commit knobs. The settings handler strips those values on
+  tag-targeted writes.
 - **Pattern globs vs regexes**: deliberate; matches GitHub UX.
 - **Pre-receive cache scope**: one DB read per hook invocation. With
   small rule sets this is cheap. A long-lived cache would complicate

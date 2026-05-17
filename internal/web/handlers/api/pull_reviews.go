@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -132,6 +133,7 @@ type requestedReviewerResponse struct {
 	ID              int64  `json:"id"`
 	PullID          int64  `json:"pull_id"`
 	UserID          int64  `json:"user_id"`
+	TeamID          int64  `json:"team_id,omitempty"`
 	RequestedByID   int64  `json:"requested_by_id,omitempty"`
 	RequestedAt     string `json:"requested_at"`
 	DismissedAt     string `json:"dismissed_at,omitempty"`
@@ -146,6 +148,9 @@ func presentRequest(r pullsdb.PrReviewRequest) requestedReviewerResponse {
 	}
 	if r.RequestedUserID.Valid {
 		out.UserID = r.RequestedUserID.Int64
+	}
+	if r.RequestedTeamID.Valid {
+		out.TeamID = r.RequestedTeamID.Int64
 	}
 	if r.RequestedByUserID.Valid {
 		out.RequestedByID = r.RequestedByUserID.Int64
@@ -351,6 +356,10 @@ type requestedReviewerCreateRequest struct {
 	// the gh-compatible form.
 	Username string `json:"username"`
 	UserID   int64  `json:"user_id"`
+	// Either TeamSlug or TeamID identifies an org team reviewer.
+	// TeamID wins when both are present.
+	TeamSlug string `json:"team_slug"`
+	TeamID   int64  `json:"team_id"`
 }
 
 func (h *Handlers) pullRequestedReviewersAdd(w http.ResponseWriter, r *http.Request) {
@@ -368,14 +377,15 @@ func (h *Handlers) pullRequestedReviewersAdd(w http.ResponseWriter, r *http.Requ
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	reviewerID, err := h.resolveReviewerID(r, body)
+	target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, body)
 	if err != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	row, err := review.Request(r.Context(), review.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, review.RequestParams{
 		PRIssueID:         pr.IssueID,
-		RequestedUserID:   reviewerID,
+		RequestedUserID:   target.userID,
+		RequestedTeamID:   target.teamID,
 		RequestedByUserID: auth.UserID,
 	})
 	if err != nil {
@@ -400,7 +410,7 @@ func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.R
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	reviewerID, err := h.resolveReviewerID(r, body)
+	target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, body)
 	if err != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -413,7 +423,10 @@ func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.R
 		return
 	}
 	for _, row := range rows {
-		if !row.RequestedUserID.Valid || row.RequestedUserID.Int64 != reviewerID {
+		if target.userID != 0 && (!row.RequestedUserID.Valid || row.RequestedUserID.Int64 != target.userID) {
+			continue
+		}
+		if target.teamID != 0 && (!row.RequestedTeamID.Valid || row.RequestedTeamID.Int64 != target.teamID) {
 			continue
 		}
 		if row.DismissedAt.Valid || row.SatisfiedByReviewID.Valid {
@@ -428,24 +441,60 @@ func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.R
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	writeAPIError(w, http.StatusNotFound, "no active review request for that user")
+	writeAPIError(w, http.StatusNotFound, "no active review request for that reviewer")
 }
 
-func (h *Handlers) resolveReviewerID(r *http.Request, body requestedReviewerCreateRequest) (int64, error) {
+type resolvedReviewerTarget struct {
+	userID int64
+	teamID int64
+}
+
+func (h *Handlers) resolveReviewerTarget(r *http.Request, orgID int64, hasOrg bool, body requestedReviewerCreateRequest) (resolvedReviewerTarget, error) {
+	hasUser := body.UserID != 0 || strings.TrimSpace(body.Username) != ""
+	hasTeam := body.TeamID != 0 || strings.TrimSpace(body.TeamSlug) != ""
+	if hasUser == hasTeam {
+		return resolvedReviewerTarget{}, errors.New("exactly one user or team reviewer is required")
+	}
 	if body.UserID != 0 {
-		return body.UserID, nil
+		return resolvedReviewerTarget{userID: body.UserID}, nil
 	}
-	if strings.TrimSpace(body.Username) == "" {
-		return 0, errors.New("username or user_id is required")
+	if strings.TrimSpace(body.Username) != "" {
+		user, err := usersdb.New().GetUserByUsername(r.Context(), h.d.Pool, body.Username)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return resolvedReviewerTarget{}, errors.New("reviewer not found")
+			}
+			return resolvedReviewerTarget{}, err
+		}
+		return resolvedReviewerTarget{userID: user.ID}, nil
 	}
-	user, err := usersdb.New().GetUserByUsername(r.Context(), h.d.Pool, body.Username)
+	if !hasOrg {
+		return resolvedReviewerTarget{}, errors.New("team reviewers require an organization-owned repository")
+	}
+	if body.TeamID != 0 {
+		team, err := orgsdb.New().GetTeamByID(r.Context(), h.d.Pool, body.TeamID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return resolvedReviewerTarget{}, errors.New("team reviewer not found")
+			}
+			return resolvedReviewerTarget{}, err
+		}
+		if team.OrgID != orgID {
+			return resolvedReviewerTarget{}, errors.New("team reviewer not found")
+		}
+		return resolvedReviewerTarget{teamID: team.ID}, nil
+	}
+	team, err := orgsdb.New().GetTeamByOrgAndSlug(r.Context(), h.d.Pool, orgsdb.GetTeamByOrgAndSlugParams{
+		OrgID: orgID,
+		Slug:  strings.ToLower(strings.TrimSpace(body.TeamSlug)),
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, errors.New("reviewer not found")
+			return resolvedReviewerTarget{}, errors.New("team reviewer not found")
 		}
-		return 0, err
+		return resolvedReviewerTarget{}, err
 	}
-	return user.ID, nil
+	return resolvedReviewerTarget{teamID: team.ID}, nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────

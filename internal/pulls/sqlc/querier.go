@@ -61,6 +61,7 @@ type Querier interface {
 	ListPRReviewComments(ctx context.Context, db DBTX, prIssueID int64) ([]PrReviewComment, error)
 	// Files-tab fetch: comments anchored to a single file path, oldest first.
 	ListPRReviewCommentsForFile(ctx context.Context, db DBTX, arg ListPRReviewCommentsForFileParams) ([]PrReviewComment, error)
+	ListPRReviewRequestTargets(ctx context.Context, db DBTX, prIssueID int64) ([]ListPRReviewRequestTargetsRow, error)
 	ListPRReviewRequests(ctx context.Context, db DBTX, prIssueID int64) ([]PrReviewRequest, error)
 	ListPRReviews(ctx context.Context, db DBTX, prIssueID int64) ([]PrReview, error)
 	// Server-side draft listing: rows with pending=true belonging to one
@@ -81,6 +82,7 @@ type Querier interface {
 	// decide whether to proceed (e.g. someone else just merged it).
 	LockPullRequestForMerge(ctx context.Context, db DBTX, issueID int64) (PullRequest, error)
 	SatisfyPRReviewRequest(ctx context.Context, db DBTX, arg SatisfyPRReviewRequestParams) error
+	SatisfyPRReviewTeamRequestsForReviewer(ctx context.Context, db DBTX, arg SatisfyPRReviewTeamRequestsForReviewerParams) error
 	// Position-mapping update emitted by pulls.Synchronize. NULL means
 	// the comment has gone outdated.
 	SetPRReviewCommentCurrentPosition(ctx context.Context, db DBTX, arg SetPRReviewCommentCurrentPositionParams) error

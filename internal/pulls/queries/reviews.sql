@@ -141,6 +141,20 @@ SELECT * FROM pr_review_requests
 WHERE pr_issue_id = $1
 ORDER BY requested_at;
 
+-- name: ListPRReviewRequestTargets :many
+SELECT pr.id, pr.pr_issue_id, pr.requested_user_id, pr.requested_team_id,
+       pr.requested_by_user_id, pr.requested_at, pr.dismissed_at,
+       pr.satisfied_by_review_id,
+       u.username AS requested_username,
+       t.slug AS requested_team_slug,
+       o.slug AS requested_team_org_slug
+FROM pr_review_requests pr
+LEFT JOIN users u ON u.id = pr.requested_user_id
+LEFT JOIN teams t ON t.id = pr.requested_team_id
+LEFT JOIN orgs o ON o.id = t.org_id
+WHERE pr.pr_issue_id = $1
+ORDER BY pr.requested_at;
+
 -- name: ListPendingReviewRequestsForUser :many
 -- Reviewer's inbox feed. Excludes dismissed + satisfied requests.
 SELECT pr.* FROM pr_review_requests pr
@@ -156,6 +170,20 @@ WHERE pr_issue_id = $1
   AND requested_user_id = $3
   AND dismissed_at IS NULL
   AND satisfied_by_review_id IS NULL;
+
+-- name: SatisfyPRReviewTeamRequestsForReviewer :exec
+UPDATE pr_review_requests pr
+SET satisfied_by_review_id = $2
+WHERE pr.pr_issue_id = $1
+  AND pr.requested_team_id IS NOT NULL
+  AND pr.dismissed_at IS NULL
+  AND pr.satisfied_by_review_id IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM team_members tm
+    WHERE tm.team_id = pr.requested_team_id
+      AND tm.user_id = $3
+  );
 
 -- name: DismissPRReviewRequest :exec
 UPDATE pr_review_requests

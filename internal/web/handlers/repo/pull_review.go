@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
@@ -268,15 +269,35 @@ func (h *Handlers) prReviewerRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := strings.TrimSpace(r.PostFormValue("username"))
-	target, err := h.uq.GetUserByUsername(r.Context(), h.d.Pool, username)
-	if err != nil {
-		h.d.Render.HTTPError(w, r, http.StatusNotFound, "user not found")
-		return
+	var requestedUserID int64
+	var requestedTeamID int64
+	if teamOwner, teamSlug, ok := strings.Cut(strings.TrimPrefix(username, "@"), "/"); ok {
+		if !row.OwnerOrgID.Valid || !strings.EqualFold(teamOwner, owner.Username) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "team not found")
+			return
+		}
+		team, err := orgsdb.New().GetTeamByOrgAndSlug(r.Context(), h.d.Pool, orgsdb.GetTeamByOrgAndSlugParams{
+			OrgID: row.OwnerOrgID.Int64,
+			Slug:  strings.ToLower(strings.TrimSpace(teamSlug)),
+		})
+		if err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "team not found")
+			return
+		}
+		requestedTeamID = team.ID
+	} else {
+		target, err := h.uq.GetUserByUsername(r.Context(), h.d.Pool, username)
+		if err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "user not found")
+			return
+		}
+		requestedUserID = target.ID
 	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if _, err := review.Request(r.Context(), h.reviewDeps(), review.RequestParams{
 		PRIssueID:         pr.IID,
-		RequestedUserID:   target.ID,
+		RequestedUserID:   requestedUserID,
+		RequestedTeamID:   requestedTeamID,
 		RequestedByUserID: viewer.ID,
 	}); err != nil {
 		h.handleReviewWriteError(w, r, err)

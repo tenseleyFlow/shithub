@@ -69,7 +69,7 @@
           <td>{{ if .PreventForcePush }}Blocked{{ else }}Allowed{{ end }}</td>
           <td>{{ if .PreventDeletion }}Blocked{{ else }}Allowed{{ end }}</td>
           <td>{{ len .AllowedPusherUserIds }} {{ if eq (len .AllowedPusherUserIds) 1 }}user{{ else }}users{{ end }}</td>
-          <td>{{ if eq .Target "tag" }}Not applicable{{ else }}{{ if .RequirePrForPush }}PR required{{ else }}Direct pushes allowed{{ end }}{{ if gt .RequiredReviewCount 0 }}; {{ .RequiredReviewCount }} {{ if eq .RequiredReviewCount 1 }}review{{ else }}reviews{{ end }}{{ end }}{{ if .DismissStaleReviewsOnPush }}; stale reviews dismissed{{ end }}{{ end }}</td>
+          <td>{{ if eq .Target "tag" }}Not applicable{{ else }}{{ if .RequirePrForPush }}PR required{{ else }}Direct pushes allowed{{ end }}{{ if gt .RequiredReviewCount 0 }}; {{ .RequiredReviewCount }} {{ if eq .RequiredReviewCount 1 }}review{{ else }}reviews{{ end }}{{ end }}{{ if .RequireCodeOwnerReview }}; code owners{{ end }}{{ if .DismissStaleReviewsOnPush }}; stale reviews dismissed{{ end }}{{ end }}</td>
           <td>{{ if eq .Target "tag" }}Not applicable{{ else }}{{ if .StatusChecksRequired }}{{ range $i, $n := .StatusChecksRequired }}{{ if $i }}, {{ end }}<code>{{ $n }}</code>{{ end }}{{ if .DismissStaleStatusChecksOnPush }}; stale checks dismissed{{ end }}{{ else }}None{{ end }}{{ end }}</td>
           <td>
             <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/branches/{{ .ID }}/delete" style="display:inline">
@@ -114,6 +114,7 @@
         <label>Required approving reviews
           <input type="number" name="required_review_count" min="0" value="0">
         </label>
+        <label><input type="checkbox" name="require_code_owner_review"> Require review from Code Owners</label>
         <label><input type="checkbox" name="dismiss_stale_reviews_on_push"> Dismiss stale reviews on new push</label>
       </fieldset>
       <fieldset>

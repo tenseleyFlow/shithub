@@ -17,7 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
+	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -103,6 +105,41 @@ func setup(t *testing.T) fixture {
 	return fixture{pool: pool, deps: deps, userID: user.ID, repoID: repo.ID, gitDir: gitDir}
 }
 
+func createPullsTestUser(t *testing.T, pool *pgxpool.Pool, username string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	uq := usersdb.New()
+	u, err := uq.CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: username, DisplayName: strings.ToTitle(username), PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser %s: %v", username, err)
+	}
+	em, err := uq.CreateUserEmail(ctx, pool, usersdb.CreateUserEmailParams{
+		UserID: u.ID, Email: username + "@example.com", IsPrimary: true, Verified: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserEmail %s: %v", username, err)
+	}
+	if err := uq.LinkUserPrimaryEmail(ctx, pool, usersdb.LinkUserPrimaryEmailParams{
+		ID: u.ID, PrimaryEmailID: pgtype.Int8{Int64: em.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("LinkUserPrimaryEmail %s: %v", username, err)
+	}
+	return u.ID
+}
+
+func grantRepoCollaborator(t *testing.T, pool *pgxpool.Pool, repoID, userID, addedByUserID int64, role string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO repo_collaborators (repo_id, user_id, role, added_by_user_id)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (repo_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+		repoID, userID, role, addedByUserID); err != nil {
+		t.Fatalf("grant collaborator: %v", err)
+	}
+}
+
 // commitOnBranch creates a commit on branch from a temp worktree.
 // Returns the new HEAD oid.
 func commitOnBranch(t *testing.T, gitDir, branch, msg, file, contents string) string {
@@ -172,6 +209,170 @@ func TestCreate_OpensPRWithIssueRow(t *testing.T) {
 	commits, _ := pullsdb.New().ListPullRequestCommits(context.Background(), f.pool, res.PullRequest.IssueID)
 	if len(commits) == 0 {
 		t.Errorf("expected commits populated by initial sync")
+	}
+}
+
+func TestCreate_RequestsCodeOwners(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	reviewerID := createPullsTestUser(t, f.pool, "bob")
+	grantRepoCollaborator(t, f.pool, f.repoID, reviewerID, f.userID, "write")
+	commitOnBranch(t, f.gitDir, "trunk", "codeowners", "CODEOWNERS", "*.go @bob\n")
+	commitOnBranch(t, f.gitDir, "feature", "add go", "main.go", "package main\n")
+
+	res, err := pulls.Create(ctx, f.deps, pulls.CreateParams{
+		RepoID:       f.repoID,
+		AuthorUserID: f.userID,
+		Title:        "Add go",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	requests, err := pullsdb.New().ListPRReviewRequests(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("ListPRReviewRequests: %v", err)
+	}
+	if len(requests) != 1 || !requests[0].RequestedUserID.Valid || requests[0].RequestedUserID.Int64 != reviewerID {
+		t.Fatalf("expected bob code owner request, got %+v", requests)
+	}
+}
+
+func TestCreate_RequestsTeamCodeOwners(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	reviewerID := createPullsTestUser(t, f.pool, "bob")
+	org, err := orgsdb.New().CreateOrg(ctx, f.pool, orgsdb.CreateOrgParams{
+		Slug:            "acme",
+		DisplayName:     "Acme",
+		BillingEmail:    "billing@example.com",
+		CreatedByUserID: pgtype.Int8{Int64: f.userID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, f.pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo org: %v", err)
+	}
+	if err := issuesdb.New().EnsureRepoIssueCounter(ctx, f.pool, repo.ID); err != nil {
+		t.Fatalf("EnsureRepoIssueCounter org: %v", err)
+	}
+	team, err := orgsdb.New().CreateTeam(ctx, f.pool, orgsdb.CreateTeamParams{
+		OrgID:           org.ID,
+		Slug:            "reviewers",
+		DisplayName:     "Reviewers",
+		Privacy:         orgsdb.TeamPrivacyVisible,
+		CreatedByUserID: pgtype.Int8{Int64: f.userID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	if err := orgsdb.New().AddTeamMember(ctx, f.pool, orgsdb.AddTeamMemberParams{
+		TeamID: team.ID,
+		UserID: reviewerID,
+		Role:   orgsdb.TeamRoleMember,
+	}); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+	if err := orgsdb.New().GrantTeamRepoAccess(ctx, f.pool, orgsdb.GrantTeamRepoAccessParams{
+		TeamID: team.ID,
+		RepoID: repo.ID,
+		Role:   orgsdb.TeamRepoRoleWrite,
+	}); err != nil {
+		t.Fatalf("GrantTeamRepoAccess: %v", err)
+	}
+	commitOnBranch(t, f.gitDir, "trunk", "codeowners", "CODEOWNERS", "*.go @acme/reviewers\n")
+	commitOnBranch(t, f.gitDir, "feature", "add go", "main.go", "package main\n")
+
+	res, err := pulls.Create(ctx, f.deps, pulls.CreateParams{
+		RepoID:       repo.ID,
+		AuthorUserID: f.userID,
+		Title:        "Add go",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	requests, err := pullsdb.New().ListPRReviewRequests(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("ListPRReviewRequests: %v", err)
+	}
+	if len(requests) != 1 || !requests[0].RequestedTeamID.Valid || requests[0].RequestedTeamID.Int64 != team.ID {
+		t.Fatalf("expected team code owner request, got %+v", requests)
+	}
+}
+
+func TestMergeability_CodeOwnerReviewRequired(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	reviewerID := createPullsTestUser(t, f.pool, "bob")
+	grantRepoCollaborator(t, f.pool, f.repoID, reviewerID, f.userID, "write")
+	ruleID, err := reposdb.New().UpsertBranchProtectionRule(ctx, f.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               f.repoID,
+		Pattern:              "trunk",
+		AllowedPusherUserIds: []int64{},
+	})
+	if err != nil {
+		t.Fatalf("UpsertBranchProtectionRule: %v", err)
+	}
+	if err := reposdb.New().UpdateBranchProtectionReviewSettings(ctx, f.pool, reposdb.UpdateBranchProtectionReviewSettingsParams{
+		ID:                     ruleID,
+		RequireCodeOwnerReview: true,
+	}); err != nil {
+		t.Fatalf("UpdateBranchProtectionReviewSettings: %v", err)
+	}
+	commitOnBranch(t, f.gitDir, "trunk", "codeowners", "CODEOWNERS", "*.go @bob\n")
+	commitOnBranch(t, f.gitDir, "feature", "add go", "main.go", "package main\n")
+
+	res, err := pulls.Create(ctx, f.deps, pulls.CreateParams{
+		RepoID:       f.repoID,
+		AuthorUserID: f.userID,
+		Title:        "Add go",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := pulls.Mergeability(ctx, f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability before approval: %v", err)
+	}
+	pr, err := pullsdb.New().GetPullRequestByIssueID(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("GetPullRequestByIssueID: %v", err)
+	}
+	if pr.MergeableState != pullsdb.PrMergeableStateBlocked {
+		t.Fatalf("mergeable_state=%s want blocked", pr.MergeableState)
+	}
+
+	if _, err := review.Submit(ctx, review.Deps{Pool: f.pool, Logger: f.deps.Logger}, review.SubmitParams{
+		PRIssueID:      res.PullRequest.IssueID,
+		AuthorUserID:   reviewerID,
+		State:          "approve",
+		PRAuthorUserID: f.userID,
+	}); err != nil {
+		t.Fatalf("Submit approve: %v", err)
+	}
+	if err := pulls.Mergeability(ctx, f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability after approval: %v", err)
+	}
+	pr, err = pullsdb.New().GetPullRequestByIssueID(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("GetPullRequestByIssueID after approval: %v", err)
+	}
+	if pr.MergeableState != pullsdb.PrMergeableStateClean {
+		t.Fatalf("mergeable_state=%s want clean", pr.MergeableState)
 	}
 }
 

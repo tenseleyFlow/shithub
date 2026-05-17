@@ -610,8 +610,8 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 				},
 				{
 					Name: "Code owners", Description: "Request reviews from responsible owners when protected files change.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP19",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Planned",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP19",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Shipped",
 				},
 			},
 		},
@@ -657,6 +657,16 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					Name: "Multiple reviewers in pull requests", Description: "Require more than one reviewer before private-repo changes merge.",
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP18",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Shipped",
+				},
+				{
+					Name: "Team pull request reviewers", Description: "Request teams for review and satisfy the request when a team member reviews.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP19",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Shipped",
+				},
+				{
+					Name: "Automatic code review assignment", Description: "Automatically request matching CODEOWNERS users and teams on pull request updates.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP19",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Shipped",
 				},
 				{
 					Name: "Scheduled reminders", Description: "Remind teams about pending pull requests.",

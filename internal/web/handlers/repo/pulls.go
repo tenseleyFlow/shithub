@@ -641,15 +641,31 @@ func (h *Handlers) pullView(w http.ResponseWriter, r *http.Request) {
 		}
 		rs = append(rs, rr)
 	}
+	requestTargets, _ := h.pq.ListPRReviewRequestTargets(r.Context(), h.d.Pool, pr.IID)
 	type reqRow struct {
-		R        pullsdb.PrReviewRequest
+		R        pullsdb.ListPRReviewRequestTargetsRow
 		Username string
+		TeamSlug string
+		OrgSlug  string
 	}
-	reqs := make([]reqRow, 0, len(requests))
-	for _, rq := range requests {
+	reqs := make([]reqRow, 0, len(requestTargets))
+	for _, rq := range requestTargets {
 		rr := reqRow{R: rq}
 		if rq.RequestedUserID.Valid {
-			rr.Username = usernameFor(rq.RequestedUserID.Int64)
+			if rq.RequestedUsername.Valid {
+				rr.Username = rq.RequestedUsername.String
+				_ = usernameFor(rq.RequestedUserID.Int64)
+			} else {
+				rr.Username = usernameFor(rq.RequestedUserID.Int64)
+			}
+		}
+		if rq.RequestedTeamID.Valid {
+			if rq.RequestedTeamSlug.Valid {
+				rr.TeamSlug = rq.RequestedTeamSlug.String
+			}
+			if rq.RequestedTeamOrgSlug.Valid {
+				rr.OrgSlug = rq.RequestedTeamOrgSlug.String
+			}
 		}
 		reqs = append(reqs, rr)
 	}

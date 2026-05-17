@@ -147,6 +147,8 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		if deps.Logger != nil {
 			deps.Logger.WarnContext(ctx, "pulls: initial sync", "error", err, "pr_id", prRow.IssueID)
 		}
+	} else {
+		maybeRequestCodeOwners(ctx, deps, p.GitDir, p.RepoID, prRow.IssueID, p.AuthorUserID, baseOID)
 	}
 
 	// Actions trigger (S41b): on PR open, fan out a workflow:trigger
@@ -317,6 +319,12 @@ func Synchronize(ctx context.Context, deps Deps, gitDir string, prID int64) erro
 	if err := refreshCommitsAndFiles(ctx, deps, gitDir, prID, baseOID, headOID); err != nil {
 		return err
 	}
+	issue, err := issuesdb.New().GetIssueByID(ctx, deps.Pool, prID)
+	if err != nil {
+		return fmt.Errorf("load issue: %w", err)
+	}
+	actorID := int64FromPg(issue.AuthorUserID)
+	maybeRequestCodeOwners(ctx, deps, gitDir, issue.RepoID, prID, actorID, baseOID)
 	// Re-anchor review comments against the new snapshot. Comments
 	// whose original line still exists keep their thread; the rest
 	// outdate (current_position=NULL) and surface in the "Show
@@ -403,6 +411,8 @@ func Mergeability(ctx context.Context, deps Deps, gitDir string, prID int64) err
 	reviewGate, err := review.Evaluate(ctx, deps.Pool, review.GateInputs{
 		RepoID:    issue.RepoID,
 		BaseRef:   pr.BaseRef,
+		BaseOID:   pr.BaseOid,
+		GitDir:    gitDir,
 		PRIssueID: prID,
 	}, int64FromPg(issue.AuthorUserID))
 	if err != nil {

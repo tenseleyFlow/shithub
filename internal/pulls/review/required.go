@@ -17,6 +17,8 @@ import (
 type GateInputs struct {
 	RepoID    int64
 	BaseRef   string
+	BaseOID   string
+	GitDir    string
 	PRIssueID int64
 }
 
@@ -36,6 +38,15 @@ type GateResult struct {
 	// HasRequestChanges — at least one undismissed `request_changes`
 	// review whose author hasn't superseded it with a later approve.
 	HasRequestChanges bool
+	// RequiresCodeOwnerReview — the matching branch-protection rule
+	// requires code-owner approval for owned paths.
+	RequiresCodeOwnerReview bool
+	// CodeOwnerReviewSatisfied — true when every owned changed file has
+	// at least one valid code-owner approval.
+	CodeOwnerReviewSatisfied bool
+	// MissingCodeOwnerPaths — changed paths still waiting on a valid
+	// code-owner approval, or owned by unresolved CODEOWNERS entries.
+	MissingCodeOwnerPaths []string
 }
 
 // Evaluate computes the gate against the matching branch-protection
@@ -67,7 +78,8 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, in GateInputs, prAuthorUs
 	if err != nil {
 		return GateResult{}, err
 	}
-	approves, requestChanges := latestPerAuthor(reviews, prAuthorUserID)
+	latest := latestPerAuthor(reviews, prAuthorUserID)
+	approves, requestChanges := countLatestDecisions(latest)
 
 	required := 0
 	if hasRule {
@@ -78,12 +90,28 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, in GateInputs, prAuthorUs
 		CurrentApprovals:  approves,
 		HasRequestChanges: requestChanges,
 	}
+	if hasRule && rule.RequireCodeOwnerReview {
+		out.RequiresCodeOwnerReview = true
+		repo, err := reposdb.New().GetRepoByID(ctx, pool, in.RepoID)
+		if err != nil {
+			return GateResult{}, err
+		}
+		approved := latestApprovers(latest)
+		ok, missing, err := codeOwnerReviewSatisfied(ctx, pool, in, repo, approved)
+		if err != nil {
+			return GateResult{}, err
+		}
+		out.CodeOwnerReviewSatisfied = ok
+		out.MissingCodeOwnerPaths = missing
+	}
 
 	switch {
 	case requestChanges:
 		out.Reason = "Changes requested by a reviewer."
 	case approves < required:
 		out.Reason = "Approval required."
+	case out.RequiresCodeOwnerReview && !out.CodeOwnerReviewSatisfied:
+		out.Reason = "Code owner review required."
 	default:
 		out.Satisfied = true
 	}
@@ -104,7 +132,8 @@ func loadProtectionRules(ctx context.Context, pool *pgxpool.Pool, repoID int64) 
 // reviews are ignored (they don't shift the gate state per spec).
 //
 // Author of the PR is excluded from the approval count.
-func latestPerAuthor(reviews []pullsdb.ListUndismissedReviewsForGateRow, prAuthorUserID int64) (approves int, requestChanges bool) {
+func latestPerAuthor(reviews []pullsdb.ListUndismissedReviewsForGateRow, prAuthorUserID int64) map[int64]pullsdb.PrReviewState {
+	out := map[int64]pullsdb.PrReviewState{}
 	// Reviews are ordered by (author_user_id, submitted_at) so the
 	// last entry per author is the latest decision. Track the per-
 	// author winner inline.
@@ -118,10 +147,8 @@ func latestPerAuthor(reviews []pullsdb.ListUndismissedReviewsForGateRow, prAutho
 			return
 		}
 		switch curState {
-		case pullsdb.PrReviewStateApprove:
-			approves++
-		case pullsdb.PrReviewStateRequestChanges:
-			requestChanges = true
+		case pullsdb.PrReviewStateApprove, pullsdb.PrReviewStateRequestChanges:
+			out[curAuthor] = curState
 		}
 	}
 	for _, r := range reviews {
@@ -142,7 +169,29 @@ func latestPerAuthor(reviews []pullsdb.ListUndismissedReviewsForGateRow, prAutho
 		}
 	}
 	flush()
+	return out
+}
+
+func countLatestDecisions(latest map[int64]pullsdb.PrReviewState) (approves int, requestChanges bool) {
+	for _, state := range latest {
+		switch state {
+		case pullsdb.PrReviewStateApprove:
+			approves++
+		case pullsdb.PrReviewStateRequestChanges:
+			requestChanges = true
+		}
+	}
 	return approves, requestChanges
+}
+
+func latestApprovers(latest map[int64]pullsdb.PrReviewState) map[int64]struct{} {
+	out := map[int64]struct{}{}
+	for authorID, state := range latest {
+		if state == pullsdb.PrReviewStateApprove {
+			out[authorID] = struct{}{}
+		}
+	}
+	return out
 }
 
 func int64FromPg(p pgtype.Int8) int64 {
