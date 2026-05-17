@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/notifications"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -190,6 +191,18 @@ var workerCmd = &cobra.Command{
 			BaseURL:           cfg.Auth.BaseURL,
 			UnsubscribeKey:    notifUnsubscribeKey(cfg, logger),
 			EnforceInboxRules: cfg.Billing.Enforce.UserInboxRules,
+		}))
+		// PRO-EXT01-16b — scheduled digest sweep. Operator's systemd
+		// timer enqueues KindNotifyDigestSweep on an hour beat; the
+		// handler claims due rows + emails each.
+		p.Register(notifications.KindNotifyDigestSweep, jobs.NotifyDigestSweep(notifications.DigestSweepDeps{
+			Pool:           pool,
+			Logger:         logger,
+			EmailSender:    notifSender,
+			EmailFrom:      cfg.Auth.EmailFrom,
+			SiteName:       cfg.Auth.SiteName,
+			BaseURL:        cfg.Auth.BaseURL,
+			EnforceDigests: cfg.Billing.Enforce.UserInboxDigests,
 		}))
 		p.Register(worker.KindTrendingCompute, jobs.TrendingCompute(jobs.TrendingComputeDeps{
 			Pool: pool, Logger: logger,
