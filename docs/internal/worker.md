@@ -39,6 +39,7 @@ backstop poll (every 5s by default) covers dropped notifications.
 | `jobs:purge_completed`       | cron / manual ad-hoc                 | always safe to re-run            |
 | `workflow:cleanup`           | cron / manual ad-hoc                 | retention cutoff + idempotent deletes |
 | `trending:compute`           | recurring self-scheduled S42 job     | append-only snapshots            |
+| `org:scheduled_reminder_sweep` | cron / manual ad-hoc                | reminder delivery rows           |
 
 Adding a new kind: write the handler in `internal/worker/jobs/<kind>.go`,
 add the `Kind` constant to `internal/worker/types.go`, register it in
@@ -98,3 +99,8 @@ All exported through the standard `/metrics` registry:
 * `LISTEN/NOTIFY` semantics: when the hook calls `pg_notify` inside a
   transaction, the notification is *only* delivered after commit. So
   failed inserts never wake workers for nothing.
+* `org:scheduled_reminder_sweep` should be enqueued by the operator's
+  normal scheduler at least once per minute. The handler claims bounded
+  due reminder schedules, advances each next-run timestamp, and writes
+  per-recipient delivery rows before inbox notifications so retries do
+  not spam duplicate scheduled reminders.

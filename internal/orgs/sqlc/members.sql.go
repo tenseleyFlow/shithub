@@ -33,8 +33,7 @@ type AddOrgMemberParams struct {
 // the member is new; existing rows keep their current role (use
 // ChangeOrgMemberRole to update).
 func (q *Queries) AddOrgMember(ctx context.Context, db DBTX, arg AddOrgMemberParams) error {
-	_, err := db.Exec(
-		ctx, addOrgMember,
+	_, err := db.Exec(ctx, addOrgMember,
 		arg.OrgID,
 		arg.UserID,
 		arg.Role,

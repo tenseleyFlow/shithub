@@ -469,6 +469,8 @@ func notificationReasonLabel(reason string) string {
 		return "Watching"
 	case "repo_admin_action":
 		return "Repository"
+	case "scheduled_reminder":
+		return "Scheduled reminder"
 	default:
 		return humanizeNotificationToken(reason)
 	}
@@ -510,6 +512,8 @@ func notificationKindLabel(kind string) string {
 		return "Check fixed"
 	case "repo_archived":
 		return "Repository archived"
+	case "scheduled_reminder":
+		return "Scheduled reminder"
 	default:
 		return humanizeNotificationToken(kind)
 	}

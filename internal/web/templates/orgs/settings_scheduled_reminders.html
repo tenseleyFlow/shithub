@@ -1,0 +1,195 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Scheduled reminders</h2>
+        <div class="Subhead-description">Send follow-up notifications for pull requests waiting on review.</div>
+      </div>
+
+      <section class="shithub-org-settings-section" aria-labelledby="new-scheduled-reminder-heading">
+        <h3 id="new-scheduled-reminder-heading">New reminder</h3>
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/scheduled-reminders" class="shithub-org-settings-form" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Name</span>
+            <input type="text" name="name" value="{{ .Form.Name }}" maxlength="80" required>
+          </label>
+          <label>
+            <span>Repository scope</span>
+            <select name="target">
+              <option value="all_repositories"{{ if eq .Form.Target "all_repositories" }} selected{{ end }}>All repositories</option>
+              <option value="repository"{{ if eq .Form.Target "repository" }} selected{{ end }}>A selected repository</option>
+              <option value="team"{{ if eq .Form.Target "team" }} selected{{ end }}>A selected team</option>
+            </select>
+          </label>
+          <label>
+            <span>Repository</span>
+            <select name="repo_id">
+              <option value="">Choose repository when scope is selected repository</option>
+              {{ range .Repos }}
+              <option value="{{ .ID }}"{{ if eq $.Form.RepoID .ID }} selected{{ end }}>{{ .Name }} · {{ .Visibility }}</option>
+              {{ end }}
+            </select>
+          </label>
+          <label>
+            <span>Team</span>
+            <select name="team_id">
+              <option value="">Choose team when scope is selected team</option>
+              {{ range .Teams }}
+              <option value="{{ .ID }}"{{ if eq $.Form.TeamID .ID }} selected{{ end }}>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Slug }}{{ end }}</option>
+              {{ end }}
+            </select>
+          </label>
+          <label>
+            <span>Cron expression</span>
+            <input type="text" name="cron_expr" value="{{ .Form.CronExpr }}" placeholder="0 9 * * 1" required>
+          </label>
+          <label>
+            <span>Timezone</span>
+            <input type="text" name="timezone" value="{{ .Form.Timezone }}" placeholder="UTC" required>
+          </label>
+          <label>
+            <span>Only remind after</span>
+            <input type="number" name="min_age_minutes" value="{{ .Form.MinAgeMinutes }}" min="0" max="43200" step="1">
+          </label>
+          <label class="shithub-org-settings-checkbox">
+            <input type="checkbox" name="condition_review_requested"{{ if .Form.ConditionReviewRequested }} checked{{ end }}>
+            <span>Pull requests with requested reviewers</span>
+          </label>
+          <label class="shithub-org-settings-checkbox">
+            <input type="checkbox" name="condition_team_review_requested"{{ if .Form.ConditionTeamReviewRequested }} checked{{ end }}>
+            <span>Pull requests with requested teams</span>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Create reminder</button>
+        </form>
+      </section>
+
+      <section class="shithub-org-settings-section" aria-labelledby="scheduled-reminders-heading">
+        <h3 id="scheduled-reminders-heading">Existing reminders</h3>
+        {{ if .Reminders }}
+          <div class="shithub-org-settings-box">
+            {{ range .Reminders }}
+            {{ $reminder := . }}
+            <div class="shithub-org-settings-row shithub-scheduled-reminder-row">
+              <div>
+                <strong>{{ .Name }}</strong>
+                <p>
+                  {{ if eq (printf "%s" .Target) "all_repositories" }}All repositories{{ end }}
+                  {{ if eq (printf "%s" .Target) "repository" }}Repository: {{ .RepoName }}{{ end }}
+                  {{ if eq (printf "%s" .Target) "team" }}Team: {{ if .TeamDisplayName }}{{ .TeamDisplayName }}{{ else }}{{ .TeamSlug }}{{ end }}{{ end }}
+                  · {{ .CronExpr }} {{ .Timezone }}
+                  {{ if .Paused }} · paused{{ end }}
+                </p>
+                <p>
+                  {{ if .ConditionReviewRequested }}requested reviewers{{ end }}
+                  {{ if and .ConditionReviewRequested .ConditionTeamReviewRequested }} and {{ end }}
+                  {{ if .ConditionTeamReviewRequested }}requested teams{{ end }}
+                  · minimum age {{ .MinAgeMinutes }} minutes
+                  {{ if .LastRunAt.IsZero }}{{ else }} · last run {{ .LastRunStatus }}{{ end }}
+                </p>
+                {{ with .LastRunError }}<p class="shithub-meta">Last error: {{ . }}</p>{{ end }}
+              </div>
+              <details class="shithub-scheduled-reminder-details">
+                <summary class="shithub-button">Edit</summary>
+                <form method="POST" action="/organizations/{{ $.Org.Slug }}/settings/scheduled-reminders/{{ .ID }}" class="shithub-org-settings-form" novalidate>
+                  <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                  <label>
+                    <span>Name</span>
+                    <input type="text" name="name" value="{{ .Name }}" maxlength="80" required>
+                  </label>
+                  <label>
+                    <span>Repository scope</span>
+                    <select name="target">
+                      <option value="all_repositories"{{ if eq (printf "%s" .Target) "all_repositories" }} selected{{ end }}>All repositories</option>
+                      <option value="repository"{{ if eq (printf "%s" .Target) "repository" }} selected{{ end }}>A selected repository</option>
+                      <option value="team"{{ if eq (printf "%s" .Target) "team" }} selected{{ end }}>A selected team</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Repository</span>
+                    <select name="repo_id">
+                      <option value="">Choose repository when scope is selected repository</option>
+                      {{ range $.Repos }}
+                      <option value="{{ .ID }}"{{ if eq $reminder.RepoID .ID }} selected{{ end }}>{{ .Name }} · {{ .Visibility }}</option>
+                      {{ end }}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Team</span>
+                    <select name="team_id">
+                      <option value="">Choose team when scope is selected team</option>
+                      {{ range $.Teams }}
+                      <option value="{{ .ID }}"{{ if eq $reminder.TeamID .ID }} selected{{ end }}>{{ if .DisplayName }}{{ .DisplayName }}{{ else }}{{ .Slug }}{{ end }}</option>
+                      {{ end }}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Cron expression</span>
+                    <input type="text" name="cron_expr" value="{{ .CronExpr }}" required>
+                  </label>
+                  <label>
+                    <span>Timezone</span>
+                    <input type="text" name="timezone" value="{{ .Timezone }}" required>
+                  </label>
+                  <label>
+                    <span>Only remind after</span>
+                    <input type="number" name="min_age_minutes" value="{{ .MinAgeMinutes }}" min="0" max="43200" step="1">
+                  </label>
+                  <label class="shithub-org-settings-checkbox">
+                    <input type="checkbox" name="condition_review_requested"{{ if .ConditionReviewRequested }} checked{{ end }}>
+                    <span>Pull requests with requested reviewers</span>
+                  </label>
+                  <label class="shithub-org-settings-checkbox">
+                    <input type="checkbox" name="condition_team_review_requested"{{ if .ConditionTeamReviewRequested }} checked{{ end }}>
+                    <span>Pull requests with requested teams</span>
+                  </label>
+                  <label class="shithub-org-settings-checkbox">
+                    <input type="checkbox" name="paused"{{ if .Paused }} checked{{ end }}>
+                    <span>Pause this reminder</span>
+                  </label>
+                  <button type="submit" class="shithub-button shithub-button-primary">Update reminder</button>
+                </form>
+                <div class="shithub-scheduled-reminder-actions">
+                  {{ if .Paused }}
+                  <form method="POST" action="/organizations/{{ $.Org.Slug }}/settings/scheduled-reminders/{{ .ID }}/resume">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-button">Resume</button>
+                  </form>
+                  {{ else }}
+                  <form method="POST" action="/organizations/{{ $.Org.Slug }}/settings/scheduled-reminders/{{ .ID }}/pause">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-button">Pause</button>
+                  </form>
+                  {{ end }}
+                  <form method="POST" action="/organizations/{{ $.Org.Slug }}/settings/scheduled-reminders/{{ .ID }}/delete">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+                  </form>
+                </div>
+              </details>
+            </div>
+            {{ end }}
+          </div>
+        {{ else }}
+          <p class="shithub-empty-note">No scheduled reminders have been configured.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

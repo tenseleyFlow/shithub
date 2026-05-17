@@ -55,13 +55,14 @@ SELECT n.id, n.recipient_user_id, n.kind, n.reason, n.repo_id,
        n.snoozed_until, n.tab_label, n.matched_rule_id,
        coalesce(u.username, '') AS actor_username,
        coalesce(r.name, '') AS repo_name,
-       coalesce(ru.username, '') AS repo_owner_username,
+       coalesce(ru.username, ro.slug, '') AS repo_owner_username,
        coalesce(i.number, 0) AS thread_number,
        coalesce(i.title, '') AS thread_title
 FROM notifications n
 LEFT JOIN users u  ON u.id = n.last_actor_user_id
 LEFT JOIN repos r  ON r.id = n.repo_id
 LEFT JOIN users ru ON ru.id = r.owner_user_id
+LEFT JOIN orgs ro  ON ro.id = r.owner_org_id
 LEFT JOIN issues i ON i.id = n.thread_id
 WHERE n.recipient_user_id = $1
   AND ($2::boolean = false OR n.unread = true)

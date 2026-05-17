@@ -4333,7 +4333,9 @@ button.shithub-contrib-setting-item:hover {
 }
 .shithub-org-settings-form input[type=text],
 .shithub-org-settings-form input[type=email],
+.shithub-org-settings-form input[type=number],
 .shithub-org-settings-form input[type=url],
+.shithub-org-settings-form select,
 .shithub-org-settings-form textarea {
   width: 100%;
   padding: 0.5rem 0.75rem;
@@ -4389,6 +4391,24 @@ button.shithub-contrib-setting-item:hover {
 .shithub-org-settings-row p {
   margin: 0.15rem 0 0;
   color: var(--fg-muted);
+}
+.shithub-scheduled-reminder-row {
+  align-items: start;
+}
+.shithub-scheduled-reminder-details {
+  min-width: 180px;
+}
+.shithub-scheduled-reminder-details[open] {
+  grid-column: 1 / -1;
+}
+.shithub-scheduled-reminder-details .shithub-org-settings-form {
+  margin-top: 1rem;
+}
+.shithub-scheduled-reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 .shithub-org-billing-summary {
   display: grid;

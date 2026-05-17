@@ -31,6 +31,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/notifications"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	"github.com/tenseleyFlow/shithub/internal/secretscan"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
@@ -177,6 +178,9 @@ var workerCmd = &cobra.Command{
 		}))
 		p.Register(worker.KindOrgUsageRecalc, jobs.OrgUsageRecalc(jobs.OrgUsageRecalcDeps{
 			Pool: pool, Logger: logger,
+		}))
+		p.Register(worker.KindOrgScheduledReminderSweep, jobs.OrgScheduledReminderSweep(jobs.OrgScheduledReminderSweepDeps{
+			Deps: orgs.Deps{Pool: pool, Logger: logger},
 		}))
 
 		p.Register(worker.KindGPGBackfill, jobs.GPGBackfill(jobs.GPGBackfillDeps{

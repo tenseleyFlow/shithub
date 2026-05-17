@@ -38,6 +38,12 @@ POST /organizations/{org}/settings/delete
 GET  /organizations/{org}/settings/import
 POST /organizations/{org}/settings/import
 GET  /organizations/{org}/imports/{importID}
+GET  /organizations/{org}/settings/scheduled-reminders
+POST /organizations/{org}/settings/scheduled-reminders
+POST /organizations/{org}/settings/scheduled-reminders/{reminderID}
+POST /organizations/{org}/settings/scheduled-reminders/{reminderID}/pause
+POST /organizations/{org}/settings/scheduled-reminders/{reminderID}/resume
+POST /organizations/{org}/settings/scheduled-reminders/{reminderID}/delete
 GET  /organizations/{org}/settings/billing
 GET  /organizations/{org}/settings/billing/licensing
 GET  /organizations/{org}/settings/billing/seats/add
@@ -129,6 +135,18 @@ askpass helper when a token is present, updates the default branch from
 fetched refs, and enqueues indexing + size recalculation. Existing
 active repositories in the organization are skipped instead of
 overwritten.
+
+`GET /organizations/{org}/settings/scheduled-reminders` renders the
+owner-only scheduled reminders settings page for PR review follow-up.
+Owners can create, update, pause, resume, and delete schedules that
+target all repositories, one repository, or one team. Schedules store a
+cron expression, timezone, reminder conditions for direct and team
+review requests, and a minimum review-request age. Public repository
+reminders are available to Free organizations. Any target that includes
+private organization repositories requires the Team
+`scheduled_reminders` entitlement; downgraded schedules remain stored
+but writes that expand private reminder coverage are denied until the
+org returns to Team.
 
 Repo visibility is filtered through `policy.IsVisibleTo` using an actor
 constructed from `middleware.CurrentUser`, including suspension,

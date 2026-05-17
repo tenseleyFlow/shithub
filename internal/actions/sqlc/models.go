@@ -837,6 +837,93 @@ func (ns NullOrgRole) Value() (driver.Value, error) {
 	return string(ns.OrgRole), nil
 }
 
+type OrgScheduledReminderStatus string
+
+const (
+	OrgScheduledReminderStatusPending OrgScheduledReminderStatus = "pending"
+	OrgScheduledReminderStatusSent    OrgScheduledReminderStatus = "sent"
+	OrgScheduledReminderStatusSkipped OrgScheduledReminderStatus = "skipped"
+	OrgScheduledReminderStatusError   OrgScheduledReminderStatus = "error"
+)
+
+func (e *OrgScheduledReminderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrgScheduledReminderStatus(s)
+	case string:
+		*e = OrgScheduledReminderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrgScheduledReminderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullOrgScheduledReminderStatus struct {
+	OrgScheduledReminderStatus OrgScheduledReminderStatus
+	Valid                      bool // Valid is true if OrgScheduledReminderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrgScheduledReminderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrgScheduledReminderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrgScheduledReminderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrgScheduledReminderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrgScheduledReminderStatus), nil
+}
+
+type OrgScheduledReminderTarget string
+
+const (
+	OrgScheduledReminderTargetAllRepositories OrgScheduledReminderTarget = "all_repositories"
+	OrgScheduledReminderTargetRepository      OrgScheduledReminderTarget = "repository"
+	OrgScheduledReminderTargetTeam            OrgScheduledReminderTarget = "team"
+)
+
+func (e *OrgScheduledReminderTarget) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrgScheduledReminderTarget(s)
+	case string:
+		*e = OrgScheduledReminderTarget(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrgScheduledReminderTarget: %T", src)
+	}
+	return nil
+}
+
+type NullOrgScheduledReminderTarget struct {
+	OrgScheduledReminderTarget OrgScheduledReminderTarget
+	Valid                      bool // Valid is true if OrgScheduledReminderTarget is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrgScheduledReminderTarget) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrgScheduledReminderTarget, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrgScheduledReminderTarget.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrgScheduledReminderTarget) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrgScheduledReminderTarget), nil
+}
+
 type PrFileStatus string
 
 const (
@@ -2801,6 +2888,37 @@ type OrgQuotaOverride struct {
 	CreatedByUserID pgtype.Int8
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+}
+
+type OrgScheduledReminder struct {
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	Target                       OrgScheduledReminderTarget
+	RepoID                       pgtype.Int8
+	TeamID                       pgtype.Int8
+	CronExpr                     string
+	Timezone                     string
+	NextRunAt                    pgtype.Timestamptz
+	LastRunAt                    pgtype.Timestamptz
+	LastRunStatus                OrgScheduledReminderStatus
+	LastRunError                 pgtype.Text
+	ConditionReviewRequested     bool
+	ConditionTeamReviewRequested bool
+	MinAgeMinutes                int32
+	PausedAt                     pgtype.Timestamptz
+	CreatedByUserID              pgtype.Int8
+	CreatedAt                    pgtype.Timestamptz
+	UpdatedAt                    pgtype.Timestamptz
+}
+
+type OrgScheduledReminderDelivery struct {
+	ScheduleID      int64
+	RunKey          pgtype.Timestamptz
+	PrIssueID       int64
+	RecipientUserID int64
+	NotificationID  pgtype.Int8
+	DeliveredAt     pgtype.Timestamptz
 }
 
 type OrgUsageCounter struct {

@@ -123,6 +123,13 @@ const (
 	KindOrgUsageReconcile  Kind = "org:usage_reconcile"
 )
 
+// SP20 org scheduled reminder sweep. Operator timers enqueue this on
+// a regular beat; the handler claims due schedules and sends inbox
+// reminders idempotently.
+const (
+	KindOrgScheduledReminderSweep Kind = "org:scheduled_reminder_sweep"
+)
+
 // S51 GPG signature verification backfill. One job per repo;
 // payload {repo_id}. The handler walks the repo's default branch +
 // annotated tags and writes commit_verification_cache rows for every

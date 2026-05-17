@@ -93,6 +93,7 @@ Rules for paid-org copy:
 | Advanced private-repo branch protection | Upgrade | Included | Contact sales |
 | Required reviewers on private org repos | Upgrade | Included | Contact sales |
 | Private-repo CODEOWNERS review | Upgrade | Included | Contact sales |
+| Scheduled reminders on private org repos | Upgrade | Included | Contact sales |
 | Org-level Actions secrets | Upgrade | Included | Contact sales |
 | Org-level Actions variables | Upgrade | Included | Contact sales |
 | Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
@@ -528,6 +529,22 @@ PAYMENTS SP19 ships code-owner and team-reviewer governance:
   branch-only rule control. Downgrades preserve existing configuration
   and block only writes that expand gated private-repo CODEOWNERS
   requirements.
+
+PAYMENTS SP20 ships scheduled PR review reminders:
+
+- Organization owners manage reminders from
+  `/organizations/{org}/settings/scheduled-reminders`.
+- A reminder can target all organization repositories, a single
+  organization repository, or one organization team, and can notify for
+  direct user review requests, team review requests, or both after a
+  configured minimum age.
+- Public repository reminder schedules are available on Free.
+  Schedules whose target includes private organization repositories
+  require the Team `scheduled_reminders` entitlement.
+- Delivery is worker-backed through `org:scheduled_reminder_sweep`.
+  The worker claims due schedules, creates idempotent delivery rows,
+  re-checks recipient repository access, skips suspended users, and
+  writes `scheduled_reminder` inbox notifications on the PR thread.
 
 ## Entitlement architecture
 
