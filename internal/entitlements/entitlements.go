@@ -121,6 +121,14 @@ const (
 	// empty) before PRO-EXT01-17 flips the enforce flag.
 	// Kinds: user only.
 	FeatureUserActionsSecrets Feature = "user_actions_secrets"
+	// FeatureUserActionsVariables is the variables sibling of
+	// FeatureUserActionsSecrets (PRO-EXT01-12c). Same Pro-only
+	// semantics; same surfaces (CRUD UI + runner-side resolution).
+	// Mirrors the org-tier split between FeatureActionsOrgSecrets and
+	// FeatureActionsOrgVariables so the per-feature soak windows can
+	// diverge if needed.
+	// Kinds: user only.
+	FeatureUserActionsVariables Feature = "user_actions_variables"
 	// FeatureWebhookRelay gates a Pro user's personal webhook relay
 	// (PRO-EXT01-13a). A relay is an inbound endpoint that re-fans
 	// upstream POSTs to N user-configured destination URLs with HMAC
@@ -272,6 +280,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureSecretScanHistory:        {billing.SubjectKindUser},
 	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
 	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
+	FeatureUserActionsVariables:     {billing.SubjectKindUser},
 	FeatureWebhookRelay:             {billing.SubjectKindUser},
 	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
 	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
