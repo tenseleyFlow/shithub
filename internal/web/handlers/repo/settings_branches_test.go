@@ -203,6 +203,74 @@ func TestSettingsBranchesAllowsPaidPrivateOrgRepoAdvancedSettings(t *testing.T) 
 	assertBranchProtectionRule(t, f, repo.ID, 2, []string{"ci", "lint"}, true, true)
 }
 
+func TestSettingsBranchesBlocksPrivateOrgTagRulesWithoutEntitlement(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/acme/private-org-repo/settings/branches", url.Values{
+		"target":  {"tag"},
+		"pattern": {"v*"},
+	})
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=branch-protection-upgrade" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	assertBranchProtectionRuleCount(t, f, repo.ID, 0)
+}
+
+func TestSettingsBranchesAllowsPaidPrivateOrgTagRulesAndStripsBranchOnlyKnobs(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-org-repo", reposdb.RepoVisibilityPrivate)
+	mux := f.branchesSettingsMux(f.owner.ID, f.owner.Username)
+
+	now := time.Now().UTC()
+	if _, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: f.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_tag_branches_test",
+		StripeSubscriptionItemID: "si_tag_branches_test",
+		CurrentPeriodStart:       now.Add(-time.Hour),
+		CurrentPeriodEnd:         now.Add(24 * time.Hour),
+		LastWebhookEventID:       "evt_tag_branches_test",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/acme/private-org-repo/settings/branches", url.Values{
+		"target":                              {"tag"},
+		"pattern":                             {"v*"},
+		"prevent_force_push":                  {"on"},
+		"prevent_deletion":                    {"on"},
+		"require_pr_for_push":                 {"on"},
+		"required_review_count":               {"2"},
+		"dismiss_stale_reviews_on_push":       {"on"},
+		"required_status_check_names":         {"ci"},
+		"dismiss_stale_status_checks_on_push": {"on"},
+		"require_signed_commits":              {"on"},
+	})
+	mux.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/acme/private-org-repo/settings/branches?notice=saved" {
+		t.Fatalf("redirect location=%q", got)
+	}
+	assertTagProtectionRule(t, f, repo.ID)
+}
+
 func TestSettingsBranchesAllowsDowngradedOrgToRemoveAdvancedSettings(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -313,5 +381,35 @@ func assertBranchProtectionRule(t *testing.T, f *repoFixture, repoID int64, want
 	}
 	if rule.DismissStaleStatusChecksOnPush != wantDismissChecks {
 		t.Fatalf("dismiss stale checks=%v want=%v", rule.DismissStaleStatusChecksOnPush, wantDismissChecks)
+	}
+}
+
+func assertTagProtectionRule(t *testing.T, f *repoFixture, repoID int64) {
+	t.Helper()
+	rules, err := f.handlers.rq.ListBranchProtectionRules(context.Background(), f.pool, repoID)
+	if err != nil {
+		t.Fatalf("ListBranchProtectionRules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("branch protection rule count=%d want=1", len(rules))
+	}
+	rule := rules[0]
+	if rule.Target != "tag" {
+		t.Fatalf("target=%q want tag", rule.Target)
+	}
+	if rule.Pattern != "v*" {
+		t.Fatalf("pattern=%q want v*", rule.Pattern)
+	}
+	if !rule.PreventForcePush || !rule.PreventDeletion {
+		t.Fatalf("tag protection gates not persisted: force=%v deletion=%v", rule.PreventForcePush, rule.PreventDeletion)
+	}
+	if rule.RequirePrForPush || rule.RequiredReviewCount != 0 || rule.DismissStaleReviewsOnPush {
+		t.Fatalf("tag rule kept branch-only review settings: %+v", rule)
+	}
+	if len(rule.StatusChecksRequired) != 0 || rule.DismissStaleStatusChecksOnPush {
+		t.Fatalf("tag rule kept branch-only check settings: %+v", rule)
+	}
+	if rule.RequireSignedCommits {
+		t.Fatalf("tag rule kept branch-only signed-commit setting")
 	}
 }

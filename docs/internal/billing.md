@@ -503,9 +503,9 @@ that Team can truthfully advertise:
   public available, private org Team required, active Team, billing
   action needed, or contact-sales enterprise preview. Downgraded orgs
   keep existing rule data and can remove or clear gated settings.
-- The organization plan comparison now marks Branch rules and Multiple
-  reviewers as included for Team. Tag protection, team-based bypass,
-  and CODEOWNERS/team-reviewer semantics remain in later sprint files.
+- The organization plan comparison now marks Branch and tag rules plus
+  Multiple reviewers as included for Team. Team-based bypass and
+  CODEOWNERS/team-reviewer semantics remain in later sprint files.
 
 ## Entitlement architecture
 

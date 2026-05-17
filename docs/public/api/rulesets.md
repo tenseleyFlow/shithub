@@ -3,9 +3,9 @@
 Read-only rulesets surface. Mirrors GitHub's
 [`/repos/{owner}/{repo}/rulesets`](https://docs.github.com/en/rest/repos/rules)
 response shape. shithub synthesizes ruleset rows from the
-`branch_protection_rules` table — one branch-protection row
-becomes one ruleset, named after its pattern, with each
-configured field projected as a typed rule object.
+`branch_protection_rules` table — one repository-rule row becomes
+one ruleset, named after its pattern, with each configured field
+projected as a typed rule object.
 
 All endpoints require `Authorization: Bearer <pat>` with
 `repo:read` and gate on `ActionRepoRead`. The
@@ -69,10 +69,10 @@ Rules an admin hasn't configured are absent from the array — clients should tr
 
 ### Field notes
 
-- `target` — always `"branch"`. Tag rulesets ship in a future sprint when tag protection lands.
+- `target` — `"branch"` or `"tag"`.
 - `source_type` / `source` — always `"Repository"` / `"<owner>/<repo>"`. Org-scoped and enterprise-scoped rulesets are out of scope until shithub grows enterprise-tier accounts.
 - `enforcement` — always `"active"`. We don't model `"disabled"` or `"evaluate"` modes; every row in the table is enforced by the pre-receive hook.
-- `conditions.ref_name.include` — single-entry array with the pattern prefixed by `refs/heads/`. shithub's patterns use `filepath.Match` semantics (`*` doesn't cross `/`), not gh's fnmatch.
+- `conditions.ref_name.include` — single-entry array with the pattern prefixed by `refs/heads/` for branch rules or `refs/tags/` for tag rules. shithub's patterns use `filepath.Match` semantics (`*` doesn't cross `/`), not gh's fnmatch.
 - `bypass_actors` — not emitted. Bypass / multi-actor exemptions ship in a future sprint.
 
 ## List rulesets
@@ -108,6 +108,22 @@ Required scope: `repo:read`.
 Returns every ruleset whose pattern matches the given branch name. **All** matching patterns are returned, not just the longest-match — the longest-match heuristic shithub's pre-receive enforcer uses is an internal precedence detail, not a contract surface.
 
 Branch names that contain `/` (`feature/x`, `release/v1.0`) are matched against patterns using `filepath.Match`: `*` does not cross path separators, so `release/*` matches `release/v1.0` but not `release/v1.0/sub`.
+
+## Rules applying to a tag
+
+```
+GET /api/v1/repos/{owner}/{repo}/rules/tags/{tag}
+```
+
+Implementation route literal: `GET /api/v1/repos/{owner}/{repo}/rules/tags/*`.
+
+Required scope: `repo:read`.
+
+Returns every tag-targeted ruleset whose pattern matches the given
+tag name. Branch-targeted rulesets are excluded even when the pattern
+text is identical. Tag rules can block deletion, block movement of an
+existing tag, and restrict allowed pushers; pull request and status
+check rule types are branch-only and are not emitted for tag targets.
 
 ## Errors
 

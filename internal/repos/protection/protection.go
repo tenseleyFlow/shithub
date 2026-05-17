@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package protection enforces branch-protection rules on incoming
+// Package protection enforces repository protection rules on incoming
 // pushes. The pre-receive hook (S14) calls into Enforce once per
 // pushed ref; this package owns the matching, the per-rule checks,
 // and the rejection messages.
 //
-// Rule scope is `refs/heads/*` only — tag refs are out of scope here
-// (tag protection is its own thing in a future sprint).
+// Rules target either `refs/heads/*` or `refs/tags/*`. Branch rules
+// carry the full pull-request/check semantics; tag rules protect tag
+// deletion, tag movement, and allowed-pusher restrictions.
 package protection
 
 import (
@@ -36,7 +37,7 @@ type Decision struct {
 type Update struct {
 	OldSHA string
 	NewSHA string
-	Ref    string // "refs/heads/<name>" — tag refs and other namespaces are skipped
+	Ref    string // "refs/heads/<name>" or "refs/tags/<name>"; other namespaces are skipped
 	Pusher int64  // user_id; 0 means anonymous which any rule that requires explicit pushers will reject
 }
 
@@ -45,19 +46,19 @@ type Update struct {
 // reason naming the pattern that matched.
 //
 // Rule precedence: longest-pattern-match wins (alphabetical tiebreak).
-// Rules don't apply to tag pushes or non-heads namespaces.
+// Rules don't apply to non-heads/non-tags namespaces.
 func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int64, u Update) (Decision, error) {
-	if !strings.HasPrefix(u.Ref, "refs/heads/") {
-		return Decision{Allow: true, Reason: "non-branch ref"}, nil
+	target, refName, ok := targetAndNameForRef(u.Ref)
+	if !ok {
+		return Decision{Allow: true, Reason: "non-protected ref"}, nil
 	}
-	branch := strings.TrimPrefix(u.Ref, "refs/heads/")
 
 	rq := reposdb.New()
 	rules, err := rq.ListBranchProtectionRules(ctx, pool, repoID)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load rules: %w", err)
 	}
-	rule, ok := matchRule(rules, branch)
+	rule, ok := matchRuleForTarget(rules, target, refName)
 	if !ok {
 		return Decision{Allow: true, Reason: "no rule matched"}, nil
 	}
@@ -67,7 +68,20 @@ func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int6
 
 	// 1. Deletion gate.
 	if isDelete && rule.PreventDeletion {
+		if target == "tag" {
+			return deny(rule, "deletion of this tag is blocked by protection rule"), nil
+		}
 		return deny(rule, "deletion of this branch is blocked by protection rule"), nil
+	}
+
+	if target == "tag" {
+		// Tag refs are not a commit history, so a non-fast-forward
+		// ancestry check is not meaningful. Treat changing an existing
+		// tag as the tag equivalent of a force-push.
+		if !isCreate && !isDelete && rule.PreventForcePush {
+			return deny(rule, "moving this tag is blocked by protection rule"), nil
+		}
+		return allowedPusherDecision(rule, u.Pusher, "tag"), nil
 	}
 
 	// 2. Pull-request-only gate. Direct web edits and git pushes both
@@ -91,17 +105,8 @@ func Enforce(ctx context.Context, pool *pgxpool.Pool, gitDir string, repoID int6
 	}
 
 	// 4. Allowed-pushers gate.
-	if len(rule.AllowedPusherUserIds) > 0 {
-		ok := false
-		for _, id := range rule.AllowedPusherUserIds {
-			if id == u.Pusher {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			return deny(rule, "pusher is not on the allowed list for this branch"), nil
-		}
+	if decision := allowedPusherDecision(rule, u.Pusher, "branch"); !decision.Allow {
+		return decision, nil
 	}
 
 	// 5. require_signed_commits and status_checks_required are placeholder
@@ -120,6 +125,18 @@ func deny(r reposdb.BranchProtectionRule, reason string) Decision {
 	}
 }
 
+func allowedPusherDecision(rule reposdb.BranchProtectionRule, pusher int64, label string) Decision {
+	if len(rule.AllowedPusherUserIds) == 0 {
+		return Decision{Allow: true, Reason: "no allowed-pushers restriction", RuleID: rule.ID, Pattern: rule.Pattern}
+	}
+	for _, id := range rule.AllowedPusherUserIds {
+		if id == pusher {
+			return Decision{Allow: true, Reason: "pusher is allowed", RuleID: rule.ID, Pattern: rule.Pattern}
+		}
+	}
+	return deny(rule, "pusher is not on the allowed list for this "+label)
+}
+
 // MatchLongestRule returns the rule with the longest pattern matching
 // branch (alphabetical tiebreaker). Returns ok=false when no rule
 // matches. Exposed as the canonical pattern-match helper so the
@@ -133,16 +150,23 @@ func deny(r reposdb.BranchProtectionRule, reason string) Decision {
 //
 // `release/*` matches `release/v1.0` but NOT `release/v1.0/sub`.
 func MatchLongestRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
-	return matchRule(rules, branch)
+	return matchRuleForTarget(rules, "branch", branch)
 }
 
 func matchRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.BranchProtectionRule, bool) {
+	return matchRuleForTarget(rules, "branch", branch)
+}
+
+func matchRuleForTarget(rules []reposdb.BranchProtectionRule, target, name string) (reposdb.BranchProtectionRule, bool) {
 	type cand struct {
 		rule reposdb.BranchProtectionRule
 	}
 	var matches []cand
 	for _, r := range rules {
-		ok, err := filepath.Match(r.Pattern, branch)
+		if protectionRuleTarget(r) != target {
+			continue
+		}
+		ok, err := filepath.Match(r.Pattern, name)
 		if err != nil {
 			continue // bad pattern — admin should fix; treat as no-match
 		}
@@ -161,6 +185,24 @@ func matchRule(rules []reposdb.BranchProtectionRule, branch string) (reposdb.Bra
 		return matches[i].rule.Pattern < matches[j].rule.Pattern
 	})
 	return matches[0].rule, true
+}
+
+func protectionRuleTarget(r reposdb.BranchProtectionRule) string {
+	if r.Target == "tag" {
+		return "tag"
+	}
+	return "branch"
+}
+
+func targetAndNameForRef(ref string) (target, name string, ok bool) {
+	switch {
+	case strings.HasPrefix(ref, "refs/heads/"):
+		return "branch", strings.TrimPrefix(ref, "refs/heads/"), true
+	case strings.HasPrefix(ref, "refs/tags/"):
+		return "tag", strings.TrimPrefix(ref, "refs/tags/"), true
+	default:
+		return "", "", false
+	}
 }
 
 // isAllZeros reports whether a SHA string is git's "this side is

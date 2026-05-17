@@ -2415,6 +2415,7 @@ type BranchProtectionRule struct {
 	DismissStaleReviewsOnPush      bool
 	RequireCodeOwnerReview         bool
 	DismissStaleStatusChecksOnPush bool
+	Target                         string
 }
 
 type CheckRun struct {

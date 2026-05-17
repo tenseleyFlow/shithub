@@ -68,6 +68,51 @@ func TestMatchRule_AlphabeticalTiebreak(t *testing.T) {
 	}
 }
 
+func TestMatchRule_TargetIsolation(t *testing.T) {
+	t.Parallel()
+	rules := []reposdb.BranchProtectionRule{
+		{ID: 1, Pattern: "v*", Target: "tag"},
+		{ID: 2, Pattern: "v*", Target: "branch"},
+		{ID: 3, Pattern: "release/*", Target: "tag"},
+	}
+	got, ok := matchRule(rules, "v1.0.0")
+	if !ok {
+		t.Fatalf("expected branch match")
+	}
+	if got.ID != 2 {
+		t.Fatalf("branch match id=%d want 2", got.ID)
+	}
+	got, ok = matchRuleForTarget(rules, "tag", "v1.0.0")
+	if !ok {
+		t.Fatalf("expected tag match")
+	}
+	if got.ID != 1 {
+		t.Fatalf("tag match id=%d want 1", got.ID)
+	}
+}
+
+func TestTargetAndNameForRef(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		ref        string
+		wantTarget string
+		wantName   string
+		wantOK     bool
+	}{
+		{"refs/heads/trunk", "branch", "trunk", true},
+		{"refs/heads/release/v1", "branch", "release/v1", true},
+		{"refs/tags/v1.0.0", "tag", "v1.0.0", true},
+		{"refs/notes/commits", "", "", false},
+	}
+	for _, c := range cases {
+		target, name, ok := targetAndNameForRef(c.ref)
+		if target != c.wantTarget || name != c.wantName || ok != c.wantOK {
+			t.Fatalf("%q => (%q, %q, %v), want (%q, %q, %v)",
+				c.ref, target, name, ok, c.wantTarget, c.wantName, c.wantOK)
+		}
+	}
+}
+
 func TestIsAllZeros(t *testing.T) {
 	t.Parallel()
 	if !isAllZeros("0000000000000000000000000000000000000000") {
