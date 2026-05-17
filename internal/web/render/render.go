@@ -345,6 +345,12 @@ func funcMap(octicon OcticonResolver) template.FuncMap {
 		// arithmetic, so the helpers earn their keep here.
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
+		// percent formats a 0.0–1.0 ratio as a whole-percent string
+		// (e.g. 0.97 → "97%"). Status page uses this; reusable for
+		// any future "X out of 100" display.
+		"percent": func(v float64) string {
+			return fmt.Sprintf("%.0f%%", v*100)
+		},
 		"dict": func(values ...any) (map[string]any, error) {
 			if len(values)%2 != 0 {
 				return nil, fmt.Errorf("dict: odd number of args")
