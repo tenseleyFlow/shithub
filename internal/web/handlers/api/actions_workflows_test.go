@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -102,12 +101,17 @@ func TestActionsWorkflows_ListReturnsDiscoveredFiles(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	var listed []apiWorkflow
-	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+	// S62 envelope: {total_count, workflows: [...]}
+	var envelope struct {
+		TotalCount int           `json:"total_count"`
+		Workflows  []apiWorkflow `json:"workflows"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(listed) != 2 {
-		t.Fatalf("expected 2 workflows; got %+v", listed)
+	listed := envelope.Workflows
+	if envelope.TotalCount != 2 || len(listed) != 2 {
+		t.Fatalf("expected 2 workflows; got %+v (total=%d)", listed, envelope.TotalCount)
 	}
 	byPath := map[string]apiWorkflow{}
 	for _, w := range listed {
@@ -136,8 +140,16 @@ func TestActionsWorkflows_ListEmptyRepoReturnsEmptyArray(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d; body=%s", rr.Code, rr.Body.String())
 	}
-	if body := strings.TrimSpace(rr.Body.String()); body != "[]" {
-		t.Errorf("empty body: got %q, want []", body)
+	// S62 envelope: empty list returns {"total_count":0,"workflows":[]}.
+	var env struct {
+		TotalCount int           `json:"total_count"`
+		Workflows  []apiWorkflow `json:"workflows"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rr.Body.String())
+	}
+	if env.TotalCount != 0 || len(env.Workflows) != 0 {
+		t.Errorf("empty list expected total=0/[]; got total=%d workflows=%v", env.TotalCount, env.Workflows)
 	}
 }
 
