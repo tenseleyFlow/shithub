@@ -328,6 +328,18 @@ func TestExchange_StampsIssuedTokenAtomically(t *testing.T) {
 	if !got.IssuedTokenID.Valid {
 		t.Errorf("issued_token_id not stamped after Exchange")
 	}
+
+	// And the source column on user_tokens reflects the device-flow
+	// origin (remediation #3). Settings-page-minted tokens stay at
+	// 'user_created'; this code path explicitly stamps 'oauth_device'.
+	var source string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT source FROM user_tokens WHERE id = $1`, got.IssuedTokenID.Int64).Scan(&source); err != nil {
+		t.Fatalf("source lookup: %v", err)
+	}
+	if source != "oauth_device" {
+		t.Errorf("user_tokens.source: want oauth_device, got %q", source)
+	}
 }
 
 // Defensive: a pgx.Int8 zero-value should marshal cleanly when we
