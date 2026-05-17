@@ -90,11 +90,13 @@ type pullResponse struct {
 	MergedAt       string         `json:"merged_at,omitempty"`
 	// AuthorID is the legacy flat foreign key. Kept alongside the new
 	// `user` envelope for one release cycle (S60 audit migration).
-	AuthorID  int64         `json:"author_id,omitempty"`
-	User      *userEnvelope `json:"user,omitempty"`
-	CreatedAt string        `json:"created_at"`
-	UpdatedAt string        `json:"updated_at"`
-	ClosedAt  string        `json:"closed_at,omitempty"`
+	AuthorID int64         `json:"author_id,omitempty"`
+	User     *userEnvelope `json:"user,omitempty"`
+	// HTMLURL is the user-facing page for this PR (B-audit B7).
+	HTMLURL   string `json:"html_url,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	ClosedAt  string `json:"closed_at,omitempty"`
 }
 
 func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelope) pullResponse {
@@ -139,6 +141,15 @@ func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelop
 	return out
 }
 
+// pullHTMLURL composes the user-facing page URL for a PR. Mirrors
+// issueHTMLURL's shape (B-audit B7).
+func (h *Handlers) pullHTMLURL(ownerLogin, repoName string, number int64) string {
+	if h.d.BaseURL == "" || ownerLogin == "" || repoName == "" {
+		return ""
+	}
+	return strings.TrimRight(h.d.BaseURL, "/") + "/" + ownerLogin + "/" + repoName + "/pulls/" + strconv.FormatInt(number, 10)
+}
+
 type commitResponse2 struct {
 	SHA            string `json:"sha"`
 	Subject        string `json:"subject"`
@@ -163,7 +174,7 @@ type prFileResponse struct {
 // ─── list ───────────────────────────────────────────────────────────
 
 func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullRead)
 	if !ok {
 		return
 	}
@@ -211,7 +222,7 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		if row.AuthorUserID.Valid {
 			u = users[row.AuthorUserID.Int64]
 		}
-		out = append(out, presentPull(issuesdb.Issue{
+		resp := presentPull(issuesdb.Issue{
 			ID:           row.ID,
 			RepoID:       row.RepoID,
 			Number:       row.Number,
@@ -235,7 +246,9 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 			MergedAt:       row.MergedAt,
 			MergedByUserID: row.MergedByUserID,
 			MergeMethod:    row.MergeMethod,
-		}, u))
+		}, u)
+		resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, row.Number)
+		out = append(out, resp)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -254,7 +267,7 @@ func normalizeDraftFilter(s string) pgtype.Bool {
 // ─── single ─────────────────────────────────────────────────────────
 
 func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullRead)
 	if !ok {
 		return
 	}
@@ -266,7 +279,9 @@ func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentPull(issue, pr, u))
+	resp := presentPull(issue, pr, u)
+	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, issue.Number)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ─── create ─────────────────────────────────────────────────────────
@@ -280,7 +295,7 @@ type pullCreateRequest struct {
 }
 
 func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullCreate)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullCreate)
 	if !ok {
 		return
 	}
@@ -290,7 +305,7 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	gitDir, err := h.repoGitDir(r.Context(), repo)
+	gitDir, err := h.repoGitDir(r.Context(), &repo)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "create failed")
@@ -311,7 +326,9 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	writeJSON(w, http.StatusCreated, presentPull(res.Issue, res.PullRequest, u))
+	resp := presentPull(res.Issue, res.PullRequest, u)
+	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, res.Issue.Number)
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // ─── patch ──────────────────────────────────────────────────────────
@@ -324,7 +341,7 @@ type pullPatchRequest struct {
 }
 
 func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullRead)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullRead)
 	if !ok {
 		return
 	}
@@ -346,7 +363,7 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	if body.Title != nil || body.Body != nil {
 		canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
 		if !canEdit {
-			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(*repo)).Allow
+			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow
 		}
 		if !canEdit {
 			writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may edit this pull request")
@@ -384,7 +401,7 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.State != nil {
-		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionPullClose, policy.NewRepoRefFromRepo(*repo)).Allow {
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionPullClose, policy.NewRepoRefFromRepo(repo)).Allow {
 			writeAPIError(w, http.StatusForbidden, "lack permission to change PR state")
 			return
 		}
@@ -393,7 +410,7 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusUnprocessableEntity, "state must be open or closed")
 			return
 		}
-		gitDir, err := h.repoGitDir(r.Context(), repo)
+		gitDir, err := h.repoGitDir(r.Context(), &repo)
 		if err != nil {
 			h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
 			writeAPIError(w, http.StatusInternalServerError, "state change failed")
@@ -412,7 +429,9 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	if freshIssue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR, u))
+	resp := presentPull(freshIssue, freshPR, u)
+	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, freshIssue.Number)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ─── commits + files ────────────────────────────────────────────────
@@ -496,7 +515,7 @@ type pullMergeRequest struct {
 }
 
 func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
-	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullMerge)
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullMerge)
 	if !ok {
 		return
 	}
@@ -519,7 +538,7 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusConflict, "head sha mismatch")
 		return
 	}
-	gitDir, err := h.repoGitDir(r.Context(), repo)
+	gitDir, err := h.repoGitDir(r.Context(), &repo)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "merge failed")
@@ -542,7 +561,9 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 	if freshIssue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
 	}
-	writeJSON(w, http.StatusOK, presentPull(freshIssue, freshPR, u))
+	resp := presentPull(freshIssue, freshPR, u)
+	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, freshIssue.Number)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ─── helpers ────────────────────────────────────────────────────────
