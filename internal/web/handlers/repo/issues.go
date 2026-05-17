@@ -511,6 +511,10 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(participantNames)
 
+	// CanComment: C-audit C19 dropped the `canCommentThroughLock`
+	// escape-hatch — the UI used to show a comment box on locked
+	// issues for collaborators, but the server now uniformly rejects
+	// with 423. Aligning the UI: comment box hides on a locked issue.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_view", map[string]any{
 		"Title":                 issue.Title + " · " + row.Name,
@@ -529,11 +533,6 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"Milestones":            milestones,
 		"Projects":              issueProjects,
 		"ProjectOptions":        projectOptions,
-		// C-audit C19: lock is strict. The `canCommentThroughLock`
-		// escape-hatch was incoherent with the stricter REST behavior
-		// (UI showed a comment box, server rejected with 423) so we
-		// align the UI to the server: a locked issue hides the comment
-		// box from everyone until the issue is explicitly unlocked.
 		"CanComment":            canCommentAction && !issue.Locked,
 		"CanSetIssueState":      canSetIssueState,
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
