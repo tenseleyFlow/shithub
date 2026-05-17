@@ -3078,6 +3078,16 @@ type RunnerToken struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type SecretScanAlertPref struct {
+	UserID        int64
+	EmailEnabled  bool
+	WebhookUrl    pgtype.Text
+	WebhookSecret []byte
+	LastAlertedAt pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type SecretScanAllowlist struct {
 	ID        int64
 	RepoID    int64

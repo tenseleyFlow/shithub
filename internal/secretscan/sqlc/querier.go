@@ -13,7 +13,16 @@ type Querier interface {
 	// is added: any matching (pattern, path) flips to status='allowlisted'.
 	ApplyAllowlistToFindings(ctx context.Context, db DBTX, arg ApplyAllowlistToFindingsParams) error
 	CountSecretScanFindingsForRepo(ctx context.Context, db DBTX, arg CountSecretScanFindingsForRepoParams) (int64, error)
+	// The all-channels-off case maps to row deletion rather than
+	// preserving an empty row (the at_least_one check would reject it).
+	DeleteSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) error
 	DeleteSecretScanAllowlist(ctx context.Context, db DBTX, arg DeleteSecretScanAllowlistParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// PRO-EXT01-10d: per-user alert preference CRUD.
+	// Returns the row or pgx.ErrNoRows; the handler treats absence as "no
+	// alerts configured" so the absence is the off state.
+	GetSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) (SecretScanAlertPref, error)
 	GetSecretScanFinding(ctx context.Context, db DBTX, arg GetSecretScanFindingParams) (SecretScanFinding, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
@@ -31,6 +40,13 @@ type Querier interface {
 	// keep their status so the audit trail isn't lost.
 	MarkSecretScanFindingsStaleForRepo(ctx context.Context, db DBTX, arg MarkSecretScanFindingsStaleForRepoParams) error
 	ResolveSecretScanFinding(ctx context.Context, db DBTX, arg ResolveSecretScanFindingParams) error
+	// Recorded after a successful send so the worker can dedupe re-scans
+	// that re-surface a known finding (status=open → stale → open again).
+	TouchSecretScanAlertPrefsAlertedAt(ctx context.Context, db DBTX, userID int64) error
+	// Settings handler calls this. The DB CHECK constraints reject the
+	// malformed configurations (webhook url without secret, no enabled
+	// channel) so the handler doesn't have to repeat that validation.
+	UpsertSecretScanAlertPrefs(ctx context.Context, db DBTX, arg UpsertSecretScanAlertPrefsParams) (SecretScanAlertPref, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// PRO-EXT01-10b: secret-scan findings storage.
