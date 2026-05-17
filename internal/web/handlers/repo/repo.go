@@ -151,9 +151,11 @@ func (h *Handlers) MountNew(r chi.Router) {
 	r.Post("/new", h.newRepoSubmit)
 }
 
-// MountRepoActionsAPI registers POST/state-changing routes under
+// MountRepoActionsAPI registers Actions write routes under
 // /{owner}/{repo}/actions/. Caller wraps with RequireUser.
 func (h *Handlers) MountRepoActionsAPI(r chi.Router) {
+	r.Get("/{owner}/{repo}/actions/new", h.repoActionsNewWorkflow)
+	r.Post("/{owner}/{repo}/actions/new", h.repoActionsCreateWorkflow)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/cancel", h.repoActionRunCancel)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/rerun", h.repoActionRunRerun)
 	r.Post("/{owner}/{repo}/actions/runs/{runIndex}/approve", h.repoActionRunApprove)
@@ -178,12 +180,12 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/jobs/{jobIndex}/steps/{stepIndex}", h.repoActionStepLog)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}/status", h.repoActionRunStatus)
 	r.Get("/{owner}/{repo}/actions/runs/{runIndex}", h.repoActionRun)
-	r.Get("/{owner}/{repo}/actions/workflows/*", h.repoActionsWorkflow)
 	r.Get("/{owner}/{repo}/actions/caches", h.repoActionsCaches)
 	r.Get("/{owner}/{repo}/actions/attestations", h.repoActionsAttestations)
 	r.Get("/{owner}/{repo}/actions/runners", h.repoActionsRunners)
 	r.Get("/{owner}/{repo}/actions/metrics/usage", h.repoActionsUsageMetrics)
 	r.Get("/{owner}/{repo}/actions/metrics/performance", h.repoActionsPerformanceMetrics)
+	r.Get("/{owner}/{repo}/actions/workflows/*", h.repoActionsWorkflow)
 	r.Get("/{owner}/{repo}/actions", h.repoTabActions)
 	r.Get("/{owner}/{repo}/projects", h.repoTabProjects)
 	r.Get("/{owner}/{repo}/wiki", h.repoTabWiki)

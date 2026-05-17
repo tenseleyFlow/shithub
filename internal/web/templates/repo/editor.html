@@ -3,6 +3,19 @@
   <main class="shithub-editor" data-code-editor data-editor-mode="{{ .Mode }}">
     {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
     {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ if .WorkflowDiagnostics }}
+    <section class="shithub-workflow-diagnostics" role="alert" aria-label="Workflow syntax diagnostics">
+      <h2>Workflow syntax diagnostics</h2>
+      <ul>
+        {{ range .WorkflowDiagnostics }}
+          <li class="is-{{ .SeverityClass }}">
+            <span class="shithub-actions-state shithub-actions-state-{{ .SeverityClass }}" aria-hidden="true">{{ octicon .Icon }}</span>
+            <span><strong>{{ .SeverityLabel }}</strong>{{ if .Path }} at <code>{{ .Path }}</code>{{ end }}: {{ .Message }}</span>
+          </li>
+        {{ end }}
+      </ul>
+    </section>
+    {{ end }}
 
     <form method="post" action="{{ .FormAction }}" class="shithub-editor-form"{{ if eq .Mode "upload" }} enctype="multipart/form-data"{{ end }}>
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">

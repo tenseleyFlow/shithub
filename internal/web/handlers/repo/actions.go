@@ -44,11 +44,13 @@ type actionsWorkflowView struct {
 }
 
 type actionsSidebarView struct {
-	AllHref     string
-	AllRunCount int64
-	AllActive   bool
-	Workflows   []actionsWorkflowView
-	Management  []actionsManagementNavItem
+	AllHref           string
+	NewWorkflowHref   string
+	CanCreateWorkflow bool
+	AllRunCount       int64
+	AllActive         bool
+	Workflows         []actionsWorkflowView
+	Management        []actionsManagementNavItem
 }
 
 type actionsManagementNavItem struct {
@@ -367,9 +369,9 @@ func (h *Handlers) repoActionsList(w http.ResponseWriter, r *http.Request, route
 	if activeWorkflowName == "" && filters.Workflow != "" {
 		activeWorkflowName = workflowDisplayName("", filters.Workflow)
 	}
-	sidebar := actionsSidebar(basePath, workflows, allRunCount, filters.Workflow == "", "")
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, viewer.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(row)).Allow
+	sidebar := actionsSidebar(basePath, workflows, allRunCount, filters.Workflow == "", "", canManage)
 	runViews := make([]actionsListRunView, 0, len(runs))
 	now := time.Now()
 	for _, run := range runs {
@@ -406,17 +408,19 @@ func (h *Handlers) repoActionsList(w http.ResponseWriter, r *http.Request, route
 	}
 }
 
-func actionsSidebar(basePath string, workflows []actionsWorkflowView, allRunCount int64, allActive bool, activeManagement string) actionsSidebarView {
+func actionsSidebar(basePath string, workflows []actionsWorkflowView, allRunCount int64, allActive bool, activeManagement string, canCreateWorkflow bool) actionsSidebarView {
 	if activeManagement != "" {
 		allActive = false
 		workflows = inactiveActionsWorkflows(workflows)
 	}
 	return actionsSidebarView{
-		AllHref:     basePath,
-		AllRunCount: allRunCount,
-		AllActive:   allActive,
-		Workflows:   workflows,
-		Management:  actionsManagementNavItems(basePath, activeManagement),
+		AllHref:           basePath,
+		NewWorkflowHref:   basePath + "/new",
+		CanCreateWorkflow: canCreateWorkflow,
+		AllRunCount:       allRunCount,
+		AllActive:         allActive,
+		Workflows:         workflows,
+		Management:        actionsManagementNavItems(basePath, activeManagement),
 	}
 }
 
