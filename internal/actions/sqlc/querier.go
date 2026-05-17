@@ -133,9 +133,16 @@ type Querier interface {
 	ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)
+	ListOrgSecretsWithCiphertext(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsWithCiphertextRow, error)
 	ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error)
 	ListQueuedWorkflowJobRunsOn(ctx context.Context, db DBTX) ([]ListQueuedWorkflowJobRunsOnRow, error)
 	ListRepoSecrets(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsRow, error)
+	// PRO-EXT_SR2-12 (audit Q1): retire the same 1+N pattern for the
+	// repo and org variants that previously haunted mergeUserSecrets.
+	// Runners resolving a job that uses N repo or org secrets used to
+	// do 1 List + N GetRepoSecret/GetOrgSecret round-trips; this returns
+	// ciphertext + nonce in the single list query.
+	ListRepoSecretsWithCiphertext(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsWithCiphertextRow, error)
 	ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error)
 	ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error)
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)

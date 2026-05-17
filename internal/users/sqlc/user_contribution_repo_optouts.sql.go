@@ -80,6 +80,35 @@ func (q *Queries) ListContributionOptoutsForUser(ctx context.Context, db DBTX, u
 	return items, nil
 }
 
+const replaceContributionOptoutsForUser = `-- name: ReplaceContributionOptoutsForUser :exec
+WITH desired AS (
+    SELECT unnest($2::bigint[]) AS repo_id
+),
+ins AS (
+    INSERT INTO user_contribution_repo_optouts (user_id, repo_id)
+    SELECT $1::bigint, repo_id FROM desired
+    ON CONFLICT (user_id, repo_id) DO NOTHING
+)
+DELETE FROM user_contribution_repo_optouts
+WHERE user_id = $1::bigint
+  AND repo_id NOT IN (SELECT repo_id FROM desired)
+`
+
+type ReplaceContributionOptoutsForUserParams struct {
+	UserID  int64
+	RepoIds []int64
+}
+
+// Atomic reconcile: insert any desired repo IDs that aren't already
+// opt-outs, and delete any existing opt-outs not in the desired set.
+// Both data-modifying CTEs see the same snapshot, so we don't need an
+// explicit tx wrapper. Retires the per-row upsert+delete loop from the
+// pre-PRO-EXT_SR2-12 settings/contributions submit handler.
+func (q *Queries) ReplaceContributionOptoutsForUser(ctx context.Context, db DBTX, arg ReplaceContributionOptoutsForUserParams) error {
+	_, err := db.Exec(ctx, replaceContributionOptoutsForUser, arg.UserID, arg.RepoIds)
+	return err
+}
+
 const upsertContributionOptout = `-- name: UpsertContributionOptout :exec
 INSERT INTO user_contribution_repo_optouts (user_id, repo_id)
 VALUES ($1, $2)

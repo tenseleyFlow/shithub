@@ -257,8 +257,7 @@ type UpsertUserNotificationDigestParams struct {
 // next_send_at is supplied by the handler (which computes the next
 // tick given frequency + hour + DOW).
 func (q *Queries) UpsertUserNotificationDigest(ctx context.Context, db DBTX, arg UpsertUserNotificationDigestParams) (UserNotificationDigest, error) {
-	row := db.QueryRow(
-		ctx, upsertUserNotificationDigest,
+	row := db.QueryRow(ctx, upsertUserNotificationDigest,
 		arg.UserID,
 		arg.Enabled,
 		arg.Frequency,

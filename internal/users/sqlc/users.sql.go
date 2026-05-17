@@ -288,6 +288,64 @@ func (q *Queries) LinkUserPrimaryEmail(ctx context.Context, db DBTX, arg LinkUse
 	return err
 }
 
+const listUsersByIDs = `-- name: ListUsersByIDs :many
+SELECT id, username, display_name, primary_email_id, password_hash, password_algo, password_updated_at, email_verified, last_login_at, suspended_at, suspended_reason, deleted_at, created_at, updated_at, bio, location, website, company, pronouns, avatar_object_key, theme, session_epoch, is_site_admin, include_private_contributions, plan, profile_accent_hex, profile_layout
+FROM users
+WHERE deleted_at IS NULL
+  AND id = ANY($1::bigint[])
+`
+
+// Batch lookup for participant rendering on issue/PR views and other
+// multi-user surfaces. Empty / NULL entries in the input array are
+// silently filtered. PRO-EXT_SR2-12 (audit H5).
+func (q *Queries) ListUsersByIDs(ctx context.Context, db DBTX, dollar_1 []int64) ([]User, error) {
+	rows, err := db.Query(ctx, listUsersByIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.DisplayName,
+			&i.PrimaryEmailID,
+			&i.PasswordHash,
+			&i.PasswordAlgo,
+			&i.PasswordUpdatedAt,
+			&i.EmailVerified,
+			&i.LastLoginAt,
+			&i.SuspendedAt,
+			&i.SuspendedReason,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Bio,
+			&i.Location,
+			&i.Website,
+			&i.Company,
+			&i.Pronouns,
+			&i.AvatarObjectKey,
+			&i.Theme,
+			&i.SessionEpoch,
+			&i.IsSiteAdmin,
+			&i.IncludePrivateContributions,
+			&i.Plan,
+			&i.ProfileAccentHex,
+			&i.ProfileLayout,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markUserEmailPrimaryVerified = `-- name: MarkUserEmailPrimaryVerified :exec
 UPDATE users
 SET email_verified = true
@@ -455,7 +513,8 @@ type UpdateUserProfileParams struct {
 }
 
 func (q *Queries) UpdateUserProfile(ctx context.Context, db DBTX, arg UpdateUserProfileParams) error {
-	_, err := db.Exec(ctx, updateUserProfile,
+	_, err := db.Exec(
+		ctx, updateUserProfile,
 		arg.ID,
 		arg.DisplayName,
 		arg.Bio,

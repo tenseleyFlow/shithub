@@ -428,8 +428,27 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	// rendered on this page gets a Pro pill next to their handle. We
 	// piggyback on the existing username cache (GetUserByID already
 	// returns Plan) so no extra DB queries vs. the pre-pill render.
+	//
+	// PRO-EXT_SR2-12 (audit H5): the closure used to issue one
+	// GetUserByID per distinct participant. Pre-fetch the set of
+	// user IDs we know up front (issue author + comment authors +
+	// event actors + assignees) in a single ListUsersByIDs round-trip.
+	// usernameFor stays in place for the rare event-meta user_id that
+	// isn't in the pre-fetch set.
 	usernames := map[int64]string{}
 	proUsernames := map[string]bool{}
+	participantIDs := collectIssueParticipantIDs(issue, comments, events, assignees)
+	if len(participantIDs) > 0 {
+		preloaded, err := h.uq.ListUsersByIDs(r.Context(), h.d.Pool, participantIDs)
+		if err == nil {
+			for _, u := range preloaded {
+				usernames[u.ID] = u.Username
+				if billing.IsProUserPlan(billing.UserPlan(u.Plan)) {
+					proUsernames[u.Username] = true
+				}
+			}
+		}
+	}
 	usernameFor := func(id int64) string {
 		if id == 0 {
 			return ""
@@ -608,6 +627,47 @@ func (h *Handlers) issueTimelineRows(
 		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
 	})
 	return rows
+}
+
+// collectIssueParticipantIDs builds the distinct set of user IDs we
+// know we'll need a username + plan for when rendering an issue view:
+// the issue author, every comment author, every event actor, and every
+// assignee. Event-meta user_id (assigned/unassigned) is handled lazily
+// inside the closure since it's a rare path. PRO-EXT_SR2-12.
+func collectIssueParticipantIDs(
+	issue issuesdb.Issue,
+	comments []issuesdb.IssueComment,
+	events []issuesdb.IssueEvent,
+	assignees []issuesdb.ListIssueAssigneesRow,
+) []int64 {
+	seen := make(map[int64]struct{}, len(comments)+len(events)+len(assignees)+1)
+	add := func(id int64) {
+		if id == 0 {
+			return
+		}
+		seen[id] = struct{}{}
+	}
+	if issue.AuthorUserID.Valid {
+		add(issue.AuthorUserID.Int64)
+	}
+	for _, c := range comments {
+		if c.AuthorUserID.Valid {
+			add(c.AuthorUserID.Int64)
+		}
+	}
+	for _, e := range events {
+		if e.ActorUserID.Valid {
+			add(e.ActorUserID.Int64)
+		}
+	}
+	for _, a := range assignees {
+		add(a.UserID)
+	}
+	out := make([]int64, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
 }
 
 func issueEventMeta(raw []byte) map[string]any {

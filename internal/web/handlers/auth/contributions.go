@@ -82,40 +82,23 @@ func (h *Handlers) settingsContributionsSubmit(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// Reconcile: read current opt-outs; insert missing; delete extras.
-	current, err := h.q.ListContributionOptoutRepoIDsForUser(r.Context(), h.d.Pool, user.ID)
-	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "settings/contributions: list opt-outs", "user_id", user.ID, "error", err)
+	// Reconcile atomically. PRO-EXT_SR2-12 (audit Q2): the prior
+	// implementation read the current opt-out set then issued one
+	// upsert/delete per row of difference, so a user toggling the
+	// state of M repos paid 1+2M round-trips. The single replace
+	// query runs the insert + delete inside one statement under the
+	// same snapshot.
+	repoIDs := make([]int64, 0, len(desired))
+	for id := range desired {
+		repoIDs = append(repoIDs, id)
+	}
+	if err := h.q.ReplaceContributionOptoutsForUser(r.Context(), h.d.Pool, usersdb.ReplaceContributionOptoutsForUserParams{
+		UserID:  user.ID,
+		RepoIds: repoIDs,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "settings/contributions: replace opt-outs", "user_id", user.ID, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
-	}
-	currentSet := make(map[int64]struct{}, len(current))
-	for _, id := range current {
-		currentSet[id] = struct{}{}
-	}
-	for id := range desired {
-		if _, ok := currentSet[id]; ok {
-			continue
-		}
-		if err := h.q.UpsertContributionOptout(r.Context(), h.d.Pool, usersdb.UpsertContributionOptoutParams{
-			UserID: user.ID, RepoID: id,
-		}); err != nil {
-			h.d.Logger.ErrorContext(r.Context(), "settings/contributions: insert", "user_id", user.ID, "repo_id", id, "error", err)
-			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-			return
-		}
-	}
-	for id := range currentSet {
-		if _, ok := desired[id]; ok {
-			continue
-		}
-		if err := h.q.DeleteContributionOptout(r.Context(), h.d.Pool, usersdb.DeleteContributionOptoutParams{
-			UserID: user.ID, RepoID: id,
-		}); err != nil {
-			h.d.Logger.ErrorContext(r.Context(), "settings/contributions: delete", "user_id", user.ID, "repo_id", id, "error", err)
-			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-			return
-		}
 	}
 	h.renderContributionsForm(w, r, "", "Contribution privacy updated.")
 }
