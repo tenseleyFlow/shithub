@@ -43,6 +43,7 @@ type apiIssue struct {
 	AuthorID    int64      `json:"author_id"`
 	User        *apiUser   `json:"user"`
 	Labels      []apiLabel `json:"labels"`
+	Assignees   []apiUser  `json:"assignees"`
 	CreatedAt   string     `json:"created_at"`
 	UpdatedAt   string     `json:"updated_at"`
 	ClosedAt    string     `json:"closed_at"`
@@ -204,9 +205,18 @@ func TestIssues_CreateWithLabelsAssigneesMilestone(t *testing.T) {
 		t.Errorf("label names: got %+v", created.Labels)
 	}
 
-	// Server-side verify assignee + milestone landed on the issue row.
-	// (No REST GET for assignees yet; checking the table directly is
-	// the cheapest signal that the create handler wired them.)
+	// C20a: assignees must also surface in the issue response
+	// envelope. Pre-D1, presentIssue dropped them — the CLI then
+	// rendered "no assignees" on issues that actually had them.
+	if len(created.Assignees) != 1 {
+		t.Errorf("response.assignees: got %d, want 1; raw=%s", len(created.Assignees), rr.Body.String())
+	} else if created.Assignees[0].Login != "alice" {
+		t.Errorf("response.assignees[0].login: got %q, want alice", created.Assignees[0].Login)
+	}
+
+	// Server-side verify assignee + milestone landed on the issue row
+	// (defense in depth: response envelope says one thing, DB says
+	// another == bug).
 	assignees, err := issuesdb.New().ListIssueAssignees(ctx, pool, created.ID)
 	if err != nil {
 		t.Fatalf("ListIssueAssignees: %v", err)
