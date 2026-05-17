@@ -191,7 +191,8 @@ WHERE run_id = $1
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url
 `
 
 func (q *Queries) MarkWorkflowJobsRejected(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error) {
@@ -224,6 +225,8 @@ func (q *Queries) MarkWorkflowJobsRejected(ctx context.Context, db DBTX, runID i
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.EnvironmentName,
+			&i.EnvironmentUrl,
 		); err != nil {
 			return nil, err
 		}

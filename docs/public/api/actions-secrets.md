@@ -18,6 +18,12 @@ personal workflow secrets for the authenticated PAT owner, and use the
 same sealed-box request/response shapes. Writes may be denied when the
 instance enforces the Pro-only personal Actions secrets gate.
 
+Environment-scoped secrets are part of the runner storage model but do
+not have a public REST surface yet. Jobs that declare
+`environment: NAME` receive those secrets only when the repository has
+a configured environment with the same name; those values are still
+redacted and never appear in list/get responses.
+
 ## Sealed-box (secrets only)
 
 shithub never accepts plaintext secret values over REST. Clients

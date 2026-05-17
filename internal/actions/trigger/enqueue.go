@@ -253,16 +253,18 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 			return Result{}, fmt.Errorf("trigger: marshal env for job %s: %w", j.Key, err)
 		}
 		job, err := q.InsertWorkflowJob(ctx, tx, actionsdb.InsertWorkflowJobParams{
-			RunID:          run.ID,
-			JobIndex:       int32(i),
-			JobKey:         j.Key,
-			JobName:        j.Name,
-			RunsOn:         j.RunsOn,
-			NeedsJobs:      needs,
-			IfExpr:         j.If,
-			TimeoutMinutes: int32(j.TimeoutMinutes),
-			Permissions:    permsJSON,
-			JobEnv:         envJSON,
+			RunID:           run.ID,
+			JobIndex:        int32(i),
+			JobKey:          j.Key,
+			JobName:         j.Name,
+			RunsOn:          j.RunsOn,
+			NeedsJobs:       needs,
+			IfExpr:          j.If,
+			TimeoutMinutes:  int32(j.TimeoutMinutes),
+			Permissions:     permsJSON,
+			JobEnv:          envJSON,
+			EnvironmentName: j.Environment.Name,
+			EnvironmentUrl:  j.Environment.URL.Raw,
 		})
 		if err != nil {
 			return Result{}, fmt.Errorf("trigger: insert job %s: %w", j.Key, err)

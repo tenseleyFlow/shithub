@@ -365,7 +365,7 @@ func (h *Handlers) claimRunnerJob(
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
-	resolvedSecrets, err := h.resolveVisibleSecretsFromDB(ctx, tx, job.RepoID, job.Event)
+	resolvedSecrets, err := h.resolveVisibleSecretsForJobFromDB(ctx, tx, job.RepoID, job.Event, job.EnvironmentName)
 	if err != nil {
 		return actionsdb.ClaimQueuedWorkflowJobRow{}, nil, nil, nil, false, err
 	}
@@ -965,6 +965,8 @@ func claimRowWorkflowJob(row actionsdb.ClaimQueuedWorkflowJobRow) actionsdb.Work
 		TimeoutMinutes:  row.TimeoutMinutes,
 		Permissions:     row.Permissions,
 		JobEnv:          row.JobEnv,
+		EnvironmentName: row.EnvironmentName,
+		EnvironmentUrl:  row.EnvironmentUrl,
 		Status:          row.Status,
 		Conclusion:      row.Conclusion,
 		CancelRequested: row.CancelRequested,
@@ -1192,6 +1194,10 @@ func (h *Handlers) resolveVisibleSecrets(ctx context.Context, repoID int64) (map
 }
 
 func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretResolutionDB, repoID int64, event actionsdb.WorkflowRunEvent) (map[string]string, error) {
+	return h.resolveVisibleSecretsForJobFromDB(ctx, db, repoID, event, "")
+}
+
+func (h *Handlers) resolveVisibleSecretsForJobFromDB(ctx context.Context, db secretResolutionDB, repoID int64, event actionsdb.WorkflowRunEvent, environmentName string) (map[string]string, error) {
 	if h.d.SecretBox == nil {
 		return nil, nil
 	}
@@ -1227,6 +1233,24 @@ func (h *Handlers) resolveVisibleSecretsFromDB(ctx context.Context, db secretRes
 	}
 	if err := h.mergeRepoSecrets(ctx, db, repo.ID, out); err != nil {
 		return nil, err
+	}
+	if environmentName != "" {
+		environment, err := actionsdb.New().GetRepoEnvironmentByName(ctx, db, actionsdb.GetRepoEnvironmentByNameParams{
+			RepoID: repo.ID,
+			Name:   environmentName,
+		})
+		switch {
+		case err == nil:
+			if err := h.mergeEnvironmentSecrets(ctx, db, environment.ID, out); err != nil {
+				return nil, err
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			// GitHub permits workflows to name environments before the
+			// owner configures them. No configured environment means no
+			// environment-scoped secrets or protection to apply.
+		default:
+			return nil, err
+		}
 	}
 	if len(out) == 0 {
 		return nil, nil
@@ -1315,6 +1339,23 @@ func (h *Handlers) mergeOrgSecrets(ctx context.Context, db actionsdb.DBTX, orgID
 	q := actionsdb.New()
 	items, err := q.ListOrgSecretsWithCiphertext(ctx, db,
 		pgtype.Int8{Int64: orgID, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		plaintext, err := h.d.SecretBox.Open(item.Ciphertext, item.Nonce)
+		if err != nil {
+			return err
+		}
+		out[item.Name] = string(plaintext)
+	}
+	return nil
+}
+
+func (h *Handlers) mergeEnvironmentSecrets(ctx context.Context, db actionsdb.DBTX, environmentID int64, out map[string]string) error {
+	q := actionsdb.New()
+	items, err := q.ListEnvironmentSecretsWithCiphertext(ctx, db,
+		pgtype.Int8{Int64: environmentID, Valid: true})
 	if err != nil {
 		return err
 	}
@@ -1750,6 +1791,8 @@ type runnerJobPayload struct {
 	If             string            `json:"if"`
 	TimeoutMinutes int32             `json:"timeout_minutes"`
 	Permissions    json.RawMessage   `json:"permissions"`
+	Environment    string            `json:"environment"`
+	EnvironmentURL string            `json:"environment_url"`
 	Secrets        map[string]string `json:"secrets"`
 	// Variables is the `vars.*` namespace, plaintext. PRO-EXT01-12c
 	// finally wires this through; earlier sprints shipped the CRUD
@@ -1822,6 +1865,8 @@ func (h *Handlers) presentRunnerClaim(
 			If:             job.IfExpr,
 			TimeoutMinutes: job.TimeoutMinutes,
 			Permissions:    rawJSONOrObject(job.Permissions),
+			Environment:    job.EnvironmentName,
+			EnvironmentURL: job.EnvironmentUrl,
 			Secrets:        cloneStringMap(resolvedSecrets),
 			Variables:      cloneStringMap(resolvedVariables),
 			MaskValues:     secretMaskValues(resolvedSecrets),

@@ -13,7 +13,7 @@ without churning under them.
 ## SQL schema
 
 Actions migrations currently span 0042–0051, 0053, 0057, 0060, 0064–0067,
-and 0080.
+0080, and 0109.
 Migration 0052 belongs to the repo source-remotes feature, 0054
 belongs to push event protocol tracking, 0055 belongs to the social
 feed, 0056 belongs to user profile contribution settings, 0058 belongs
@@ -37,6 +37,7 @@ to repo name reuse, and 0059 belongs to GitHub org imports.
 | 0066  | `actions_*_policies`, `workflow_run_approvals` | Enablement, runner-pool caps, and approval decisions |
 | 0067  | `workflow_runners` ops state | Host/version metadata, drain state, and hard revocation state |
 | 0080  | `workflow_annotations`      | Sanitized workflow-command notice/warning/error annotations   |
+| 0109  | `repo_environments`         | Repo Actions environments, deployment branch policy, and environment-scoped secrets |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -57,6 +58,12 @@ later schema diff:
   references the original; the UI shows a "re-ran from #N" link.
 - **`workflow_jobs.runner_id`** — FK added in 0046 (after the
   runners table exists). Nullable until claimed.
+- **`workflow_jobs.environment_name` / `environment_url`** — raw
+  parsed `jobs.<key>.environment` data. These are text columns rather
+  than FKs because GitHub permits workflow-authored environment names;
+  the matching `repo_environments` row exists only when an owner has
+  configured protection, deployment branch policy, or environment
+  secrets for that name.
 - **`workflow_steps`** has a CHECK constraint enforcing
   `(run_command IS NOT NULL) <> (uses_alias IS NOT NULL)` — exactly
   one of `run:` or `uses:`. The `uses_alias` column is further
@@ -65,6 +72,11 @@ later schema diff:
   sealed via `internal/auth/secretbox`. Key derivation uses
   `cfg.Auth.TOTPKeyB64` (already an operator-managed root) +
   `(owner, kind, name)` salt so re-keying is per-row.
+- **`repo_environments`** stores the configured repo environment row
+  plus required-reviewer flags, wait timer, and deployment branch
+  policy. SP23's first slice wires parser/storage/runner secret
+  resolution; later SP23 slices make those protection settings block
+  deployments in the runner claim path.
 - **`workflow_step_log_chunks.chunk`** is capped at 512 KB per row.
   The runner sends bigger payloads in pieces. `(step_id, seq)` is
   UNIQUE so duplicate sends are idempotent.
@@ -122,6 +134,7 @@ jobs:
     if: ${{ shithub.actor == 'alice' }}   # optional gate
     timeout-minutes: 60                   # 1..4320, default 360
     permissions: { contents: read }       # narrow workflow perms
+    environment: production               # or { name: ..., url: ... }
     env: { K: v }                         # job overlay
     steps:
       - name: ...
@@ -667,6 +680,13 @@ the same name grammar as the database constraints:
 `^[A-Za-z_][A-Za-z0-9_]*$`, 1-100 characters. Variables additionally
 enforce the 4096-character value cap in Go before hitting the DB
 constraint.
+
+SP23 adds environment-scoped secrets to the same encrypted table. A
+job receives those rows only when its parsed `environment` name matches
+a configured `repo_environments` row for the repository. Resolution
+order is org/user → repo → environment, so environment secrets shadow
+broader scopes for deploy-only credentials. Pull request runs still get
+no secrets from any scope.
 
 ## What S41a deliberately doesn't do
 

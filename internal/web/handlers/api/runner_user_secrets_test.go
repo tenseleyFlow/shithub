@@ -212,6 +212,51 @@ func TestResolveVisibleSecrets_FreeUserReportOnlyMergesUserScope(t *testing.T) {
 	}
 }
 
+func TestResolveVisibleSecrets_EnvironmentScopeShadowsRepo(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	box := mustBox(t)
+
+	h := &Handlers{d: Deps{
+		Pool:      pool,
+		SecretBox: box,
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}}
+
+	userID := mustUser(t, pool, "alice")
+	repoID := mustRepo(t, pool, userID, "demo")
+	envID := mustRepoEnvironment(t, pool, repoID, "production")
+	mustRepoSecret(t, pool, box, repoID, "SHARED", []byte("repo-value"))
+	mustEnvironmentSecret(t, pool, box, envID, "SHARED", []byte("env-value"))
+	mustEnvironmentSecret(t, pool, box, envID, "DEPLOY_TOKEN", []byte("deploy-value"))
+
+	got, err := h.resolveVisibleSecretsForJobFromDB(context.Background(), pool, repoID, "", "production")
+	if err != nil {
+		t.Fatalf("resolve production: %v", err)
+	}
+	if got["SHARED"] != "env-value" {
+		t.Fatalf("environment secret should shadow repo secret; got %+v", got)
+	}
+	if got["DEPLOY_TOKEN"] != "deploy-value" {
+		t.Fatalf("environment-only secret missing; got %+v", got)
+	}
+
+	withoutEnv, err := h.resolveVisibleSecretsForJobFromDB(context.Background(), pool, repoID, "", "staging")
+	if err != nil {
+		t.Fatalf("resolve staging: %v", err)
+	}
+	if withoutEnv["SHARED"] != "repo-value" {
+		t.Fatalf("unconfigured environment should not merge env secrets; got %+v", withoutEnv)
+	}
+
+	prSecrets, err := h.resolveVisibleSecretsForJobFromDB(context.Background(), pool, repoID, actionsdb.WorkflowRunEventPullRequest, "production")
+	if err != nil {
+		t.Fatalf("resolve pull_request: %v", err)
+	}
+	if len(prSecrets) != 0 {
+		t.Fatalf("pull_request run must not receive environment secrets; got %+v", prSecrets)
+	}
+}
+
 // ─── helpers ────────────────────────────────────────────────────────
 
 // Helpers take testing.TB so the benchmark file can reuse them
@@ -285,6 +330,38 @@ func mustRepoSecret(t testing.TB, pool *pgxpool.Pool, box *secretbox.Box, repoID
 		Nonce:      nonce,
 	}); err != nil {
 		t.Fatalf("UpsertRepoSecret: %v", err)
+	}
+}
+
+func mustRepoEnvironment(t testing.TB, pool *pgxpool.Pool, repoID int64, name string) int64 {
+	t.Helper()
+	env, err := actionsdb.New().UpsertRepoEnvironment(context.Background(), pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   repoID,
+		Name:                     name,
+		RequiredReviewersEnabled: false,
+		PreventSelfReview:        false,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	return env.ID
+}
+
+func mustEnvironmentSecret(t testing.TB, pool *pgxpool.Pool, box *secretbox.Box, environmentID int64, name string, plaintext []byte) {
+	t.Helper()
+	ct, nonce, err := box.Seal(plaintext)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if _, err := actionsdb.New().UpsertEnvironmentSecret(context.Background(), pool, actionsdb.UpsertEnvironmentSecretParams{
+		EnvironmentID: pgtype.Int8{Int64: environmentID, Valid: true},
+		Name:          name,
+		Ciphertext:    ct,
+		Nonce:         nonce,
+	}); err != nil {
+		t.Fatalf("UpsertEnvironmentSecret: %v", err)
 	}
 }
 

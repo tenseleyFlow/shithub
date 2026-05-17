@@ -139,6 +139,43 @@ func TestParse_MultiJob(t *testing.T) {
 	}
 }
 
+func TestParse_JobEnvironment(t *testing.T) {
+	t.Parallel()
+	src := []byte(`
+name: deploy
+on: push
+jobs:
+  string-env:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: echo deploy
+  mapped-env:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://deployments.example.com/${{ shithub.sha }}
+    steps:
+      - run: echo deploy
+`)
+	w, diags, err := workflow.Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+	if got := w.Jobs[0].Environment.Name; got != "staging" {
+		t.Fatalf("string environment name = %q, want staging", got)
+	}
+	if got := w.Jobs[1].Environment.Name; got != "production" {
+		t.Fatalf("mapped environment name = %q, want production", got)
+	}
+	if got := w.Jobs[1].Environment.URL.Raw; !strings.Contains(got, "deployments.example.com") {
+		t.Fatalf("mapped environment url = %q", got)
+	}
+}
+
 func TestParse_UntrustedPRTitle(t *testing.T) {
 	t.Parallel()
 	w, diags, err := workflow.Parse(readFixture(t, "untrusted-pr-title"))

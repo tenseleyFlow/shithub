@@ -1184,6 +1184,49 @@ func (ns NullPrincipalKind) Value() (driver.Value, error) {
 	return string(ns.PrincipalKind), nil
 }
 
+type RepoEnvironmentDeploymentBranchPolicy string
+
+const (
+	RepoEnvironmentDeploymentBranchPolicyAll       RepoEnvironmentDeploymentBranchPolicy = "all"
+	RepoEnvironmentDeploymentBranchPolicyProtected RepoEnvironmentDeploymentBranchPolicy = "protected"
+	RepoEnvironmentDeploymentBranchPolicySelected  RepoEnvironmentDeploymentBranchPolicy = "selected"
+)
+
+func (e *RepoEnvironmentDeploymentBranchPolicy) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RepoEnvironmentDeploymentBranchPolicy(s)
+	case string:
+		*e = RepoEnvironmentDeploymentBranchPolicy(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RepoEnvironmentDeploymentBranchPolicy: %T", src)
+	}
+	return nil
+}
+
+type NullRepoEnvironmentDeploymentBranchPolicy struct {
+	RepoEnvironmentDeploymentBranchPolicy RepoEnvironmentDeploymentBranchPolicy
+	Valid                                 bool // Valid is true if RepoEnvironmentDeploymentBranchPolicy is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRepoEnvironmentDeploymentBranchPolicy) Scan(value interface{}) error {
+	if value == nil {
+		ns.RepoEnvironmentDeploymentBranchPolicy, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RepoEnvironmentDeploymentBranchPolicy.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRepoEnvironmentDeploymentBranchPolicy) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RepoEnvironmentDeploymentBranchPolicy), nil
+}
+
 type RepoInitStatus string
 
 const (
@@ -3174,6 +3217,25 @@ type RepoCollaborator struct {
 	AddedByUserID pgtype.Int8
 }
 
+type RepoEnvironment struct {
+	ID                       int64
+	RepoID                   int64
+	Name                     string
+	RequiredReviewersEnabled bool
+	PreventSelfReview        bool
+	WaitTimerMinutes         int32
+	DeploymentBranchPolicy   RepoEnvironmentDeploymentBranchPolicy
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
+type RepoEnvironmentDeploymentBranch struct {
+	ID            int64
+	EnvironmentID int64
+	Pattern       string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type RepoIssueCounter struct {
 	RepoID     int64
 	NextNumber int64
@@ -3848,6 +3910,8 @@ type WorkflowJob struct {
 	Version         int32
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	EnvironmentName string
+	EnvironmentUrl  string
 }
 
 type WorkflowJobSecretMask struct {
@@ -3924,6 +3988,7 @@ type WorkflowSecret struct {
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
 	UserID          pgtype.Int8
+	EnvironmentID   pgtype.Int8
 }
 
 type WorkflowStep struct {

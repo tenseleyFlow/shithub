@@ -200,6 +200,46 @@ func TestEnqueue_HappyPath(t *testing.T) {
 	})
 }
 
+func TestEnqueue_PersistsJobEnvironment(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	w := workflowFromYAML(t, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://deployments.example.com
+    steps:
+      - run: echo deploy
+`)
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/deploy.yml",
+		HeadSHA:        strings.Repeat("b", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:deploy",
+		Workflow:       w,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	jobs, err := actionsdb.New().ListJobsForRun(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs = %+v", jobs)
+	}
+	if jobs[0].EnvironmentName != "production" || jobs[0].EnvironmentUrl != "https://deployments.example.com" {
+		t.Fatalf("environment persisted as name=%q url=%q", jobs[0].EnvironmentName, jobs[0].EnvironmentUrl)
+	}
+}
+
 func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 	f := setupOrgEnq(t)
 	ctx := context.Background()

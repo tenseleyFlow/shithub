@@ -26,10 +26,12 @@ type Querier interface {
 	CountRunningWorkflowJobsForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountWorkflowCachesForRepo(ctx context.Context, db DBTX, arg CountWorkflowCachesForRepoParams) (int64, error)
 	CountWorkflowRunsForRepo(ctx context.Context, db DBTX, arg CountWorkflowRunsForRepoParams) (int64, error)
+	DeleteEnvironmentSecret(ctx context.Context, db DBTX, arg DeleteEnvironmentSecretParams) error
 	DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error)
 	DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
 	DeleteOrgVariable(ctx context.Context, db DBTX, arg DeleteOrgVariableParams) error
+	DeleteRepoEnvironment(ctx context.Context, db DBTX, arg DeleteRepoEnvironmentParams) error
 	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
@@ -71,9 +73,11 @@ type Querier interface {
 	GetArtifactByID(ctx context.Context, db DBTX, id int64) (WorkflowArtifact, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetEffectiveActionsPolicyForRepo(ctx context.Context, db DBTX, id int64) (GetEffectiveActionsPolicyForRepoRow, error)
+	GetEnvironmentSecret(ctx context.Context, db DBTX, arg GetEnvironmentSecretParams) (GetEnvironmentSecretRow, error)
 	GetFirstStepForJob(ctx context.Context, db DBTX, jobID int64) (WorkflowStep, error)
 	GetOrgSecret(ctx context.Context, db DBTX, arg GetOrgSecretParams) (GetOrgSecretRow, error)
 	GetOrgVariable(ctx context.Context, db DBTX, arg GetOrgVariableParams) (GetOrgVariableRow, error)
+	GetRepoEnvironmentByName(ctx context.Context, db DBTX, arg GetRepoEnvironmentByNameParams) (RepoEnvironment, error)
 	GetRepoSecret(ctx context.Context, db DBTX, arg GetRepoSecretParams) (GetRepoSecretRow, error)
 	GetRepoVariable(ctx context.Context, db DBTX, arg GetRepoVariableParams) (GetRepoVariableRow, error)
 	GetRunnerByID(ctx context.Context, db DBTX, id int64) (GetRunnerByIDRow, error)
@@ -94,6 +98,7 @@ type Querier interface {
 	HeartbeatRunner(ctx context.Context, db DBTX, arg HeartbeatRunnerParams) (HeartbeatRunnerRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertArtifact(ctx context.Context, db DBTX, arg InsertArtifactParams) (WorkflowArtifact, error)
+	InsertRepoEnvironmentDeploymentBranch(ctx context.Context, db DBTX, arg InsertRepoEnvironmentDeploymentBranchParams) (RepoEnvironmentDeploymentBranch, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertRunner(ctx context.Context, db DBTX, arg InsertRunnerParams) (InsertRunnerRow, error)
 	InsertRunnerToken(ctx context.Context, db DBTX, arg InsertRunnerTokenParams) (RunnerToken, error)
@@ -131,12 +136,16 @@ type Querier interface {
 	// Used by the workflows-list endpoint to mark `state: "disabled"`
 	// entries without round-tripping through Is for every file.
 	ListDisabledWorkflowsForRepo(ctx context.Context, db DBTX, repoID int64) ([]string, error)
+	ListEnvironmentSecrets(ctx context.Context, db DBTX, environmentID pgtype.Int8) ([]ListEnvironmentSecretsRow, error)
+	ListEnvironmentSecretsWithCiphertext(ctx context.Context, db DBTX, environmentID pgtype.Int8) ([]ListEnvironmentSecretsWithCiphertextRow, error)
 	ListExpiredWorkflowArtifactsForCleanup(ctx context.Context, db DBTX, arg ListExpiredWorkflowArtifactsForCleanupParams) ([]ListExpiredWorkflowArtifactsForCleanupRow, error)
 	ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]ListJobsForRunRow, error)
 	ListOrgSecrets(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsRow, error)
 	ListOrgSecretsWithCiphertext(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgSecretsWithCiphertextRow, error)
 	ListOrgVariables(ctx context.Context, db DBTX, orgID pgtype.Int8) ([]ListOrgVariablesRow, error)
 	ListQueuedWorkflowJobRunsOn(ctx context.Context, db DBTX) ([]ListQueuedWorkflowJobRunsOnRow, error)
+	ListRepoEnvironmentDeploymentBranches(ctx context.Context, db DBTX, environmentID int64) ([]RepoEnvironmentDeploymentBranch, error)
+	ListRepoEnvironments(ctx context.Context, db DBTX, repoID int64) ([]RepoEnvironment, error)
 	ListRepoSecrets(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsRow, error)
 	// PRO-EXT_SR2-12 (audit Q1): retire the same 1+N pattern for the
 	// repo and org variants that previously haunted mergeUserSecrets.
@@ -191,6 +200,7 @@ type Querier interface {
 	NextRunIndexForRepo(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	PinWorkflowForUserRepo(ctx context.Context, db DBTX, arg PinWorkflowForUserRepoParams) (UserActionWorkflowPin, error)
 	RejectWorkflowRunApproval(ctx context.Context, db DBTX, arg RejectWorkflowRunApprovalParams) (WorkflowRunApproval, error)
+	ReplaceRepoEnvironmentDeploymentBranches(ctx context.Context, db DBTX, environmentID int64) error
 	RequestWorkflowJobCancel(ctx context.Context, db DBTX, id int64) (WorkflowJob, error)
 	RequestWorkflowRunCancel(ctx context.Context, db DBTX, runID int64) ([]WorkflowJob, error)
 	RevokeAllTokensForRunner(ctx context.Context, db DBTX, runnerID int64) error
@@ -208,8 +218,14 @@ type Querier interface {
 	UpdateWorkflowStepLogObject(ctx context.Context, db DBTX, arg UpdateWorkflowStepLogObjectParams) (WorkflowStep, error)
 	UpdateWorkflowStepStatus(ctx context.Context, db DBTX, arg UpdateWorkflowStepStatusParams) (WorkflowStep, error)
 	UpsertActionsRepoPolicy(ctx context.Context, db DBTX, arg UpsertActionsRepoPolicyParams) (ActionsRepoPolicy, error)
+	// SP23: environment-scoped rows are repo-environment-local. They are visible
+	// only to jobs whose workflow declares the matching environment, and they
+	// shadow repo/org/user scope during runner resolution.
+	UpsertEnvironmentSecret(ctx context.Context, db DBTX, arg UpsertEnvironmentSecretParams) (UpsertEnvironmentSecretRow, error)
 	UpsertOrgSecret(ctx context.Context, db DBTX, arg UpsertOrgSecretParams) (UpsertOrgSecretRow, error)
 	UpsertOrgVariable(ctx context.Context, db DBTX, arg UpsertOrgVariableParams) (UpsertOrgVariableRow, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	UpsertRepoEnvironment(ctx context.Context, db DBTX, arg UpsertRepoEnvironmentParams) (RepoEnvironment, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertRepoSecret(ctx context.Context, db DBTX, arg UpsertRepoSecretParams) (UpsertRepoSecretRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later

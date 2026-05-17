@@ -520,6 +520,10 @@ func parseJob(key string, n *yaml.Node) (Job, []Diagnostic) {
 			p, ds := parsePermissions(v, path)
 			j.Permissions = p
 			diags = append(diags, ds...)
+		case "environment":
+			env, ds := parseJobEnvironment(v, path)
+			j.Environment = env
+			diags = append(diags, ds...)
 		case "env":
 			env, ds := parseEnv(v, path)
 			j.Env = env
@@ -529,7 +533,7 @@ func parseJob(key string, n *yaml.Node) (Job, []Diagnostic) {
 			j.Steps = steps
 			diags = append(diags, ds...)
 		default:
-			diags = append(diags, errAt(path, "unknown job key (allowed: name, runs-on, needs, if, timeout-minutes, permissions, env, steps)"))
+			diags = append(diags, errAt(path, "unknown job key (allowed: name, runs-on, needs, if, timeout-minutes, permissions, environment, env, steps)"))
 		}
 	}
 	if j.RunsOn == "" {
@@ -539,6 +543,49 @@ func parseJob(key string, n *yaml.Node) (Job, []Diagnostic) {
 		diags = append(diags, errAt("jobs."+key, "job has no steps"))
 	}
 	return j, diags
+}
+
+func parseJobEnvironment(n *yaml.Node, path string) (Environment, []Diagnostic) {
+	var diags []Diagnostic
+	env := Environment{}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		env.Name = n.Value
+	case yaml.MappingNode:
+		for i := 0; i < len(n.Content); i += 2 {
+			k := n.Content[i]
+			v := n.Content[i+1]
+			switch k.Value {
+			case "name":
+				if v.Kind != yaml.ScalarNode {
+					diags = append(diags, errAt(path+".name", "environment name must be a scalar"))
+					continue
+				}
+				env.Name = v.Value
+			case "url":
+				if v.Kind != yaml.ScalarNode {
+					diags = append(diags, errAt(path+".url", "environment url must be a scalar"))
+					continue
+				}
+				env.URL = V(v.Value)
+			default:
+				diags = append(diags, errAt(path+"."+k.Value, "unknown environment key (allowed: name, url)"))
+			}
+		}
+	default:
+		diags = append(diags, errAt(path, "must be a scalar name or a mapping with name/url"))
+		return env, diags
+	}
+	if env.Name == "" {
+		diags = append(diags, errAt(path, "environment name is required"))
+	}
+	if len(env.Name) > 255 {
+		diags = append(diags, errAt(path, "environment name must be 255 characters or fewer"))
+	}
+	if len(env.URL.Raw) > 2048 {
+		diags = append(diags, errAt(path+".url", "environment url must be 2048 characters or fewer"))
+	}
+	return env, diags
 }
 
 func parseSteps(n *yaml.Node, jobPath string) ([]Step, []Diagnostic) {
