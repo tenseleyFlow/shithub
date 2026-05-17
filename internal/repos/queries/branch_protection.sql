@@ -7,10 +7,11 @@ SELECT id, repo_id, pattern,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
        required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
-       dismiss_stale_status_checks_on_push
+       dismiss_stale_status_checks_on_push,
+       target
 FROM branch_protection_rules
 WHERE repo_id = $1
-ORDER BY pattern;
+ORDER BY target, pattern;
 
 -- name: GetBranchProtectionRule :one
 SELECT id, repo_id, pattern,
@@ -19,30 +20,40 @@ SELECT id, repo_id, pattern,
        require_signed_commits, status_checks_required,
        created_at, updated_at, created_by_user_id,
        required_review_count, dismiss_stale_reviews_on_push, require_code_owner_review,
-       dismiss_stale_status_checks_on_push
+       dismiss_stale_status_checks_on_push,
+       target
 FROM branch_protection_rules
 WHERE id = $1;
 
 -- name: UpsertBranchProtectionRule :one
 INSERT INTO branch_protection_rules (
-    repo_id, pattern,
+    repo_id, pattern, target,
     prevent_force_push, prevent_deletion, require_pr_for_push,
     require_signed_commits,
     allowed_pusher_user_ids, created_by_user_id
 ) VALUES (
-    $1, $2, $3, $4, $5, sqlc.arg(require_signed_commits)::boolean, $6, sqlc.narg(created_by_user_id)::bigint
+    sqlc.arg(repo_id)::bigint,
+    sqlc.arg(pattern)::text,
+    COALESCE(NULLIF(sqlc.arg(target)::text, ''), 'branch'),
+    sqlc.arg(prevent_force_push)::boolean,
+    sqlc.arg(prevent_deletion)::boolean,
+    sqlc.arg(require_pr_for_push)::boolean,
+    sqlc.arg(require_signed_commits)::boolean,
+    sqlc.arg(allowed_pusher_user_ids)::bigint[],
+    sqlc.narg(created_by_user_id)::bigint
 )
 RETURNING id;
 
 -- name: UpdateBranchProtectionRule :exec
 UPDATE branch_protection_rules
-SET pattern = $2,
-    prevent_force_push = $3,
-    prevent_deletion = $4,
-    require_pr_for_push = $5,
+SET pattern = sqlc.arg(pattern)::text,
+    target = COALESCE(NULLIF(sqlc.arg(target)::text, ''), 'branch'),
+    prevent_force_push = sqlc.arg(prevent_force_push)::boolean,
+    prevent_deletion = sqlc.arg(prevent_deletion)::boolean,
+    require_pr_for_push = sqlc.arg(require_pr_for_push)::boolean,
     require_signed_commits = sqlc.arg(require_signed_commits)::boolean,
-    allowed_pusher_user_ids = $6
-WHERE id = $1;
+    allowed_pusher_user_ids = sqlc.arg(allowed_pusher_user_ids)::bigint[]
+WHERE id = sqlc.arg(id)::bigint;
 
 -- name: UpdateBranchProtectionReviewSettings :exec
 -- S23 surface for the review-related knobs. Branch-protection edit

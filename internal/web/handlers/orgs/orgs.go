@@ -604,7 +604,7 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Baseline shipped",
 				},
 				{
-					Name: "Branch rules", Description: "Enforce branch restrictions and required status checks across organization repositories.",
+					Name: "Branch and tag rules", Description: "Enforce branch restrictions, tag protection, and required status checks across organization repositories.",
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP18",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md", State: "Shipped",
 				},

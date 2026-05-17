@@ -65,9 +65,11 @@ func (h *Handlers) settingsBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // settingsBranchesUpsert creates a new rule (no `id` param) or updates
-// an existing one (`id` param set). Form fields: pattern,
+// an existing one (`id` param set). Form fields: target, pattern,
 // prevent_force_push, prevent_deletion, require_pr_for_push,
-// allowed_pusher_usernames (comma-separated).
+// allowed_pusher_usernames (comma-separated). Branch targets can also
+// carry review and status-check settings; tag targets are limited to
+// tag creation/move/delete and allowed-pusher controls.
 func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsBranches)
 	if !ok {
@@ -80,6 +82,11 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	pattern := strings.TrimSpace(r.PostFormValue("pattern"))
 	if pattern == "" || len(pattern) > 200 {
 		http.Error(w, "pattern length must be 1–200", http.StatusBadRequest)
+		return
+	}
+	target, ok := normalizeProtectionTarget(r.PostFormValue("target"))
+	if !ok {
+		http.Error(w, "target must be branch or tag", http.StatusBadRequest)
 		return
 	}
 	preventForcePush := r.PostFormValue("prevent_force_push") == "on"
@@ -102,8 +109,19 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 	// against `check_runs.name` at gate time.
 	requiredChecks := splitCommaList(r.PostFormValue("required_status_check_names"))
 	dismissStaleChecks := r.PostFormValue("dismiss_stale_status_checks_on_push") == "on"
+	allowedPushersRaw := strings.TrimSpace(r.PostFormValue("allowed_pushers"))
+
+	if target == "tag" {
+		requirePR = false
+		requireSignedCommits = false
+		requiredReviews = 0
+		dismissStale = false
+		requiredChecks = []string{}
+		dismissStaleChecks = false
+	}
 
 	noticeCode, err := h.branchProtectionEntitlementNotice(r.Context(), row, branchProtectionInputs{
+		Target:               target,
 		RequiredReviews:      requiredReviews,
 		DismissStale:         dismissStale,
 		PreventForcePush:     preventForcePush,
@@ -111,6 +129,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		RequireSignedCommits: requireSignedCommits,
 		RequiredChecks:       requiredChecks,
 		DismissStaleChecks:   dismissStaleChecks,
+		HasAllowedPushers:    allowedPushersRaw != "",
 	})
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
@@ -121,7 +140,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	allowed, err := resolveUsernameList(r, h, r.PostFormValue("allowed_pushers"))
+	allowed, err := resolveUsernameList(r, h, allowedPushersRaw)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -135,6 +154,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		newID, err := h.rq.UpsertBranchProtectionRule(r.Context(), h.d.Pool, reposdb.UpsertBranchProtectionRuleParams{
 			RepoID:               row.ID,
 			Pattern:              pattern,
+			Target:               target,
 			PreventForcePush:     preventForcePush,
 			PreventDeletion:      preventDeletion,
 			RequirePrForPush:     requirePR,
@@ -162,7 +182,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
-		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": newID, "pattern": pattern, "action": "create"})
+		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": newID, "pattern": pattern, "target": target, "action": "create"})
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
 			auditMeta)
@@ -182,6 +202,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		if err := h.rq.UpdateBranchProtectionRule(r.Context(), h.d.Pool, reposdb.UpdateBranchProtectionRuleParams{
 			ID:                   id,
 			Pattern:              pattern,
+			Target:               target,
 			PreventForcePush:     preventForcePush,
 			PreventDeletion:      preventDeletion,
 			RequirePrForPush:     requirePR,
@@ -206,7 +227,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 		}); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "branch-protection: check settings", "error", err)
 		}
-		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": id, "pattern": pattern, "action": "update"})
+		auditActor, auditMeta := viewer.AuditActor(map[string]any{"branch_protection_rule_id": id, "pattern": pattern, "target": target, "action": "update"})
 		_ = h.d.Audit.Record(r.Context(), h.d.Pool, auditActor,
 			audit.ActionRepoCreated, audit.TargetRepo, row.ID,
 			auditMeta)
@@ -218,6 +239,7 @@ func (h *Handlers) settingsBranchesUpsert(w http.ResponseWriter, r *http.Request
 // entitlement gate. Centralizing them in a struct keeps the gate
 // signature stable as PRO01's v1 paygate set evolves.
 type branchProtectionInputs struct {
+	Target               string
 	RequiredReviews      int
 	DismissStale         bool
 	PreventForcePush     bool
@@ -225,6 +247,7 @@ type branchProtectionInputs struct {
 	RequireSignedCommits bool
 	RequiredChecks       []string
 	DismissStaleChecks   bool
+	HasAllowedPushers    bool
 }
 
 type branchProtectionGovernanceView struct {
@@ -234,6 +257,7 @@ type branchProtectionGovernanceView struct {
 	BillingHref                    string
 	RulesetsAPIHref                string
 	BranchRulesAPIHref             string
+	TagRulesAPIHref                string
 	IsPrivate                      bool
 	IsPrivateOrgRepo               bool
 	TeamRequired                   bool
@@ -253,9 +277,10 @@ func (h *Handlers) branchProtectionGovernanceView(ctx context.Context, row repos
 	view := branchProtectionGovernanceView{
 		Scope:                          "Public repository",
 		State:                          "Available",
-		Message:                        "Branch rules, required reviews, and required status checks are available on public repositories.",
+		Message:                        "Branch and tag rules, required reviews, and required status checks are available on public repositories.",
 		RulesetsAPIHref:                "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rulesets",
 		BranchRulesAPIHref:             "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rules/branches/" + row.DefaultBranch,
+		TagRulesAPIHref:                "/api/v1/repos/" + ownerSlug + "/" + row.Name + "/rules/tags/v1.0.0",
 		CanUseRequiredReviewers:        true,
 		CanUseAdvancedBranchProtection: true,
 	}
@@ -334,9 +359,9 @@ func branchProtectionGovernanceMessage(principal billing.Principal, decisions ..
 	case "Contact sales":
 		return "Enterprise-preview governance is not self-serve yet. Contact sales to enable private repository rules."
 	case "Pro required":
-		return "Private personal repository governance requires Pro before required reviewers or advanced branch rules can be added."
+		return "Private personal repository governance requires Pro before required reviewers or advanced branch and tag rules can be added."
 	default:
-		return "Private organization repository governance requires Team before required reviewers or advanced branch rules can be added."
+		return "Private organization repository governance requires Team before required reviewers or advanced branch and tag rules can be added."
 	}
 }
 
@@ -368,6 +393,12 @@ func branchProtectionGovernanceFeatures(view branchProtectionGovernanceView, rev
 			State:       advancedState,
 			Gated:       advancedGated,
 		},
+		{
+			Name:        "Tag rules",
+			Description: "Protect matching tags from deletion or movement and expose tag-targeted rulesets through the API.",
+			State:       advancedState,
+			Gated:       advancedGated,
+		},
 	}
 }
 
@@ -389,7 +420,7 @@ func branchProtectionFeatureState(allowed bool, decision *entitlements.Decision)
 }
 
 // branchProtectionEntitlementNotice gates the required-reviewers and
-// advanced-branch-protection knobs on private repos.
+// advanced-branch/tag-protection knobs on private repos.
 //
 // PRO08 C2: PRO07 mis-wired this — FeatureAdvancedBranchProtection
 // fired on required status checks only, NOT on the PRO01-ratified
@@ -397,7 +428,8 @@ func branchProtectionFeatureState(allowed bool, decision *entitlements.Decision)
 // The corrected predicate fires on ANY advanced input:
 // {prevent_force_push, prevent_deletion, require_signed_commits,
 //
-//	required_status_check_names, dismiss_stale_status_checks_on_push}.
+//	required_status_check_names, dismiss_stale_status_checks_on_push,
+//	allowed_pushers, tag target}.
 //
 // FeatureRequiredReviewers stays on required_review_count + dismissStale.
 //
@@ -420,8 +452,8 @@ func (h *Handlers) branchProtectionEntitlementNotice(ctx context.Context, row re
 			return code, err
 		}
 	}
-	if inputs.PreventForcePush || inputs.PreventDeletion || inputs.RequireSignedCommits ||
-		len(inputs.RequiredChecks) > 0 || inputs.DismissStaleChecks {
+	if inputs.Target == "tag" || inputs.PreventForcePush || inputs.PreventDeletion || inputs.RequireSignedCommits ||
+		len(inputs.RequiredChecks) > 0 || inputs.DismissStaleChecks || inputs.HasAllowedPushers {
 		code, err := h.evaluateBranchProtectionFeature(ctx, principal, entitlements.FeatureAdvancedBranchProtection, 0)
 		if err != nil || code != "" {
 			return code, err
@@ -647,13 +679,13 @@ func settingsBranchesNoticeMessage(code string) string {
 	case "default-changed":
 		return "Default branch updated."
 	case "branch-protection-upgrade":
-		return "Advanced branch protection on private organization repositories requires Team billing."
+		return "Advanced branch and tag protection on private organization repositories requires Team billing."
 	case "branch-protection-upgrade-pro":
-		return "Advanced branch protection on private personal repositories requires Pro. Upgrade at /settings/billing."
+		return "Advanced branch and tag protection on private personal repositories requires Pro. Upgrade at /settings/billing."
 	case "branch-protection-billing":
-		return "Advanced branch protection is read-only until billing is brought back into good standing."
+		return "Advanced branch and tag protection is read-only until billing is brought back into good standing."
 	case "branch-protection-enterprise":
-		return "Advanced branch protection is unavailable for Enterprise preview organizations. Contact sales to enable it."
+		return "Advanced branch and tag protection is unavailable for Enterprise preview organizations. Contact sales to enable it."
 	case "required-reviewers-upgrade":
 		return "Required reviewers on private organization repositories require Team billing."
 	case "required-reviewers-upgrade-pro":
@@ -668,6 +700,17 @@ func settingsBranchesNoticeMessage(code string) string {
 		return "Required reviewers are unavailable for Enterprise preview organizations. Contact sales to enable them."
 	default:
 		return ""
+	}
+}
+
+func normalizeProtectionTarget(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "branch":
+		return "branch", true
+	case "tag":
+		return "tag", true
+	default:
+		return "", false
 	}
 }
 

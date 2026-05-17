@@ -66,20 +66,21 @@ blank slate instead of redirecting to `default...default`. Renders:
 
 Empty state ("nothing to compare") fires when `Ahead == 0`.
 
-## Branch-protection rules
+## Repository protection rules
 
 Stored in `branch_protection_rules`:
 
 | Column                     | Default | Notes                                        |
 | -------------------------- | ------- | -------------------------------------------- |
 | `pattern`                  | (set)   | `filepath.Match` glob                        |
-| `prevent_force_push`       | `true`  | enforced                                     |
+| `target`                   | `branch` | `branch` or `tag`; existing rows default to branch |
+| `prevent_force_push`       | `true`  | branch non-fast-forward gate; tag movement gate |
 | `prevent_deletion`         | `true`  | enforced                                     |
-| `require_pr_for_push`      | `false` | enforced for direct git pushes and web edits |
+| `require_pr_for_push`      | `false` | enforced for direct branch git pushes and web edits |
 | `allowed_pusher_user_ids`  | `{}`    | enforced; empty = no restriction              |
-| `require_signed_commits`   | `false` | placeholder — post-MVP                       |
-| `status_checks_required`   | `{}`    | enforced through the S24 check-run gate      |
-| `required_review_count`    | `0`     | enforced through the PR review gate          |
+| `require_signed_commits`   | `false` | placeholder — post-MVP; branch-only input    |
+| `status_checks_required`   | `{}`    | branch-only; enforced through the S24 check-run gate |
+| `required_review_count`    | `0`     | branch-only; enforced through the PR review gate |
 
 ### Pattern matching
 
@@ -92,9 +93,9 @@ Stored in `branch_protection_rules`:
 `release/*` matches `release/v1.0` but NOT `release/v1.0/sub`. The
 matcher is unit-tested in `protection_test.go::TestMatchRule_…`.
 
-When multiple rules match a branch, the **longest pattern wins**
-(alphabetical tiebreaker). Document this in the settings UI when the
-rule list grows complex.
+When multiple rules match a branch or tag within the same target, the
+**longest pattern wins** (alphabetical tiebreaker). Branch and tag
+rules are isolated even when their pattern text is identical.
 
 ### Enforcement (pre-receive)
 
@@ -103,9 +104,12 @@ The pre-receive hook (`cmd/shithubd/hook.go::hookPreReceiveCmd`):
 1. Reads `<old> <new> <ref>` lines from stdin.
 2. Runs the existing S15 policy gate (suspended/archived/deleted).
 3. For each ref update, calls `protection.Enforce`:
-   - Skip non-`refs/heads/*` refs (tag protection out of scope).
+   - Skip refs outside `refs/heads/*` and `refs/tags/*`.
+   - Classify the ref as `branch` or `tag`.
    - Resolve the longest-matching rule.
-   - Apply the gates in order: deletion → require-PR → force-push →
+   - For branches, apply gates in order: deletion → require-PR →
+     force-push → allowed-pushers.
+   - For tags, apply gates in order: deletion → tag movement →
      allowed-pushers.
    - Return a `Decision` with `Allow`, `Reason`, and `Pattern`.
 4. On any `Allow=false`: write `protection.FriendlyMessage(d)` to
@@ -114,6 +118,12 @@ The pre-receive hook (`cmd/shithubd/hook.go::hookPreReceiveCmd`):
 **Force-push detection** uses `git merge-base --is-ancestor old new`
 (via `repogit.IsAncestor`). When the old SHA is not an ancestor of
 the new SHA, the update is non-fast-forward → reject.
+
+**Tag movement** treats changing an existing tag (`old` and `new`
+both non-zero) as the tag equivalent of a force-push. Git tag refs do
+not have a useful commit ancestry relationship in all cases
+(annotated tags point to tag objects), so tag rules block movement
+directly when `prevent_force_push` is enabled.
 
 **Require pull request** rejects direct branch creates and updates when
 `require_pr_for_push` is true on the matching rule. That covers both
@@ -135,7 +145,8 @@ settings handler first authorizes `repo:settings:branches` through
 billable repo owner can use:
 
 - `advanced_branch_protection` for force-push/deletion/signature
-  toggles and required status checks.
+  toggles, tag protection, allowed-pusher restrictions, and required
+  status checks.
 - `required_reviewers` for required approvals and multiple required
   reviewers.
 
@@ -171,16 +182,17 @@ land, the meta blob carries `action: "default_branch_changed"`/
 ## Tests
 
 - `internal/repos/protection/protection_test.go` — pattern-match
-  precedence (longest-prefix, alphabetical tiebreak, no-cross-slash),
-  zero-SHA detection.
+  precedence (longest-prefix, alphabetical tiebreak, target
+  isolation, no-cross-slash), ref classification, zero-SHA detection.
 - `internal/repos/git/branchops_test.go` — covered by the existing
   log/blame test fixtures (initial commit suffices for AheadBehind +
   IsAncestor smoke).
 
 ## Pitfalls handled
 
-- **Tag pushes**: `Enforce` skips `refs/tags/*`; rules only apply to
-  branches. Tag protection is its own (post-MVP) concept.
+- **Tag-only semantics**: tag rules deliberately ignore branch-only
+  PR review, required-status-check, and signed-commit knobs. The
+  settings handler strips those values on tag-targeted writes.
 - **Pattern globs vs regexes**: deliberate; matches GitHub UX.
 - **Pre-receive cache scope**: one DB read per hook invocation. With
   small rule sets this is cheap. A long-lived cache would complicate
@@ -194,6 +206,5 @@ land, the meta blob carries `action: "default_branch_changed"`/
 
 - **`require_signed_commits` enforcement** → post-MVP signing surface.
 - **Per-team allowed-pushers** → S31 (orgs/teams).
-- **Tag protection** → post-MVP.
 - **Ahead/behind caching on push** → S36.
 - **Cross-repo compare full UI** → S22 + S27.

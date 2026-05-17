@@ -1,10 +1,15 @@
-# Branch protection & reviews
+# Branch and tag protection & reviews
 
 Branch protection lets a repo admin guard specific branches —
 typically `main` — from direct pushes, force-pushes, deletion,
 and merges that don't meet the team's review/CI bar.
 
 Configured at Repository → Settings → Branches.
+
+The same repository-rules form can target tags. Tag rules use the
+same pattern syntax and can block tag deletion, block movement of an
+existing tag, and restrict who can push matching tags. Pull request
+reviews and status checks are branch-only controls.
 
 ## Per-rule controls
 

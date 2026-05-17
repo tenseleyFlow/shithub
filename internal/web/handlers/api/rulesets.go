@@ -29,6 +29,7 @@ import (
 //	GET /api/v1/repos/{o}/{r}/rulesets
 //	GET /api/v1/repos/{o}/{r}/rulesets/{id}
 //	GET /api/v1/repos/{o}/{r}/rules/branches/{branch}  rules applying to a branch
+//	GET /api/v1/repos/{o}/{r}/rules/tags/{tag}          rules applying to a tag
 //
 // All endpoints require `repo:read` and gate on `ActionRepoRead`.
 // Mirrors gh's response shape — clients pinned to gh's documented
@@ -41,6 +42,7 @@ func (h *Handlers) mountRulesets(r chi.Router) {
 		// Branches can contain `/`; wildcard segment, same as the
 		// branches single-get route in branches.go.
 		r.Get("/api/v1/repos/{owner}/{repo}/rules/branches/*", h.rulesForBranch)
+		r.Get("/api/v1/repos/{owner}/{repo}/rules/tags/*", h.rulesForTag)
 	})
 }
 
@@ -83,16 +85,21 @@ type rulesetRule struct {
 // ruleset shape. The owner/repo pair is needed for the `source`
 // field; the caller resolves them once and threads through.
 func presentRuleset(rule reposdb.BranchProtectionRule, ownerRepo string) rulesetResponse {
+	target := rulesetTarget(rule)
+	refPrefix := "refs/heads/"
+	if target == "tag" {
+		refPrefix = "refs/tags/"
+	}
 	out := rulesetResponse{
 		ID:          rule.ID,
 		Name:        "Pattern: " + rule.Pattern,
-		Target:      "branch",
+		Target:      target,
 		SourceType:  "Repository",
 		Source:      ownerRepo,
 		Enforcement: "active",
 		Conditions: rulesetConditions{
 			RefName: rulesetRefName{
-				Include: []string{"refs/heads/" + rule.Pattern},
+				Include: []string{refPrefix + rule.Pattern},
 				Exclude: []string{},
 			},
 		},
@@ -113,7 +120,8 @@ func presentRuleset(rule reposdb.BranchProtectionRule, ownerRepo string) ruleset
 // configured.
 func buildRulesetRules(rule reposdb.BranchProtectionRule) []rulesetRule {
 	out := make([]rulesetRule, 0, 5)
-	if rule.RequirePrForPush || rule.RequiredReviewCount > 0 || rule.RequireCodeOwnerReview || rule.DismissStaleReviewsOnPush {
+	if rulesetTarget(rule) == "branch" &&
+		(rule.RequirePrForPush || rule.RequiredReviewCount > 0 || rule.RequireCodeOwnerReview || rule.DismissStaleReviewsOnPush) {
 		out = append(out, rulesetRule{
 			Type: "pull_request",
 			Parameters: map[string]any{
@@ -132,7 +140,7 @@ func buildRulesetRules(rule reposdb.BranchProtectionRule) []rulesetRule {
 	if rule.RequireSignedCommits {
 		out = append(out, rulesetRule{Type: "required_signatures"})
 	}
-	if len(rule.StatusChecksRequired) > 0 || rule.DismissStaleStatusChecksOnPush {
+	if rulesetTarget(rule) == "branch" && (len(rule.StatusChecksRequired) > 0 || rule.DismissStaleStatusChecksOnPush) {
 		// gh's payload uses an array of `{context, integration_id}`
 		// objects; we don't track integrations, so emit `{context}`
 		// only. Clients that key on `integration_id` will see absent
@@ -150,6 +158,13 @@ func buildRulesetRules(rule reposdb.BranchProtectionRule) []rulesetRule {
 		})
 	}
 	return out
+}
+
+func rulesetTarget(rule reposdb.BranchProtectionRule) string {
+	if rule.Target == "tag" {
+		return "tag"
+	}
+	return "branch"
 }
 
 // sourceFor returns `<owner>/<repo>` for the ruleset `source`
@@ -217,18 +232,25 @@ func (h *Handlers) rulesetGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) rulesForBranch(w http.ResponseWriter, r *http.Request) {
+	h.rulesForRef(w, r, "branch", chi.URLParam(r, "*"))
+}
+
+func (h *Handlers) rulesForTag(w http.ResponseWriter, r *http.Request) {
+	h.rulesForRef(w, r, "tag", chi.URLParam(r, "*"))
+}
+
+func (h *Handlers) rulesForRef(w http.ResponseWriter, r *http.Request, target, name string) {
 	repo, ok := h.resolveAPIRepo(w, r, policy.ActionRepoRead)
 	if !ok {
 		return
 	}
-	branch := chi.URLParam(r, "*")
-	if branch == "" {
-		writeAPIError(w, http.StatusNotFound, "branch not specified")
+	if name == "" {
+		writeAPIError(w, http.StatusNotFound, target+" not specified")
 		return
 	}
 	rules, err := reposdb.New().ListBranchProtectionRules(r.Context(), h.d.Pool, repo.ID)
 	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "api: list rulesets for branch", "error", err, "repo_id", repo.ID)
+		h.d.Logger.ErrorContext(r.Context(), "api: list rulesets for ref", "error", err, "repo_id", repo.ID, "target", target)
 		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
 		return
 	}
@@ -239,7 +261,10 @@ func (h *Handlers) rulesForBranch(w http.ResponseWriter, r *http.Request) {
 	// an internal precedence detail, not a contract surface.
 	out := make([]rulesetResponse, 0)
 	for _, rule := range rules {
-		match, mErr := filepath.Match(rule.Pattern, branch)
+		if rulesetTarget(rule) != target {
+			continue
+		}
+		match, mErr := filepath.Match(rule.Pattern, name)
 		if mErr != nil || !match {
 			continue
 		}

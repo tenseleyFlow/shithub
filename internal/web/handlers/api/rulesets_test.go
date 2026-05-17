@@ -189,6 +189,48 @@ func TestRulesets_ListProjectsRule(t *testing.T) {
 	}
 }
 
+func TestRulesets_ListProjectsTagRule(t *testing.T) {
+	env := newRulesetsEnv(t, "alice")
+	id := seedRule(t, env.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               env.repoID(t),
+		Pattern:              "v*",
+		Target:               "tag",
+		PreventForcePush:     true,
+		PreventDeletion:      true,
+		AllowedPusherUserIds: []int64{},
+		CreatedByUserID:      pgtype.Int8{Valid: false},
+	}, 0, false)
+
+	rr := env.get(t, fmt.Sprintf("/api/v1/repos/%s/%s/rulesets", env.owner, env.repo))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var listed []apiRuleset
+	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("len: got %d, want 1; payload=%+v", len(listed), listed)
+	}
+	rs := listed[0]
+	if rs.ID != id || rs.Target != "tag" {
+		t.Fatalf("tag ruleset shape: %+v want id=%d target=tag", rs, id)
+	}
+	if len(rs.Conditions.RefName.Include) != 1 || rs.Conditions.RefName.Include[0] != "refs/tags/v*" {
+		t.Fatalf("conditions.ref_name.include=%+v want refs/tags/v*", rs.Conditions.RefName.Include)
+	}
+	have := map[string]bool{}
+	for _, r := range rs.Rules {
+		have[r.Type] = true
+	}
+	if !have["non_fast_forward"] || !have["deletion"] {
+		t.Fatalf("tag rules should expose movement/deletion protection; rules=%+v", rs.Rules)
+	}
+	if have["pull_request"] || have["required_status_checks"] {
+		t.Fatalf("tag rules must not expose branch-only PR/check rules; rules=%+v", rs.Rules)
+	}
+}
+
 func TestRulesets_GetSingle(t *testing.T) {
 	env := newRulesetsEnv(t, "alice")
 	id := seedRule(t, env.pool, reposdb.UpsertBranchProtectionRuleParams{
@@ -294,6 +336,42 @@ func TestRulesets_RulesForBranchNoMatch(t *testing.T) {
 	}
 	if len(listed) != 0 {
 		t.Errorf("expected no rules; got %+v", listed)
+	}
+}
+
+func TestRulesets_RulesForTagListsTagMatchesOnly(t *testing.T) {
+	env := newRulesetsEnv(t, "alice")
+	repoID := env.repoID(t)
+	tagID := seedRule(t, env.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               repoID,
+		Pattern:              "v*",
+		Target:               "tag",
+		PreventForcePush:     true,
+		AllowedPusherUserIds: []int64{},
+		CreatedByUserID:      pgtype.Int8{Valid: false},
+	}, 0, false)
+	branchID := seedRule(t, env.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               repoID,
+		Pattern:              "v*",
+		Target:               "branch",
+		PreventDeletion:      true,
+		AllowedPusherUserIds: []int64{},
+		CreatedByUserID:      pgtype.Int8{Valid: false},
+	}, 0, false)
+
+	rr := env.get(t, fmt.Sprintf("/api/v1/repos/%s/%s/rules/tags/v1.0.0", env.owner, env.repo))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var listed []apiRuleset
+	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("len: got %d, want 1; payload=%+v", len(listed), listed)
+	}
+	if listed[0].ID != tagID {
+		t.Fatalf("matched id=%d want tag rule %d; branch rule was %d", listed[0].ID, tagID, branchID)
 	}
 }
 

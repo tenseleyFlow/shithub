@@ -49,6 +49,8 @@
         <a href="{{ .Governance.RulesetsAPIHref }}">rulesets</a>
         <span aria-hidden="true">.</span>
         <a href="{{ .Governance.BranchRulesAPIHref }}">matching branch rules</a>
+        <span aria-hidden="true">.</span>
+        <a href="{{ .Governance.TagRulesAPIHref }}">matching tag rules</a>
       </p>
     </section>
 
@@ -57,17 +59,18 @@
     {{ if .Rules }}
     <table class="shithub-branches-table">
       <thead>
-        <tr><th>Pattern</th><th>Force-push</th><th>Deletion</th><th>Allowed pushers</th><th>Pull requests</th><th>Checks</th><th></th></tr>
+        <tr><th>Target</th><th>Pattern</th><th>Updates</th><th>Deletion</th><th>Allowed pushers</th><th>Pull requests</th><th>Checks</th><th></th></tr>
       </thead>
       <tbody>
         {{ range .Rules }}
         <tr>
+          <td>{{ if eq .Target "tag" }}Tag{{ else }}Branch{{ end }}</td>
           <td><code>{{ .Pattern }}</code></td>
           <td>{{ if .PreventForcePush }}Blocked{{ else }}Allowed{{ end }}</td>
           <td>{{ if .PreventDeletion }}Blocked{{ else }}Allowed{{ end }}</td>
           <td>{{ len .AllowedPusherUserIds }} {{ if eq (len .AllowedPusherUserIds) 1 }}user{{ else }}users{{ end }}</td>
-          <td>{{ if .RequirePrForPush }}PR required{{ else }}Direct pushes allowed{{ end }}{{ if gt .RequiredReviewCount 0 }}; {{ .RequiredReviewCount }} {{ if eq .RequiredReviewCount 1 }}review{{ else }}reviews{{ end }}{{ end }}{{ if .DismissStaleReviewsOnPush }}; stale reviews dismissed{{ end }}</td>
-          <td>{{ if .StatusChecksRequired }}{{ range $i, $n := .StatusChecksRequired }}{{ if $i }}, {{ end }}<code>{{ $n }}</code>{{ end }}{{ if .DismissStaleStatusChecksOnPush }}; stale checks dismissed{{ end }}{{ else }}None{{ end }}</td>
+          <td>{{ if eq .Target "tag" }}Not applicable{{ else }}{{ if .RequirePrForPush }}PR required{{ else }}Direct pushes allowed{{ end }}{{ if gt .RequiredReviewCount 0 }}; {{ .RequiredReviewCount }} {{ if eq .RequiredReviewCount 1 }}review{{ else }}reviews{{ end }}{{ end }}{{ if .DismissStaleReviewsOnPush }}; stale reviews dismissed{{ end }}{{ end }}</td>
+          <td>{{ if eq .Target "tag" }}Not applicable{{ else }}{{ if .StatusChecksRequired }}{{ range $i, $n := .StatusChecksRequired }}{{ if $i }}, {{ end }}<code>{{ $n }}</code>{{ end }}{{ if .DismissStaleStatusChecksOnPush }}; stale checks dismissed{{ end }}{{ else }}None{{ end }}{{ end }}</td>
           <td>
             <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/settings/branches/{{ .ID }}/delete" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
@@ -79,7 +82,7 @@
       </tbody>
     </table>
     {{ else }}
-    <p>No rules configured. Add one below to protect a branch pattern.</p>
+    <p>No rules configured. Add one below to protect a branch or tag pattern.</p>
     {{ end }}
   </section>
 
@@ -87,12 +90,18 @@
     <h2>New rule</h2>
     <form class="shithub-branch-rule-form" method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/settings/branches">
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+      <label>Target
+        <select name="target">
+          <option value="branch">Branch</option>
+          <option value="tag">Tag</option>
+        </select>
+      </label>
       <label>Pattern (glob: <code>*</code>, <code>?</code>, <code>[abc]</code>; <code>*</code> doesn't cross <code>/</code>)
-        <input type="text" name="pattern" required placeholder="e.g. trunk or release/*">
+        <input type="text" name="pattern" required placeholder="e.g. trunk, release/*, or v*">
       </label>
       <fieldset>
-        <legend>Branch rule</legend>
-        <label><input type="checkbox" name="prevent_force_push" checked> Prevent force-push</label>
+        <legend>Ref update rule</legend>
+        <label><input type="checkbox" name="prevent_force_push" checked> Prevent force-push or tag movement</label>
         <label><input type="checkbox" name="prevent_deletion" checked> Prevent deletion</label>
         <label><input type="checkbox" name="require_signed_commits"> Require signed commits</label>
         <label>Allowed pushers
