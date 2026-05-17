@@ -4424,6 +4424,42 @@ button.shithub-contrib-setting-item:hover {
 .shithub-org-billing-usage-table td:nth-child(4) {
   min-width: 11rem;
 }
+/* PRO-EXT01 compare-plans grid. The Free / Pro columns are narrow +
+   centered so the row content (feature name) gets the horizontal
+   real estate; the Pro column gets a subtle highlight to draw the
+   eye on a public-facing pricing page. */
+.shithub-plan-compare-table .shithub-plan-col {
+  width: 9rem;
+  text-align: center;
+}
+.shithub-plan-compare-table .shithub-plan-col-pro {
+  background: var(--bg-subtle, rgba(99, 102, 241, 0.06));
+}
+.shithub-plan-compare-table td.shithub-plan-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+.shithub-plan-compare-table tr.shithub-plan-section th {
+  background: var(--bg-muted, var(--bg-subtle));
+  color: var(--fg-default);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.5rem 1rem;
+}
+.shithub-plan-yes {
+  color: var(--success-fg, #1a7f37);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shithub-plan-no {
+  color: var(--fg-subtle, #6e7781);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .shithub-org-billing-progress-cell {
   display: grid;
   gap: 0.25rem;

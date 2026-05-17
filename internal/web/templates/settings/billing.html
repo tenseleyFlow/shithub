@@ -82,34 +82,166 @@
       </div>
       <div class="Box shithub-billing-plan-compare shithub-org-billing-compare">
         <div class="Box-body">
-          <table class="shithub-org-billing-table">
+          <table class="shithub-org-billing-table shithub-plan-compare-table">
             <thead>
               <tr>
                 <th scope="col">Feature</th>
-                <th scope="col">Free</th>
-                <th scope="col">Pro</th>
+                <th scope="col" class="shithub-plan-col">Free</th>
+                <th scope="col" class="shithub-plan-col shithub-plan-col-pro">Pro</th>
               </tr>
             </thead>
             <tbody>
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Core</th>
+              </tr>
               <tr>
-                <td>Public and private repositories</td>
-                <td>Included</td>
-                <td>Included</td>
+                <td>Unlimited public and private repositories</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Issues, pull requests, code review, releases</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Actions for personal repositories</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Identity &amp; profile</th>
               </tr>
               <tr>
                 <td>Pinned repositories on profile</td>
-                <td>Up to 6</td>
-                <td>Up to 100</td>
+                <td class="shithub-plan-cell">Up to 6</td>
+                <td class="shithub-plan-cell"><strong>Up to 100</strong></td>
+              </tr>
+              <tr>
+                <td>Profile accent color &amp; Pro-curated pin layout</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Animated GIF avatars</td>
+                <td class="shithub-plan-cell">Flattened to PNG</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span> Preserved</td>
+              </tr>
+              <tr>
+                <td>Reserve previous usernames against squatting</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><strong>Up to 3</strong> reservations</td>
+              </tr>
+              <tr>
+                <td>Pro badge across profile, hovercards, and issue/PR threads</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Productivity</th>
+              </tr>
+              <tr>
+                <td>Saved replies for issues and PRs</td>
+                <td class="shithub-plan-cell">Up to 3</td>
+                <td class="shithub-plan-cell"><strong>Unlimited</strong></td>
+              </tr>
+              <tr>
+                <td>Schedule issues to file later</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Private repositories as templates</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Cross-repo code search with regex &amp; saved queries</td>
+                <td class="shithub-plan-cell">Per-repo only</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span> All your repos</td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Privacy &amp; security</th>
               </tr>
               <tr>
                 <td>Advanced branch protection on private repos</td>
-                <td>Upgrade</td>
-                <td>Included</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
               </tr>
               <tr>
                 <td>Required reviewers on private repos</td>
-                <td>Upgrade</td>
-                <td>Included</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Per-repo contribution-graph privacy controls</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Historical secret scanning on private repos</td>
+                <td class="shithub-plan-cell">Push-time only</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span> Full history</td>
+              </tr>
+              <tr>
+                <td>Secret-scan alerts (email &amp; signed webhook)</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Fine-grained PATs: IP allowlist, single-repo binding, usage analytics</td>
+                <td class="shithub-plan-cell">Basic tokens</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Automation</th>
+              </tr>
+              <tr>
+                <td>Actions secrets &amp; variables (user scope, shared across your repos)</td>
+                <td class="shithub-plan-cell">Repo scope only</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Personal webhook relay with HMAC fan-out + replay</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Cron-scheduled workflow dispatch (no workflow file needed)</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Discoverability &amp; lifecycle</th>
+              </tr>
+              <tr>
+                <td>Personal status page with uptime SVG badges</td>
+                <td class="shithub-plan-cell">Teaser only</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span> Live data</td>
+              </tr>
+              <tr>
+                <td>Repository pause (time-machine) — reads work, writes return 402</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+
+              <tr class="shithub-plan-section">
+                <th scope="rowgroup" colspan="3">Notifications</th>
+              </tr>
+              <tr>
+                <td>Focus-mode inbox: snooze, drop, custom tab routing rules</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
+              </tr>
+              <tr>
+                <td>Scheduled daily/weekly digest emails</td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-no">{{ octicon "dash" }}</span></td>
+                <td class="shithub-plan-cell"><span class="shithub-plan-yes">{{ octicon "check" }}</span></td>
               </tr>
             </tbody>
           </table>
