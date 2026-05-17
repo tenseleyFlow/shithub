@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 )
 
 // Registry is the project-wide Prometheus registry. Subpackages register
@@ -360,6 +362,20 @@ var (
 		},
 		[]string{"kind"},
 	)
+	// ProGateTotal is the PRO-EXT01-17 campaign-wrap counter. One tick
+	// per CheckPrincipalFeature call. Labels:
+	//   feature — Feature constant (e.g. "user_actions_secrets")
+	//   kind    — billing.SubjectKind ("user" or "org")
+	//   outcome — "allow" | "deny"
+	// Per-feature soak: operators watch the deny rate trend before
+	// flipping the per-feature EnforceConfig.* knob from false → true.
+	ProGateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_pro_gate_total",
+			Help: "Per-feature entitlement check outcomes (PRO-EXT01-17).",
+		},
+		[]string{"feature", "kind", "outcome"},
+	)
 )
 
 func init() {
@@ -410,7 +426,15 @@ func init() {
 		ActionsRunnerRevocationsTotal,
 		ActionsStorageObjects,
 		ActionsStorageBytes,
+		ProGateTotal,
 	)
+	// PRO-EXT01-17: install the entitlements observation hook so every
+	// CheckPrincipalFeature call lands in ProGateTotal. No-op for
+	// processes that pull in metrics but never call into entitlements
+	// (the hook is just a function pointer).
+	entitlements.SetObserveGate(func(feature, kind, outcome string) {
+		ProGateTotal.WithLabelValues(feature, kind, outcome).Inc()
+	})
 }
 
 // Handler returns the /metrics HTTP handler. When user/pass is set, the
