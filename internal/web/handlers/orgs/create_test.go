@@ -96,7 +96,8 @@ func TestOrgPlanSelectionIncludesSP17OwnedCompareRows(t *testing.T) {
 		"DEFAULT=5",
 		"CARD=Free:/organizations/new?plan=free&amp;seat_count=1:false:Recommended for 1-4 seats",
 		"CARD=Team:/organizations/new?plan=team&amp;seat_count=5:false:Recommended for 5-10 seats",
-		"ROW=Repository rules|SP18|.docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md|Planned|Public repositories|Planned",
+		"ROW=Branch rules|SP18|.docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md|Shipped|Public repositories|Included",
+		"ROW=Multiple reviewers in pull requests|SP18|.docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md|Shipped|Public repositories|Included",
 		"ROW=Private organization collaborators|SP06a|.docs/sprints/PAYMENTS/SP06a-private-collaboration-limits.md|Shipped|Limited|Billed by licensed seat",
 		"ROW=Enterprise account, SAML, SCIM, and managed users|SP09|.docs/sprints/PAYMENTS/SP09-enterprise-stub.md|Deferred|-|-",
 	} {

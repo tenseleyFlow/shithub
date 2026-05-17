@@ -170,6 +170,12 @@ own retry semantics.
 The protection-rule table now shows the `checks: [name1, name2]`
 list inline so admins can verify their config at a glance.
 
+For private organization repositories, changing required status-check
+settings is part of the SP18 Team governance gate
+(`advanced_branch_protection`). Public repositories stay available on
+Free, and existing private rules remain readable/removable after a
+downgrade.
+
 ## Tests
 
 | File                                              | Covers                                                 |

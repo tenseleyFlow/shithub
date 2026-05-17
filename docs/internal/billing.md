@@ -487,6 +487,26 @@ PAYMENTS SP17 starts GitHub-shaped plan selection and setup parity:
   compliance, and account-management rows stay deferred until the
   Enterprise contract is defined.
 
+PAYMENTS SP18 ships the first private-repository governance bundle
+that Team can truthfully advertise:
+
+- Private org branch-rule writes use entitlement checks for
+  `advanced_branch_protection`; public repositories remain generous.
+  The shipped branch-rule set includes force-push/deletion controls,
+  required pull-request pushes, required status checks, and the
+  read-only rulesets API projection.
+- Private org required-reviewer writes use `required_reviewers`.
+  The same feature covers one required approval and the multi-reviewer
+  `>1` path; the handler picks distinct upgrade copy from the attempted
+  review count.
+- The repo branch settings page renders the current governance state:
+  public available, private org Team required, active Team, billing
+  action needed, or contact-sales enterprise preview. Downgraded orgs
+  keep existing rule data and can remove or clear gated settings.
+- The organization plan comparison now marks Branch rules and Multiple
+  reviewers as included for Team. Tag protection, team-based bypass,
+  and CODEOWNERS/team-reviewer semantics remain in later sprint files.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -503,16 +523,21 @@ feature decisions and `Limit(name)` for paid limit metadata. The legacy
 `CheckOrgFeature` helper is a thin wrapper for handlers that need only
 one feature. These calls are deterministic and never call Stripe.
 
-Expected feature keys:
+Expected org feature keys:
 
-- `org.secret_teams`
-- `org.advanced_branch_protection`
-- `org.required_reviewers`
-- `org.actions_org_secrets`
-- `org.actions_org_variables`
-- `org.private_collaboration_limit`
-- `org.storage_quota`
-- `org.actions_minutes_quota`
+- `secret_teams`
+- `advanced_branch_protection`
+- `required_reviewers`
+- `actions_org_secrets`
+- `actions_org_variables`
+- `private_collaboration_limit`
+- `storage_quota`
+- `actions_minutes_quota`
+
+The deprecated `FeatureOrg*` aliases still compile for older call sites,
+but new code should use the canonical unprefixed keys above and let
+`FeatureAppliesToKind` decide whether a feature is valid for orgs,
+users, or both.
 
 Authorization and entitlement are separate gates. A user must have both
 the policy permission and the paid entitlement for gated writes. Denials
