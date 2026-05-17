@@ -182,6 +182,10 @@ func (h *Handlers) renderProfileForm(w http.ResponseWriter, r *http.Request, for
 		"AvatarUploadEnabled": h.d.ObjectStore != nil,
 		"HasAvatar":           hasAvatar,
 		"VanityAllowed":       h.userVanityAllowed(r, user.ID),
+		// PRO-EXT01-04b: drives the locked-UI hint on the upload form.
+		// We use the cheap pre-Process entitlements read (no log emission)
+		// because the *upload* path is where the would-deny is recorded.
+		"AnimatedAvatarsAllowed": h.userAnimatedAvatarsAllowedRead(r, user.ID),
 	})
 }
 

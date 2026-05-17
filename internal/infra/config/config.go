@@ -230,6 +230,13 @@ type EnforceConfig struct {
 	// resolution drops the user-scope layer for Free owners. Off by
 	// default → report-only. PRO-EXT01-12c.
 	UserActionsVariables bool `toml:"user_actions_variables"`
+	// AnimatedAvatars: when true, multi-frame GIF uploads from Free
+	// users are flattened to a static PNG; Pro users keep the animated
+	// bytes. Off by default → report-only: animation is *preserved* for
+	// everyone (Free included) during soak so we can measure who uses
+	// it, but the would-deny is logged on every Free upload of an
+	// animated GIF. Flip to true to start flattening. PRO-EXT01-04b.
+	AnimatedAvatars bool `toml:"animated_avatars"`
 	// UserWebhookRelay: when true, Free users are blocked from
 	// creating webhook relays AND inbound POSTs to existing relays
 	// owned by Free users return 403. Off by default → report-only

@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/gif"
 	"image/png"
 	"io"
 	"strings"
 
-	// Side-effect imports register decoders for jpeg/gif inputs.
-	_ "image/gif"
+	// Side-effect import registers the jpeg decoder.
 	_ "image/jpeg"
 
 	"golang.org/x/image/draw"
@@ -36,11 +36,26 @@ const MaxPixelArea = 24 * 1000 * 1000
 // re-resizing.
 var VariantSizes = []int{460, 200, 40}
 
-// Variant is one rendered output: a sized PNG ready for upload to the
-// object store.
+// Variant is one rendered output ready for upload to the object store.
+// PRO-EXT01-04b added ContentType and Ext so an animated-GIF preserve
+// path can co-exist with the static-PNG variants without forcing all
+// callers to special-case the canonical key extension.
 type Variant struct {
-	Size int    // edge length in pixels (Size × Size)
-	Data []byte // PNG bytes
+	Size        int    // edge length in pixels (Size × Size)
+	Data        []byte // encoded image bytes
+	ContentType string // MIME type for the object store + serve handler
+	Ext         string // file extension (no leading dot)
+}
+
+// Options controls the per-upload behavior of Process. The zero value
+// is the legacy static-PNG path.
+type Options struct {
+	// AllowAnimated, when true, preserves the raw bytes of a
+	// multi-frame GIF upload as the canonical variant (served at its
+	// native size with image/gif Content-Type). Single-frame GIFs and
+	// non-GIF uploads still flow through the PNG resize path. False
+	// keeps the legacy flatten-to-PNG behavior for all inputs.
+	AllowAnimated bool
 }
 
 // Errors surfaced to the handler. Each maps to a friendly UI message.
@@ -51,13 +66,26 @@ var (
 	ErrDecode        = errors.New("avatars: could not decode image")
 )
 
-// Process reads an uploaded image, validates it, and produces resized
+// Process is the legacy entrypoint preserved for callers that don't
+// participate in the animated-avatar entitlement (e.g. org avatars).
+// New callers should use ProcessOpts to opt into Pro-tier behavior.
+func Process(r io.Reader) ([]Variant, string, error) {
+	return ProcessOpts(r, Options{})
+}
+
+// ProcessOpts reads an uploaded image, validates it, and produces resized
 // PNG variants. It strips EXIF as a side effect of re-encoding.
+//
+// When opts.AllowAnimated is true and the upload is a multi-frame GIF,
+// the canonical (largest) variant is the original raw GIF bytes with
+// image/gif content type; smaller variants are still produced as static
+// PNG thumbnails (the first frame, square-cropped). Multi-frame GIFs
+// without AllowAnimated get flattened to all-PNG as before.
 //
 // Returns the variants in VariantSizes order plus a content-addressed key
 // component (sha256 of the largest variant's bytes) the caller can embed
 // in the storage path.
-func Process(r io.Reader) ([]Variant, string, error) {
+func ProcessOpts(r io.Reader, opts Options) ([]Variant, string, error) {
 	// Bound the read up-front; one extra byte to detect overflow.
 	limited := io.LimitReader(r, MaxUploadBytes+1)
 	raw, err := io.ReadAll(limited)
@@ -81,14 +109,43 @@ func Process(r io.Reader) ([]Variant, string, error) {
 		return nil, "", ErrDecompression
 	}
 
+	// Pro-tier animated-GIF preserve path: keep the raw bytes for the
+	// canonical variant so the public avatar endpoint can serve the
+	// animated image untouched. Thumbnails still go through PNG resize
+	// so list views remain cheap.
+	if opts.AllowAnimated && format == "gif" {
+		animated, src, err := decodeGIFAnimated(raw)
+		if err != nil {
+			return nil, "", err
+		}
+		if animated {
+			out, hash := assembleAnimatedGIF(raw, src)
+			return out, hash, nil
+		}
+		// Single-frame GIF: fall through to the static PNG path so the
+		// stored object stays a normal PNG (cheaper to serve and no
+		// behavior difference for the user).
+		cropped := centerSquareCrop(src)
+		return assembleStaticPNG(cropped)
+	}
+
 	src, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return nil, "", ErrDecode
 	}
-
 	// Square-crop to the shorter side so the resize doesn't squash.
 	cropped := centerSquareCrop(src)
+	out, hash, err := assembleStaticPNG(cropped)
+	if err != nil {
+		return nil, "", err
+	}
+	return out, hash, nil
+}
 
+// assembleStaticPNG resizes a cropped source image into the configured
+// VariantSizes set of PNG variants. Returns the same shape Process has
+// always returned so legacy callers don't observe a change.
+func assembleStaticPNG(cropped image.Image) ([]Variant, string, error) {
 	out := make([]Variant, 0, len(VariantSizes))
 	for _, size := range VariantSizes {
 		dst := image.NewRGBA(image.Rect(0, 0, size, size))
@@ -97,13 +154,66 @@ func Process(r io.Reader) ([]Variant, string, error) {
 		if err := png.Encode(buf, dst); err != nil {
 			return nil, "", fmt.Errorf("encode %dpx: %w", size, err)
 		}
-		out = append(out, Variant{Size: size, Data: buf.Bytes()})
+		out = append(out, Variant{
+			Size:        size,
+			Data:        buf.Bytes(),
+			ContentType: "image/png",
+			Ext:         "png",
+		})
 	}
-
-	// Content-addressed key from the largest (first) variant. Avatar URLs
-	// embed this hash so caches invalidate when the image changes.
 	digest := sha256.Sum256(out[0].Data)
 	return out, hex.EncodeToString(digest[:])[:16], nil
+}
+
+// assembleAnimatedGIF produces the variant list for a Pro-tier animated
+// upload: canonical variant is the original GIF bytes (so animation
+// survives); thumbnails are static PNGs derived from the first frame so
+// list/comment renders don't pay the cost of decoding an animation per
+// row. The content-addressed hash uses the raw GIF bytes so the URL
+// changes on every upload even when the first frame happens to look
+// identical to a previous one.
+func assembleAnimatedGIF(raw []byte, firstFrame image.Image) ([]Variant, string) {
+	cropped := centerSquareCrop(firstFrame)
+	out := make([]Variant, 0, len(VariantSizes))
+	canonical := VariantSizes[0]
+	for _, size := range VariantSizes {
+		if size == canonical {
+			out = append(out, Variant{
+				Size:        size,
+				Data:        raw,
+				ContentType: "image/gif",
+				Ext:         "gif",
+			})
+			continue
+		}
+		dst := image.NewRGBA(image.Rect(0, 0, size, size))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), cropped, cropped.Bounds(), draw.Over, nil)
+		buf := &bytes.Buffer{}
+		if err := png.Encode(buf, dst); err == nil {
+			out = append(out, Variant{
+				Size:        size,
+				Data:        buf.Bytes(),
+				ContentType: "image/png",
+				Ext:         "png",
+			})
+		}
+	}
+	digest := sha256.Sum256(raw)
+	return out, hex.EncodeToString(digest[:])[:16]
+}
+
+// decodeGIFAnimated reports whether raw is a multi-frame GIF and
+// returns the first frame as the static fallback. The first frame is
+// reused for thumbnails so we don't decode twice.
+func decodeGIFAnimated(raw []byte) (animated bool, firstFrame image.Image, err error) {
+	all, err := gif.DecodeAll(bytes.NewReader(raw))
+	if err != nil {
+		return false, nil, ErrDecode
+	}
+	if len(all.Image) == 0 {
+		return false, nil, ErrDecode
+	}
+	return len(all.Image) > 1, all.Image[0], nil
 }
 
 // isSupportedFormat whitelists the formats we'll accept. PNG, JPEG, GIF
