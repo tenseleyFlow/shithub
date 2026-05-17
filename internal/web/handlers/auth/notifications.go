@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
+	notifdb "github.com/tenseleyFlow/shithub/internal/notif/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -148,11 +151,35 @@ func (h *Handlers) renderNotificationsForm(w http.ResponseWriter, r *http.Reques
 		view = append(view, viewChan{notifChannel: ch, Enabled: enabled})
 	}
 
+	rules, _ := notifdb.New().ListUserNotificationRules(r.Context(), h.d.Pool, user.ID)
+	rulesAllowed := h.inboxRulesAllowed(r, user.ID)
+
 	h.renderPage(w, r, "settings/notifications", map[string]any{
-		"Title":          "Notifications",
-		"CSRFToken":      middleware.CSRFTokenForRequest(r),
-		"SettingsActive": "notifications",
-		"Channels":       view,
-		"Success":        successMsg,
+		"Title":              "Notifications",
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"SettingsActive":     "notifications",
+		"Channels":           view,
+		"Success":            successMsg,
+		"Rules":              rules,
+		"RulesAllowed":       rulesAllowed,
+		"RulesFeatureKey":    string(entitlements.FeatureInboxRules),
+		"RuleActionSnooze":   string(notifdb.UserNotificationRuleActionSnooze),
+		"RuleActionTab":      string(notifdb.UserNotificationRuleActionTab),
+		"RuleActionMarkRead": string(notifdb.UserNotificationRuleActionMarkRead),
+		"RuleActionDrop":     string(notifdb.UserNotificationRuleActionDrop),
 	})
+}
+
+// inboxRulesAllowed reports whether the user's entitlement permits
+// rule creation. Used to decide whether the "Add rule" form renders
+// enabled or disabled-with-Pro-tooltip. Failures fail closed so a
+// blip doesn't accidentally unlock the gated affordance.
+func (h *Handlers) inboxRulesAllowed(r *http.Request, userID int64) bool {
+	decision, err := entitlements.CheckPrincipalFeature(r.Context(),
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForUser(userID), entitlements.FeatureInboxRules)
+	if err != nil {
+		return false
+	}
+	return decision.Allowed
 }

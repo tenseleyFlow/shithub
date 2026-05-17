@@ -28,6 +28,123 @@
         <button type="submit" class="shithub-button shithub-button-primary">Save preferences</button>
       </form>
     </section>
+
+    <section class="shithub-settings-section">
+      <h2>Routing rules {{ if not .RulesAllowed }}{{ template "pro-badge" true }}{{ end }}</h2>
+      <p>
+        Pro feature. Rules fire when a notification is created and can
+        snooze it for later, sort it into a custom inbox tab, mark it
+        read, or drop it entirely. Rules evaluate in the order shown
+        below; the first match wins.
+      </p>
+
+      {{ if .Rules }}
+      <table class="shithub-table">
+        <thead>
+          <tr><th scope="col">Name</th><th scope="col">When</th><th scope="col">Action</th><th scope="col">State</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+        {{ range .Rules }}
+          <tr>
+            <td><strong>{{ .Name }}</strong></td>
+            <td>
+              {{ if .MatchReason.Valid }}reason=<code>{{ .MatchReason.String }}</code> {{ end }}
+              {{ if .MatchKind.Valid }}kind=<code>{{ .MatchKind.String }}</code> {{ end }}
+              {{ if .MatchRepoID.Valid }}repo=<code>{{ .MatchRepoID.Int64 }}</code> {{ end }}
+              {{ if .MatchActorID.Valid }}from=<code>{{ .MatchActorID.Int64 }}</code> {{ end }}
+            </td>
+            <td>
+              <code>{{ .Action }}</code>
+              {{ if .ActionTab.Valid }} → <code>{{ .ActionTab.String }}</code>{{ end }}
+              {{ if .ActionSnoozeMinutes.Valid }} ({{ .ActionSnoozeMinutes.Int32 }} min){{ end }}
+            </td>
+            <td>{{ if .Enabled }}on{{ else }}<em>off</em>{{ end }}</td>
+            <td>
+              <form method="POST" action="/settings/notifications/rules/{{ .ID }}/toggle" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button">{{ if .Enabled }}Disable{{ else }}Enable{{ end }}</button>
+              </form>
+              <form method="POST" action="/settings/notifications/rules/{{ .ID }}/delete" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-key-empty">No rules yet.</p>
+      {{ end }}
+
+      <h3>Add a rule</h3>
+      <form method="POST" action="/settings/notifications/rules" novalidate
+            {{ if not .RulesAllowed }}class="shithub-pro-lock" data-pro-feature="{{ .RulesFeatureKey }}"{{ end }}>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required maxlength="120"
+                 {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}
+                 placeholder="security alerts → top">
+        </label>
+        <fieldset>
+          <legend>When (all conditions must match; leave blank for any)</legend>
+          <label>
+            <span>Reason</span>
+            <input type="text" name="match_reason" maxlength="32"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}
+                   placeholder="mention, review_requested, ...">
+          </label>
+          <label>
+            <span>Event kind</span>
+            <input type="text" name="match_kind" maxlength="64"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}
+                   placeholder="issue_comment_created, ...">
+          </label>
+          <label>
+            <span>Repository ID</span>
+            <input type="number" name="match_repo_id" min="1"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}>
+          </label>
+          <label>
+            <span>Actor user ID</span>
+            <input type="number" name="match_actor_id" min="1"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Action</legend>
+          <label>
+            <span>Type</span>
+            <select name="action" {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}>
+              <option value="{{ .RuleActionTab }}">Move to tab</option>
+              <option value="{{ .RuleActionSnooze }}">Snooze</option>
+              <option value="{{ .RuleActionMarkRead }}">Mark read</option>
+              <option value="{{ .RuleActionDrop }}">Drop</option>
+            </select>
+          </label>
+          <label>
+            <span>Tab label <small>(for "Move to tab")</small></span>
+            <input type="text" name="action_tab" maxlength="64"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}
+                   placeholder="security">
+          </label>
+          <label>
+            <span>Snooze minutes <small>(for "Snooze")</small></span>
+            <input type="number" name="action_snooze_minutes" min="1"
+                   {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}
+                   placeholder="60">
+          </label>
+        </fieldset>
+        <button type="submit" class="shithub-button shithub-button-primary"
+                {{ if not .RulesAllowed }}disabled aria-disabled="true"{{ end }}>Add rule</button>
+        {{ if not .RulesAllowed }}
+        <a class="shithub-pro-lock-cta" href="/settings/billing" data-pro-feature="{{ .RulesFeatureKey }}">
+          {{ template "pro-badge" true }} Upgrade to Pro
+        </a>
+        {{ end }}
+      </form>
+    </section>
   </div>
 </div>
 {{- end }}
