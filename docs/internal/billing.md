@@ -363,9 +363,11 @@ PAYMENTS SP08 starts hosted-cost metering:
   `org:usage_recalc` job per organization, defaulting the child source
   to `scheduled`.
 - Org-owned workflow dispatch recalculates current monthly usage before
-  enqueueing and rejects new runs when Actions minutes used is greater
-  than or equal to the effective quota. Personal repositories are not
-  gated by organization quotas.
+  enqueueing. When Actions minutes used is greater than or equal to the
+  effective quota, shithub persists a terminal `action_required` workflow
+  run/check instead of dispatching runner work, so Code, PR checks, and
+  Actions views show the quota gate. Personal repositories are not gated by
+  organization quotas.
 - Org-owned git pushes measure the actual bare repo directory during
   pre-receive, adjust the recalculated organization counters for that
   repository's current disk size, and reject pushes that would exceed
