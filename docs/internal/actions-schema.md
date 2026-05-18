@@ -674,6 +674,25 @@ role minimum):
 - `POST /{owner}/{repo}/settings/environments/{environment}/secrets`
 - `POST /{owner}/{repo}/settings/environments/{environment}/secrets/{name}/delete`
 
+SP23 exposes the same repository environments over PAT-authenticated
+REST:
+
+- `GET /api/v1/repos/{owner}/{repo}/environments`
+- `GET /api/v1/repos/{owner}/{repo}/environments/{environment}`
+- `PUT /api/v1/repos/{owner}/{repo}/environments/{environment}`
+- `DELETE /api/v1/repos/{owner}/{repo}/environments/{environment}`
+- `GET /api/v1/repos/{owner}/{repo}/environments/{environment}/secrets/public-key`
+- `GET /api/v1/repos/{owner}/{repo}/environments/{environment}/secrets`
+- `GET /api/v1/repos/{owner}/{repo}/environments/{environment}/secrets/{name}`
+- `PUT /api/v1/repos/{owner}/{repo}/environments/{environment}/secrets/{name}`
+- `DELETE /api/v1/repos/{owner}/{repo}/environments/{environment}/secrets/{name}`
+
+Environment REST reads require `repo:read`. Environment and
+environment-secret mutations require `repo:write` plus
+`policy.ActionRepoSettingsActions`, and private organization
+repository writes are gated through the same Team entitlements as the
+HTML settings surface.
+
 Organization routes follow the existing org-settings prefix and are
 owner-only:
 
