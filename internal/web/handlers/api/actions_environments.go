@@ -514,10 +514,11 @@ func presentEnvironmentDeploymentPolicy(mode actionsdb.RepoEnvironmentDeployment
 }
 
 func (h *Handlers) requireAPIRepoFeature(w http.ResponseWriter, r *http.Request, repo *reposdb.Repo, feature entitlements.Feature, label string) bool {
-	if !repo.OwnerOrgID.Valid || repo.Visibility != reposdb.RepoVisibilityPrivate {
+	ref := policy.NewRepoRefFromRepo(*repo)
+	if ref.OwnerOrgID == 0 || !ref.IsPrivate() {
 		return true
 	}
-	decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, repo.OwnerOrgID.Int64, feature)
+	decision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, ref.OwnerOrgID, feature)
 	if err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "api: repo feature gate", "repo_id", repo.ID, "feature", feature, "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "entitlement check failed")
