@@ -14,6 +14,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -35,11 +37,13 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/throttle"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	repoinsights "github.com/tenseleyFlow/shithub/internal/repos/insights"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+	"github.com/tenseleyFlow/shithub/internal/worker"
 )
 
 // fixtureHash is a static argon2 PHC test fixture (zero salt, zero key)
@@ -185,6 +189,7 @@ func minimalTemplatesFS() fstest.MapFS {
 		"repo/commit.html":                {Data: []byte(`{{ define "page" }}COMMIT={{ .Detail.ShortOID }};{{ if .Checks.Show }}CHECK={{ .Checks.StateClass }}:{{ .Checks.Href }};{{ end }}{{ end }}`)},
 		"repo/branches.html":              {Data: []byte(`{{ define "page" }}{{ range .Rows }}BRANCH={{ .Name }}:{{ if .Checks.Show }}{{ .Checks.StateClass }}:{{ .Checks.Href }}{{ end }};{{ end }}{{ end }}`)},
 		"repo/compare.html":               {Data: []byte(`{{ define "page" }}{{ range .CommitRows }}COMPARE={{ .Commit.ShortOID }}:{{ if .Checks.Show }}{{ .Checks.StateClass }}:{{ .Checks.Href }}{{ end }};{{ end }}{{ end }}`)},
+		"repo/insights.html":              {Data: []byte(`{{ define "page" }}INSIGHTS={{ .Insights.Active }}:queued={{ .Insights.Queued }}:stale={{ .Insights.Stale }}:needs={{ .Insights.NeedsSnapshot }}{{ end }}`)},
 	}
 }
 
@@ -342,6 +347,125 @@ func TestLoadRepoAndAuthorize_OwnerOnPrivate_OK(t *testing.T) {
 	if status != http.StatusOK {
 		t.Errorf("status: got %d; want 200", status)
 	}
+}
+
+func TestRepoInsights_MissingSnapshotEnqueuesRefresh(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	req := repoRouteRequest(http.MethodGet, "/alice/public-repo/pulse", f.owner.Username, f.publicRepo.Name, anonymousViewer())
+	rw := httptest.NewRecorder()
+
+	f.handlers.repoInsightsPulse(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", rw.Code, rw.Body.String())
+	}
+	if got, want := rw.Body.String(), "INSIGHTS=pulse:queued=true:stale=false:needs=true"; !strings.Contains(got, want) {
+		t.Fatalf("body missing %q: %s", want, got)
+	}
+	if got := f.countQueuedJobs(t, f.publicRepo.ID); got != 1 {
+		t.Fatalf("queued insights jobs = %d, want 1", got)
+	}
+}
+
+func TestRepoInsights_StaleSnapshotEnqueuesRefresh(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	ctx := context.Background()
+	rq := reposdb.New()
+	snapshot := repoinsights.EmptySnapshot("trunk", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC))
+	snapshot.HeadSHA = "old-sha"
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	if _, err := rq.UpsertRepoInsightSnapshot(ctx, f.pool, reposdb.UpsertRepoInsightSnapshotParams{
+		RepoID:           f.publicRepo.ID,
+		DefaultBranch:    "trunk",
+		HeadSha:          snapshot.HeadSHA,
+		CommitCount:      int32(snapshot.CommitCount),
+		ContributorCount: int32(snapshot.ContributorCount),
+		Additions:        snapshot.Additions,
+		Deletions:        snapshot.Deletions,
+		Data:             data,
+	}); err != nil {
+		t.Fatalf("upsert snapshot: %v", err)
+	}
+	if err := rq.UpdateRepoDefaultBranchOID(ctx, f.pool, reposdb.UpdateRepoDefaultBranchOIDParams{
+		ID:               f.publicRepo.ID,
+		DefaultBranchOid: pgtype.Text{String: "new-sha", Valid: true},
+	}); err != nil {
+		t.Fatalf("update default branch oid: %v", err)
+	}
+	req := repoRouteRequest(http.MethodGet, "/alice/public-repo/graphs/contributors", f.owner.Username, f.publicRepo.Name, anonymousViewer())
+	rw := httptest.NewRecorder()
+
+	f.handlers.repoInsightsContributors(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", rw.Code, rw.Body.String())
+	}
+	if got, want := rw.Body.String(), "INSIGHTS=contributors:queued=false:stale=true:needs=true"; !strings.Contains(got, want) {
+		t.Fatalf("body missing %q: %s", want, got)
+	}
+	if got := f.countQueuedJobs(t, f.publicRepo.ID); got != 1 {
+		t.Fatalf("queued insights jobs = %d, want 1", got)
+	}
+}
+
+func TestRepoInsights_PrivateOrgRepoRequiresTeamBilling(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	ctx := context.Background()
+	orgID := f.insertOwnedOrg(t, "tenseleyflow")
+	privateOrgRepo, err := reposdb.New().CreateRepo(ctx, f.pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: orgID, Valid: true},
+		Name:          "private-org-repo",
+		Description:   "",
+		Visibility:    reposdb.RepoVisibilityPrivate,
+		DefaultBranch: "trunk",
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo private org: %v", err)
+	}
+	req := repoRouteRequest(http.MethodGet, "/tenseleyflow/private-org-repo/pulse", "tenseleyflow", privateOrgRepo.Name, viewerFor(f.owner))
+	rw := httptest.NewRecorder()
+
+	f.handlers.repoInsightsPulse(rw, req)
+
+	if rw.Code != http.StatusPaymentRequired {
+		t.Fatalf("status %d, want 402: %s", rw.Code, rw.Body.String())
+	}
+	if got, want := rw.Body.String(), "Repository insights require Team billing"; !strings.Contains(got, want) {
+		t.Fatalf("body missing %q: %s", want, got)
+	}
+	if got := f.countQueuedJobs(t, privateOrgRepo.ID); got != 0 {
+		t.Fatalf("queued insights jobs = %d, want 0", got)
+	}
+}
+
+func repoRouteRequest(method, target, owner, repoName string, viewer middleware.CurrentUser) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("owner", owner)
+	rctx.URLParams.Add("repo", repoName)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return withViewer(req, viewer)
+}
+
+func (f *repoFixture) countQueuedJobs(t *testing.T, repoID int64) int {
+	t.Helper()
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM jobs
+		 WHERE kind = $1
+		   AND payload->>'repo_id' = $2
+		   AND completed_at IS NULL
+		   AND failed_at IS NULL`,
+		string(worker.KindRepoInsightsRecalc), strconv.FormatInt(repoID, 10)).Scan(&count); err != nil {
+		t.Fatalf("count queued insights jobs: %v", err)
+	}
+	return count
 }
 
 func anonymousViewer() middleware.CurrentUser {
