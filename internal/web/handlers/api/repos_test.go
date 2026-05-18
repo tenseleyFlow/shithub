@@ -407,7 +407,10 @@ func TestRepos_PatchDescriptionAndVisibility(t *testing.T) {
 // <OLD name>", and (worse) overwrote the local git origin to point
 // at the renamed-to URL — see CX2 on the CLI side. Until rename is
 // implemented server-side, refuse with a clear 422.
-func TestRepos_PatchRejectsRename(t *testing.T) {
+// C7: PATCH with a valid new name renames the repo via lifecycle.Rename
+// and returns the updated repo object so `shithub repo rename` can
+// confirm the change actually happened.
+func TestRepos_PatchRenamesRepo(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	router, _ := newReposAPIRouter(t, pool)
 	userID := seedRepoCreatorUser(t, pool, "alice")
@@ -427,11 +430,110 @@ func TestRepos_PatchRejectsRename(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "renaming via REST is not yet supported") {
-		t.Errorf("error message should explain the restriction; got %s", rr.Body.String())
+	var got apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Name != "renamed" || got.FullName != "alice/renamed" {
+		t.Errorf("rename not reflected: %+v", got)
+	}
+
+	// Follow-up GET on the new name must work; the old slug must now
+	// 404 (redirect rows handle the HTML side; REST GET goes 404).
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/renamed", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("GET new name: %d; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// C7: empty / too-long / illegal names get 422.
+func TestRepos_PatchRenameRejectsInvalidName(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	cases := []string{"", "foo/bar", strings.Repeat("x", 200)}
+	for _, name := range cases {
+		patch, _ := json.Marshal(map[string]any{"name": name})
+		req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr = httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("name=%q: got %d, want 422; body=%s", name, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// C7: same-name rename returns 422 — gh treats this as a validation
+// error rather than a no-op so clients don't print a false success.
+func TestRepos_PatchRenameSameNameIs422(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	patch, _ := json.Marshal(map[string]any{"name": "demo"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("same-name: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// C7: a rename to a name already used by another repo owned by the
+// same user returns 409.
+func TestRepos_PatchRenameTakenIs409(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	for _, name := range []string{"first", "second"} {
+		body, _ := json.Marshal(map[string]any{"name": name, "visibility": "public"})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed %s: %d", name, rr.Code)
+		}
+	}
+
+	patch, _ := json.Marshal(map[string]any{"name": "second"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/first", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Errorf("status: got %d, want 409; body=%s", rr.Code, rr.Body.String())
 	}
 }
 

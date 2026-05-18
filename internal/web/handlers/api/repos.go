@@ -532,12 +532,10 @@ type repoPatchRequest struct {
 	HasPulls    *bool   `json:"has_pulls,omitempty"`
 	Archived    *bool   `json:"archived,omitempty"`
 	Visibility  *string `json:"visibility,omitempty"`
-	// Name is parsed only so we can reject it cleanly: PATCH-time
-	// rename via REST is not implemented yet, and silently dropping
-	// the field (the pre-D1 behavior) let CLI clients render
-	// "Renamed to <old name>" success lines for no-op operations
-	// (C-audit C7). Until rename is wired, surfacing a 422 is the
-	// correct UX.
+	// Name dispatches into lifecycle.Rename when non-nil. Closes
+	// audit finding C7: the previous behavior silently dropped the
+	// field, letting `shithub repo rename` print "Renamed to <old
+	// name>" against a no-op response.
 	Name *string `json:"name,omitempty"`
 }
 
@@ -552,13 +550,44 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	// C7: refuse rename requests instead of silently dropping them.
-	// REST-driven rename is on the roadmap; for now, surface a clear
-	// 422 so `shithub repo rename` errors out instead of reporting a
-	// fake success against the old name.
+	// C7: dispatch rename through the existing lifecycle.Rename
+	// pipeline (validate → tx insert-redirect + UPDATE → FS move →
+	// audit). Rename requires repo admin (matches the HTML form
+	// gate); the outer ActionRepoSettingsGeneral check already passed
+	// for the broader PATCH, so we add the stricter check only when
+	// the name field is present.
 	if body.Name != nil {
-		writeAPIError(w, http.StatusUnprocessableEntity, "renaming via REST is not yet supported")
-		return
+		if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(),
+			policy.ActionRepoAdmin, policy.NewRepoRefFromRepo(repo)).Allow {
+			writeAPIError(w, http.StatusForbidden, "rename requires repo admin")
+			return
+		}
+		ldeps := lifecycle.Deps{Pool: h.d.Pool, RepoFS: h.d.RepoFS, Audit: h.d.Audit, Logger: h.d.Logger}
+		err := lifecycle.Rename(r.Context(), ldeps, lifecycle.RenameParams{
+			ActorUserID: auth.UserID,
+			RepoID:      repo.ID,
+			OwnerUserID: repo.OwnerUserID.Int64,
+			OwnerName:   ownerLogin,
+			OldName:     repo.Name,
+			NewName:     *body.Name,
+		})
+		if err != nil {
+			h.writeRenameError(w, r, err)
+			return
+		}
+		// Reload so the returned repo reflects the new name, and so any
+		// sibling fields the caller patched in the same request observe
+		// the rename'd row state. Repo struct is captured by-value above
+		// (used by the visibility/archived branches); refresh the local
+		// `repo` and let the rest of the handler keep working.
+		fresh, err := reposdb.New().GetRepoByID(r.Context(), h.d.Pool, repo.ID)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "api: refetch after rename", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "reload failed")
+			return
+		}
+		repo = fresh
+		policy.InvalidateRepo(r.Context(), repo.ID)
 	}
 	// General settings (description, has_issues, has_pulls) go through
 	// the single UpdateRepoGeneralSettings query so the form-driven HTML
@@ -657,6 +686,29 @@ func (h *Handlers) repoDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeRenameError maps lifecycle.Rename errors onto REST status
+// codes. Distinct from the HTML lifecycleError mapper because the
+// REST surface returns JSON-envelope errors via writeAPIError and
+// uses 422 (validation) / 409 (conflict) shapes gh-compat clients
+// recognize, where the HTML form uses 400 with plain text.
+func (h *Handlers) writeRenameError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, lifecycle.ErrSameName):
+		writeAPIError(w, http.StatusUnprocessableEntity, "new name equals current name")
+	case errors.Is(err, lifecycle.ErrInvalidName):
+		writeAPIError(w, http.StatusUnprocessableEntity, "invalid repository name")
+	case errors.Is(err, lifecycle.ErrReservedName):
+		writeAPIError(w, http.StatusUnprocessableEntity, "reserved repository name")
+	case errors.Is(err, lifecycle.ErrNameTaken):
+		writeAPIError(w, http.StatusConflict, "name already taken on this owner")
+	case errors.Is(err, lifecycle.ErrRenameRateLimited):
+		writeAPIError(w, http.StatusTooManyRequests, "rename rate limit (5 per 30 days) exceeded")
+	default:
+		h.d.Logger.ErrorContext(r.Context(), "api: rename", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "rename failed")
+	}
 }
 
 // ─── resolvers ──────────────────────────────────────────────────────
