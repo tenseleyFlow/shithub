@@ -245,11 +245,24 @@ func (r *Renderer) RenderPage(w io.Writer, req *http.Request, name string, data 
 
 // HTTPError writes an error page with the appropriate status code. If the
 // named error template doesn't exist a plain-text fallback is written.
+//
+// CX1: when callers pass an empty `message` (the common case — see the
+// many `HTTPError(w, r, 404, "")` callsites), fall back to the request
+// path so the rendered template ("The page `<X>` doesn't exist...")
+// names the URL the user tried to reach instead of "The page “ doesn't
+// exist..." Most useful for the post-login redirect → 404 path, where
+// users hit a deleted-repo URL and the page text was previously
+// uninformative. We use the path (not the full URL) to keep query
+// strings — which may carry sensitive tokens — out of the rendered page.
 func (r *Renderer) HTTPError(w http.ResponseWriter, req *http.Request, status int, message string) {
 	pageName := errorPageFor(status)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
+
+	if message == "" && req != nil {
+		message = req.URL.Path
+	}
 
 	data := struct {
 		Title      string
@@ -265,8 +278,13 @@ func (r *Renderer) HTTPError(w http.ResponseWriter, req *http.Request, status in
 		RequestID:  middleware.RequestIDFromContext(req.Context()),
 	}
 	if err := r.Render(w, pageName, data); err != nil {
+		// Content-Type was already set to text/html above and headers
+		// are flushed by the time we hit this fallback, so escape the
+		// user-controllable bits (message, request_id) before writing.
 		_, _ = fmt.Fprintf(w, "%d %s\n%s\n(request_id=%s)\n",
-			status, http.StatusText(status), message, data.RequestID)
+			status, http.StatusText(status),
+			template.HTMLEscapeString(message),
+			template.HTMLEscapeString(data.RequestID))
 	}
 }
 
