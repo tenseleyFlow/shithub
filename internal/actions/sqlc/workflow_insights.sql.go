@@ -13,7 +13,10 @@ import (
 
 const getActionsPerformanceSummaryForRepo = `-- name: GetActionsPerformanceSummaryForRepo :one
 SELECT
-    COALESCE(AVG(EXTRACT(EPOCH FROM (job.completed_at - job.started_at))) FILTER (
+    COALESCE(AVG(LEAST(
+        GREATEST(EXTRACT(EPOCH FROM (job.completed_at - job.started_at)), 0),
+        job.timeout_minutes::double precision * 60.0
+    )) FILTER (
         WHERE job.started_at IS NOT NULL AND job.completed_at IS NOT NULL
     ), 0)::double precision AS avg_job_seconds,
     COALESCE(AVG(EXTRACT(EPOCH FROM (job.started_at - job.created_at))) FILTER (
@@ -27,7 +30,10 @@ SELECT
           AND job.conclusion IS NOT NULL
           AND job.conclusion <> 'success'
     )::bigint AS failed_job_count,
-    COALESCE(SUM(EXTRACT(EPOCH FROM (job.completed_at - job.started_at))) FILTER (
+    COALESCE(SUM(LEAST(
+        GREATEST(EXTRACT(EPOCH FROM (job.completed_at - job.started_at)), 0),
+        job.timeout_minutes::double precision * 60.0
+    )) FILTER (
         WHERE job.started_at IS NOT NULL
           AND job.completed_at IS NOT NULL
           AND job.conclusion IS NOT NULL
@@ -70,7 +76,10 @@ const getActionsUsageSummaryForRepo = `-- name: GetActionsUsageSummaryForRepo :o
 SELECT
     COUNT(DISTINCT run.id)::bigint AS run_count,
     COUNT(job.id)::bigint AS job_count,
-    COALESCE(SUM(EXTRACT(EPOCH FROM (job.completed_at - job.started_at))) FILTER (
+    COALESCE(SUM(LEAST(
+        GREATEST(EXTRACT(EPOCH FROM (job.completed_at - job.started_at)), 0),
+        job.timeout_minutes::double precision * 60.0
+    )) FILTER (
         WHERE job.started_at IS NOT NULL AND job.completed_at IS NOT NULL
     ), 0)::bigint AS completed_job_seconds
 FROM workflow_runs run
@@ -104,7 +113,10 @@ SELECT
     COALESCE(NULLIF(run.workflow_name, ''), run.workflow_file)::text AS workflow_name,
     COUNT(DISTINCT run.id)::bigint AS run_count,
     COUNT(job.id)::bigint AS job_count,
-    COALESCE(AVG(EXTRACT(EPOCH FROM (job.completed_at - job.started_at))) FILTER (
+    COALESCE(AVG(LEAST(
+        GREATEST(EXTRACT(EPOCH FROM (job.completed_at - job.started_at)), 0),
+        job.timeout_minutes::double precision * 60.0
+    )) FILTER (
         WHERE job.started_at IS NOT NULL AND job.completed_at IS NOT NULL
     ), 0)::double precision AS avg_job_seconds,
     COALESCE(AVG(EXTRACT(EPOCH FROM (job.started_at - job.created_at))) FILTER (
@@ -179,7 +191,10 @@ SELECT
     COALESCE(NULLIF(run.workflow_name, ''), run.workflow_file)::text AS workflow_name,
     COUNT(DISTINCT run.id)::bigint AS run_count,
     COUNT(job.id)::bigint AS job_count,
-    COALESCE(SUM(EXTRACT(EPOCH FROM (job.completed_at - job.started_at))) FILTER (
+    COALESCE(SUM(LEAST(
+        GREATEST(EXTRACT(EPOCH FROM (job.completed_at - job.started_at)), 0),
+        job.timeout_minutes::double precision * 60.0
+    )) FILTER (
         WHERE job.started_at IS NOT NULL AND job.completed_at IS NOT NULL
     ), 0)::bigint AS completed_job_seconds
 FROM workflow_runs run

@@ -928,7 +928,10 @@ actions_minutes AS (
              AND j.completed_at IS NOT NULL
              AND j.completed_at >= sqlc.arg(actions_period_start)::timestamptz
              AND j.completed_at < sqlc.arg(actions_period_end)::timestamptz
-            THEN CEIL(EXTRACT(EPOCH FROM (j.completed_at - j.started_at)) / 60.0)::bigint
+            THEN LEAST(
+                CEIL(GREATEST(EXTRACT(EPOCH FROM (j.completed_at - j.started_at)), 0) / 60.0)::bigint,
+                j.timeout_minutes::bigint
+            )
             ELSE 0
         END
     ), 0)::bigint AS actions_minutes_used

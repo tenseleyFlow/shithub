@@ -544,6 +544,31 @@ func TestOrgUsageCountersAndQuotaOverrides(t *testing.T) {
 	`, org.ID, start.Add(12*time.Hour)); err != nil {
 		t.Fatalf("insert workflow usage: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		WITH repo AS (
+			SELECT id FROM repos WHERE owner_org_id = $1 AND name = 'metered-repo'
+		), runner AS (
+			SELECT id FROM workflow_runners WHERE name = 'metered-runner'
+		), run AS (
+			INSERT INTO workflow_runs (
+				repo_id, run_index, workflow_file, head_sha, event,
+				status, conclusion, started_at, completed_at
+			)
+			SELECT repo.id, 2, '.shithub/workflows/stale.yml', 'abcdef2', 'push',
+			       'cancelled', 'cancelled', $2::timestamptz, $2::timestamptz + interval '3 days'
+			FROM repo
+			RETURNING id
+		)
+		INSERT INTO workflow_jobs (
+			run_id, job_index, job_key, runner_id, status, conclusion,
+			timeout_minutes, started_at, completed_at
+		)
+		SELECT run.id, 0, 'stale', runner.id, 'cancelled', 'cancelled',
+		       360, $2::timestamptz, $2::timestamptz + interval '3 days'
+		FROM run, runner
+	`, org.ID, start.Add(13*time.Hour)); err != nil {
+		t.Fatalf("insert stale workflow usage: %v", err)
+	}
 	recalc, err := billing.RecalculateOrgUsageCounters(ctx, deps, org.ID, start, end)
 	if err != nil {
 		t.Fatalf("RecalculateOrgUsageCounters: %v", err)
@@ -552,7 +577,7 @@ func TestOrgUsageCountersAndQuotaOverrides(t *testing.T) {
 		recalc.ActionsLogBytes != 1234 ||
 		recalc.ActionsArtifactBytes != 3456 ||
 		recalc.ObjectStorageBytes != 4690 ||
-		recalc.ActionsMinutesUsed != 6 {
+		recalc.ActionsMinutesUsed != 366 {
 		t.Fatalf("unexpected recalculated usage: %+v", recalc)
 	}
 }
