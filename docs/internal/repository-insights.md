@@ -10,12 +10,20 @@ the `repo:insights_recalc` worker kind.
   `git log --numstat` scans of the repository default branch.
 - Network uses the existing fork relationship (`repos.fork_of_repo_id`) and
   per-row visibility checks before rendering visible forks.
-- Traffic currently renders an honest empty state. shithub does not yet collect
-  per-repository view, clone, referrer, or popular-content events.
+- Traffic comes from aggregate-only repository view and clone counters in
+  `repo_traffic_daily`, with popular-content and external-referrer rollups in
+  `repo_traffic_paths` and `repo_traffic_referrers`.
 
 The git scan is capped by `insights.DefaultMaxCommits` so a large repository
 cannot pin a worker indefinitely. The worker overwrites the same snapshot row
 on every run, making retries idempotent.
+
+Traffic collection is intentionally privacy-conscious. Request handlers pass a
+short-lived visitor key to `internal/repos/traffic`; the database stores only a
+repo/day/metric-scoped SHA-256 digest in `repo_traffic_uniques`. Raw IP
+addresses, user agents, authenticated user IDs, and full referrer URLs are not
+persisted. Referrers are reduced to an external host and same-site referrers are
+dropped.
 
 ## Refresh Flow
 
@@ -28,16 +36,18 @@ branch advances. Insights pages also enqueue a best-effort refresh when:
 HTTP handlers render the last snapshot while a stale refresh is queued. Empty
 repositories produce a real empty snapshot rather than a placeholder graph.
 
+Existing repositories can be reconciled after deploy with:
+
+```sh
+shithubd repo-insights-backfill-all
+```
+
+The command enqueues one `repo:insights_recalc` job per active repository and
+returns immediately; it does not compute git history inline.
+
 ## Entitlement Gate
 
 Public repository insights are visible to readers. Private organization
 repository insights are gated by `entitlements.FeatureRepoInsights`, matching
 the GitHub Team-style “Repository insights” row. The gate uses the shared repo
 feature path in `internal/web/handlers/repo/collaboration_gates.go`.
-
-## Follow-Up Gap
-
-Traffic is still the remaining SP24 parity gap. A future slice should add a
-privacy-conscious event model for repository views/clones, aggregation jobs,
-and the Traffic page tables before the plan comparison can mark the whole
-repository-insights suite as fully shipped.
