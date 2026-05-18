@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -173,6 +174,21 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
 	stateFilter := normalizeIssueState(r.URL.Query().Get("state"))
 	q := issuesdb.New()
+
+	// C-audit C8: `labels=foo,bar` query filter. Pre-D fix, this was
+	// silently dropped — the parameter never made it into the query
+	// and unfiltered results came back. Strict gh-compat now: any
+	// label name that doesn't exist on the repo returns 422. The
+	// actual filtering happens after the DB fetch (TODO: dedicated
+	// sqlc query with INNER JOIN on issue_labels for proper page-
+	// accurate pagination; for v1 the post-filter is correct but the
+	// Link-header page count reflects the pre-filter row count).
+	wantedLabelIDs, lerr := h.parseAndValidateLabelsFilter(r, repo.ID)
+	if lerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, lerr.Error())
+		return
+	}
+
 	total, err := q.CountIssues(r.Context(), h.d.Pool, issuesdb.CountIssuesParams{
 		RepoID:      repo.ID,
 		StateFilter: stateFilter,
@@ -195,6 +211,13 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+
+	// Post-filter rows by the validated label set. Match gh's AND
+	// semantic: a row stays only if it has every requested label.
+	if len(wantedLabelIDs) > 0 {
+		rows = filterRowsByLabels(r.Context(), h.d.Pool, rows, wantedLabelIDs)
+	}
+
 	link := apipage.Page{Current: page, PerPage: perPage, Total: int(total)}.LinkHeader(h.d.BaseURL, sanitizedURL(r))
 	if link != "" {
 		w.Header().Set("Link", link)
@@ -245,6 +268,70 @@ func (h *Handlers) issueHTMLURL(ownerLogin, repoName string, number int64) strin
 		return ""
 	}
 	return strings.TrimRight(h.d.BaseURL, "/") + "/" + ownerLogin + "/" + repoName + "/issues/" + strconv.FormatInt(number, 10)
+}
+
+// parseAndValidateLabelsFilter reads the `labels` query parameter
+// (gh-compat: comma-separated, AND semantic) and resolves each name
+// to a label ID for the supplied repo. Unknown names return an
+// errUnknownLabel-shaped error which the handler maps to 422 (C8).
+// Returns the empty slice when no filter was supplied — callers
+// treat that as "no label filter".
+func (h *Handlers) parseAndValidateLabelsFilter(r *http.Request, repoID int64) ([]int64, error) {
+	raw := r.URL.Query().Get("labels")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	names := strings.Split(raw, ",")
+	q := issuesdb.New()
+	ids := make([]int64, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		l, err := q.GetLabelByName(r.Context(), h.d.Pool, issuesdb.GetLabelByNameParams{
+			RepoID: repoID, Name: n,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("unknown label: %s", n)
+			}
+			return nil, err
+		}
+		ids = append(ids, l.ID)
+	}
+	return ids, nil
+}
+
+// filterRowsByLabels keeps only rows where the issue carries every
+// label in wanted (gh-compat AND semantic). O(N rows × N labels per
+// row × N wanted). Acceptable for typical repo sizes; a dedicated
+// sqlc INNER JOIN query would do it server-side. TODO when issues
+// pagination correctness becomes load-bearing.
+func filterRowsByLabels(ctx context.Context, pool issuesdb.DBTX, rows []issuesdb.Issue, wanted []int64) []issuesdb.Issue {
+	q := issuesdb.New()
+	out := rows[:0]
+	for _, row := range rows {
+		labels, err := q.ListLabelsOnIssue(ctx, pool, row.ID)
+		if err != nil {
+			continue
+		}
+		have := make(map[int64]struct{}, len(labels))
+		for _, l := range labels {
+			have[l.ID] = struct{}{}
+		}
+		ok := true
+		for _, w := range wanted {
+			if _, has := have[w]; !has {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 // labelEnvelopesFor returns the labels on an issue as GitHub-compat
