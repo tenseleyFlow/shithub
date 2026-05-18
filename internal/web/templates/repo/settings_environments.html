@@ -30,6 +30,21 @@
           <span>Wait timer</span>
           <input type="number" name="wait_timer_minutes" min="0" max="43200" step="1" value="0">
         </label>
+        <fieldset class="shithub-settings-fieldset">
+          <legend>Protection rules</legend>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="required_reviewers_enabled">
+            <span>Required reviewers
+              <small>Require approval before jobs can deploy to this environment.</small>
+            </span>
+          </label>
+          <label class="shithub-settings-checkbox">
+            <input type="checkbox" name="prevent_self_review">
+            <span>Prevent self-review
+              <small>Do not allow the actor who triggered the run to approve deployment.</small>
+            </span>
+          </label>
+        </fieldset>
         <button type="submit" class="shithub-button shithub-button-primary">Create environment</button>
       </form>
     </section>
@@ -38,12 +53,13 @@
       <h2>Repository environments</h2>
       {{ if .Environments }}
         <table class="shithub-branches-table">
-          <thead><tr><th>Name</th><th>Deployment branches</th><th>Wait timer</th><th>Secrets</th></tr></thead>
+          <thead><tr><th>Name</th><th>Deployment branches</th><th>Protection rules</th><th>Wait timer</th><th>Secrets</th></tr></thead>
           <tbody>
             {{ range .Environments }}
             <tr>
               <td><a href="{{ .Href }}"><strong>{{ .Name }}</strong></a></td>
               <td>{{ .DeploymentBranchPolicy }}{{ if .BranchPatterns }} · {{ len .BranchPatterns }} pattern{{ if ne (len .BranchPatterns) 1 }}s{{ end }}{{ end }}</td>
+              <td>{{ if .RequiredReviewers }}Required reviewers{{ if .PreventSelfReview }} · no self-review{{ end }}{{ else }}None{{ end }}</td>
               <td>{{ .WaitTimerMinutes }} minutes</td>
               <td>{{ .SecretCount }}</td>
             </tr>
@@ -77,6 +93,21 @@
             <span>Wait timer</span>
             <input type="number" name="wait_timer_minutes" min="0" max="43200" step="1" value="{{ .WaitTimerMinutes }}">
           </label>
+          <fieldset class="shithub-settings-fieldset">
+            <legend>Protection rules</legend>
+            <label class="shithub-settings-checkbox">
+              <input type="checkbox" name="required_reviewers_enabled"{{ if .RequiredReviewers }} checked{{ end }}>
+              <span>Required reviewers
+                <small>Require approval before jobs can deploy to this environment.</small>
+              </span>
+            </label>
+            <label class="shithub-settings-checkbox">
+              <input type="checkbox" name="prevent_self_review"{{ if .PreventSelfReview }} checked{{ end }}>
+              <span>Prevent self-review
+                <small>Do not allow the actor who triggered the run to approve deployment.</small>
+              </span>
+            </label>
+          </fieldset>
           <button type="submit" class="shithub-button shithub-button-primary">Save environment</button>
         </form>
         <form method="POST" action="{{ .Href }}/delete" style="margin-top: 12px">

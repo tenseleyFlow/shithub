@@ -123,10 +123,12 @@ func TestSettingsActionsEnvironmentCRUDAndSecrets(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := newFormRequest(http.MethodPost, "/alice/public-repo/settings/environments", url.Values{
-		"name":                     {"production"},
-		"deployment_branch_policy": {"selected"},
-		"wait_timer_minutes":       {"7"},
-		"branch_patterns":          {"trunk\nrelease/*"},
+		"name":                       {"production"},
+		"deployment_branch_policy":   {"selected"},
+		"wait_timer_minutes":         {"7"},
+		"required_reviewers_enabled": {"on"},
+		"prevent_self_review":        {"on"},
+		"branch_patterns":            {"trunk\nrelease/*"},
 	})
 	mux.ServeHTTP(resp, req)
 	if resp.Code != http.StatusSeeOther {
@@ -144,10 +146,10 @@ func TestSettingsActionsEnvironmentCRUDAndSecrets(t *testing.T) {
 	}
 	body := resp.Body.String()
 	for _, want := range []string{
-		"ENV=production:selected:7:0;",
+		"ENV=production:selected:7:true:true:0;",
 		"PATTERN=trunk;",
 		"PATTERN=release/*;",
-		"SELECTED=production:selected:7;",
+		"SELECTED=production:selected:7:true:true;",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("environment body missing %q in %s", want, body)

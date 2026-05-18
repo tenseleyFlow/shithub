@@ -77,11 +77,12 @@ later schema diff:
   plus required-reviewer flags, wait timer, and deployment branch
   policy. Runner claim enforces selected-branch and protected-branch
   deployment policies, wait timers, and required-reviewer holds before
-  a job can leave `queued`. Repository settings expose environment
-  create/update/delete, selected deployment patterns, wait timers, and
-  environment secrets. Required-reviewer approval controls are still a
-  follow-up SP23 surface; until then, a manually enabled reviewer gate
-  intentionally keeps matching deployment jobs queued.
+  a job can leave `queued`; reviewer-gated environments mark matching
+  runs approval-pending at enqueue and release runner dispatch after
+  the existing run approval flow records approval. Repository settings
+  expose environment create/update/delete, selected deployment
+  patterns, wait timers, environment secrets, required-reviewer gates,
+  and `prevent_self_review`.
 - **`workflow_step_log_chunks.chunk`** is capped at 512 KB per row.
   The runner sends bigger payloads in pieces. `(step_id, seq)` is
   UNIQUE so duplicate sends are idempotent.
@@ -700,9 +701,12 @@ order is org/user → repo → environment, so environment secrets shadow
 broader scopes for deploy-only credentials. Pull request runs still get
 no secrets from any scope. The repository settings surface can create,
 edit, and delete environments, configure selected deployment branch/tag
-patterns and wait timers, and rotate/delete environment secrets. It
-does not yet expose required-reviewer approval controls; those are the
-remaining SP23 environment-settings gap.
+patterns and wait timers, rotate/delete environment secrets, and enable
+required-reviewer deployment gates. Reviewer-gated environments reuse
+the Actions run approval UI: matching runs are approval-pending before
+runner dispatch, rejection cancels queued jobs, approval releases
+eligible jobs back to the runner claim query, and `prevent_self_review`
+blocks the triggering actor from approving that deployment run.
 
 ## What S41a deliberately doesn't do
 
