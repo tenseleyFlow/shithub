@@ -44,10 +44,10 @@ func TestRepoAboutResources_GitHubResourceOrder(t *testing.T) {
 			t.Fatalf("labels = %#v, want %#v", labels, want)
 		}
 	}
-	if got[0].Href != "/tenseleyFlow/shithub?tab=readme-ov-file" || got[0].Path != "README.md" || got[0].OverviewTab != repoOverviewReadmeTab {
+	if got[0].Href != "/tenseleyFlow/shithub?tab=readme-ov-file#readme" || got[0].Path != "README.md" || got[0].OverviewTab != repoOverviewReadmeTab {
 		t.Fatalf("readme resource = %#v", got[0])
 	}
-	if got[1].Href != "/tenseleyFlow/shithub?tab=license-ov-file" || got[1].Path != "LICENSE" || got[1].OverviewTab != repoOverviewLicenseTab {
+	if got[1].Href != "/tenseleyFlow/shithub?tab=license-ov-file#readme" || got[1].Path != "LICENSE" || got[1].OverviewTab != repoOverviewLicenseTab {
 		t.Fatalf("license href = %q", got[1].Href)
 	}
 }

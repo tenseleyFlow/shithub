@@ -8443,6 +8443,15 @@ button.shithub-repo-action {
   border-radius: 6px;
   background: var(--canvas-default);
   overflow: visible;
+  transition: opacity 120ms ease, border-color 120ms ease;
+}
+.shithub-readme.is-loading {
+  opacity: 0.58;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shithub-readme {
+    transition: none;
+  }
 }
 .shithub-readme-head {
   position: relative;

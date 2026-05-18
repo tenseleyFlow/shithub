@@ -177,12 +177,12 @@
         </div>
       </section>
       {{ if .README }}
-      <section class="shithub-readme markdown-body" id="readme" aria-label="{{ .READMELabel }}">
+      <section class="shithub-readme markdown-body" id="readme" aria-label="{{ .READMELabel }}" data-repo-overview-document>
         <div class="shithub-readme-head">
           {{ if .ReadmeTabs }}
           <nav class="shithub-readme-tabs" aria-label="Repository documents">
             {{ range .ReadmeTabs }}
-            <a href="{{ .Href }}" class="shithub-readme-tab{{ if .Active }} is-active{{ end }}">
+            <a href="{{ .Href }}" class="shithub-readme-tab{{ if .Active }} is-active{{ end }}"{{ if .Active }} aria-current="page"{{ end }} data-repo-overview-tab>
               {{ octicon .Icon }}
               <span>{{ .Label }}</span>
             </a>

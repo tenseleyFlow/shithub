@@ -21,7 +21,7 @@
         {{ range .RepoAbout.Resources }}
         <li>
           {{ octicon .Icon }}
-          {{ if .Href }}<a href="{{ .Href }}">{{ .Label }}</a>{{ else }}<span>{{ .Label }}</span>{{ end }}
+          {{ if .Href }}<a href="{{ .Href }}"{{ if .OverviewTab }} data-repo-overview-tab{{ end }}>{{ .Label }}</a>{{ else }}<span>{{ .Label }}</span>{{ end }}
         </li>
         {{ end }}
       </ul>

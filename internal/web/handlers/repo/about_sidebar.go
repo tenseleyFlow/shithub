@@ -94,7 +94,7 @@ func repoAboutResources(owner, repoName, ref string, row reposdb.Repo, entries [
 		if ref != "" && row.DefaultBranch != "" && ref != row.DefaultBranch {
 			base += "/tree/" + ref
 		}
-		return base + "?tab=" + tab
+		return base + "?tab=" + tab + "#readme"
 	}
 
 	resources := []repoAboutResource{}
