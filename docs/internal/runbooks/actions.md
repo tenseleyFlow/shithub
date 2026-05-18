@@ -251,7 +251,9 @@ active container, and reports terminal `cancelled`.
 
 - **Run never appears:** confirm the workflow file is under
   `.shithub/workflows/`, parse it with `shithubd admin actions parse <file>`,
-  and verify the trigger event matches `on:`.
+  and verify the trigger event matches `on:`. If the owning organization is
+  over its monthly Actions minutes quota, the trigger should now appear as a
+  completed `action_required` run/check instead of disappearing.
 - **Run stays queued:** open the run page to see the requested runner labels,
   then run `shithubd admin runner queue` and confirm a live runner is registered
   with matching labels and capacity. Unsupported hosted labels such as
@@ -262,7 +264,9 @@ active container, and reports terminal `cancelled`.
 - **`actions/checkout@v4` fails:** confirm the job is still running, the repo
   URL in the runner claim points at this shithub instance, and the runner host
   can reach smart HTTP. The checkout token is not valid after the job leaves
-  `running`.
+  `running`. If logs mention an unadvertised object, confirm the runner binary
+  includes the exact-SHA fallback: it should retry by fetching the safe
+  `head_ref` and then verify the expected SHA before continuing.
 - **Artifact `uses:` step fails:** expected for now. Replace with a `run:`
   step until artifact support lands.
 - **Secrets appear masked inconsistently:** check

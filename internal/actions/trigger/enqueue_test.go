@@ -207,7 +207,7 @@ func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 	f.deps.Now = func() time.Time { return now }
 	seedCompletedActionsMinutes(t, f, now, entitlements.FreeOrgActionsMinutesQuota)
 
-	_, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
 		RepoID:         f.repoID,
 		WorkflowFile:   ".shithub/workflows/ci.yml",
 		HeadSHA:        strings.Repeat("a", 40),
@@ -218,15 +218,54 @@ func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 		TriggerEventID: "push:quota-exhausted",
 		Workflow:       fixtureWorkflow(t),
 	})
-	if !errors.Is(err, trigger.ErrActionsMinutesQuotaExceeded) {
-		t.Fatalf("Enqueue err=%v, want ErrActionsMinutesQuotaExceeded", err)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
 	}
-	var count int64
-	if scanErr := f.pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repo_id = $1 AND workflow_file = '.shithub/workflows/ci.yml'`, f.repoID).Scan(&count); scanErr != nil {
-		t.Fatalf("count workflow_runs: %v", scanErr)
+	if !res.QuotaBlocked || res.RunID == 0 || res.RunIndex == 0 {
+		t.Fatalf("expected visible quota-blocked run, got %+v", res)
 	}
-	if count != 0 {
-		t.Fatalf("workflow_runs count = %d, want 0", count)
+	if len(res.CheckRunIDs) != 1 {
+		t.Fatalf("quota-blocked check runs = %d, want 1", len(res.CheckRunIDs))
+	}
+	run, err := actionsdb.New().GetWorkflowRunByID(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if run.Status != actionsdb.WorkflowRunStatusCompleted ||
+		!run.Conclusion.Valid ||
+		run.Conclusion.CheckConclusion != actionsdb.CheckConclusionActionRequired {
+		t.Fatalf("quota-blocked run status/conclusion = %s/%v", run.Status, run.Conclusion)
+	}
+	jobs, err := actionsdb.New().ListJobsForRun(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 ||
+		jobs[0].Status != actionsdb.WorkflowJobStatusSkipped ||
+		!jobs[0].Conclusion.Valid ||
+		jobs[0].Conclusion.CheckConclusion != actionsdb.CheckConclusionActionRequired {
+		t.Fatalf("quota-blocked jobs = %+v", jobs)
+	}
+	steps, err := actionsdb.New().ListStepsForJob(ctx, f.pool, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("ListStepsForJob: %v", err)
+	}
+	for _, step := range steps {
+		if step.Status != actionsdb.WorkflowStepStatusSkipped ||
+			!step.Conclusion.Valid ||
+			step.Conclusion.CheckConclusion != actionsdb.CheckConclusionActionRequired {
+			t.Fatalf("quota-blocked step = %+v", step)
+		}
+	}
+	checkRun, err := checksdb.New().GetCheckRun(ctx, f.pool, res.CheckRunIDs[0])
+	if err != nil {
+		t.Fatalf("GetCheckRun: %v", err)
+	}
+	if checkRun.Status != checksdb.CheckStatusCompleted ||
+		!checkRun.Conclusion.Valid ||
+		checkRun.Conclusion.CheckConclusion != checksdb.CheckConclusionActionRequired ||
+		checkRun.DetailsUrl != "/acme/demo/actions/runs/2" {
+		t.Fatalf("quota-blocked check_run = %+v", checkRun)
 	}
 }
 

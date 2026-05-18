@@ -115,6 +115,12 @@ type Result struct {
 	// table. RunID/RunIndex/CheckRunIDs are zero in this case; the
 	// caller's only sensible response is to log + move on.
 	Skipped bool
+	// QuotaBlocked is true when the workflow matched but was persisted as
+	// a terminal action_required run/check because the owning org has
+	// exhausted its Actions minutes quota. The runner never claims these
+	// jobs; the rows exist so Code, PR checks, and Actions views show why
+	// the commit did not run.
+	QuotaBlocked bool
 }
 
 var ErrActionsMinutesQuotaExceeded = errors.New("trigger: actions minutes quota exceeded")
@@ -148,6 +154,9 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		return Result{Skipped: true}, nil
 	}
 	if err := enforceActionsMinutesQuota(ctx, deps, p.RepoID); err != nil {
+		if errors.Is(err, ErrActionsMinutesQuotaExceeded) {
+			return enqueueQuotaBlockedRun(ctx, deps, p, err)
+		}
 		return Result{}, err
 	}
 	concurrencyResolution, err := concurrency.Resolve(concurrency.ResolveInput{
@@ -366,6 +375,222 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 		RunID:       run.ID,
 		RunIndex:    run.RunIndex,
 		CheckRunIDs: checkRunIDs,
+	}, nil
+}
+
+func enqueueQuotaBlockedRun(ctx context.Context, deps Deps, p EnqueueParams, quotaErr error) (Result, error) {
+	deps.Logger.InfoContext(ctx, "trigger: workflow blocked by actions minutes quota",
+		"repo_id", p.RepoID, "workflow_file", p.WorkflowFile, "trigger_event_id", p.TriggerEventID, "error", quotaErr)
+	conclusion := actionsdb.NullCheckConclusion{
+		CheckConclusion: actionsdb.CheckConclusionActionRequired,
+		Valid:           true,
+	}
+	now := time.Now().UTC()
+	if deps.Now != nil {
+		now = deps.Now().UTC()
+	}
+
+	q := actionsdb.New()
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: begin quota-blocked tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	runIndex, err := q.NextRunIndexForRepo(ctx, tx, p.RepoID)
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: next quota-blocked run index: %w", err)
+	}
+	payloadBytes, err := json.Marshal(p.EventPayload)
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: marshal quota-blocked event payload: %w", err)
+	}
+	run, err := q.EnqueueWorkflowRun(ctx, tx, actionsdb.EnqueueWorkflowRunParams{
+		RepoID:         p.RepoID,
+		RunIndex:       runIndex,
+		WorkflowFile:   p.WorkflowFile,
+		WorkflowName:   p.Workflow.Name,
+		HeadSha:        p.HeadSHA,
+		HeadRef:        p.HeadRef,
+		Event:          actionsdb.WorkflowRunEvent(p.EventKind),
+		EventPayload:   payloadBytes,
+		ActorUserID:    pgInt8(p.ActorUserID),
+		ParentRunID:    pgInt8(p.ParentRunID),
+		TriggerEventID: p.TriggerEventID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			if err := tx.Commit(ctx); err != nil {
+				return Result{}, fmt.Errorf("trigger: commit empty quota-blocked tx: %w", err)
+			}
+			committed = true
+			existing, lookupErr := lookupExistingRun(ctx, deps.Pool, p)
+			if lookupErr != nil {
+				return Result{}, fmt.Errorf("trigger: existing quota-blocked run lookup: %w", lookupErr)
+			}
+			metrics.ActionsRunsEnqueuedTotal.WithLabelValues(string(p.EventKind), "already_exists").Inc()
+			return Result{
+				RunID:         existing.ID,
+				RunIndex:      existing.RunIndex,
+				AlreadyExists: true,
+				QuotaBlocked:  true,
+			}, nil
+		}
+		return Result{}, fmt.Errorf("trigger: insert quota-blocked run: %w", err)
+	}
+	if err := actionsevents.EmitRunTx(ctx, tx, run, actionsevents.ActionQueued); err != nil {
+		return Result{}, fmt.Errorf("trigger: emit quota-blocked run queued event: %w", err)
+	}
+
+	completedRun, err := q.CompleteWorkflowRun(ctx, tx, actionsdb.CompleteWorkflowRunParams{
+		ID:         run.ID,
+		Conclusion: actionsdb.CheckConclusionActionRequired,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: complete quota-blocked run: %w", err)
+	}
+
+	jobIDs := make([]int64, len(p.Workflow.Jobs))
+	ts := pgtype.Timestamptz{Time: now, Valid: true}
+	for i, j := range p.Workflow.Jobs {
+		needs := j.Needs
+		if needs == nil {
+			needs = []string{}
+		}
+		permsJSON, err := marshalPermissions(j.Permissions)
+		if err != nil {
+			return Result{}, fmt.Errorf("trigger: marshal permissions for quota-blocked job %s: %w", j.Key, err)
+		}
+		envJSON, err := marshalEnv(j.Env)
+		if err != nil {
+			return Result{}, fmt.Errorf("trigger: marshal env for quota-blocked job %s: %w", j.Key, err)
+		}
+		job, err := q.InsertWorkflowJob(ctx, tx, actionsdb.InsertWorkflowJobParams{
+			RunID:          run.ID,
+			JobIndex:       int32(i),
+			JobKey:         j.Key,
+			JobName:        j.Name,
+			RunsOn:         j.RunsOn,
+			NeedsJobs:      needs,
+			IfExpr:         j.If,
+			TimeoutMinutes: int32(j.TimeoutMinutes),
+			Permissions:    permsJSON,
+			JobEnv:         envJSON,
+		})
+		if err != nil {
+			return Result{}, fmt.Errorf("trigger: insert quota-blocked job %s: %w", j.Key, err)
+		}
+		job, err = q.UpdateWorkflowJobStatus(ctx, tx, actionsdb.UpdateWorkflowJobStatusParams{
+			ID:          job.ID,
+			Status:      actionsdb.WorkflowJobStatusSkipped,
+			Conclusion:  conclusion,
+			StartedAt:   ts,
+			CompletedAt: ts,
+		})
+		if err != nil {
+			return Result{}, fmt.Errorf("trigger: mark quota-blocked job %s skipped: %w", j.Key, err)
+		}
+		jobIDs[i] = job.ID
+		if err := actionsevents.EmitJobTx(ctx, tx, completedRun, job, actionsevents.ActionCompleted); err != nil {
+			return Result{}, fmt.Errorf("trigger: emit quota-blocked job completed event for %s: %w", j.Key, err)
+		}
+
+		for si, s := range j.Steps {
+			stepEnvJSON, err := marshalEnv(s.Env)
+			if err != nil {
+				return Result{}, fmt.Errorf("trigger: marshal quota-blocked step env: %w", err)
+			}
+			stepWithJSON, err := marshalEnv(s.With)
+			if err != nil {
+				return Result{}, fmt.Errorf("trigger: marshal quota-blocked step with: %w", err)
+			}
+			step, err := q.InsertWorkflowStep(ctx, tx, actionsdb.InsertWorkflowStepParams{
+				JobID:            job.ID,
+				StepIndex:        int32(si),
+				StepID:           s.ID,
+				StepName:         s.Name,
+				IfExpr:           s.If,
+				RunCommand:       s.Run,
+				UsesAlias:        s.Uses,
+				WorkingDirectory: s.WorkingDirectory,
+				StepEnv:          stepEnvJSON,
+				ContinueOnError:  s.ContinueOnError,
+				StepWith:         stepWithJSON,
+			})
+			if err != nil {
+				return Result{}, fmt.Errorf("trigger: insert quota-blocked step %d for job %s: %w", si, j.Key, err)
+			}
+			if _, err := q.UpdateWorkflowStepStatus(ctx, tx, actionsdb.UpdateWorkflowStepStatusParams{
+				ID:          step.ID,
+				Status:      actionsdb.WorkflowStepStatusSkipped,
+				Conclusion:  conclusion,
+				StartedAt:   ts,
+				CompletedAt: ts,
+			}); err != nil {
+				return Result{}, fmt.Errorf("trigger: mark quota-blocked step %d for job %s skipped: %w", si, j.Key, err)
+			}
+		}
+	}
+	if err := actionsevents.EmitRunTx(ctx, tx, completedRun, actionsevents.ActionCompleted); err != nil {
+		return Result{}, fmt.Errorf("trigger: emit quota-blocked run completed event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Result{}, fmt.Errorf("trigger: commit quota-blocked run tx: %w", err)
+	}
+	committed = true
+
+	checkRunIDs := make([]int64, 0, len(p.Workflow.Jobs))
+	checkDetailsURL := ""
+	if ownerRow, err := reposdb.New().GetRepoOwnerUsernameByID(ctx, deps.Pool, p.RepoID); err == nil {
+		if ownerSlug, ok := repoOwnerSlugString(ownerRow.OwnerUsername); ok {
+			checkDetailsURL = fmt.Sprintf("/%s/%s/actions/runs/%d", url.PathEscape(ownerSlug), url.PathEscape(ownerRow.RepoName), run.RunIndex)
+		}
+	} else {
+		deps.Logger.WarnContext(ctx, "trigger: load repo owner for quota-blocked check_run details_url", "repo_id", p.RepoID, "error", err)
+	}
+	for i, j := range p.Workflow.Jobs {
+		extID := fmt.Sprintf("workflow_run:%d:job:%s", run.ID, j.Key)
+		name := j.Name
+		if name == "" {
+			name = j.Key
+		}
+		cr, err := checks.Create(ctx, checks.Deps{Pool: deps.Pool, Logger: deps.Logger}, checks.CreateParams{
+			RepoID:      p.RepoID,
+			HeadSHA:     p.HeadSHA,
+			AppSlug:     "shithub-actions",
+			Name:        name,
+			Status:      "completed",
+			Conclusion:  string(actionsdb.CheckConclusionActionRequired),
+			StartedAt:   now,
+			CompletedAt: now,
+			DetailsURL:  checkDetailsURL,
+			Output: checks.Output{
+				Title:   "Actions minutes quota exceeded",
+				Summary: "This workflow was not run because the owning organization has exhausted its Actions minutes quota.",
+				Text:    "An organization owner or site admin can raise the Actions minutes quota, or the workflow can run after the monthly usage period resets.",
+			},
+			ExternalID: extID,
+		})
+		if err != nil {
+			deps.Logger.WarnContext(ctx, "trigger: quota-blocked check_run create failed",
+				"run_id", run.ID, "job_key", j.Key, "error", err)
+			continue
+		}
+		checkRunIDs = append(checkRunIDs, cr.ID)
+		_ = jobIDs[i]
+	}
+
+	metrics.ActionsRunsEnqueuedTotal.WithLabelValues(string(p.EventKind), "quota_blocked").Inc()
+	return Result{
+		RunID:        run.ID,
+		RunIndex:     run.RunIndex,
+		CheckRunIDs:  checkRunIDs,
+		QuotaBlocked: true,
 	}, nil
 }
 
