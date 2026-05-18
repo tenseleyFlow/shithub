@@ -23,9 +23,11 @@ type repoAboutData struct {
 }
 
 type repoAboutResource struct {
-	Icon  string
-	Label string
-	Href  string
+	Icon        string
+	Label       string
+	Href        string
+	Path        string
+	OverviewTab string
 }
 
 type repoReadmeTab struct {
@@ -34,6 +36,14 @@ type repoReadmeTab struct {
 	Href   string
 	Active bool
 }
+
+const (
+	repoOverviewReadmeTab        = "readme-ov-file"
+	repoOverviewCodeOfConductTab = "coc-ov-file"
+	repoOverviewContributingTab  = "contributing-ov-file"
+	repoOverviewLicenseTab       = "license-ov-file"
+	repoOverviewSecurityTab      = "security-ov-file"
+)
 
 type repoAboutContributor struct {
 	User          bool
@@ -79,13 +89,23 @@ func repoAboutResources(owner, repoName, ref string, row reposdb.Repo, entries [
 		}
 		return ""
 	}
-	blobHref := func(p string) string {
-		return "/" + owner + "/" + repoName + "/blob/" + ref + "/" + p
+	overviewHref := func(tab string) string {
+		base := "/" + owner + "/" + repoName
+		if ref != "" && row.DefaultBranch != "" && ref != row.DefaultBranch {
+			base += "/tree/" + ref
+		}
+		return base + "?tab=" + tab
 	}
 
 	resources := []repoAboutResource{}
 	if readme := findRootFile(func(name string) bool { return strings.HasPrefix(name, "readme") }); readme != "" {
-		resources = append(resources, repoAboutResource{Icon: "book", Label: "Readme", Href: "#readme"})
+		resources = append(resources, repoAboutResource{
+			Icon:        "book",
+			Label:       "Readme",
+			Href:        overviewHref(repoOverviewReadmeTab),
+			Path:        readme,
+			OverviewTab: repoOverviewReadmeTab,
+		})
 	}
 	licensePath := findRootFile(func(name string) bool {
 		return name == "license" || strings.HasPrefix(name, "license.") || name == "copying" || strings.HasPrefix(name, "copying.")
@@ -97,24 +117,48 @@ func repoAboutResources(owner, repoName, ref string, row reposdb.Repo, entries [
 		}
 		href := ""
 		if licensePath != "" {
-			href = blobHref(licensePath)
+			href = overviewHref(repoOverviewLicenseTab)
 		}
-		resources = append(resources, repoAboutResource{Icon: "law", Label: label, Href: href})
+		resources = append(resources, repoAboutResource{
+			Icon:        "law",
+			Label:       label,
+			Href:        href,
+			Path:        licensePath,
+			OverviewTab: repoOverviewLicenseTab,
+		})
 	}
 	if codeOfConduct := findRootFile(func(name string) bool {
 		return name == "code_of_conduct.md" || name == "code-of-conduct.md" || name == "code_of_conduct" || name == "code-of-conduct"
 	}); codeOfConduct != "" {
-		resources = append(resources, repoAboutResource{Icon: "people", Label: "Code of conduct", Href: blobHref(codeOfConduct)})
+		resources = append(resources, repoAboutResource{
+			Icon:        "heart",
+			Label:       "Code of conduct",
+			Href:        overviewHref(repoOverviewCodeOfConductTab),
+			Path:        codeOfConduct,
+			OverviewTab: repoOverviewCodeOfConductTab,
+		})
 	}
 	if contributing := findRootFile(func(name string) bool {
 		return name == "contributing.md" || name == "contributing"
 	}); contributing != "" {
-		resources = append(resources, repoAboutResource{Icon: "people", Label: "Contributing", Href: blobHref(contributing)})
+		resources = append(resources, repoAboutResource{
+			Icon:        "people",
+			Label:       "Contributing",
+			Href:        overviewHref(repoOverviewContributingTab),
+			Path:        contributing,
+			OverviewTab: repoOverviewContributingTab,
+		})
 	}
 	if security := findRootFile(func(name string) bool {
 		return name == "security.md" || name == "security"
 	}); security != "" {
-		resources = append(resources, repoAboutResource{Icon: "law", Label: "Security policy", Href: blobHref(security)})
+		resources = append(resources, repoAboutResource{
+			Icon:        "law",
+			Label:       "Security policy",
+			Href:        overviewHref(repoOverviewSecurityTab),
+			Path:        security,
+			OverviewTab: repoOverviewSecurityTab,
+		})
 	}
 	resources = append(resources,
 		repoAboutResource{Icon: "pulse", Label: "Activity", Href: "/" + owner + "/" + repoName + "/activity"},
@@ -123,18 +167,16 @@ func repoAboutResources(owner, repoName, ref string, row reposdb.Repo, entries [
 	return resources
 }
 
-func repoReadmeTabs(resources []repoAboutResource) []repoReadmeTab {
+func repoReadmeTabs(resources []repoAboutResource, activeTab string) []repoReadmeTab {
 	tabs := make([]repoReadmeTab, 0, len(resources))
 	for _, resource := range resources {
-		if resource.Href == "" {
+		if resource.Href == "" || resource.Path == "" || resource.OverviewTab == "" {
 			continue
 		}
 		label := resource.Label
-		active := false
 		switch lower := strings.ToLower(resource.Label); {
 		case lower == "readme":
 			label = "README"
-			active = true
 		case lower == "code of conduct", lower == "contributing", strings.Contains(lower, "license"):
 		case strings.HasPrefix(lower, "security"):
 			label = "Security"
@@ -145,10 +187,42 @@ func repoReadmeTabs(resources []repoAboutResource) []repoReadmeTab {
 			Icon:   resource.Icon,
 			Label:  label,
 			Href:   resource.Href,
-			Active: active,
+			Active: resource.OverviewTab == activeTab,
 		})
 	}
 	return tabs
+}
+
+func activeRepoOverviewResource(resources []repoAboutResource, requestedTab string) (repoAboutResource, bool) {
+	docs := make([]repoAboutResource, 0, len(resources))
+	for _, resource := range resources {
+		if resource.Path == "" || resource.OverviewTab == "" {
+			continue
+		}
+		docs = append(docs, resource)
+		if requestedTab != "" && resource.OverviewTab == requestedTab {
+			return resource, true
+		}
+	}
+	if len(docs) == 0 {
+		return repoAboutResource{}, false
+	}
+	for _, resource := range docs {
+		if resource.OverviewTab == repoOverviewReadmeTab {
+			return resource, true
+		}
+	}
+	return docs[0], true
+}
+
+func repoOverviewDocumentLabel(resource repoAboutResource) string {
+	if strings.EqualFold(resource.Label, "Readme") {
+		return "README"
+	}
+	if strings.HasPrefix(strings.ToLower(resource.Label), "security") {
+		return "Security"
+	}
+	return resource.Label
 }
 
 func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string) []repoAboutContributor {

@@ -178,9 +178,14 @@ The Code tab surfaces GitHub-style write affordances for users with
 - The tree header has an **Add file** dropdown with create and upload
   actions.
 - Text blob headers show edit and delete icon buttons.
-- The rendered README header shows an edit icon when the README was
-  found in the current directory. SECURITY and CONTRIBUTING documents
-  use the same blob-header controls when opened from the document tabs.
+- The root tree renders GitHub-style overview document tabs for README,
+  license, code of conduct, contributing, and security files. Selecting
+  a tab updates `?tab=<document>-ov-file` and swaps that document into
+  the same bordered card instead of leaving the repository overview.
+- The rendered overview document header shows an edit icon for the
+  active file when it was found in the current ref and the viewer can
+  write to that branch. Subdirectory READMEs keep the simpler local
+  README-only behavior.
 
 Direct web commits are intentionally limited to `refs/heads/<branch>`.
 Tags and detached 40-hex commit views render read-only controls and

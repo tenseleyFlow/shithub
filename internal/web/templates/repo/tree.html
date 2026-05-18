@@ -177,7 +177,7 @@
         </div>
       </section>
       {{ if .README }}
-      <section class="shithub-readme markdown-body" id="readme" aria-label="README">
+      <section class="shithub-readme markdown-body" id="readme" aria-label="{{ .READMELabel }}">
         <div class="shithub-readme-head">
           {{ if .ReadmeTabs }}
           <nav class="shithub-readme-tabs" aria-label="Repository documents">
@@ -193,13 +193,13 @@
           {{ end }}
           <div class="shithub-readme-head-actions">
             {{ if and .CanWrite .READMEPath }}
-            <a class="shithub-button shithub-button-icon" href="/{{ .Owner }}/{{ .Repo.Name }}/edit/{{ .Ref }}/{{ .READMEPath }}" title="Edit README" aria-label="Edit README">{{ octicon "pencil" }}</a>
+            <a class="shithub-button shithub-button-icon" href="/{{ .Owner }}/{{ .Repo.Name }}/edit/{{ .Ref }}/{{ .READMEPath }}" title="Edit {{ .READMELabel }}" aria-label="Edit {{ .READMELabel }}">{{ octicon "pencil" }}</a>
             {{ end }}
             <details class="shithub-readme-outline" data-readme-outline hidden>
               <summary aria-label="Outline" title="Outline">
                 {{ octicon "list-unordered" }}
               </summary>
-              <div class="shithub-readme-outline-panel" role="dialog" aria-label="README outline">
+              <div class="shithub-readme-outline-panel" role="dialog" aria-label="{{ .READMELabel }} outline">
                 <label class="shithub-readme-outline-filter">
                   <span class="sr-only">Filter headings</span>
                   <input type="search" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off" data-readme-outline-filter>

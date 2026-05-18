@@ -209,8 +209,6 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
-	// README detection on the requested directory only.
-	readme := h.findAndRenderREADME(r, cc, entries)
 	canWrite := h.canWriteRepo(r, cc.row) && cc.isBranchRef()
 	head, headFound, headErr := repogit.CommitAt(r.Context(), cc.gitDir, cc.ref)
 	if headErr != nil {
@@ -238,6 +236,21 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		}
 	}
 	about := h.repoAbout(r.Context(), cc.gitDir, cc.ref, cc.owner, cc.row, aboutEntries)
+	// Subdirectories keep GitHub's plain local README behavior. The root tree
+	// gets GitHub-style overview document tabs that swap README, license,
+	// contributing, security, and conduct files in the same card.
+	readme := h.findAndRenderREADME(r, cc, entries)
+	overviewLabel := "README"
+	readmeTabs := []repoReadmeTab(nil)
+	if cc.subpath == "" {
+		if activeDoc, ok := activeRepoOverviewResource(about.Resources, r.URL.Query().Get("tab")); ok {
+			overviewLabel = repoOverviewDocumentLabel(activeDoc)
+			readmeTabs = repoReadmeTabs(about.Resources, activeDoc.OverviewTab)
+			if rendered := h.renderRepoOverviewDocument(r, cc, activeDoc.Path); rendered.HTML != "" {
+				readme = rendered
+			}
+		}
+	}
 
 	h.d.Render.RenderPage(w, r, "repo/tree", map[string]any{
 		"Title":         cc.row.Name + " · " + cc.owner,
@@ -260,12 +273,13 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"CommitCount":   commitCount,
 		"README":        template.HTML(readme.HTML), //nolint:gosec // sanitized by mdrender
 		"READMEPath":    readme.Path,
+		"READMELabel":   overviewLabel,
 		"HTTPSCloneURL": h.cloneHTTPS(cc.owner, cc.row.Name),
 		"SSHEnabled":    h.d.CloneURLs.SSHEnabled,
 		"SSHCloneURL":   h.cloneSSH(cc.owner, cc.row.Name),
 		"RepoTopics":    topics,
 		"RepoAbout":     about,
-		"ReadmeTabs":    repoReadmeTabs(about.Resources),
+		"ReadmeTabs":    readmeTabs,
 		"RepoActions":   h.repoActions(r, cc.row.ID),
 		"RepoCounts":    h.subnavCounts(r.Context(), cc.row.ID, cc.row.ForkCount),
 		"CanWrite":      canWrite,
@@ -302,7 +316,6 @@ type readmeRender struct {
 // `<pre>`-wrapped escaped string for non-markdown text. Empty when
 // no README is present.
 func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries []repogit.TreeEntry) readmeRender {
-	const maxREADMEBytes = 1 * 1024 * 1024 // 1 MiB cap
 	for _, e := range entries {
 		if e.Kind != repogit.EntryBlob {
 			continue
@@ -312,27 +325,38 @@ func (h *Handlers) findAndRenderREADME(r *http.Request, cc *codeContext, entries
 			continue
 		}
 		full := joinPath(cc.subpath, e.Name)
-		body, err := repogit.ReadBlobBytes(r.Context(), cc.gitDir, cc.ref, full, maxREADMEBytes)
-		if err != nil && !errors.Is(err, repogit.ErrBlobTooLarge) {
-			return readmeRender{}
-		}
-		// Markdown: render via Goldmark + sanitizer.
-		if hasExt(lower, []string{".md", ".markdown"}) {
-			out, mderr := mdrender.RenderDocumentHTML(body)
-			if mderr == nil {
-				return readmeRender{Path: full, HTML: rewriteMarkdownRelativeURLs(
-					out,
-					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, cc.subpath),
-					codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, ""),
-					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, cc.subpath),
-					codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, ""),
-				)}
-			}
-		}
-		// Non-markdown plain text: escape + <pre>.
-		return readmeRender{Path: full, HTML: "<pre class=\"shithub-readme-plain\">" + template.HTMLEscapeString(string(body)) + "</pre>"}
+		return h.renderRepoOverviewDocument(r, cc, full)
 	}
 	return readmeRender{}
+}
+
+func (h *Handlers) renderRepoOverviewDocument(r *http.Request, cc *codeContext, fullPath string) readmeRender {
+	const maxOverviewDocumentBytes = 1 * 1024 * 1024 // 1 MiB cap
+
+	body, err := repogit.ReadBlobBytes(r.Context(), cc.gitDir, cc.ref, fullPath, maxOverviewDocumentBytes)
+	if err != nil && !errors.Is(err, repogit.ErrBlobTooLarge) {
+		return readmeRender{}
+	}
+	baseSubpath := path.Dir(fullPath)
+	if baseSubpath == "." {
+		baseSubpath = ""
+	}
+	lower := strings.ToLower(fullPath)
+	// Markdown: render via Goldmark + sanitizer.
+	if hasExt(lower, []string{".md", ".markdown"}) {
+		out, mderr := mdrender.RenderDocumentHTML(body)
+		if mderr == nil {
+			return readmeRender{Path: fullPath, HTML: rewriteMarkdownRelativeURLs(
+				out,
+				codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, baseSubpath),
+				codeRouteBase(cc.owner, cc.row.Name, "blob", cc.ref, ""),
+				codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, baseSubpath),
+				codeRouteBase(cc.owner, cc.row.Name, "raw", cc.ref, ""),
+			)}
+		}
+	}
+	// Non-markdown plain text: escape + <pre>.
+	return readmeRender{Path: fullPath, HTML: "<pre class=\"shithub-readme-plain\">" + template.HTMLEscapeString(string(body)) + "</pre>"}
 }
 
 func hasExt(filename string, exts []string) bool {

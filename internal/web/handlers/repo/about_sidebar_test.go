@@ -44,7 +44,10 @@ func TestRepoAboutResources_GitHubResourceOrder(t *testing.T) {
 			t.Fatalf("labels = %#v, want %#v", labels, want)
 		}
 	}
-	if got[1].Href != "/tenseleyFlow/shithub/blob/trunk/LICENSE" {
+	if got[0].Href != "/tenseleyFlow/shithub?tab=readme-ov-file" || got[0].Path != "README.md" || got[0].OverviewTab != repoOverviewReadmeTab {
+		t.Fatalf("readme resource = %#v", got[0])
+	}
+	if got[1].Href != "/tenseleyFlow/shithub?tab=license-ov-file" || got[1].Path != "LICENSE" || got[1].OverviewTab != repoOverviewLicenseTab {
 		t.Fatalf("license href = %q", got[1].Href)
 	}
 }
@@ -52,15 +55,15 @@ func TestRepoAboutResources_GitHubResourceOrder(t *testing.T) {
 func TestRepoReadmeTabs_FiltersDocumentTabs(t *testing.T) {
 	t.Parallel()
 	resources := []repoAboutResource{
-		{Icon: "book", Label: "Readme", Href: "#readme"},
-		{Icon: "law", Label: "AGPL-3.0 license", Href: "/LICENSE"},
-		{Icon: "people", Label: "Code of conduct", Href: "/CODE_OF_CONDUCT.md"},
-		{Icon: "people", Label: "Contributing", Href: "/CONTRIBUTING.md"},
-		{Icon: "law", Label: "Security policy", Href: "/SECURITY.md"},
+		{Icon: "book", Label: "Readme", Href: "/demo?tab=readme-ov-file", Path: "README.md", OverviewTab: repoOverviewReadmeTab},
+		{Icon: "law", Label: "AGPL-3.0 license", Href: "/demo?tab=license-ov-file", Path: "LICENSE", OverviewTab: repoOverviewLicenseTab},
+		{Icon: "heart", Label: "Code of conduct", Href: "/demo?tab=coc-ov-file", Path: "CODE_OF_CONDUCT.md", OverviewTab: repoOverviewCodeOfConductTab},
+		{Icon: "people", Label: "Contributing", Href: "/demo?tab=contributing-ov-file", Path: "CONTRIBUTING.md", OverviewTab: repoOverviewContributingTab},
+		{Icon: "law", Label: "Security policy", Href: "/demo?tab=security-ov-file", Path: "SECURITY.md", OverviewTab: repoOverviewSecurityTab},
 		{Icon: "pulse", Label: "Activity", Href: "/activity"},
 		{Icon: "note", Label: "Custom properties", Href: "/settings/custom-properties"},
 	}
-	got := repoReadmeTabs(resources)
+	got := repoReadmeTabs(resources, repoOverviewContributingTab)
 	want := []string{"README", "AGPL-3.0 license", "Code of conduct", "Contributing", "Security"}
 	if len(got) != len(want) {
 		t.Fatalf("tabs = %#v, want labels %#v", got, want)
@@ -70,8 +73,27 @@ func TestRepoReadmeTabs_FiltersDocumentTabs(t *testing.T) {
 			t.Fatalf("tabs = %#v, want labels %#v", got, want)
 		}
 	}
-	if !got[0].Active {
-		t.Fatalf("README tab should be active: %#v", got[0])
+	if got[3].Href != "/demo?tab=contributing-ov-file" || !got[3].Active {
+		t.Fatalf("Contributing tab should be active and link to overview query: %#v", got[3])
+	}
+	if got[0].Active {
+		t.Fatalf("README tab should not be active: %#v", got[0])
+	}
+}
+
+func TestActiveRepoOverviewResource_DefaultsToReadme(t *testing.T) {
+	t.Parallel()
+	resources := []repoAboutResource{
+		{Icon: "people", Label: "Contributing", Href: "/demo?tab=contributing-ov-file", Path: "CONTRIBUTING.md", OverviewTab: repoOverviewContributingTab},
+		{Icon: "book", Label: "Readme", Href: "/demo?tab=readme-ov-file", Path: "README.md", OverviewTab: repoOverviewReadmeTab},
+	}
+	got, ok := activeRepoOverviewResource(resources, "")
+	if !ok || got.Path != "README.md" {
+		t.Fatalf("default active resource = %#v, %v", got, ok)
+	}
+	got, ok = activeRepoOverviewResource(resources, repoOverviewContributingTab)
+	if !ok || got.Path != "CONTRIBUTING.md" {
+		t.Fatalf("requested active resource = %#v, %v", got, ok)
 	}
 }
 
