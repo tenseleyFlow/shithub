@@ -717,6 +717,228 @@ func TestRunnerHeartbeatDoesNotClaimApprovalPendingRun(t *testing.T) {
 	}
 }
 
+func TestRunnerHeartbeatHonorsEnvironmentSelectedBranchPolicy(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	q := actionsdb.New()
+	env, err := q.UpsertRepoEnvironment(ctx, pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: false,
+		PreventSelfReview:        false,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicySelected,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	if _, err := q.InsertRepoEnvironmentDeploymentBranch(ctx, pool, actionsdb.InsertRepoEnvironmentDeploymentBranchParams{
+		EnvironmentID: env.ID,
+		Pattern:       "release/*",
+	}); err != nil {
+		t.Fatalf("InsertRepoEnvironmentDeploymentBranch: %v", err)
+	}
+	runID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: ./deploy
+`, "refs/heads/feature/demo", "runner-api-test:env-selected")
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("blocked heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("selected-policy blocked job should remain queued: %+v", jobs)
+	}
+
+	if _, err := q.InsertRepoEnvironmentDeploymentBranch(ctx, pool, actionsdb.InsertRepoEnvironmentDeploymentBranchParams{
+		EnvironmentID: env.ID,
+		Pattern:       "feature/*",
+	}); err != nil {
+		t.Fatalf("InsertRepoEnvironmentDeploymentBranch feature: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("allowed heartbeat status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var claim runnerHeartbeatClaim
+	if err := json.Unmarshal(rr.Body.Bytes(), &claim); err != nil {
+		t.Fatalf("decode claim: %v", err)
+	}
+	if claim.Job.RunID != runID {
+		t.Fatalf("claimed wrong run: %+v", claim)
+	}
+}
+
+func TestRunnerHeartbeatHonorsEnvironmentProtectedBranchPolicy(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	q := actionsdb.New()
+	if _, err := q.UpsertRepoEnvironment(ctx, pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: false,
+		PreventSelfReview:        false,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyProtected,
+	}); err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	if _, err := reposdb.New().UpsertBranchProtectionRule(ctx, pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               repoID,
+		Pattern:              "trunk",
+		Target:               "branch",
+		PreventForcePush:     true,
+		PreventDeletion:      true,
+		RequirePrForPush:     false,
+		RequireSignedCommits: false,
+		AllowedPusherUserIds: []int64{},
+		CreatedByUserID:      pgtype.Int8{Int64: userID, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpsertBranchProtectionRule: %v", err)
+	}
+	blockedRunID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: ./deploy
+`, "refs/heads/feature/demo", "runner-api-test:env-protected-blocked")
+	allowedRunID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: ./deploy
+`, "refs/heads/trunk", "runner-api-test:env-protected-allowed")
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	claim := claimRunnerHeartbeat(t, router, token, 1)
+	if claim.Job.RunID != allowedRunID {
+		t.Fatalf("protected environment should claim protected branch run %d, got %+v", allowedRunID, claim)
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, blockedRunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun blocked: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("unprotected branch job should remain queued: %+v", jobs)
+	}
+}
+
+func TestRunnerHeartbeatHonorsEnvironmentWaitTimerAndReviewerGate(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	q := actionsdb.New()
+	if _, err := q.UpsertRepoEnvironment(ctx, pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: false,
+		PreventSelfReview:        false,
+		WaitTimerMinutes:         10,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	}); err != nil {
+		t.Fatalf("UpsertRepoEnvironment wait: %v", err)
+	}
+	waitRunID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: ./deploy
+`, "refs/heads/trunk", "runner-api-test:env-wait")
+
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("wait-timer heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE workflow_jobs
+SET created_at = now() - interval '11 minutes', updated_at = now() - interval '11 minutes'
+WHERE run_id = $1
+`, waitRunID); err != nil {
+		t.Fatalf("age workflow job: %v", err)
+	}
+	claim := claimRunnerHeartbeat(t, router, token, 1)
+	if claim.Job.RunID != waitRunID {
+		t.Fatalf("wait timer should release run %d, got %+v", waitRunID, claim)
+	}
+
+	if _, err := q.UpsertRepoEnvironment(ctx, pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   repoID,
+		Name:                     "reviewed",
+		RequiredReviewersEnabled: true,
+		PreventSelfReview:        true,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	}); err != nil {
+		t.Fatalf("UpsertRepoEnvironment reviewer: %v", err)
+	}
+	reviewerRunID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: reviewed
+    steps:
+      - run: ./deploy
+`, "refs/heads/trunk", "runner-api-test:env-reviewer")
+	token2, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/runners/heartbeat",
+		strings.NewReader(`{"labels":["ubuntu-latest","linux"],"capacity":1}`))
+	req.Header.Set("Authorization", "Bearer "+token2)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("reviewer-gated heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, reviewerRunID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun reviewer: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("reviewer-gated job should remain queued: %+v", jobs)
+	}
+}
+
 func TestRunnerDoesNotInjectSecretsIntoPullRequestRuns(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
@@ -1454,7 +1676,7 @@ func enqueueRunnerAPIEventRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Log
 
 func enqueueRunnerAPIEventRunWithTriggerID(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, event trigger.EventKind, payload map[string]any, triggerID string) int64 {
 	t.Helper()
-	wf, diags, err := workflow.Parse([]byte(`name: ci
+	return enqueueRunnerAPIWorkflowEventRun(t, pool, logger, repoID, userID, `name: ci
 on: push
 jobs:
   build:
@@ -1462,7 +1684,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: go test ./...
-`))
+`, "refs/heads/trunk", triggerID, event, payload)
+}
+
+func enqueueRunnerAPIWorkflowRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, src, headRef, triggerID string) int64 {
+	t.Helper()
+	return enqueueRunnerAPIWorkflowEventRun(t, pool, logger, repoID, userID, src, headRef, triggerID, trigger.EventPush, map[string]any{"ref": headRef})
+}
+
+func enqueueRunnerAPIWorkflowEventRun(t *testing.T, pool *pgxpool.Pool, logger *slog.Logger, repoID, userID int64, src, headRef, triggerID string, event trigger.EventKind, payload map[string]any) int64 {
+	t.Helper()
+	wf, diags, err := workflow.Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("workflow.Parse: %v", err)
 	}
@@ -1475,7 +1707,7 @@ jobs:
 		RepoID:         repoID,
 		WorkflowFile:   ".shithub/workflows/ci.yml",
 		HeadSHA:        strings.Repeat("a", 40),
-		HeadRef:        "refs/heads/trunk",
+		HeadRef:        headRef,
 		EventKind:      event,
 		EventPayload:   payload,
 		ActorUserID:    userID,

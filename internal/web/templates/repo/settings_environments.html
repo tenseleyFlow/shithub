@@ -1,0 +1,130 @@
+{{ define "page" -}}
+<div class="shithub-settings-page">
+  {{ template "repo-settings-nav" . }}
+  <div class="shithub-settings-content">
+    <h1>Environments</h1>
+    {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Create environment</h2>
+      <form method="POST" action="{{ .CreateAction }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" maxlength="255" autocomplete="off" required>
+        </label>
+        <label>
+          <span>Deployment branches and tags</span>
+          <select name="deployment_branch_policy">
+            <option value="all">All branches and tags</option>
+            <option value="protected">Protected branches and tags only</option>
+            <option value="selected">Selected branches and tags</option>
+          </select>
+        </label>
+        <label>
+          <span>Selected patterns</span>
+          <textarea name="branch_patterns" rows="3" placeholder="trunk&#10;release/*"></textarea>
+        </label>
+        <label>
+          <span>Wait timer</span>
+          <input type="number" name="wait_timer_minutes" min="0" max="43200" step="1" value="0">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Create environment</button>
+      </form>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Repository environments</h2>
+      {{ if .Environments }}
+        <table class="shithub-branches-table">
+          <thead><tr><th>Name</th><th>Deployment branches</th><th>Wait timer</th><th>Secrets</th></tr></thead>
+          <tbody>
+            {{ range .Environments }}
+            <tr>
+              <td><a href="{{ .Href }}"><strong>{{ .Name }}</strong></a></td>
+              <td>{{ .DeploymentBranchPolicy }}{{ if .BranchPatterns }} · {{ len .BranchPatterns }} pattern{{ if ne (len .BranchPatterns) 1 }}s{{ end }}{{ end }}</td>
+              <td>{{ .WaitTimerMinutes }} minutes</td>
+              <td>{{ .SecretCount }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      {{ else }}
+        <p>No environments have been configured.</p>
+      {{ end }}
+    </section>
+
+    {{ with .Selected }}
+      <section class="shithub-settings-section">
+        <h2>{{ .Name }}</h2>
+        <form method="POST" action="{{ .Href }}" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <label>
+            <span>Deployment branches and tags</span>
+            <select name="deployment_branch_policy">
+              <option value="all"{{ if eq .DeploymentBranchPolicy "all" }} selected{{ end }}>All branches and tags</option>
+              <option value="protected"{{ if eq .DeploymentBranchPolicy "protected" }} selected{{ end }}>Protected branches and tags only</option>
+              <option value="selected"{{ if eq .DeploymentBranchPolicy "selected" }} selected{{ end }}>Selected branches and tags</option>
+            </select>
+          </label>
+          <label>
+            <span>Selected patterns</span>
+            <textarea name="branch_patterns" rows="4">{{ range .BranchPatterns }}{{ . }}
+{{ end }}</textarea>
+          </label>
+          <label>
+            <span>Wait timer</span>
+            <input type="number" name="wait_timer_minutes" min="0" max="43200" step="1" value="{{ .WaitTimerMinutes }}">
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Save environment</button>
+        </form>
+        <form method="POST" action="{{ .Href }}/delete" style="margin-top: 12px">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-danger">Delete environment</button>
+        </form>
+      </section>
+
+      <section class="shithub-settings-section">
+        <h2>Environment secrets</h2>
+        {{ if $.SecretDisabled }}
+          <p>Actions secret writes require the at-rest secret key. Set Auth.TOTPKeyB64 in config and restart.</p>
+        {{ else }}
+          <form method="POST" action="{{ .Href }}/secrets" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" maxlength="100" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off" required>
+            </label>
+            <label>
+              <span>Secret</span>
+              <input type="password" name="value" autocomplete="off" required>
+            </label>
+            <button type="submit" class="shithub-button shithub-button-primary">Save secret</button>
+          </form>
+        {{ end }}
+        {{ if .Secrets }}
+          <table class="shithub-branches-table" style="margin-top: 16px">
+            <thead><tr><th>Name</th><th></th></tr></thead>
+            <tbody>
+              {{ range .Secrets }}
+              <tr>
+                <td><code>{{ .Name }}</code></td>
+                <td>
+                  <form method="POST" action="{{ $.Selected.Href }}/secrets/{{ .Name }}/delete" style="display:inline">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+        {{ else }}
+          <p>No environment secrets have been added.</p>
+        {{ end }}
+      </section>
+    {{ end }}
+  </div>
+</div>
+{{- end }}

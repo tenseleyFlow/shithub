@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/secrets"
+	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -137,8 +138,9 @@ func TestSet_InvalidScopeRejected(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	for _, sc := range []secrets.Scope{
-		{},                    // both zero
-		{RepoID: 1, OrgID: 2}, // both set
+		{},                                   // all zero
+		{RepoID: 1, OrgID: 2},                // multiple set
+		{RepoID: 1, EnvironmentID: int64(2)}, // multiple set
 	} {
 		if err := f.deps.Set(ctx, sc, "K", []byte("v"), 0); !errors.Is(err, secrets.ErrInvalidScope) {
 			t.Errorf("Set scope=%+v: expected ErrInvalidScope, got %v", sc, err)
@@ -214,6 +216,40 @@ func TestGet_CitextNameIsCaseInsensitive(t *testing.T) {
 	}
 	if string(plain) != "v" {
 		t.Errorf("got %q want v", string(plain))
+	}
+}
+
+func TestEnvironmentScope_RoundTrips(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	env, err := actionsdb.New().UpsertRepoEnvironment(ctx, f.deps.Pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   f.repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: false,
+		PreventSelfReview:        false,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	scope := secrets.EnvironmentScope(env.ID)
+	if err := f.deps.Set(ctx, scope, "DEPLOY_TOKEN", []byte("env-secret"), f.userID); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	plain, err := f.deps.Get(ctx, scope, "deploy_token")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(plain) != "env-secret" {
+		t.Fatalf("environment secret = %q, want env-secret", plain)
+	}
+	metas, err := f.deps.List(ctx, scope)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(metas) != 1 || metas[0].Name != "DEPLOY_TOKEN" {
+		t.Fatalf("List = %+v, want DEPLOY_TOKEN", metas)
 	}
 }
 

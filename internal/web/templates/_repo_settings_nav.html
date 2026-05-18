@@ -24,6 +24,9 @@
       <li{{ if eq .SettingsActive "actions" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/actions">Actions</a>
       </li>
+      <li{{ if eq .SettingsActive "actions-environments" }} class="active"{{ end }}>
+        <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/environments">Environments</a>
+      </li>
       <li{{ if eq .SettingsActive "actions-secrets" }} class="active"{{ end }}>
         <a href="/{{ .Owner }}/{{ .Repo.Name }}/settings/secrets/actions">Actions secrets</a>
       </li>

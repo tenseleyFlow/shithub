@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteEnvironmentSecret = `-- name: DeleteEnvironmentSecret :exec
+DELETE FROM workflow_secrets WHERE environment_id = $1 AND name = $2
+`
+
+type DeleteEnvironmentSecretParams struct {
+	EnvironmentID pgtype.Int8
+	Name          string
+}
+
+func (q *Queries) DeleteEnvironmentSecret(ctx context.Context, db DBTX, arg DeleteEnvironmentSecretParams) error {
+	_, err := db.Exec(ctx, deleteEnvironmentSecret, arg.EnvironmentID, arg.Name)
+	return err
+}
+
 const deleteOrgSecret = `-- name: DeleteOrgSecret :exec
 DELETE FROM workflow_secrets WHERE org_id = $1 AND name = $2
 `
@@ -51,6 +65,36 @@ type DeleteUserSecretParams struct {
 func (q *Queries) DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) error {
 	_, err := db.Exec(ctx, deleteUserSecret, arg.UserID, arg.Name)
 	return err
+}
+
+const getEnvironmentSecret = `-- name: GetEnvironmentSecret :one
+SELECT id, name, ciphertext, nonce
+FROM workflow_secrets
+WHERE environment_id = $1 AND name = $2
+`
+
+type GetEnvironmentSecretParams struct {
+	EnvironmentID pgtype.Int8
+	Name          string
+}
+
+type GetEnvironmentSecretRow struct {
+	ID         int64
+	Name       string
+	Ciphertext []byte
+	Nonce      []byte
+}
+
+func (q *Queries) GetEnvironmentSecret(ctx context.Context, db DBTX, arg GetEnvironmentSecretParams) (GetEnvironmentSecretRow, error) {
+	row := db.QueryRow(ctx, getEnvironmentSecret, arg.EnvironmentID, arg.Name)
+	var i GetEnvironmentSecretRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Ciphertext,
+		&i.Nonce,
+	)
+	return i, err
 }
 
 const getOrgSecret = `-- name: GetOrgSecret :one
@@ -173,6 +217,92 @@ func (q *Queries) GetUserSecretMeta(ctx context.Context, db DBTX, arg GetUserSec
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listEnvironmentSecrets = `-- name: ListEnvironmentSecrets :many
+SELECT id, name, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE environment_id = $1
+ORDER BY name ASC
+`
+
+type ListEnvironmentSecretsRow struct {
+	ID              int64
+	Name            string
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListEnvironmentSecrets(ctx context.Context, db DBTX, environmentID pgtype.Int8) ([]ListEnvironmentSecretsRow, error) {
+	rows, err := db.Query(ctx, listEnvironmentSecrets, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEnvironmentSecretsRow{}
+	for rows.Next() {
+		var i ListEnvironmentSecretsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnvironmentSecretsWithCiphertext = `-- name: ListEnvironmentSecretsWithCiphertext :many
+SELECT id, name, ciphertext, nonce, created_by_user_id, created_at, updated_at
+FROM workflow_secrets
+WHERE environment_id = $1
+ORDER BY name ASC
+`
+
+type ListEnvironmentSecretsWithCiphertextRow struct {
+	ID              int64
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListEnvironmentSecretsWithCiphertext(ctx context.Context, db DBTX, environmentID pgtype.Int8) ([]ListEnvironmentSecretsWithCiphertextRow, error) {
+	rows, err := db.Query(ctx, listEnvironmentSecretsWithCiphertext, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEnvironmentSecretsWithCiphertextRow{}
+	for rows.Next() {
+		var i ListEnvironmentSecretsWithCiphertextRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOrgSecrets = `-- name: ListOrgSecrets :many
@@ -442,6 +572,64 @@ func (q *Queries) ListUserSecretsWithCiphertext(ctx context.Context, db DBTX, us
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertEnvironmentSecret = `-- name: UpsertEnvironmentSecret :one
+
+INSERT INTO workflow_secrets (environment_id, name, ciphertext, nonce, created_by_user_id)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (environment_id, name) WHERE environment_id IS NOT NULL DO UPDATE
+SET ciphertext = EXCLUDED.ciphertext,
+    nonce      = EXCLUDED.nonce,
+    updated_at = now()
+RETURNING id, repo_id, org_id, name, ciphertext, nonce,
+          created_by_user_id, created_at, updated_at
+`
+
+type UpsertEnvironmentSecretParams struct {
+	EnvironmentID   pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+}
+
+type UpsertEnvironmentSecretRow struct {
+	ID              int64
+	RepoID          pgtype.Int8
+	OrgID           pgtype.Int8
+	Name            string
+	Ciphertext      []byte
+	Nonce           []byte
+	CreatedByUserID pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// SP23: environment-scoped rows are repo-environment-local. They are visible
+// only to jobs whose workflow declares the matching environment, and they
+// shadow repo/org/user scope during runner resolution.
+func (q *Queries) UpsertEnvironmentSecret(ctx context.Context, db DBTX, arg UpsertEnvironmentSecretParams) (UpsertEnvironmentSecretRow, error) {
+	row := db.QueryRow(ctx, upsertEnvironmentSecret,
+		arg.EnvironmentID,
+		arg.Name,
+		arg.Ciphertext,
+		arg.Nonce,
+		arg.CreatedByUserID,
+	)
+	var i UpsertEnvironmentSecretRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.OrgID,
+		&i.Name,
+		&i.Ciphertext,
+		&i.Nonce,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertOrgSecret = `-- name: UpsertOrgSecret :one

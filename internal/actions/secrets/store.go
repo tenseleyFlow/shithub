@@ -4,17 +4,21 @@
 // table holds AEAD-encrypted blobs (ChaCha20Poly1305 via
 // internal/auth/secretbox); plaintext never lives in postgres.
 //
-// Two scopes share the table:
+// Four scopes share the table:
 //
 //   - **Repo secrets**: visible only to workflows running in that repo.
 //   - **Org secrets**: visible to workflows running in any of the org's
 //     repos. Repo-scoped secrets shadow org secrets with the same name
 //     (resolution order is repo → org).
+//   - **User secrets**: visible to workflows running in repos owned by
+//     that user.
+//   - **Environment secrets**: visible only to jobs that declare the
+//     matching repo environment; environment-scoped secrets shadow the
+//     broader scopes.
 //
 // The XOR is enforced by a CHECK on the table; the typed Scope here
-// is the in-Go mirror — exactly one of RepoID / OrgID is set. Callers
-// always go through Scope helpers (RepoScope, OrgScope) so the
-// XOR isn't a struct-literal trap.
+// is the in-Go mirror. Callers should go through Scope helpers so the
+// four-way XOR is not a struct-literal trap.
 package secrets
 
 import (
@@ -40,13 +44,14 @@ type Deps struct {
 }
 
 // Scope identifies which `workflow_secrets` row family a call targets.
-// Construct via RepoScope, OrgScope, or UserScope; RepoID, OrgID, and
-// UserID are mutually exclusive (the table CHECK constraint enforces
-// this server-side).
+// Construct via RepoScope, OrgScope, UserScope, or EnvironmentScope;
+// RepoID, OrgID, UserID, and EnvironmentID are mutually exclusive (the
+// table CHECK constraint enforces this server-side).
 type Scope struct {
-	RepoID int64
-	OrgID  int64
-	UserID int64 // PRO-EXT01-12
+	RepoID        int64
+	OrgID         int64
+	UserID        int64 // PRO-EXT01-12
+	EnvironmentID int64 // SP23
 }
 
 // RepoScope returns a repo-scoped Scope. Repo secrets are visible only
@@ -61,14 +66,29 @@ func OrgScope(id int64) Scope { return Scope{OrgID: id} }
 // workflows running in any repo owned by that user (PRO-EXT01-12).
 func UserScope(id int64) Scope { return Scope{UserID: id} }
 
-// IsRepo reports whether the scope addresses a repo. Mutex with IsOrg + IsUser.
-func (s Scope) IsRepo() bool { return s.RepoID != 0 && s.OrgID == 0 && s.UserID == 0 }
+// EnvironmentScope returns an environment-scoped Scope. Environment
+// secrets are visible only to jobs that target the matching repo environment.
+func EnvironmentScope(id int64) Scope { return Scope{EnvironmentID: id} }
 
-// IsOrg reports whether the scope addresses an org. Mutex with IsRepo + IsUser.
-func (s Scope) IsOrg() bool { return s.OrgID != 0 && s.RepoID == 0 && s.UserID == 0 }
+// IsRepo reports whether the scope addresses a repo. Mutex with all other scopes.
+func (s Scope) IsRepo() bool {
+	return s.RepoID != 0 && s.OrgID == 0 && s.UserID == 0 && s.EnvironmentID == 0
+}
 
-// IsUser reports whether the scope addresses a user. Mutex with IsRepo + IsOrg.
-func (s Scope) IsUser() bool { return s.UserID != 0 && s.RepoID == 0 && s.OrgID == 0 }
+// IsOrg reports whether the scope addresses an org. Mutex with all other scopes.
+func (s Scope) IsOrg() bool {
+	return s.OrgID != 0 && s.RepoID == 0 && s.UserID == 0 && s.EnvironmentID == 0
+}
+
+// IsUser reports whether the scope addresses a user. Mutex with all other scopes.
+func (s Scope) IsUser() bool {
+	return s.UserID != 0 && s.RepoID == 0 && s.OrgID == 0 && s.EnvironmentID == 0
+}
+
+// IsEnvironment reports whether the scope addresses a repo environment. Mutex with all other scopes.
+func (s Scope) IsEnvironment() bool {
+	return s.EnvironmentID != 0 && s.RepoID == 0 && s.OrgID == 0 && s.UserID == 0
+}
 
 // Meta is the public listing shape — no plaintext, no ciphertext.
 // The web UI + runner claim path consume Meta when listing names;
@@ -84,8 +104,8 @@ type Meta struct {
 // Errors surfaced by the store. Callers (web handlers, runner API)
 // map these to HTTP status codes.
 var (
-	// ErrInvalidScope: zero-or-both Scope fields. Programmer error.
-	ErrInvalidScope = errors.New("secrets: scope must address exactly one of RepoID or OrgID")
+	// ErrInvalidScope: zero-or-multiple Scope fields. Programmer error.
+	ErrInvalidScope = errors.New("secrets: scope must address exactly one of RepoID, OrgID, UserID, or EnvironmentID")
 	// ErrInvalidName: name doesn't match the regex. User-recoverable.
 	ErrInvalidName = errors.New("secrets: name must match ^[A-Za-z_][A-Za-z0-9_]*$ and be 1..100 chars")
 	// ErrEmptyValue: no zero-length secrets — operators almost
@@ -116,7 +136,7 @@ func validateName(name string) error {
 // with the configured Box before INSERT — the DB never sees the raw
 // value. createdBy is the user's ID for audit; 0 when system-driven.
 func (d Deps) Set(ctx context.Context, scope Scope, name string, plaintext []byte, createdBy int64) error {
-	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() && !scope.IsEnvironment() {
 		return ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -156,6 +176,14 @@ func (d Deps) Set(ctx context.Context, scope Scope, name string, plaintext []byt
 			Nonce:           nonce,
 			CreatedByUserID: creator,
 		})
+	case scope.IsEnvironment():
+		_, err = q.UpsertEnvironmentSecret(ctx, d.Pool, actionsdb.UpsertEnvironmentSecretParams{
+			EnvironmentID:   pgtype.Int8{Int64: scope.EnvironmentID, Valid: true},
+			Name:            name,
+			Ciphertext:      ciphertext,
+			Nonce:           nonce,
+			CreatedByUserID: creator,
+		})
 	}
 	if err != nil {
 		return fmt.Errorf("secrets: upsert: %w", err)
@@ -169,7 +197,7 @@ func (d Deps) Set(ctx context.Context, scope Scope, name string, plaintext []byt
 // scope. **Never** call this from a web handler — the UI lists names
 // only.
 func (d Deps) Get(ctx context.Context, scope Scope, name string) ([]byte, error) {
-	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() && !scope.IsEnvironment() {
 		return nil, ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -200,6 +228,13 @@ func (d Deps) Get(ctx context.Context, scope Scope, name string) ([]byte, error)
 		})
 		err = qerr
 		ct, nonce = row.Ciphertext, row.Nonce
+	case scope.IsEnvironment():
+		row, qerr := q.GetEnvironmentSecret(ctx, d.Pool, actionsdb.GetEnvironmentSecretParams{
+			EnvironmentID: pgtype.Int8{Int64: scope.EnvironmentID, Valid: true},
+			Name:          name,
+		})
+		err = qerr
+		ct, nonce = row.Ciphertext, row.Nonce
 	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -218,7 +253,7 @@ func (d Deps) Get(ctx context.Context, scope Scope, name string) ([]byte, error)
 // ciphertext, no plaintext — the public listing shape only. Names are
 // sorted ascending for stable UI rendering.
 func (d Deps) List(ctx context.Context, scope Scope) ([]Meta, error) {
-	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() && !scope.IsEnvironment() {
 		return nil, ErrInvalidScope
 	}
 	q := actionsdb.New()
@@ -257,6 +292,22 @@ func (d Deps) List(ctx context.Context, scope Scope) ([]Meta, error) {
 		return out, nil
 	case scope.IsUser():
 		rows, err := q.ListUserSecrets(ctx, d.Pool, pgtype.Int8{Int64: scope.UserID, Valid: true})
+		if err != nil {
+			return nil, fmt.Errorf("secrets: list: %w", err)
+		}
+		out := make([]Meta, len(rows))
+		for i, r := range rows {
+			out[i] = Meta{
+				ID:              r.ID,
+				Name:            string(r.Name),
+				CreatedByUserID: int64ValueOrZero(r.CreatedByUserID),
+				CreatedAt:       r.CreatedAt,
+				UpdatedAt:       r.UpdatedAt,
+			}
+		}
+		return out, nil
+	case scope.IsEnvironment():
+		rows, err := q.ListEnvironmentSecrets(ctx, d.Pool, pgtype.Int8{Int64: scope.EnvironmentID, Valid: true})
 		if err != nil {
 			return nil, fmt.Errorf("secrets: list: %w", err)
 		}
@@ -313,7 +364,7 @@ func (d Deps) GetMeta(ctx context.Context, scope Scope, name string) (Meta, erro
 // Delete removes a secret. Returns ErrNotFound when the row didn't
 // exist; idempotent at the SQL layer (DELETE WHERE).
 func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
-	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() {
+	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() && !scope.IsEnvironment() {
 		return ErrInvalidScope
 	}
 	if err := validateName(name); err != nil {
@@ -335,6 +386,11 @@ func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
 		return q.DeleteUserSecret(ctx, d.Pool, actionsdb.DeleteUserSecretParams{
 			UserID: pgtype.Int8{Int64: scope.UserID, Valid: true},
 			Name:   name,
+		})
+	case scope.IsEnvironment():
+		return q.DeleteEnvironmentSecret(ctx, d.Pool, actionsdb.DeleteEnvironmentSecretParams{
+			EnvironmentID: pgtype.Int8{Int64: scope.EnvironmentID, Valid: true},
+			Name:          name,
 		})
 	}
 	return ErrInvalidScope

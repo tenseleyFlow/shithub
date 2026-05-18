@@ -157,11 +157,25 @@ type Job struct {
 	// Cannot widen.
 	Permissions Permissions
 
+	// Environment is the optional GitHub-compatible deployment
+	// environment declared by `jobs.<key>.environment`. When set, runner
+	// dispatch may layer environment-scoped secrets and later SP23
+	// protection rules before execution.
+	Environment Environment
+
 	// Env is per-job env overlay. Merged on top of workflow Env.
 	Env map[string]Value
 
 	// Steps run serially. Order is YAML document order.
 	Steps []Step
+}
+
+// Environment is a job's optional deployment environment. GitHub accepts
+// either a scalar (`environment: production`) or a mapping with `name` and
+// `url`; we keep both raw because expression resolution is runtime-owned.
+type Environment struct {
+	Name string
+	URL  Value
 }
 
 // Step is one entry under a job's `steps:`.

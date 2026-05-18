@@ -115,6 +115,86 @@ func TestSettingsActionsRepoVariableCRUDRendersValue(t *testing.T) {
 	}
 }
 
+func TestSettingsActionsEnvironmentCRUDAndSecrets(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	f.handlers.d.SecretBox = testSecretBox(t)
+	mux := f.actionsSettingsMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/alice/public-repo/settings/environments", url.Values{
+		"name":                     {"production"},
+		"deployment_branch_policy": {"selected"},
+		"wait_timer_minutes":       {"7"},
+		"branch_patterns":          {"trunk\nrelease/*"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST environment status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/alice/public-repo/settings/environments/production?notice=saved" {
+		t.Fatalf("environment redirect=%q", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/settings/environments/production", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET environment status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"ENV=production:selected:7:0;",
+		"PATTERN=trunk;",
+		"PATTERN=release/*;",
+		"SELECTED=production:selected:7;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("environment body missing %q in %s", want, body)
+		}
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost, "/alice/public-repo/settings/environments/production/secrets", url.Values{
+		"name":  {"DEPLOY_TOKEN"},
+		"value": {"hunter2"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST environment secret status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/alice/public-repo/settings/environments/production", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET environment secret status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body = resp.Body.String()
+	if !strings.Contains(body, "SECRET=DEPLOY_TOKEN;") {
+		t.Fatalf("environment secret name missing: %s", body)
+	}
+	if strings.Contains(body, "hunter2") {
+		t.Fatalf("environment secret plaintext leaked: %s", body)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost, "/alice/public-repo/settings/environments/production/delete", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("DELETE environment status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM repo_environments WHERE repo_id = $1 AND name = $2`,
+		f.publicRepo.ID, "production").Scan(&count); err != nil {
+		t.Fatalf("count environments: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("environment row count=%d, want 0", count)
+	}
+}
+
 func TestSettingsActionsPolicyCRUD(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)

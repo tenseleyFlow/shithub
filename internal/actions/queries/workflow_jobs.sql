@@ -4,20 +4,22 @@
 INSERT INTO workflow_jobs (
     run_id, job_index, job_key, job_name,
     runs_on, needs_jobs, if_expr, timeout_minutes,
-    permissions, job_env
+    permissions, job_env, environment_name, environment_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at;
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url;
 
 -- name: GetWorkflowJobByID :one
 SELECT id, run_id, job_index, job_key, job_name, runs_on,
        runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
        job_env, status, conclusion, cancel_requested,
-       started_at, completed_at, version, created_at, updated_at
+       started_at, completed_at, version, created_at, updated_at,
+       environment_name, environment_url
 FROM workflow_jobs
 WHERE id = $1;
 
@@ -33,7 +35,8 @@ WHERE id = $1
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at;
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url;
 
 -- name: RequestWorkflowJobCancel :one
 UPDATE workflow_jobs
@@ -62,7 +65,8 @@ WHERE id = $1
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at;
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url;
 
 -- name: RequestWorkflowRunCancel :many
 UPDATE workflow_jobs
@@ -91,7 +95,8 @@ WHERE run_id = $1
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at;
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url;
 
 -- name: CountRunningJobsForRunner :one
 SELECT COUNT(*)::integer
@@ -113,7 +118,8 @@ WHERE runner_id = sqlc.arg(runner_id)::bigint
 RETURNING id, run_id, job_index, job_key, job_name, runs_on,
           runner_id, needs_jobs, if_expr, timeout_minutes, permissions,
           job_env, status, conclusion, cancel_requested,
-          started_at, completed_at, version, created_at, updated_at;
+          started_at, completed_at, version, created_at, updated_at,
+          environment_name, environment_url;
 
 -- name: ClaimQueuedWorkflowJob :one
 WITH candidate AS (
@@ -124,6 +130,19 @@ WITH candidate AS (
     LEFT JOIN actions_site_policy sp ON sp.id = true
     LEFT JOIN actions_org_policies op ON op.org_id = repo.owner_org_id
     LEFT JOIN actions_repo_policies rp ON rp.repo_id = r.repo_id
+    CROSS JOIN LATERAL (
+        SELECT
+            CASE
+                WHEN r.head_ref LIKE 'refs/heads/%' THEN 'branch'
+                WHEN r.head_ref LIKE 'refs/tags/%' THEN 'tag'
+                ELSE ''
+            END::text AS target,
+            CASE
+                WHEN r.head_ref LIKE 'refs/heads/%' THEN substring(r.head_ref FROM 12)
+                WHEN r.head_ref LIKE 'refs/tags/%' THEN substring(r.head_ref FROM 11)
+                ELSE ''
+            END::text AS name
+    ) deployment_ref
     WHERE j.status = 'queued'
       AND r.status IN ('queued', 'running')
       AND (r.need_approval = false OR r.approved_by_user_id IS NOT NULL)
@@ -180,6 +199,59 @@ WITH candidate AS (
                   AND blocker_job.cancel_requested = false
             )
       )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND NOT (
+                env.deployment_branch_policy = 'all'
+                OR (
+                    env.deployment_branch_policy = 'protected'
+                    AND deployment_ref.target <> ''
+                    AND (
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM branch_protection_rules bpr_any
+                            WHERE bpr_any.repo_id = r.repo_id
+                              AND bpr_any.target = deployment_ref.target
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM branch_protection_rules bpr
+                            WHERE bpr.repo_id = r.repo_id
+                              AND bpr.target = deployment_ref.target
+                              AND shithub_deployment_pattern_matches(bpr.pattern, deployment_ref.name)
+                        )
+                    )
+                )
+                OR (
+                    env.deployment_branch_policy = 'selected'
+                    AND deployment_ref.target <> ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM repo_environment_deployment_branches edb
+                        WHERE edb.environment_id = env.id
+                          AND shithub_deployment_pattern_matches(edb.pattern, deployment_ref.name)
+                    )
+                )
+            )
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND env.wait_timer_minutes > 0
+            AND j.created_at + make_interval(mins => env.wait_timer_minutes) > now()
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND env.required_reviewers_enabled = true
+      )
     ORDER BY j.created_at ASC, j.id ASC
     FOR UPDATE OF j SKIP LOCKED
     LIMIT 1
@@ -195,13 +267,15 @@ claimed AS (
     WHERE j.id = c.id
     RETURNING j.id, j.run_id, j.job_index, j.job_key, j.job_name, j.runs_on,
               j.runner_id, j.needs_jobs, j.if_expr, j.timeout_minutes,
-              j.permissions, j.job_env, j.status, j.conclusion,
+              j.permissions, j.job_env, j.environment_name, j.environment_url,
+              j.status, j.conclusion,
               j.cancel_requested, j.started_at, j.completed_at, j.version,
               j.created_at, j.updated_at
 )
 SELECT c.id, c.run_id, c.job_index, c.job_key, c.job_name, c.runs_on,
        c.runner_id, c.needs_jobs, c.if_expr, c.timeout_minutes,
-       c.permissions, c.job_env, c.status, c.conclusion,
+       c.permissions, c.job_env, c.environment_name, c.environment_url,
+       c.status, c.conclusion,
        c.cancel_requested, c.started_at, c.completed_at, c.version,
        c.created_at, c.updated_at,
        r.repo_id, r.run_index, r.workflow_file, r.workflow_name,
@@ -216,7 +290,8 @@ LEFT JOIN orgs owner_org ON owner_org.id = repo.owner_org_id;
 
 -- name: ListJobsForRun :many
 SELECT id, run_id, job_index, job_key, job_name, runs_on, status,
-       conclusion, cancel_requested, needs_jobs, started_at, completed_at, created_at, updated_at
+       conclusion, cancel_requested, needs_jobs, environment_name, environment_url,
+       started_at, completed_at, created_at, updated_at
 FROM workflow_jobs
 WHERE run_id = $1
 ORDER BY job_index ASC;
