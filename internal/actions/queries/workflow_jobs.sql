@@ -130,6 +130,19 @@ WITH candidate AS (
     LEFT JOIN actions_site_policy sp ON sp.id = true
     LEFT JOIN actions_org_policies op ON op.org_id = repo.owner_org_id
     LEFT JOIN actions_repo_policies rp ON rp.repo_id = r.repo_id
+    CROSS JOIN LATERAL (
+        SELECT
+            CASE
+                WHEN r.head_ref LIKE 'refs/heads/%' THEN 'branch'
+                WHEN r.head_ref LIKE 'refs/tags/%' THEN 'tag'
+                ELSE ''
+            END::text AS target,
+            CASE
+                WHEN r.head_ref LIKE 'refs/heads/%' THEN substring(r.head_ref FROM 12)
+                WHEN r.head_ref LIKE 'refs/tags/%' THEN substring(r.head_ref FROM 11)
+                ELSE ''
+            END::text AS name
+    ) deployment_ref
     WHERE j.status = 'queued'
       AND r.status IN ('queued', 'running')
       AND (r.need_approval = false OR r.approved_by_user_id IS NOT NULL)
@@ -185,6 +198,59 @@ WITH candidate AS (
                   AND blocker_job.status IN ('queued', 'running')
                   AND blocker_job.cancel_requested = false
             )
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND NOT (
+                env.deployment_branch_policy = 'all'
+                OR (
+                    env.deployment_branch_policy = 'protected'
+                    AND deployment_ref.target <> ''
+                    AND (
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM branch_protection_rules bpr_any
+                            WHERE bpr_any.repo_id = r.repo_id
+                              AND bpr_any.target = deployment_ref.target
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM branch_protection_rules bpr
+                            WHERE bpr.repo_id = r.repo_id
+                              AND bpr.target = deployment_ref.target
+                              AND shithub_deployment_pattern_matches(bpr.pattern, deployment_ref.name)
+                        )
+                    )
+                )
+                OR (
+                    env.deployment_branch_policy = 'selected'
+                    AND deployment_ref.target <> ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM repo_environment_deployment_branches edb
+                        WHERE edb.environment_id = env.id
+                          AND shithub_deployment_pattern_matches(edb.pattern, deployment_ref.name)
+                    )
+                )
+            )
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND env.wait_timer_minutes > 0
+            AND j.created_at + make_interval(mins => env.wait_timer_minutes) > now()
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM repo_environments env
+          WHERE env.repo_id = r.repo_id
+            AND env.name = j.environment_name
+            AND env.required_reviewers_enabled = true
       )
     ORDER BY j.created_at ASC, j.id ASC
     FOR UPDATE OF j SKIP LOCKED

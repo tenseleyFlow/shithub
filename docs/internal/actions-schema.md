@@ -13,7 +13,7 @@ without churning under them.
 ## SQL schema
 
 Actions migrations currently span 0042–0051, 0053, 0057, 0060, 0064–0067,
-0080, and 0109.
+0080, and 0109–0110.
 Migration 0052 belongs to the repo source-remotes feature, 0054
 belongs to push event protocol tracking, 0055 belongs to the social
 feed, 0056 belongs to user profile contribution settings, 0058 belongs
@@ -38,6 +38,7 @@ to repo name reuse, and 0059 belongs to GitHub org imports.
 | 0067  | `workflow_runners` ops state | Host/version metadata, drain state, and hard revocation state |
 | 0080  | `workflow_annotations`      | Sanitized workflow-command notice/warning/error annotations   |
 | 0109  | `repo_environments`         | Repo Actions environments, deployment branch policy, and environment-scoped secrets |
+| 0110  | `shithub_deployment_pattern_matches` | Runner-claim wildcard matcher for environment deployment policies |
 
 A few load-bearing choices, called out so they're easy to spot in a
 later schema diff:
@@ -74,9 +75,11 @@ later schema diff:
   `(owner, kind, name)` salt so re-keying is per-row.
 - **`repo_environments`** stores the configured repo environment row
   plus required-reviewer flags, wait timer, and deployment branch
-  policy. SP23's first slice wires parser/storage/runner secret
-  resolution; later SP23 slices make those protection settings block
-  deployments in the runner claim path.
+  policy. Runner claim enforces selected-branch and protected-branch
+  deployment policies, wait timers, and required-reviewer holds before
+  a job can leave `queued`. Required-reviewer approval UI is still a
+  follow-up SP23 surface; until then, a manually enabled reviewer gate
+  intentionally keeps matching deployment jobs queued.
 - **`workflow_step_log_chunks.chunk`** is capped at 512 KB per row.
   The runner sends bigger payloads in pieces. `(step_id, seq)` is
   UNIQUE so duplicate sends are idempotent.
