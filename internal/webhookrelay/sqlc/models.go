@@ -3236,6 +3236,18 @@ type RepoEnvironmentDeploymentBranch struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type RepoInsightSnapshot struct {
+	RepoID           int64
+	DefaultBranch    string
+	HeadSha          string
+	CapturedAt       pgtype.Timestamptz
+	CommitCount      int32
+	ContributorCount int32
+	Additions        int64
+	Deletions        int64
+	Data             []byte
+}
+
 type RepoIssueCounter struct {
 	RepoID     int64
 	NextNumber int64
@@ -3318,6 +3330,46 @@ type RepoTopic struct {
 	RepoID    int64
 	Topic     string
 	CreatedAt pgtype.Timestamptz
+}
+
+type RepoTrafficDaily struct {
+	RepoID       int64
+	Day          pgtype.Date
+	Views        int64
+	UniqueViews  int64
+	Clones       int64
+	UniqueClones int64
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type RepoTrafficPath struct {
+	RepoID      int64
+	Day         pgtype.Date
+	Path        string
+	Views       int64
+	UniqueViews int64
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type RepoTrafficReferrer struct {
+	RepoID      int64
+	Day         pgtype.Date
+	Referrer    string
+	Views       int64
+	UniqueViews int64
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type RepoTrafficUnique struct {
+	RepoID      int64
+	Day         pgtype.Date
+	Metric      string
+	Key         string
+	VisitorHash []byte
+	CreatedAt   pgtype.Timestamptz
 }
 
 type RepoTransferRequest struct {

@@ -6235,6 +6235,179 @@ button.shithub-repo-action {
   color: var(--fg-muted);
   font-size: 0.9rem;
 }
+
+.shithub-insights-page {
+  grid-template-columns: 14rem minmax(0, 1fr);
+}
+.shithub-insights-sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.shithub-insights-notice {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.shithub-insights-empty {
+  padding: 2rem;
+  text-align: center;
+}
+.shithub-insights-empty h2 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.1rem;
+}
+.shithub-insights-empty p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.shithub-insights-card {
+  margin-top: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-insights-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-insights-card-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.shithub-insights-card-head span {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-insights-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.shithub-insights-traffic-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.shithub-insights-metrics div {
+  padding: 1rem;
+  border-right: 1px solid var(--border-default);
+}
+.shithub-insights-metrics div:last-child { border-right: 0; }
+.shithub-insights-metrics strong {
+  display: block;
+  font-size: 1.4rem;
+}
+.shithub-insights-metrics span {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-insights-facts {
+  margin: 0;
+  padding: 1rem;
+  display: grid;
+  gap: 0.7rem;
+}
+.shithub-insights-facts div {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: 1rem;
+}
+.shithub-insights-facts dt {
+  color: var(--fg-muted);
+}
+.shithub-insights-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.shithub-insights-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shithub-insights-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 20rem) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-muted);
+}
+.shithub-insights-list li:last-child { border-bottom: 0; }
+.shithub-insights-list-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+.shithub-insights-list-main span,
+.shithub-insights-list-meta {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-insights-bar {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--canvas-subtle);
+  overflow: hidden;
+}
+.shithub-insights-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-emphasis);
+}
+.shithub-insights-weeks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shithub-insights-weeks li {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) 8rem;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border-muted);
+}
+.shithub-insights-weeks li:last-child { border-bottom: 0; }
+.shithub-insights-weeks > li > span {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.shithub-insights-weeks strong {
+  text-align: right;
+  font-size: 0.9rem;
+}
+.shithub-insights-frequency-bars {
+  display: grid;
+  gap: 0.25rem;
+}
+.shithub-insights-frequency-bars span {
+  display: block;
+  height: 0.45rem;
+  border-radius: 999px;
+}
+.shithub-insights-frequency-bars .is-addition { background: var(--success-fg); }
+.shithub-insights-frequency-bars .is-deletion { background: var(--danger-fg); }
+.shithub-insights-frequency-bars .is-views { background: var(--accent-emphasis); }
+.shithub-insights-frequency-bars .is-clones { background: var(--success-fg); }
+.shithub-insights-traffic-days strong {
+  white-space: nowrap;
+}
+.shithub-insights-traffic-list li {
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 18rem) 12rem;
+}
+.shithub-insights-empty-inline {
+  padding: 1.25rem 1rem;
+  color: var(--fg-muted);
+}
 .shithub-repo-collab-page,
 .shithub-repo-packages-page,
 .shithub-wiki-page {

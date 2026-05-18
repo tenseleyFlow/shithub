@@ -38,20 +38,6 @@ func (h *Handlers) repoTabSecurity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) repoTabInsights(w http.ResponseWriter, r *http.Request) {
-	h.renderDeferredRepoTab(w, r, repoDeferredTab{
-		Active:      "insights",
-		Heading:     "Insights",
-		Description: "Understand activity, contributors, traffic, community health, and dependency graph data.",
-		Icon:        "pulse",
-		Sections: []repoDeferredSection{
-			{Anchor: "pulse", Title: "Pulse", Body: "Repository pulse data is not available yet."},
-			{Anchor: "contributors", Title: "Contributors", Body: "Contributor graphs will be derived from git history in a later pass."},
-			{Anchor: "community", Title: "Community", Body: "README, license, code of conduct, contributing, and security files are already detected on the Code tab."},
-		},
-	})
-}
-
 func (h *Handlers) repoTabReleases(w http.ResponseWriter, r *http.Request) {
 	h.renderDeferredRepoTab(w, r, repoDeferredTab{
 		Active:      "releases",

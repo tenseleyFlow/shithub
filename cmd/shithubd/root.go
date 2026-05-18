@@ -37,4 +37,5 @@ func init() {
 	rootCmd.AddCommand(adminCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(gpgBackfillAllCmd)
+	rootCmd.AddCommand(repoInsightsBackfillAllCmd)
 }

@@ -134,6 +134,9 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindRepoSizeRecalc, jobs.RepoSizeRecalc(jobs.RepoSizeRecalcDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger,
 		}))
+		p.Register(worker.KindRepoInsightsRecalc, jobs.RepoInsightsRecalc(jobs.RepoInsightsRecalcDeps{
+			Pool: pool, RepoFS: rfs, Logger: logger,
+		}))
 		p.Register(worker.KindJobsPurge, jobs.JobsPurge(jobs.JobsPurgeDeps{
 			Pool: pool, Logger: logger,
 		}))

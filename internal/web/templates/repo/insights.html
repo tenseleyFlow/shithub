@@ -1,0 +1,273 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+
+  <div class="shithub-repo-product-page shithub-insights-page">
+    <aside class="shithub-repo-product-sidebar shithub-insights-sidebar">
+      <h2>Insights</h2>
+      <nav aria-label="Insights navigation">
+        {{ range .Insights.Nav }}
+          <a href="{{ .Href }}" class="{{ if .Active }}is-active{{ end }}">{{ octicon .Icon }} {{ .Label }}</a>
+        {{ end }}
+      </nav>
+    </aside>
+
+    <main class="shithub-repo-product-main">
+      <header class="shithub-repo-product-head">
+        <span class="shithub-repo-product-icon">{{ octicon "pulse" }}</span>
+        <div>
+          <h1>{{ .Insights.Heading }}</h1>
+          <p>{{ .Insights.Description }}</p>
+        </div>
+      </header>
+
+      {{ if .Insights.Stale }}
+      <div class="shithub-insights-notice">
+        {{ octicon "history" }} Insights are refreshing for the latest default-branch head.
+      </div>
+      {{ end }}
+
+      {{ if and .Insights.NeedsSnapshot .Insights.Queued (not .Insights.Snapshot) }}
+      <div class="shithub-repo-product-blankslate shithub-insights-empty">
+        <div>{{ octicon "clock" }}</div>
+        <h2>Insights are being generated</h2>
+        <p>The worker is building this repository's first cached history snapshot. Refresh after the job completes.</p>
+      </div>
+      {{ else if eq .Insights.Active "pulse" }}
+        {{ template "repo-insights-pulse" . }}
+      {{ else if eq .Insights.Active "contributors" }}
+        {{ template "repo-insights-contributors" . }}
+      {{ else if eq .Insights.Active "commit-activity" }}
+        {{ template "repo-insights-commit-activity" . }}
+      {{ else if eq .Insights.Active "code-frequency" }}
+        {{ template "repo-insights-code-frequency" . }}
+      {{ else if eq .Insights.Active "traffic" }}
+        {{ template "repo-insights-traffic" . }}
+      {{ else if eq .Insights.Active "network" }}
+        {{ template "repo-insights-network" . }}
+      {{ end }}
+    </main>
+  </div>
+</section>
+{{- end }}
+
+{{ define "repo-insights-pulse" -}}
+  {{ with .Insights.Snapshot }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Repository activity</h2>
+      <span>Last 30 days</span>
+    </div>
+    <div class="shithub-insights-metrics">
+      <div><strong>{{ .Pulse.Commits }}</strong><span>{{ pluralize .Pulse.Commits "commit" "commits" }}</span></div>
+      <div><strong>{{ .Pulse.Contributors }}</strong><span>{{ pluralize .Pulse.Contributors "contributor" "contributors" }}</span></div>
+      <div><strong>{{ .Pulse.FilesChanged }}</strong><span>{{ pluralize .Pulse.FilesChanged "file changed" "files changed" }}</span></div>
+      <div><strong>+{{ .Pulse.Additions }}</strong><span>additions</span></div>
+      <div><strong>-{{ .Pulse.Deletions }}</strong><span>deletions</span></div>
+    </div>
+  </section>
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Default branch</h2>
+      <span>Generated {{ relativeTime .GeneratedAt }}</span>
+    </div>
+    <dl class="shithub-insights-facts">
+      <div><dt>Branch</dt><dd>{{ .DefaultBranch }}</dd></div>
+      <div><dt>Head</dt><dd>{{ if .HeadSHA }}{{ .HeadSHA }}{{ else }}No commits yet{{ end }}</dd></div>
+      <div><dt>Total commits scanned</dt><dd>{{ .CommitCount }}</dd></div>
+      <div><dt>Total contributors</dt><dd>{{ .ContributorCount }}</dd></div>
+    </dl>
+  </section>
+  {{ end }}
+{{- end }}
+
+{{ define "repo-insights-contributors" -}}
+  {{ with .Insights.Snapshot }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>{{ .ContributorCount }} {{ pluralize .ContributorCount "contributor" "contributors" }}</h2>
+      <span>Generated {{ relativeTime .GeneratedAt }}</span>
+    </div>
+    {{ if .Contributors }}
+    <ul class="shithub-insights-list">
+      {{ range .Contributors }}
+      <li>
+        <div class="shithub-insights-list-main">
+          <strong>{{ .Name }}</strong>
+          {{ if .Email }}<span>{{ .Email }}</span>{{ end }}
+        </div>
+        <div class="shithub-insights-bar" aria-hidden="true"><span style="width: {{ .BarWidth }}%;"></span></div>
+        <div class="shithub-insights-list-meta">
+          <strong>{{ .Commits }}</strong> {{ pluralize .Commits "commit" "commits" }} · +{{ .Additions }} -{{ .Deletions }}
+        </div>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No contributors yet.</div>
+    {{ end }}
+  </section>
+  {{ end }}
+{{- end }}
+
+{{ define "repo-insights-commit-activity" -}}
+  {{ with .Insights.Snapshot }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Commits by week</h2>
+      <span>{{ .CommitCount }} {{ pluralize .CommitCount "commit" "commits" }} scanned</span>
+    </div>
+    {{ if .CommitActivity }}
+    <ol class="shithub-insights-weeks">
+      {{ range .CommitActivity }}
+      <li>
+        <span>{{ .Label }}</span>
+        <div class="shithub-insights-bar" aria-hidden="true"><span style="width: {{ .BarWidth }}%;"></span></div>
+        <strong>{{ .Commits }}</strong>
+      </li>
+      {{ end }}
+    </ol>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No commits yet.</div>
+    {{ end }}
+  </section>
+  {{ end }}
+{{- end }}
+
+{{ define "repo-insights-code-frequency" -}}
+  {{ with .Insights.Snapshot }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Additions and deletions by week</h2>
+      <span>Default branch</span>
+    </div>
+    {{ if .CodeFrequency }}
+    <ol class="shithub-insights-weeks shithub-insights-frequency">
+      {{ range .CodeFrequency }}
+      <li>
+        <span>{{ .Label }}</span>
+        <div class="shithub-insights-frequency-bars" aria-hidden="true">
+          <span class="is-addition" style="width: {{ .BarWidth }}%;"></span>
+          <span class="is-deletion" style="width: {{ .BarWidth }}%;"></span>
+        </div>
+        <strong>+{{ .Additions }} / -{{ .Deletions }}</strong>
+      </li>
+      {{ end }}
+    </ol>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No line-change data yet.</div>
+    {{ end }}
+  </section>
+  {{ end }}
+{{- end }}
+
+{{ define "repo-insights-traffic" -}}
+  {{ with .Insights.Traffic }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Traffic</h2>
+      <span>Last 14 days</span>
+    </div>
+    {{ if or .HasViews .HasClones }}
+    <div class="shithub-insights-metrics shithub-insights-traffic-metrics">
+      <div><strong>{{ .TotalViews }}</strong><span>Views</span></div>
+      <div><strong>{{ .UniqueViews }}</strong><span>Unique visitors</span></div>
+      <div><strong>{{ .TotalClones }}</strong><span>Clones</span></div>
+      <div><strong>{{ .UniqueClones }}</strong><span>Unique cloners</span></div>
+    </div>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">
+      No traffic has been recorded for this repository yet.
+    </div>
+    {{ end }}
+  </section>
+
+  {{ if or .HasViews .HasClones }}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Views and clones</h2>
+      <span>Daily totals</span>
+    </div>
+    <ol class="shithub-insights-weeks shithub-insights-traffic-days">
+      {{ range .Days }}
+      <li>
+        <span>{{ .Label }}</span>
+        <div class="shithub-insights-frequency-bars" aria-hidden="true">
+          <span class="is-views" style="width: {{ .ViewBarWidth }}%;"></span>
+          <span class="is-clones" style="width: {{ .CloneBarWidth }}%;"></span>
+        </div>
+        <strong>{{ .Views }} views · {{ .Clones }} clones</strong>
+      </li>
+      {{ end }}
+    </ol>
+  </section>
+  {{ end }}
+
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Popular content</h2>
+      <span>Views</span>
+    </div>
+    {{ if .HasPathData }}
+    <ul class="shithub-insights-list shithub-insights-traffic-list">
+      {{ range .TopPaths }}
+      <li>
+        <div class="shithub-insights-list-main"><strong>{{ .Name }}</strong></div>
+        <div class="shithub-insights-bar" aria-hidden="true"><span style="width: {{ .BarWidth }}%;"></span></div>
+        <div class="shithub-insights-list-meta"><strong>{{ .Views }}</strong> total · {{ .UniqueViews }} unique</div>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No popular content has been recorded yet.</div>
+    {{ end }}
+  </section>
+
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>Referring sites</h2>
+      <span>Views</span>
+    </div>
+    {{ if .HasReferrerData }}
+    <ul class="shithub-insights-list shithub-insights-traffic-list">
+      {{ range .TopReferrers }}
+      <li>
+        <div class="shithub-insights-list-main"><strong>{{ .Name }}</strong></div>
+        <div class="shithub-insights-bar" aria-hidden="true"><span style="width: {{ .BarWidth }}%;"></span></div>
+        <div class="shithub-insights-list-meta"><strong>{{ .Views }}</strong> total · {{ .UniqueViews }} unique</div>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No external referrers have been recorded yet.</div>
+    {{ end }}
+  </section>
+  {{ end }}
+{{- end }}
+
+{{ define "repo-insights-network" -}}
+  <section class="shithub-insights-card">
+    <div class="shithub-insights-card-head">
+      <h2>{{ .Insights.Network.Total }} {{ pluralize .Insights.Network.Total "fork" "forks" }}</h2>
+      <span>Network</span>
+    </div>
+    {{ if .Insights.Network.Forks }}
+    <ul class="shithub-insights-list">
+      {{ range .Insights.Network.Forks }}
+      <li>
+        <div class="shithub-insights-list-main">
+          <a href="/{{ .OwnerUsername }}/{{ .Name }}"><strong>{{ .OwnerUsername }}/{{ .Name }}</strong></a>
+          {{ if .Description }}<span>{{ .Description }}</span>{{ end }}
+        </div>
+        <div class="shithub-insights-list-meta">
+          {{ if eq .Visibility "private" }}<span class="shithub-pill shithub-pill-private">Private</span> · {{ end }}
+          {{ octicon "star" }} {{ .StarCount }} · {{ octicon "repo-forked" }} {{ .ForkCount }}
+        </div>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <div class="shithub-insights-empty-inline">No visible forks yet.</div>
+    {{ end }}
+  </section>
+{{- end }}

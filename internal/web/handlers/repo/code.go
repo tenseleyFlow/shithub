@@ -209,6 +209,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	h.recordRepoView(r, cc.row, cc.owner)
 	canWrite := h.canWriteRepo(r, cc.row) && cc.isBranchRef()
 	head, headFound, headErr := repogit.CommitAt(r.Context(), cc.gitDir, cc.ref)
 	if headErr != nil {
@@ -379,6 +380,7 @@ func (h *Handlers) codeBlob(w http.ResponseWriter, r *http.Request) {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
+	h.recordRepoView(r, cc.row, cc.owner)
 	const largeFileThreshold = 1 * 1024 * 1024 // 1 MiB
 	const maxReadBytes = 4 * 1024 * 1024       // never read more than 4 MiB even for highlighting
 
