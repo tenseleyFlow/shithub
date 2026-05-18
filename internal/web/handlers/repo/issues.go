@@ -478,7 +478,9 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	repoRef := policy.NewRepoRefFromRepo(row)
 	stateRef := issueStateRepoRef(row, issue)
 	canCommentAction := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueComment, repoRef).Allow
-	canCommentThroughLock := policy.HasRoleAtLeast(r.Context(), pdeps, actor, repoRef, policy.RoleTriage)
+	// canCommentThroughLock was dropped in C19 (strict lock); leaving
+	// the helper unused is the explicit signal to future readers that
+	// the role-based escape-hatch is intentionally not applied.
 	canSetIssueState := policy.Can(r.Context(), pdeps, actor, policy.ActionIssueClose, stateRef).Allow
 	timeline := h.issueTimelineRows(comments, events, allLabels, milestones, usernameFor)
 	viewerAssigned := false
@@ -509,6 +511,10 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(participantNames)
 
+	// CanComment: C-audit C19 dropped the `canCommentThroughLock`
+	// escape-hatch — the UI used to show a comment box on locked
+	// issues for collaborators, but the server now uniformly rejects
+	// with 423. Aligning the UI: comment box hides on a locked issue.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.d.Render.RenderPage(w, r, "repo/issue_view", map[string]any{
 		"Title":                 issue.Title + " · " + row.Name,
@@ -527,7 +533,7 @@ func (h *Handlers) issueView(w http.ResponseWriter, r *http.Request) {
 		"Milestones":            milestones,
 		"Projects":              issueProjects,
 		"ProjectOptions":        projectOptions,
-		"CanComment":            canCommentAction && (!issue.Locked || canCommentThroughLock),
+		"CanComment":            canCommentAction && !issue.Locked,
 		"CanSetIssueState":      canSetIssueState,
 		"CanEditIssueLabels":    policy.Can(r.Context(), pdeps, actor, policy.ActionIssueLabel, repoRef).Allow,
 		"CanEditIssueAssignees": policy.Can(r.Context(), pdeps, actor, policy.ActionIssueAssign, repoRef).Allow,
