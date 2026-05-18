@@ -39,6 +39,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	repoinsights "github.com/tenseleyFlow/shithub/internal/repos/insights"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	repotraffic "github.com/tenseleyFlow/shithub/internal/repos/traffic"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -189,7 +190,7 @@ func minimalTemplatesFS() fstest.MapFS {
 		"repo/commit.html":                {Data: []byte(`{{ define "page" }}COMMIT={{ .Detail.ShortOID }};{{ if .Checks.Show }}CHECK={{ .Checks.StateClass }}:{{ .Checks.Href }};{{ end }}{{ end }}`)},
 		"repo/branches.html":              {Data: []byte(`{{ define "page" }}{{ range .Rows }}BRANCH={{ .Name }}:{{ if .Checks.Show }}{{ .Checks.StateClass }}:{{ .Checks.Href }}{{ end }};{{ end }}{{ end }}`)},
 		"repo/compare.html":               {Data: []byte(`{{ define "page" }}{{ range .CommitRows }}COMPARE={{ .Commit.ShortOID }}:{{ if .Checks.Show }}{{ .Checks.StateClass }}:{{ .Checks.Href }}{{ end }};{{ end }}{{ end }}`)},
-		"repo/insights.html":              {Data: []byte(`{{ define "page" }}INSIGHTS={{ .Insights.Active }}:queued={{ .Insights.Queued }}:stale={{ .Insights.Stale }}:needs={{ .Insights.NeedsSnapshot }}{{ end }}`)},
+		"repo/insights.html":              {Data: []byte(`{{ define "page" }}INSIGHTS={{ .Insights.Active }}:queued={{ .Insights.Queued }}:stale={{ .Insights.Stale }}:needs={{ .Insights.NeedsSnapshot }}:views={{ .Insights.Traffic.TotalViews }}{{ end }}`)},
 	}
 }
 
@@ -440,6 +441,36 @@ func TestRepoInsights_PrivateOrgRepoRequiresTeamBilling(t *testing.T) {
 		t.Fatalf("body missing %q: %s", want, got)
 	}
 	if got := f.countQueuedJobs(t, privateOrgRepo.ID); got != 0 {
+		t.Fatalf("queued insights jobs = %d, want 0", got)
+	}
+}
+
+func TestRepoInsights_TrafficLoadsAggregatesWithoutSnapshotJob(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	ctx := context.Background()
+	when := time.Now().UTC()
+	if err := repotraffic.RecordView(ctx, f.pool, repotraffic.Event{
+		RepoID:       f.publicRepo.ID,
+		OccurredAt:   when,
+		VisitorKey:   "user:1",
+		Path:         "/",
+		ReferrerHost: "github.com",
+	}); err != nil {
+		t.Fatalf("RecordView: %v", err)
+	}
+	req := repoRouteRequest(http.MethodGet, "/alice/public-repo/graphs/traffic", f.owner.Username, f.publicRepo.Name, anonymousViewer())
+	rw := httptest.NewRecorder()
+
+	f.handlers.repoInsightsTraffic(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", rw.Code, rw.Body.String())
+	}
+	if got, want := rw.Body.String(), "INSIGHTS=traffic:queued=false:stale=false:needs=false:views=1"; !strings.Contains(got, want) {
+		t.Fatalf("body missing %q: %s", want, got)
+	}
+	if got := f.countQueuedJobs(t, f.publicRepo.ID); got != 0 {
 		t.Fatalf("queued insights jobs = %d, want 0", got)
 	}
 }

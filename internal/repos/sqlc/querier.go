@@ -115,6 +115,8 @@ type Querier interface {
 	// constraint on the table enforces the xor shape.
 	InsertRepoRedirect(ctx context.Context, db DBTX, arg InsertRepoRedirectParams) error
 	InsertRepoTopic(ctx context.Context, db DBTX, arg InsertRepoTopicParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	InsertRepoTrafficUnique(ctx context.Context, db DBTX, arg InsertRepoTrafficUniqueParams) (bool, error)
 	// ─── transfer requests ─────────────────────────────────────────────────
 	InsertTransferRequest(ctx context.Context, db DBTX, arg InsertTransferRequestParams) (RepoTransferRequest, error)
 	// Stamps invalidated_at on every cache row whose signer_subkey_id
@@ -163,6 +165,9 @@ type Querier interface {
 	ListRepoProjectsForIssue(ctx context.Context, db DBTX, issueID int64) ([]RepoProject, error)
 	// ─── repo_topics (S32) ─────────────────────────────────────────────
 	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
+	ListRepoTrafficDaily(ctx context.Context, db DBTX, arg ListRepoTrafficDailyParams) ([]RepoTrafficDaily, error)
+	ListRepoTrafficPaths(ctx context.Context, db DBTX, arg ListRepoTrafficPathsParams) ([]ListRepoTrafficPathsRow, error)
+	ListRepoTrafficReferrers(ctx context.Context, db DBTX, arg ListRepoTrafficReferrersParams) ([]ListRepoTrafficReferrersRow, error)
 	ListRepoWikiPages(ctx context.Context, db DBTX, repoID int64) ([]RepoWikiPage, error)
 	ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]Repo, error)
 	// Paginated mirror of ListReposForOwnerOrg for the REST list endpoint
@@ -275,6 +280,10 @@ type Querier interface {
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	UpsertRepoInsightSnapshot(ctx context.Context, db DBTX, arg UpsertRepoInsightSnapshotParams) (RepoInsightSnapshot, error)
 	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
+	UpsertRepoTrafficDailyClone(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyCloneParams) error
+	UpsertRepoTrafficDailyView(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyViewParams) error
+	UpsertRepoTrafficPathView(ctx context.Context, db DBTX, arg UpsertRepoTrafficPathViewParams) error
+	UpsertRepoTrafficReferrerView(ctx context.Context, db DBTX, arg UpsertRepoTrafficReferrerViewParams) error
 }
 
 var _ Querier = (*Queries)(nil)

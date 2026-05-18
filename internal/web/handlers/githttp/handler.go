@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -19,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/git/protocol"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	repotraffic "github.com/tenseleyFlow/shithub/internal/repos/traffic"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -52,7 +54,7 @@ func (h *Handlers) infoRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, allow := h.authorizeForService(w, r, svc)
+	row, _, allow := h.authorizeForService(w, r, svc)
 	if !allow {
 		return
 	}
@@ -95,7 +97,7 @@ func (h *Handlers) receivePack(w http.ResponseWriter, r *http.Request) {
 
 // runPack is the shared body for both POST endpoints.
 func (h *Handlers) runPack(w http.ResponseWriter, r *http.Request, svc protocol.Service) {
-	row, allow := h.authorizeForService(w, r, svc)
+	row, auth, allow := h.authorizeForService(w, r, svc)
 	if !allow {
 		return
 	}
@@ -129,13 +131,17 @@ func (h *Handlers) runPack(w http.ResponseWriter, r *http.Request, svc protocol.
 		// surfacing 413/500 cleanly is best-effort.
 		h.d.Logger.ErrorContext(r.Context(), "githttp: pack",
 			"error", err, "service", svc, "stderr", string(stderr()))
+		return
+	}
+	if svc == protocol.UploadPack {
+		h.recordClone(r, row, auth)
 	}
 }
 
 // authorizeForService resolves the repo + checks visibility/permission.
 // Returns the repo row + allow=true on success. On any failure writes
 // the appropriate response (404, 401, 403, 410) and returns allow=false.
-func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, svc protocol.Service) (reposdb.Repo, bool) {
+func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, svc protocol.Service) (reposdb.Repo, resolvedAuth, bool) {
 	ownerName := chi.URLParam(r, "owner")
 	repoName := strings.TrimSuffix(chi.URLParam(r, "repo"), ".git")
 	// chi already strips .git for the URL pattern but we defensively
@@ -148,7 +154,7 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	row, err := h.lookupRepo(r.Context(), ownerName, repoName)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
-		return reposdb.Repo{}, false
+		return reposdb.Repo{}, resolvedAuth{}, false
 	}
 
 	auth, authErr := h.resolveBasicAuth(r.Context(), r.Header.Get("Authorization"))
@@ -156,19 +162,19 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	requireAuth := svc == protocol.ReceivePack || repoRef.IsPrivate()
 	if authErr != nil || (requireAuth && auth.Anonymous) {
 		writeChallenge(w)
-		return reposdb.Repo{}, false
+		return reposdb.Repo{}, resolvedAuth{}, false
 	}
 	if auth.ViaRunnerCheckout {
 		if svc != protocol.UploadPack {
 			writeGitErrorMessage(w, http.StatusForbidden,
 				"shithub Actions checkout credentials are read-only")
-			return reposdb.Repo{}, false
+			return reposdb.Repo{}, resolvedAuth{}, false
 		}
 		if auth.RunnerCheckoutRepo != row.ID {
 			http.Error(w, "not found", http.StatusNotFound)
-			return reposdb.Repo{}, false
+			return reposdb.Repo{}, resolvedAuth{}, false
 		}
-		return row, true
+		return row, auth, true
 	}
 
 	// PRO-EXT01-11b: a PAT bound to a single repo can ONLY act on that
@@ -176,7 +182,7 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	// leak that the repo exists from a different token's perspective.
 	if auth.ViaPAT && !pat.RepoBindingAllows(auth.PATRepoBinding, row.ID) {
 		http.Error(w, "not found", http.StatusNotFound)
-		return reposdb.Repo{}, false
+		return reposdb.Repo{}, resolvedAuth{}, false
 	}
 
 	// Build the policy actor and ask Can(). Owner identity, collab role,
@@ -212,9 +218,33 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 		default:
 			http.Error(w, "forbidden", http.StatusForbidden)
 		}
-		return reposdb.Repo{}, false
+		return reposdb.Repo{}, resolvedAuth{}, false
 	}
-	return row, true
+	return row, auth, true
+}
+
+func (h *Handlers) recordClone(r *http.Request, row reposdb.Repo, auth resolvedAuth) {
+	event := repotraffic.Event{
+		RepoID:     row.ID,
+		OccurredAt: time.Now(),
+		VisitorKey: gitHTTPVisitorKey(r, auth),
+	}
+	if err := repotraffic.RecordClone(r.Context(), h.d.Pool, event); err != nil && h.d.Logger != nil {
+		h.d.Logger.WarnContext(r.Context(), "repo traffic: record http clone", "repo_id", row.ID, "error", err)
+	}
+}
+
+func gitHTTPVisitorKey(r *http.Request, auth resolvedAuth) string {
+	switch {
+	case auth.ViaRunnerCheckout:
+		return "runner-checkout:" + strconv.FormatInt(auth.RunnerCheckoutRepo, 10)
+	case !auth.Anonymous && auth.UserID != 0:
+		return "user:" + strconv.FormatInt(auth.UserID, 10)
+	case !auth.Anonymous && auth.Username != "":
+		return "git-http:" + auth.Username
+	default:
+		return "anon:" + clientIP(r) + "|" + r.UserAgent()
+	}
 }
 
 // hookEnv assembles the SHITHUB_* env vars to thread through git-

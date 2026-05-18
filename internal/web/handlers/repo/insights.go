@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -16,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	repoinsights "github.com/tenseleyFlow/shithub/internal/repos/insights"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	repotraffic "github.com/tenseleyFlow/shithub/internal/repos/traffic"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
@@ -39,6 +41,7 @@ type repoInsightsView struct {
 	Queued        bool
 	Stale         bool
 	Network       repoInsightsNetwork
+	Traffic       repotraffic.Summary
 }
 
 type repoInsightsNavItem struct {
@@ -118,13 +121,22 @@ func (h *Handlers) repoInsightsView(ctx context.Context, row reposdb.Repo, owner
 		Nav:           repoInsightsNav(owner, row.Name, active),
 		NeedsSnapshot: active != repoInsightsActiveTraffic && active != repoInsightsActiveNetwork,
 	}
-	snapshot, queued, stale, err := h.loadRepoInsightsSnapshot(ctx, row)
-	if err != nil {
-		return view, err
+	if view.NeedsSnapshot {
+		snapshot, queued, stale, err := h.loadRepoInsightsSnapshot(ctx, row)
+		if err != nil {
+			return view, err
+		}
+		view.Snapshot = snapshot
+		view.Queued = queued
+		view.Stale = stale
 	}
-	view.Snapshot = snapshot
-	view.Queued = queued
-	view.Stale = stale
+	if active == repoInsightsActiveTraffic {
+		traffic, err := repotraffic.LoadSummary(ctx, h.d.Pool, row.ID, time.Now())
+		if err != nil {
+			return view, err
+		}
+		view.Traffic = traffic
+	}
 	if active == repoInsightsActiveNetwork {
 		network, err := h.repoInsightsNetworkData(ctx, row)
 		if err != nil {

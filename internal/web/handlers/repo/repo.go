@@ -553,6 +553,7 @@ func (h *Handlers) repoHome(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	h.recordRepoView(r, row, owner)
 
 	common := map[string]any{
 		"Title":         row.Name + " · " + owner,

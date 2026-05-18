@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	repotraffic "github.com/tenseleyFlow/shithub/internal/repos/traffic"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
@@ -157,6 +159,15 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 	gitDir, err := deps.RepoFS.RepoPath(parsed.Owner, parsed.Repo)
 	if err != nil {
 		return nil, parsed, fmt.Errorf("%w: %v", ErrSSHInternal, err)
+	}
+	if parsed.Service == UploadPack {
+		// Best-effort analytics: do not fail clone/fetch when the traffic
+		// aggregate write is unavailable.
+		_ = repotraffic.RecordClone(ctx, deps.Pool, repotraffic.Event{
+			RepoID:     repo.ID,
+			OccurredAt: time.Now(),
+			VisitorKey: "ssh:user:" + strconv.FormatInt(user.ID, 10) + "|ip:" + in.RemoteIP,
+		})
 	}
 
 	requestID, err := newRequestID()
