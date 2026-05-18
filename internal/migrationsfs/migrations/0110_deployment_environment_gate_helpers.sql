@@ -9,6 +9,7 @@
 
 -- +goose Up
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION shithub_deployment_pattern_matches(pattern text, ref_name text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -38,6 +39,7 @@ BEGIN
     RETURN ref_name ~ regex;
 END;
 $$;
+-- +goose StatementEnd
 
 -- +goose Down
 
