@@ -43,6 +43,16 @@ const (
 	FeatureRepoWikis         Feature = "repo_wikis"
 	FeatureRepoInsights      Feature = "repo_insights"
 	FeatureMultipleAssignees Feature = "multiple_assignees"
+	// SP25 security posture surfaces. Public repositories keep their
+	// baseline security surfaces visible; these gates apply to private
+	// organization repository aggregation and enforcement.
+	FeatureSecurityOverview          Feature = "security_overview"
+	FeatureDependencyGraph           Feature = "dependency_graph"
+	FeatureDependencyReview          Feature = "dependency_review"
+	FeatureDependabotSecurityUpdates Feature = "dependabot_security_updates"
+	FeatureDependabotVersionUpdates  Feature = "dependabot_version_updates"
+	FeatureDependabotAutoTriage      Feature = "dependabot_auto_triage"
+	FeatureSecurityAdvisories        Feature = "security_advisories"
 	// PRO07 additions.
 	//
 	// FeatureProfilePinsBeyondFree gates raising the personal profile
@@ -292,40 +302,47 @@ const (
 // FeaturePrivateCollaboration stays org-only — PRO01 explicitly
 // rejected reintroducing a Free user collaborator cap.
 var featureKinds = map[Feature][]billing.SubjectKind{
-	FeatureSecretTeams:              {billing.SubjectKindOrg},
-	FeatureAdvancedBranchProtection: {billing.SubjectKindUser, billing.SubjectKindOrg},
-	FeatureRequiredReviewers:        {billing.SubjectKindUser, billing.SubjectKindOrg},
-	FeatureActionsOrgSecrets:        {billing.SubjectKindOrg},
-	FeatureActionsOrgVariables:      {billing.SubjectKindOrg},
-	FeaturePrivateCollaboration:     {billing.SubjectKindOrg},
-	FeatureStorageQuota:             {billing.SubjectKindOrg}, // user pending SP08
-	FeatureActionsMinutesQuota:      {billing.SubjectKindOrg}, // user pending SP08
-	FeatureScheduledReminders:       {billing.SubjectKindOrg},
-	FeatureRepoProjects:             {billing.SubjectKindOrg},
-	FeatureRepoWikis:                {billing.SubjectKindOrg},
-	FeatureRepoInsights:             {billing.SubjectKindOrg},
-	FeatureMultipleAssignees:        {billing.SubjectKindOrg},
-	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
-	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},
-	FeatureProfileVanity:            {billing.SubjectKindUser},
-	FeatureAnimatedAvatars:          {billing.SubjectKindUser},
-	FeatureUsernameReservations:     {billing.SubjectKindUser},
-	FeaturePrivateRepoTemplates:     {billing.SubjectKindUser},
-	FeatureSavedRepliesUnlimited:    {billing.SubjectKindUser},
-	FeatureScheduledIssues:          {billing.SubjectKindUser},
-	FeatureAdvancedCodeSearch:       {billing.SubjectKindUser},
-	FeatureContributionPrivacy:      {billing.SubjectKindUser},
-	FeatureSecretScanHistory:        {billing.SubjectKindUser},
-	FeatureSecretScanAlerts:         {billing.SubjectKindUser},
-	FeatureFineGrainedPATs:          {billing.SubjectKindUser},
-	FeatureUserActionsSecrets:       {billing.SubjectKindUser},
-	FeatureUserActionsVariables:     {billing.SubjectKindUser},
-	FeatureWebhookRelay:             {billing.SubjectKindUser},
-	FeatureCronWorkflowDispatch:     {billing.SubjectKindUser},
-	FeaturePersonalStatusPage:       {billing.SubjectKindUser},
-	FeatureRepoTimeMachine:          {billing.SubjectKindUser},
-	FeatureInboxRules:               {billing.SubjectKindUser},
-	FeatureInboxDigests:             {billing.SubjectKindUser},
+	FeatureSecretTeams:               {billing.SubjectKindOrg},
+	FeatureAdvancedBranchProtection:  {billing.SubjectKindUser, billing.SubjectKindOrg},
+	FeatureRequiredReviewers:         {billing.SubjectKindUser, billing.SubjectKindOrg},
+	FeatureActionsOrgSecrets:         {billing.SubjectKindOrg},
+	FeatureActionsOrgVariables:       {billing.SubjectKindOrg},
+	FeaturePrivateCollaboration:      {billing.SubjectKindOrg},
+	FeatureStorageQuota:              {billing.SubjectKindOrg}, // user pending SP08
+	FeatureActionsMinutesQuota:       {billing.SubjectKindOrg}, // user pending SP08
+	FeatureScheduledReminders:        {billing.SubjectKindOrg},
+	FeatureRepoProjects:              {billing.SubjectKindOrg},
+	FeatureRepoWikis:                 {billing.SubjectKindOrg},
+	FeatureRepoInsights:              {billing.SubjectKindOrg},
+	FeatureMultipleAssignees:         {billing.SubjectKindOrg},
+	FeatureSecurityOverview:          {billing.SubjectKindOrg},
+	FeatureDependencyGraph:           {billing.SubjectKindOrg},
+	FeatureDependencyReview:          {billing.SubjectKindOrg},
+	FeatureDependabotSecurityUpdates: {billing.SubjectKindOrg},
+	FeatureDependabotVersionUpdates:  {billing.SubjectKindOrg},
+	FeatureDependabotAutoTriage:      {billing.SubjectKindOrg},
+	FeatureSecurityAdvisories:        {billing.SubjectKindOrg},
+	FeatureProfilePinsBeyondFree:     {billing.SubjectKindUser},
+	FeatureCodeOwnersReview:          {billing.SubjectKindUser, billing.SubjectKindOrg},
+	FeatureProfileVanity:             {billing.SubjectKindUser},
+	FeatureAnimatedAvatars:           {billing.SubjectKindUser},
+	FeatureUsernameReservations:      {billing.SubjectKindUser},
+	FeaturePrivateRepoTemplates:      {billing.SubjectKindUser},
+	FeatureSavedRepliesUnlimited:     {billing.SubjectKindUser},
+	FeatureScheduledIssues:           {billing.SubjectKindUser},
+	FeatureAdvancedCodeSearch:        {billing.SubjectKindUser},
+	FeatureContributionPrivacy:       {billing.SubjectKindUser},
+	FeatureSecretScanHistory:         {billing.SubjectKindUser},
+	FeatureSecretScanAlerts:          {billing.SubjectKindUser},
+	FeatureFineGrainedPATs:           {billing.SubjectKindUser},
+	FeatureUserActionsSecrets:        {billing.SubjectKindUser},
+	FeatureUserActionsVariables:      {billing.SubjectKindUser},
+	FeatureWebhookRelay:              {billing.SubjectKindUser},
+	FeatureCronWorkflowDispatch:      {billing.SubjectKindUser},
+	FeaturePersonalStatusPage:        {billing.SubjectKindUser},
+	FeatureRepoTimeMachine:           {billing.SubjectKindUser},
+	FeatureInboxRules:                {billing.SubjectKindUser},
+	FeatureInboxDigests:              {billing.SubjectKindUser},
 }
 
 // AppliesTo reports the principal kinds a feature applies to.
