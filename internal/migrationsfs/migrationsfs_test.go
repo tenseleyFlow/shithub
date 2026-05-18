@@ -41,6 +41,49 @@ func TestMigrationVersionsAreUnique(t *testing.T) {
 	}
 }
 
+func TestFunctionMigrationsUseGooseStatementBlocks(t *testing.T) {
+	t.Parallel()
+
+	entries, err := fs.ReadDir(FS(), ".")
+	if err != nil {
+		t.Fatalf("ReadDir migrations: %v", err)
+	}
+
+	var problems []string
+	for _, entry := range entries {
+		if entry.IsDir() || !isGooseMigrationName(entry.Name()) {
+			continue
+		}
+		body, err := fs.ReadFile(FS(), entry.Name())
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", entry.Name(), err)
+		}
+
+		inStatementBlock := false
+		for lineNo, line := range strings.Split(string(body), "\n") {
+			trimmed := strings.TrimSpace(line)
+			switch trimmed {
+			case "-- +goose StatementBegin":
+				inStatementBlock = true
+			case "-- +goose StatementEnd":
+				inStatementBlock = false
+			}
+
+			upper := strings.ToUpper(trimmed)
+			createsFunction := strings.HasPrefix(upper, "CREATE FUNCTION ") ||
+				strings.HasPrefix(upper, "CREATE OR REPLACE FUNCTION ") ||
+				strings.HasPrefix(upper, "DO $$")
+			if createsFunction && !inStatementBlock {
+				problems = append(problems, fmt.Sprintf("%s:%d creates a multi-statement SQL block without -- +goose StatementBegin", entry.Name(), lineNo+1))
+			}
+		}
+	}
+
+	if len(problems) > 0 {
+		t.Fatalf("goose SQL function blocks must be wrapped:\n%s", strings.Join(problems, "\n"))
+	}
+}
+
 func isGooseMigrationName(name string) bool {
 	if len(name) < len("0000_.sql") || !strings.HasSuffix(name, ".sql") || name[4] != '_' {
 		return false
