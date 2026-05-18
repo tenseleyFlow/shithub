@@ -58,6 +58,12 @@ type Querier interface {
 	// head_ref match the pushed ref. push:process uses this to fan-out
 	// pr:synchronize jobs after a head-side push.
 	ListOpenPRsForHeadRef(ctx context.Context, db DBTX, arg ListOpenPRsForHeadRefParams) ([]int64, error)
+	// Returns the issue_ids of every still-open PR whose head_repo_id +
+	// head_oid match a given SHA. Used by the check-completion trigger
+	// (S64) to fan-out pr:mergeability jobs once CI for a head SHA
+	// finishes — the required-checks gate inside Mergeability needs a
+	// recompute to flip blocked → clean.
+	ListOpenPRsForHeadSHA(ctx context.Context, db DBTX, arg ListOpenPRsForHeadSHAParams) ([]int64, error)
 	ListPRReviewComments(ctx context.Context, db DBTX, prIssueID int64) ([]PrReviewComment, error)
 	// Files-tab fetch: comments anchored to a single file path, oldest first.
 	ListPRReviewCommentsForFile(ctx context.Context, db DBTX, arg ListPRReviewCommentsForFileParams) ([]PrReviewComment, error)

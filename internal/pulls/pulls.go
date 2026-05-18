@@ -34,6 +34,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
+	"github.com/tenseleyFlow/shithub/internal/pulls/mergeenqueue"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
@@ -162,6 +163,11 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 				"error", err, "pr_id", prRow.IssueID)
 		}
 	}
+
+	// S64: kick off the initial mergeability tick so the PR's
+	// mergeable_state moves off `unknown` without waiting for a human to
+	// open the HTML review screen (the only previous trigger).
+	mergeenqueue.ForPR(ctx, deps.Pool, deps.Logger, prRow.IssueID, "pr_create")
 
 	return CreateResult{Issue: issueRow, PullRequest: prRow}, nil
 }

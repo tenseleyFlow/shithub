@@ -18,6 +18,7 @@ import (
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls/mergeenqueue"
 )
 
 // Deps wires check synchronization to postgres and logging.
@@ -91,7 +92,16 @@ func Job(ctx context.Context, deps Deps, job actionsdb.WorkflowJob) error {
 		return nil
 	}
 	_, err = checks.Update(ctx, checks.Deps{Pool: deps.Pool, Logger: deps.Logger}, params)
-	return err
+	if err != nil {
+		return err
+	}
+	// S64: when the Actions runner reports a terminal job state, fan out
+	// pr:mergeability ticks to every open PR sharing the head SHA so a
+	// required-checks gate can flip blocked → clean.
+	if params.Status == "completed" {
+		mergeenqueue.ForHeadSHA(ctx, deps.Pool, deps.Logger, run.RepoID, run.HeadSha)
+	}
+	return nil
 }
 
 func timeFromPg(ts pgtype.Timestamptz) time.Time {

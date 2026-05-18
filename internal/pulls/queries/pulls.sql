@@ -155,3 +155,18 @@ WHERE pr.head_repo_id = $1
   AND pr.head_ref = $2
   AND i.state = 'open'
   AND pr.merged_at IS NULL;
+
+
+-- name: ListOpenPRsForHeadSHA :many
+-- Returns the issue_ids of every still-open PR whose head_repo_id +
+-- head_oid match a given SHA. Used by the check-completion trigger
+-- (S64) to fan-out pr:mergeability jobs once CI for a head SHA
+-- finishes — the required-checks gate inside Mergeability needs a
+-- recompute to flip blocked → clean.
+SELECT pr.issue_id
+FROM pull_requests pr
+JOIN issues i ON i.id = pr.issue_id
+WHERE pr.head_repo_id = $1
+  AND pr.head_oid = $2
+  AND i.state = 'open'
+  AND pr.merged_at IS NULL;
