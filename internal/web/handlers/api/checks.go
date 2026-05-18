@@ -16,6 +16,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/checks"
 	checksdb "github.com/tenseleyFlow/shithub/internal/checks/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/pulls/mergeenqueue"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -197,6 +198,12 @@ func (h *Handlers) checkRunUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeChecksError(w, err)
 		return
+	}
+	// S64: if this update flipped the run into "completed", fan out
+	// pr:mergeability ticks to every open PR sharing this head SHA so
+	// blocked-on-required-checks states recompute promptly.
+	if updated.Status == checksdb.CheckStatusCompleted {
+		mergeenqueue.ForHeadSHA(r.Context(), h.d.Pool, h.d.Logger, updated.RepoID, updated.HeadSha)
 	}
 	writeJSON(w, http.StatusOK, presentRun(updated))
 }
