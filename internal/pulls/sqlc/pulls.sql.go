@@ -347,6 +347,46 @@ func (q *Queries) ListOpenPRsForHeadRef(ctx context.Context, db DBTX, arg ListOp
 	return items, nil
 }
 
+const listOpenPRsForHeadSHA = `-- name: ListOpenPRsForHeadSHA :many
+SELECT pr.issue_id
+FROM pull_requests pr
+JOIN issues i ON i.id = pr.issue_id
+WHERE pr.head_repo_id = $1
+  AND pr.head_oid = $2
+  AND i.state = 'open'
+  AND pr.merged_at IS NULL
+`
+
+type ListOpenPRsForHeadSHAParams struct {
+	HeadRepoID int64
+	HeadOid    string
+}
+
+// Returns the issue_ids of every still-open PR whose head_repo_id +
+// head_oid match a given SHA. Used by the check-completion trigger
+// (S64) to fan-out pr:mergeability jobs once CI for a head SHA
+// finishes — the required-checks gate inside Mergeability needs a
+// recompute to flip blocked → clean.
+func (q *Queries) ListOpenPRsForHeadSHA(ctx context.Context, db DBTX, arg ListOpenPRsForHeadSHAParams) ([]int64, error) {
+	rows, err := db.Query(ctx, listOpenPRsForHeadSHA, arg.HeadRepoID, arg.HeadOid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var issue_id int64
+		if err := rows.Scan(&issue_id); err != nil {
+			return nil, err
+		}
+		items = append(items, issue_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPullRequestCommits = `-- name: ListPullRequestCommits :many
 SELECT pr_id, sha, position, author_name, author_email, committer_name, committer_email, subject, body, authored_at, committed_at FROM pull_request_commits
 WHERE pr_id = $1
