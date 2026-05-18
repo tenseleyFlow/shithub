@@ -3236,6 +3236,18 @@ type RepoEnvironmentDeploymentBranch struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type RepoInsightSnapshot struct {
+	RepoID           int64
+	DefaultBranch    string
+	HeadSha          string
+	CapturedAt       pgtype.Timestamptz
+	CommitCount      int32
+	ContributorCount int32
+	Additions        int64
+	Deletions        int64
+	Data             []byte
+}
+
 type RepoIssueCounter struct {
 	RepoID     int64
 	NextNumber int64

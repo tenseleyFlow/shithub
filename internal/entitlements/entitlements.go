@@ -41,6 +41,7 @@ const (
 	// Team includes the richer collaboration affordances.
 	FeatureRepoProjects      Feature = "repo_projects"
 	FeatureRepoWikis         Feature = "repo_wikis"
+	FeatureRepoInsights      Feature = "repo_insights"
 	FeatureMultipleAssignees Feature = "multiple_assignees"
 	// PRO07 additions.
 	//
@@ -302,6 +303,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureScheduledReminders:       {billing.SubjectKindOrg},
 	FeatureRepoProjects:             {billing.SubjectKindOrg},
 	FeatureRepoWikis:                {billing.SubjectKindOrg},
+	FeatureRepoInsights:             {billing.SubjectKindOrg},
 	FeatureMultipleAssignees:        {billing.SubjectKindOrg},
 	FeatureProfilePinsBeyondFree:    {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:         {billing.SubjectKindUser, billing.SubjectKindOrg},

@@ -114,6 +114,16 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 					deps.Logger.WarnContext(ctx, "push:process: enqueue index_code",
 						"push_event_id", event.ID, "error", err)
 				}
+				// SP24: refresh repository insights from the same
+				// default-branch tip. The job is intentionally
+				// separate from code search so expensive history
+				// aggregation never runs in the push processor.
+				if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindRepoInsightsRecalc,
+					map[string]any{"repo_id": repo.ID},
+					worker.EnqueueOptions{}); err != nil {
+					deps.Logger.WarnContext(ctx, "push:process: enqueue insights_recalc",
+						"push_event_id", event.ID, "error", err)
+				}
 			}
 		}
 

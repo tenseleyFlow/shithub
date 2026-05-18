@@ -64,6 +64,7 @@ type Querier interface {
 	// (they would dangle once the repos row is gone; the FK ON DELETE
 	// CASCADE would handle it, but explicit is auditable).
 	DeleteRedirectsForRepo(ctx context.Context, db DBTX, repoID int64) error
+	DeleteRepoInsightSnapshot(ctx context.Context, db DBTX, repoID int64) error
 	DeleteRepoProject(ctx context.Context, db DBTX, arg DeleteRepoProjectParams) error
 	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
 	DeleteRepoWikiPage(ctx context.Context, db DBTX, arg DeleteRepoWikiPageParams) error
@@ -94,6 +95,8 @@ type Querier interface {
 	// ListAllActiveReposWithOwner so the per-repo job handler can run
 	// the same code path the bulk handler uses.
 	GetRepoForBackfill(ctx context.Context, db DBTX, id int64) (GetRepoForBackfillRow, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	GetRepoInsightSnapshot(ctx context.Context, db DBTX, repoID int64) (RepoInsightSnapshot, error)
 	// Returns the owner slug for a repo. Used by size-recalc, indexing, and
 	// other jobs that need the bare-repo on-disk path. Org-owned repos use the
 	// org slug in the same path position as user-owned repos.
@@ -270,6 +273,7 @@ type Querier interface {
 	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
 	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	UpsertRepoInsightSnapshot(ctx context.Context, db DBTX, arg UpsertRepoInsightSnapshotParams) (RepoInsightSnapshot, error)
 	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
 }
 

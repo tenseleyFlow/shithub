@@ -165,6 +165,7 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 		entitlements.FeatureScheduledReminders,
 		entitlements.FeatureRepoProjects,
 		entitlements.FeatureRepoWikis,
+		entitlements.FeatureRepoInsights,
 		entitlements.FeatureMultipleAssignees,
 	} {
 		if decision := set.CanUse(feature); !decision.Allowed {

@@ -91,6 +91,13 @@ const (
 	KindRepoIndexReconcile Kind = "repo:index_reconcile"
 )
 
+// SP24 repository insights. insights_recalc computes bounded git
+// history rollups for Pulse/Contributors/Commits/Code frequency and
+// persists a snapshot for HTTP handlers to render.
+const (
+	KindRepoInsightsRecalc Kind = "repo:insights_recalc"
+)
+
 // S29 notification kinds. notify:fanout drains the domain_events
 // table past the persisted cursor and materializes inbox rows +
 // (optional) emails. Self-throttling per FanoutBatch; loop-friendly
