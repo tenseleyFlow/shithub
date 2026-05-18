@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/checks"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
@@ -405,6 +406,81 @@ func TestMergeability_CodeOwnerReviewRequired(t *testing.T) {
 	pr, err = pullsdb.New().GetPullRequestByIssueID(ctx, f.pool, res.PullRequest.IssueID)
 	if err != nil {
 		t.Fatalf("GetPullRequestByIssueID after approval: %v", err)
+	}
+	if pr.MergeableState != pullsdb.PrMergeableStateClean {
+		t.Fatalf("mergeable_state=%s want clean", pr.MergeableState)
+	}
+}
+
+func TestMergeability_RequiredStatusChecksBlockThenPass(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	headSHA := commitOnBranch(t, f.gitDir, "feature", "add ci", "ci.txt", "ci\n")
+
+	ruleID, err := reposdb.New().UpsertBranchProtectionRule(ctx, f.pool, reposdb.UpsertBranchProtectionRuleParams{
+		RepoID:               f.repoID,
+		Pattern:              "trunk",
+		AllowedPusherUserIds: []int64{},
+	})
+	if err != nil {
+		t.Fatalf("UpsertBranchProtectionRule: %v", err)
+	}
+	if err := reposdb.New().UpdateBranchProtectionCheckSettings(ctx, f.pool, reposdb.UpdateBranchProtectionCheckSettingsParams{
+		ID:                   ruleID,
+		StatusChecksRequired: []string{"ci"},
+	}); err != nil {
+		t.Fatalf("UpdateBranchProtectionCheckSettings: %v", err)
+	}
+
+	res, err := pulls.Create(ctx, f.deps, pulls.CreateParams{
+		RepoID:       f.repoID,
+		AuthorUserID: f.userID,
+		Title:        "Add CI",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := pulls.Mergeability(ctx, f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability before check: %v", err)
+	}
+	pr, err := pullsdb.New().GetPullRequestByIssueID(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("GetPullRequestByIssueID: %v", err)
+	}
+	if pr.HeadOid != headSHA {
+		t.Fatalf("head oid = %s, want %s", pr.HeadOid, headSHA)
+	}
+	if pr.MergeableState != pullsdb.PrMergeableStateBlocked {
+		t.Fatalf("mergeable_state=%s want blocked", pr.MergeableState)
+	}
+
+	run, err := checks.Create(ctx, checks.Deps{Pool: f.pool, Logger: f.deps.Logger}, checks.CreateParams{
+		RepoID:  f.repoID,
+		HeadSHA: headSHA,
+		Name:    "ci",
+	})
+	if err != nil {
+		t.Fatalf("checks.Create: %v", err)
+	}
+	if _, err := checks.Update(ctx, checks.Deps{Pool: f.pool, Logger: f.deps.Logger}, checks.UpdateParams{
+		RunID:         run.ID,
+		HasStatus:     true,
+		Status:        "completed",
+		HasConclusion: true,
+		Conclusion:    "success",
+	}); err != nil {
+		t.Fatalf("checks.Update: %v", err)
+	}
+	if err := pulls.Mergeability(ctx, f.deps, f.gitDir, res.PullRequest.IssueID); err != nil {
+		t.Fatalf("Mergeability after check: %v", err)
+	}
+	pr, err = pullsdb.New().GetPullRequestByIssueID(ctx, f.pool, res.PullRequest.IssueID)
+	if err != nil {
+		t.Fatalf("GetPullRequestByIssueID after check: %v", err)
 	}
 	if pr.MergeableState != pullsdb.PrMergeableStateClean {
 		t.Fatalf("mergeable_state=%s want clean", pr.MergeableState)

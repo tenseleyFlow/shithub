@@ -208,6 +208,8 @@ WITH candidate AS (
           WHERE env.repo_id = r.repo_id
             AND env.name = j.environment_name
             AND env.required_reviewers_enabled = true
+            AND r.need_approval = true
+            AND r.approved_by_user_id IS NULL
       )
     ORDER BY j.created_at ASC, j.id ASC
     FOR UPDATE OF j SKIP LOCKED

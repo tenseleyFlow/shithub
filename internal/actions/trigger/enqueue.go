@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -189,6 +190,24 @@ func Enqueue(ctx context.Context, deps Deps, p EnqueueParams) (Result, error) {
 	runIndex, err := q.NextRunIndexForRepo(ctx, tx, p.RepoID)
 	if err != nil {
 		return Result{}, fmt.Errorf("trigger: next run index: %w", err)
+	}
+
+	envReviewNames, err := requiredReviewEnvironmentNames(ctx, q, tx, p.RepoID, p.Workflow)
+	if err != nil {
+		return Result{}, fmt.Errorf("trigger: environment approval requirements: %w", err)
+	}
+	if len(envReviewNames) > 0 {
+		reason := environmentApprovalReason(envReviewNames)
+		if p.NeedApproval {
+			if p.ApprovalReason == "" {
+				p.ApprovalReason = reason
+			} else {
+				p.ApprovalReason += " " + reason
+			}
+		} else {
+			p.NeedApproval = true
+			p.ApprovalReason = reason
+		}
 	}
 
 	payloadBytes, err := json.Marshal(p.EventPayload)
@@ -632,6 +651,43 @@ func enforceActionsMinutesQuota(ctx context.Context, deps Deps, repoID int64) er
 			limit.Value)
 	}
 	return nil
+}
+
+func requiredReviewEnvironmentNames(ctx context.Context, q *actionsdb.Queries, db actionsdb.DBTX, repoID int64, wf *workflow.Workflow) ([]string, error) {
+	seen := make(map[string]struct{}, len(wf.Jobs))
+	names := make([]string, 0, len(wf.Jobs))
+	for _, job := range wf.Jobs {
+		name := strings.TrimSpace(job.Environment.Name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		env, err := q.GetRepoEnvironmentByName(ctx, db, actionsdb.GetRepoEnvironmentByNameParams{
+			RepoID: repoID,
+			Name:   name,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			return nil, err
+		}
+		if env.RequiredReviewersEnabled {
+			names = append(names, env.Name)
+		}
+	}
+	return names, nil
+}
+
+func environmentApprovalReason(names []string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf("Deployment to %s requires environment approval before runner dispatch.", names[0])
+	}
+	return fmt.Sprintf("Deployment to %s requires environment approval before runner dispatch.", strings.Join(names, ", "))
 }
 
 func validateParams(p *EnqueueParams) error {

@@ -101,10 +101,10 @@ Rules for paid-org copy:
 | Multiple issue/PR assignees on private org repos | Upgrade | Included | Contact sales |
 | Org-level Actions secrets | Upgrade | Included | Contact sales |
 | Org-level Actions variables | Upgrade | Included | Contact sales |
-| Environment-scoped Actions secrets | Upgrade on private org repos | Settings UI and runner injection included; public REST pending | Contact sales |
-| Environment protection rules and deployment branches | Upgrade on private org repos | Branch policy and wait timers configurable and enforced; reviewer approval UI pending | Contact sales |
-| Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
-| Actions artifacts/storage | Low quota once metered | Higher quota once metered | Contact sales |
+| Environment-scoped Actions secrets | Upgrade on private org repos | Settings UI, REST API, and runner injection included | Contact sales |
+| Environment protection rules and deployment branches | Upgrade on private org repos | Branch policy, wait timers, reviewer approval, and prevent-self-review configurable and enforced | Contact sales |
+| Actions minutes | 2,000 min/month | 3,000 min/month | Contact sales |
+| Actions artifacts/storage | Counts against shared storage quota | Counts against shared storage quota | Contact sales |
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |

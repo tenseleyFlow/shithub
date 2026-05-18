@@ -81,6 +81,8 @@ func (h *Handlers) writeRepoApprovalError(w http.ResponseWriter, r *http.Request
 		h.d.Render.HTTPError(w, r, http.StatusConflict, "run is not pending approval")
 	case errors.Is(err, actionslifecycle.ErrApprovalActorRequired):
 		h.d.Render.HTTPError(w, r, http.StatusUnauthorized, "approval actor required")
+	case errors.Is(err, actionslifecycle.ErrApprovalSelfReviewBlocked):
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "environment prevents self-review")
 	default:
 		h.d.Logger.WarnContext(r.Context(), "repo actions: approval decision", "run_id", runID, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")

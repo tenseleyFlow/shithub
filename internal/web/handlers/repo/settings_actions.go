@@ -63,6 +63,8 @@ type repoActionsEnvironmentView struct {
 	Name                   string
 	Href                   string
 	DeploymentBranchPolicy string
+	RequiredReviewers      bool
+	PreventSelfReview      bool
 	WaitTimerMinutes       int32
 	BranchPatterns         []string
 	Secrets                []secrets.Meta
@@ -72,6 +74,8 @@ type repoActionsEnvironmentView struct {
 type repoActionsEnvironmentForm struct {
 	Name                   string
 	DeploymentBranchPolicy string
+	RequiredReviewers      bool
+	PreventSelfReview      bool
 	WaitTimerMinutes       int32
 	BranchPatterns         []string
 	BranchPatternsText     string
@@ -468,7 +472,7 @@ func (h *Handlers) loadRepoActionsEnvironmentViews(r *http.Request, repoID int64
 	views := make([]repoActionsEnvironmentView, 0, len(rows))
 	var selected *repoActionsEnvironmentView
 	for _, env := range rows {
-		view, err := h.repoActionsEnvironmentView(r, env.ID, owner, repoName, env.Name, string(env.DeploymentBranchPolicy), env.WaitTimerMinutes)
+		view, err := h.repoActionsEnvironmentView(r, env.ID, owner, repoName, env.Name, string(env.DeploymentBranchPolicy), env.RequiredReviewersEnabled, env.PreventSelfReview, env.WaitTimerMinutes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -484,7 +488,7 @@ func (h *Handlers) loadRepoActionsEnvironmentViews(r *http.Request, repoID int64
 	return views, selected, nil
 }
 
-func (h *Handlers) repoActionsEnvironmentView(r *http.Request, environmentID int64, owner, repoName, name, policy string, waitTimer int32) (repoActionsEnvironmentView, error) {
+func (h *Handlers) repoActionsEnvironmentView(r *http.Request, environmentID int64, owner, repoName, name, policy string, requiredReviewers, preventSelfReview bool, waitTimer int32) (repoActionsEnvironmentView, error) {
 	q := actionsdb.New()
 	patternRows, err := q.ListRepoEnvironmentDeploymentBranches(r.Context(), h.d.Pool, environmentID)
 	if err != nil {
@@ -502,6 +506,8 @@ func (h *Handlers) repoActionsEnvironmentView(r *http.Request, environmentID int
 		Name:                   name,
 		Href:                   repoActionsEnvironmentPath(owner, repoName, name),
 		DeploymentBranchPolicy: policy,
+		RequiredReviewers:      requiredReviewers,
+		PreventSelfReview:      preventSelfReview,
 		WaitTimerMinutes:       waitTimer,
 		BranchPatterns:         patterns,
 		Secrets:                secretRows,
@@ -535,13 +541,25 @@ func repoActionsEnvironmentFormFromRequest(r *http.Request, existingName string)
 	if err != nil {
 		return repoActionsEnvironmentForm{}, err
 	}
+	requiredReviewers := formBool(r.PostFormValue("required_reviewers_enabled"))
 	return repoActionsEnvironmentForm{
 		Name:                   name,
 		DeploymentBranchPolicy: policyValue,
+		RequiredReviewers:      requiredReviewers,
+		PreventSelfReview:      requiredReviewers && formBool(r.PostFormValue("prevent_self_review")),
 		WaitTimerMinutes:       int32(waitTimer),
 		BranchPatterns:         patterns,
 		BranchPatternsText:     patternsText,
 	}, nil
+}
+
+func formBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRepoActionsEnvironmentName(name string) error {
@@ -589,8 +607,8 @@ func (h *Handlers) saveRepoActionsEnvironment(r *http.Request, repoID int64, for
 	env, err := q.UpsertRepoEnvironment(r.Context(), tx, actionsdb.UpsertRepoEnvironmentParams{
 		RepoID:                   repoID,
 		Name:                     form.Name,
-		RequiredReviewersEnabled: false,
-		PreventSelfReview:        false,
+		RequiredReviewersEnabled: form.RequiredReviewers,
+		PreventSelfReview:        form.PreventSelfReview,
 		WaitTimerMinutes:         form.WaitTimerMinutes,
 		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicy(form.DeploymentBranchPolicy),
 	})

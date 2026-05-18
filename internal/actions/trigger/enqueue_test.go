@@ -240,6 +240,116 @@ jobs:
 	}
 }
 
+func TestEnqueue_RequiresApprovalForReviewerGatedEnvironment(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	q := actionsdb.New()
+	if _, err := q.UpsertRepoEnvironment(ctx, f.pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   f.repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: true,
+		PreventSelfReview:        true,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	}); err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	w := workflowFromYAML(t, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo deploy
+`)
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/deploy.yml",
+		HeadSHA:        strings.Repeat("c", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:deploy-review",
+		Workflow:       w,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	run, err := q.GetWorkflowRunByID(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if !run.NeedApproval {
+		t.Fatalf("reviewer-gated environment did not mark run approval-pending: %+v", run)
+	}
+	approval, err := q.GetWorkflowRunApproval(ctx, f.pool, res.RunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunApproval: %v", err)
+	}
+	if !strings.Contains(approval.RequestedReason, "Deployment to production requires environment approval") {
+		t.Fatalf("approval reason = %q", approval.RequestedReason)
+	}
+}
+
+func TestClaimQueuedWorkflowJob_DoesNotRetroactivelyDeadlockReviewerGate(t *testing.T) {
+	f := setupEnq(t)
+	ctx := context.Background()
+	q := actionsdb.New()
+	w := workflowFromYAML(t, `name: deploy
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo deploy
+`)
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/deploy.yml",
+		HeadSHA:        strings.Repeat("d", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:deploy-before-env-gate",
+		Workflow:       w,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := q.UpsertRepoEnvironment(ctx, f.pool, actionsdb.UpsertRepoEnvironmentParams{
+		RepoID:                   f.repoID,
+		Name:                     "production",
+		RequiredReviewersEnabled: true,
+		PreventSelfReview:        true,
+		WaitTimerMinutes:         0,
+		DeploymentBranchPolicy:   actionsdb.RepoEnvironmentDeploymentBranchPolicyAll,
+	}); err != nil {
+		t.Fatalf("UpsertRepoEnvironment: %v", err)
+	}
+	runner, err := q.InsertRunner(ctx, f.pool, actionsdb.InsertRunnerParams{
+		Name:     "runner-retro-env",
+		Labels:   []string{"ubuntu-latest"},
+		Capacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner: %v", err)
+	}
+	claimed, err := q.ClaimQueuedWorkflowJob(ctx, f.pool, actionsdb.ClaimQueuedWorkflowJobParams{
+		Labels:   []string{"ubuntu-latest"},
+		RunnerID: runner.ID,
+	})
+	if err != nil {
+		t.Fatalf("ClaimQueuedWorkflowJob: %v", err)
+	}
+	if claimed.RunID != res.RunID {
+		t.Fatalf("claimed run = %d, want %d", claimed.RunID, res.RunID)
+	}
+}
+
 func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 	f := setupOrgEnq(t)
 	ctx := context.Background()
@@ -309,6 +419,60 @@ func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 	}
 }
 
+func TestEnqueue_AllowsTeamOrgActionsBeyondFreeMonthlyMinutes(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	activateTeamOrgForEnqueue(t, f, now)
+	seedCompletedActionsMinutes(t, f, now, entitlements.FreeOrgActionsMinutesQuota)
+
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:team-quota-still-open",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if res.QuotaBlocked || res.RunID == 0 || res.Skipped {
+		t.Fatalf("expected Team org run beyond Free quota to enqueue, got %+v", res)
+	}
+}
+
+func TestEnqueue_BlocksTeamOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	activateTeamOrgForEnqueue(t, f, now)
+	seedCompletedActionsMinutes(t, f, now, entitlements.TeamOrgActionsMinutesQuota)
+
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:team-quota-exhausted",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if !res.QuotaBlocked || res.RunID == 0 {
+		t.Fatalf("expected Team quota-blocked run, got %+v", res)
+	}
+}
+
 func TestEnqueue_AllowsOrgActionsWithMinutesOverride(t *testing.T) {
 	f := setupOrgEnq(t)
 	ctx := context.Background()
@@ -340,6 +504,23 @@ func TestEnqueue_AllowsOrgActionsWithMinutesOverride(t *testing.T) {
 	}
 	if res.RunID == 0 || res.Skipped {
 		t.Fatalf("expected enqueued run, got %+v", res)
+	}
+}
+
+func activateTeamOrgForEnqueue(t *testing.T, f enqFx, now time.Time) {
+	t.Helper()
+	if _, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: f.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    f.orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     fmt.Sprintf("sub_team_%d", f.orgID),
+		StripeSubscriptionItemID: fmt.Sprintf("si_team_%d", f.orgID),
+		LicensedSeats:            1,
+		CurrentPeriodStart:       now.Add(-24 * time.Hour),
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       fmt.Sprintf("evt_team_%d", f.orgID),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
 }
 

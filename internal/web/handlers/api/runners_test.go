@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -936,6 +937,31 @@ jobs:
 	}
 	if len(jobs) != 1 || jobs[0].Status != actionsdb.WorkflowJobStatusQueued {
 		t.Fatalf("reviewer-gated job should remain queued: %+v", jobs)
+	}
+	approval, err := q.GetWorkflowRunApproval(ctx, pool, reviewerRunID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunApproval reviewer: %v", err)
+	}
+	if !strings.Contains(approval.RequestedReason, "Deployment to reviewed requires environment approval") {
+		t.Fatalf("reviewer approval reason = %q", approval.RequestedReason)
+	}
+	if _, err := actionslifecycle.ApproveRun(ctx, actionslifecycle.Deps{Pool: pool, Logger: logger}, reviewerRunID, userID); !errors.Is(err, actionslifecycle.ErrApprovalSelfReviewBlocked) {
+		t.Fatalf("self-review ApproveRun error = %v, want ErrApprovalSelfReviewBlocked", err)
+	}
+	reviewer, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username:     "bob-reviewer",
+		DisplayName:  "Bob Reviewer",
+		PasswordHash: runnerAPIFixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser reviewer: %v", err)
+	}
+	if _, err := actionslifecycle.ApproveRun(ctx, actionslifecycle.Deps{Pool: pool, Logger: logger}, reviewerRunID, reviewer.ID); err != nil {
+		t.Fatalf("reviewer ApproveRun: %v", err)
+	}
+	claim = claimRunnerHeartbeat(t, router, token2, 1)
+	if claim.Job.RunID != reviewerRunID {
+		t.Fatalf("approved reviewer-gated environment should release run %d, got %+v", reviewerRunID, claim)
 	}
 }
 
