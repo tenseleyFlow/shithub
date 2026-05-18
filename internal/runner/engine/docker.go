@@ -23,6 +23,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/actions/expr"
 	runnerexec "github.com/tenseleyFlow/shithub/internal/runner/exec"
+	"github.com/tenseleyFlow/shithub/internal/runner/runuser"
 	"github.com/tenseleyFlow/shithub/internal/runner/scrub"
 )
 
@@ -33,7 +34,6 @@ var (
 
 const (
 	defaultSeccompProfile = "/etc/shithubd-runner/seccomp.json"
-	defaultContainerUser  = "65534:65534"
 	defaultPidsLimit      = 512
 	defaultNofileLimit    = "4096:4096"
 	defaultNprocLimit     = "512:512"
@@ -122,9 +122,7 @@ func NewDocker(cfg DockerConfig) *Docker {
 	if cfg.SeccompProfile == "" {
 		cfg.SeccompProfile = defaultSeccompProfile
 	}
-	if cfg.User == "" {
-		cfg.User = defaultContainerUser
-	}
+	cfg.User = runuser.Resolve(cfg.User)
 	if cfg.PidsLimit <= 0 {
 		cfg.PidsLimit = defaultPidsLimit
 	}

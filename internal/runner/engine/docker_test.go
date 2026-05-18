@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/runner/runuser"
 )
 
 type recordingRunner struct {
@@ -141,7 +143,7 @@ func TestDockerExecute_BuildsResourceCappedRunCommand(t *testing.T) {
 		"--cap-drop=ALL", "--cap-add=DAC_OVERRIDE", "--cap-add=SETGID", "--cap-add=SETUID",
 		"--security-opt=no-new-privileges", "--security-opt=seccomp=/etc/shithubd-runner/seccomp.json",
 		"--ulimit", "nofile=4096:4096", "--ulimit", "nproc=512:512",
-		"--user", "65534:65534",
+		"--user", runuser.Current(),
 		"--workdir=/workspace/subdir",
 		"--mount", rec.args[25],
 		"--env", "A", "--env", "B",
@@ -242,9 +244,9 @@ func TestDockerExecute_RootRequiresExplicitPermission(t *testing.T) {
 		permissions string
 		wantUser    string
 	}{
-		{name: "default", permissions: `{}`, wantUser: "65534:65534"},
-		{name: "write-all-does-not-root", permissions: `{"mode":"write-all"}`, wantUser: "65534:65534"},
-		{name: "explicit-root-disabled-by-default", permissions: `{"per":{"shithub-runner-root":"write"}}`, wantUser: "65534:65534"},
+		{name: "default", permissions: `{}`, wantUser: runuser.Current()},
+		{name: "write-all-does-not-root", permissions: `{"mode":"write-all"}`, wantUser: runuser.Current()},
+		{name: "explicit-root-disabled-by-default", permissions: `{"per":{"shithub-runner-root":"write"}}`, wantUser: runuser.Current()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

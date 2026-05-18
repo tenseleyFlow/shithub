@@ -131,7 +131,7 @@ shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 shithub_runner_capacity=1
 shithub_runner_default_image=ghcr.io/tenseleyflow/shithub/runner-nix:1.0
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
-shithub_runner_container_user=65534:65534
+shithub_runner_container_user=auto
 shithub_runner_pids_limit=512
 ```
 
@@ -140,6 +140,10 @@ The role writes non-secret config to
 `/etc/shithubd-runner/runner.env` with mode `0600`.
 Keep `shithub_runner_workspace_root` under `/var/lib/shithubd-runner`;
 the systemd unit grants runner writes only to that subtree.
+`shithub_runner_container_user=auto` resolves at runner startup to the
+`shithub-runner` service uid/gid, so containerized `run:` steps can access the
+checkout without making workspaces world-readable. Use an explicit numeric
+`uid:gid` only when that identity also owns or can traverse the workspace root.
 
 `shithub_runner_network_allowlist` defaults to GitHub source/archive
 hosts plus Docker Hub registry hosts. Override it when a runner must

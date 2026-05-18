@@ -177,7 +177,7 @@ network = "shithub-actions"
 memory = "2g"
 cpus = "2"
 seccomp_profile = "/etc/shithubd-runner/seccomp.json"
-user = "65534:65534"
+user = "auto"
 pids_limit = 512
 dns_servers = ["172.30.0.1"]
 ```
@@ -185,6 +185,9 @@ dns_servers = ["172.30.0.1"]
 The config path defaults to `/etc/shithubd-runner/config.toml`.
 Environment variables use the `SHITHUB_RUNNER_` prefix, for example
 `SHITHUB_RUNNER_TOKEN` or `SHITHUB_RUNNER_SERVER__BASE_URL`.
+`engine.user = "auto"` resolves to the runner process uid/gid so containerized
+steps can read and write the private checkout workspace without opening it to
+other local users.
 Use `--expires-in` only for tokens that your automation rotates before expiry;
 the runner presents its registration token on every heartbeat.
 
