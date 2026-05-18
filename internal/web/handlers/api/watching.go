@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -21,8 +22,8 @@ import (
 // mountWatching registers the S50 §15 watching/subscriptions REST surface.
 //
 //	GET    /api/v1/repos/{o}/{r}/subscribers                  paginated list of watchers
-//	GET    /api/v1/repos/{o}/{r}/subscription                 viewer's current watch level
-//	PUT    /api/v1/repos/{o}/{r}/subscription                 set an explicit level
+//	GET    /api/v1/repos/{o}/{r}/subscription                 viewer's current subscription (gh-compat)
+//	PUT    /api/v1/repos/{o}/{r}/subscription                 set subscription (gh-compat body)
 //	DELETE /api/v1/repos/{o}/{r}/subscription                 revert to implicit default
 //
 // Scope: `repo:read` on GETs, `user:write` on the mutations
@@ -32,7 +33,10 @@ import (
 //
 // "subscription" is the GitHub-flavored noun for a watch. shithub's
 // internal vocabulary is "watch"; we keep the gh names on the public
-// URL so existing CLI ports keep working.
+// URL so existing CLI ports keep working. The REST PUT body + GET
+// response use the gh-compat `{subscribed, ignored}` pair (B5 audit
+// decision): subscribed=true → level=all, ignored=true → level=ignore,
+// both false → unset (back to implicit `participating`).
 func (h *Handlers) mountWatching(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoRead))
@@ -54,9 +58,17 @@ type subscriberResponse struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+// subscriptionResponse is the gh-compat shape returned from
+// GET/PUT /subscription. `reason` is always null for now — shithub
+// doesn't surface why a subscription exists (no
+// auto_subscription_reason field).
 type subscriptionResponse struct {
-	Level    string `json:"level"`
-	Explicit bool   `json:"explicit"`
+	Subscribed    bool   `json:"subscribed"`
+	Ignored       bool   `json:"ignored"`
+	Reason        any    `json:"reason"`
+	CreatedAt     string `json:"created_at"`
+	URL           string `json:"url"`
+	RepositoryURL string `json:"repository_url"`
 }
 
 func (h *Handlers) subscribersList(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +111,9 @@ func (h *Handlers) subscribersList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// subscriptionGet returns the caller's explicit subscription in the
+// gh-compat shape, or 404 if no explicit row exists (gh's contract —
+// the implicit `participating` default has no REST representation).
 func (h *Handlers) subscriptionGet(w http.ResponseWriter, r *http.Request) {
 	repo, ok := h.resolveAPIRepo(w, r, policy.ActionRepoRead)
 	if !ok {
@@ -109,34 +124,30 @@ func (h *Handlers) subscriptionGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	// `explicit` distinguishes the implicit `participating` default
-	// (no row in `watches`) from an explicit user choice. The CLI can
-	// surface this so a "default" sticker doesn't look like the user
-	// opted in.
 	row, err := socialdb.New().GetWatch(r.Context(), h.d.Pool, socialdb.GetWatchParams{
 		UserID: auth.UserID, RepoID: repo.ID,
 	})
 	if err != nil {
-		level, lerr := social.CurrentLevel(r.Context(), h.socialDeps(), auth.UserID, repo.ID)
-		if lerr != nil {
-			h.d.Logger.ErrorContext(r.Context(), "api: subscription get", "error", lerr)
-			writeAPIError(w, http.StatusInternalServerError, "lookup failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, subscriptionResponse{
-			Level: string(level), Explicit: false,
-		})
+		writeAPIError(w, http.StatusNotFound, "subscription not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, subscriptionResponse{
-		Level: string(row.Level), Explicit: true,
-	})
+	writeJSON(w, http.StatusOK, presentSubscription(row, chi.URLParam(r, "owner"), repo.Name))
 }
 
+// subscriptionPutRequest mirrors gh's PUT body. Both fields default to
+// false when absent — meaning "remove explicit subscription".
 type subscriptionPutRequest struct {
-	Level string `json:"level"`
+	Subscribed bool `json:"subscribed"`
+	Ignored    bool `json:"ignored"`
 }
 
+// subscriptionPut maps the gh-compat body onto the server's internal
+// WatchLevel:
+//
+//	subscribed=true, ignored=false → SetWatch(all)
+//	subscribed=false, ignored=true → SetWatch(ignore)
+//	subscribed=false, ignored=false → UnsetWatch  (204, back to default)
+//	subscribed=true, ignored=true → 422
 func (h *Handlers) subscriptionPut(w http.ResponseWriter, r *http.Request) {
 	repo, ok := h.resolveAPIRepo(w, r, policy.ActionWatchSet)
 	if !ok {
@@ -148,17 +159,61 @@ func (h *Handlers) subscriptionPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body subscriptionPutRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := social.SetWatch(r.Context(), h.socialDeps(), auth.UserID, repo.ID, social.WatchLevel(body.Level)); err != nil {
-		writeWatchError(w, err)
+	if body.Subscribed && body.Ignored {
+		writeAPIError(w, http.StatusUnprocessableEntity, "subscribed and ignored cannot both be true")
 		return
 	}
-	writeJSON(w, http.StatusOK, subscriptionResponse{
-		Level: body.Level, Explicit: true,
+	switch {
+	case body.Subscribed:
+		if err := social.SetWatch(r.Context(), h.socialDeps(), auth.UserID, repo.ID, social.WatchAll); err != nil {
+			writeWatchError(w, err)
+			return
+		}
+	case body.Ignored:
+		if err := social.SetWatch(r.Context(), h.socialDeps(), auth.UserID, repo.ID, social.WatchIgnore); err != nil {
+			writeWatchError(w, err)
+			return
+		}
+	default:
+		// Both false → clear explicit subscription.
+		if err := social.UnsetWatch(r.Context(), h.socialDeps(), auth.UserID, repo.ID); err != nil {
+			writeWatchError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	row, err := socialdb.New().GetWatch(r.Context(), h.d.Pool, socialdb.GetWatchParams{
+		UserID: auth.UserID, RepoID: repo.ID,
 	})
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "reload subscription")
+		return
+	}
+	writeJSON(w, http.StatusOK, presentSubscription(row, chi.URLParam(r, "owner"), repo.Name))
+}
+
+// presentSubscription maps the internal Watch row to the gh-compat
+// response shape. ownerSlug + repoName echo the URL the client used so
+// response bodies match the request path.
+func presentSubscription(row socialdb.Watch, ownerSlug, repoName string) subscriptionResponse {
+	resp := subscriptionResponse{
+		Reason:        nil,
+		CreatedAt:     row.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		URL:           "/api/v1/repos/" + ownerSlug + "/" + repoName + "/subscription",
+		RepositoryURL: "/api/v1/repos/" + ownerSlug + "/" + repoName,
+	}
+	switch row.Level {
+	case socialdb.WatchLevelAll:
+		resp.Subscribed = true
+	case socialdb.WatchLevelIgnore:
+		resp.Ignored = true
+	}
+	return resp
 }
 
 func (h *Handlers) subscriptionDelete(w http.ResponseWriter, r *http.Request) {
