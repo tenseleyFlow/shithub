@@ -23,6 +23,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
+	"github.com/tenseleyFlow/shithub/internal/runner/runuser"
 )
 
 const (
@@ -32,7 +33,6 @@ const (
 	defaultNetwork         = "shithub-actions"
 	defaultDNSServer       = "172.30.0.1"
 	defaultSeccompProfile  = "/etc/shithubd-runner/seccomp.json"
-	defaultContainerUser   = "65534:65534"
 	defaultContainerPIDMax = 512
 )
 
@@ -114,7 +114,7 @@ func Defaults() Config {
 			Memory:         "2g",
 			CPUs:           "2",
 			SeccompProfile: defaultSeccompProfile,
-			User:           defaultContainerUser,
+			User:           runuser.Auto,
 			PidsLimit:      defaultContainerPIDMax,
 			DNSServers:     []string{defaultDNSServer},
 		},
@@ -273,7 +273,7 @@ func Validate(c *Config) error {
 	if c.Engine.SeccompProfile == "" {
 		return errors.New("runner config: engine.seccomp_profile is required")
 	}
-	c.Engine.User = strings.TrimSpace(c.Engine.User)
+	c.Engine.User = runuser.Resolve(c.Engine.User)
 	if c.Engine.User == "" {
 		return errors.New("runner config: engine.user is required")
 	}

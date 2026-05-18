@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tenseleyFlow/shithub/internal/runner/runuser"
 )
 
 func TestLoad_DefaultsWithToken(t *testing.T) {
@@ -34,7 +36,7 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if want := []string{"172.30.0.1"}; !reflect.DeepEqual(cfg.Engine.DNSServers, want) {
 		t.Fatalf("DNSServers: got %#v want %#v", cfg.Engine.DNSServers, want)
 	}
-	if cfg.Engine.User != "65534:65534" {
+	if cfg.Engine.User != runuser.Current() {
 		t.Fatalf("Engine.User: %q", cfg.Engine.User)
 	}
 	if cfg.Engine.PidsLimit != 512 {
@@ -141,6 +143,29 @@ func TestLoad_RequiresToken(t *testing.T) {
 	_, err := Load(LoadOptions{Environ: []string{}})
 	if err == nil || !strings.Contains(err.Error(), "runner.token") {
 		t.Fatalf("Load error: %v", err)
+	}
+}
+
+func TestLoad_AutoEngineUserResolvesToRunnerProcess(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[runner]
+token = "tok"
+
+[engine]
+user = "auto"
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := Load(LoadOptions{ConfigPath: path, Environ: []string{}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Engine.User != runuser.Current() {
+		t.Fatalf("Engine.User: got %q want %q", cfg.Engine.User, runuser.Current())
 	}
 }
 
