@@ -182,6 +182,12 @@ The Code tab surfaces GitHub-style write affordances for users with
   license, code of conduct, contributing, and security files. Selecting
   a tab updates `?tab=<document>-ov-file` and swaps that document into
   the same bordered card instead of leaving the repository overview.
+- The overview document links include `#readme` as the no-JavaScript
+  fallback, so a full navigation returns the viewport to the same card.
+  When JavaScript is available, tab and About-sidebar document links are
+  progressively enhanced with a small fetch/DOMParser swap that replaces
+  only the document card, preserves scroll position, updates browser
+  history, and reinitializes the heading outline menu.
 - The rendered overview document header shows an edit icon for the
   active file when it was found in the current ref and the viewer can
   write to that branch. Subdirectory READMEs keep the simpler local

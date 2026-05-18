@@ -613,83 +613,175 @@
         .replace(/^-|-$/g, "") || "heading";
     }
 
-    document.querySelectorAll("[data-readme-outline]").forEach(function (root) {
-      var readme = root.closest(".shithub-readme");
-      var body = readme && readme.querySelector(".shithub-readme-body");
-      var list = root.querySelector("[data-readme-outline-list]");
-      var filter = root.querySelector("[data-readme-outline-filter]");
-      var empty = root.querySelector("[data-readme-outline-empty]");
-      var summary = root.querySelector("summary");
-      if (!body || !list) return;
+    function closestElement(target, selector) {
+      if (!target) return null;
+      if (target.nodeType !== 1) target = target.parentElement;
+      return target && target.closest ? target.closest(selector) : null;
+    }
 
-      var used = {};
-      body.querySelectorAll("[id]").forEach(function (element) {
-        if (element.id) used[element.id] = true;
-      });
+    function initReadmeOutline(scope) {
+      (scope || document).querySelectorAll("[data-readme-outline]").forEach(function (root) {
+        if (root.dataset.readmeOutlineReady === "true") return;
+        var readme = root.closest(".shithub-readme");
+        var body = readme && readme.querySelector(".shithub-readme-body");
+        var list = root.querySelector("[data-readme-outline-list]");
+        var filter = root.querySelector("[data-readme-outline-filter]");
+        var empty = root.querySelector("[data-readme-outline-empty]");
+        var summary = root.querySelector("summary");
+        if (!body || !list) return;
 
-      var headings = Array.prototype.slice.call(body.querySelectorAll("h1, h2, h3, h4, h5, h6")).filter(function (heading) {
-        return (heading.textContent || "").trim() !== "";
-      });
-      if (headings.length === 0) return;
-
-      headings.forEach(function (heading) {
-        var text = (heading.textContent || "").trim().replace(/\s+/g, " ");
-        if (!heading.id) {
-          var base = slugify(text);
-          var id = base;
-          var index = 1;
-          while (used[id]) {
-            id = base + "-" + index;
-            index += 1;
-          }
-          heading.id = id;
-          used[id] = true;
-        }
-
-        var level = parseInt(heading.tagName.slice(1), 10) || 1;
-        var link = document.createElement("a");
-        link.href = "#" + heading.id;
-        link.className = "shithub-readme-outline-item is-depth-" + Math.min(level, 6);
-        link.textContent = text;
-        link.setAttribute("data-readme-outline-text", text.toLowerCase());
-        list.appendChild(link);
-      });
-
-      var links = Array.prototype.slice.call(list.querySelectorAll("a"));
-      function applyFilter() {
-        var query = filter ? filter.value.trim().toLowerCase() : "";
-        var shown = 0;
-        links.forEach(function (link) {
-          var matches = query === "" || (link.getAttribute("data-readme-outline-text") || "").indexOf(query) !== -1;
-          link.hidden = !matches;
-          if (matches) shown += 1;
+        var used = {};
+        body.querySelectorAll("[id]").forEach(function (element) {
+          if (element.id) used[element.id] = true;
         });
-        if (empty) empty.hidden = shown !== 0;
-      }
 
-      root.hidden = false;
-      if (filter) filter.addEventListener("input", applyFilter);
-      root.addEventListener("toggle", function () {
-        if (root.open && filter) {
-          window.setTimeout(function () {
-            filter.focus();
-            filter.select();
-          }, 0);
+        var headings = Array.prototype.slice.call(body.querySelectorAll("h1, h2, h3, h4, h5, h6")).filter(function (heading) {
+          return (heading.textContent || "").trim() !== "";
+        });
+        if (headings.length === 0) return;
+
+        root.dataset.readmeOutlineReady = "true";
+        headings.forEach(function (heading) {
+          var text = (heading.textContent || "").trim().replace(/\s+/g, " ");
+          if (!heading.id) {
+            var base = slugify(text);
+            var id = base;
+            var index = 1;
+            while (used[id]) {
+              id = base + "-" + index;
+              index += 1;
+            }
+            heading.id = id;
+            used[id] = true;
+          }
+
+          var level = parseInt(heading.tagName.slice(1), 10) || 1;
+          var link = document.createElement("a");
+          link.href = "#" + heading.id;
+          link.className = "shithub-readme-outline-item is-depth-" + Math.min(level, 6);
+          link.textContent = text;
+          link.setAttribute("data-readme-outline-text", text.toLowerCase());
+          list.appendChild(link);
+        });
+
+        var links = Array.prototype.slice.call(list.querySelectorAll("a"));
+        function applyFilter() {
+          var query = filter ? filter.value.trim().toLowerCase() : "";
+          var shown = 0;
+          links.forEach(function (link) {
+            var matches = query === "" || (link.getAttribute("data-readme-outline-text") || "").indexOf(query) !== -1;
+            link.hidden = !matches;
+            if (matches) shown += 1;
+          });
+          if (empty) empty.hidden = shown !== 0;
         }
+
+        root.hidden = false;
+        if (filter) filter.addEventListener("input", applyFilter);
+        root.addEventListener("toggle", function () {
+          if (root.open && filter) {
+            window.setTimeout(function () {
+              filter.focus();
+              filter.select();
+            }, 0);
+          }
+        });
+        list.addEventListener("click", function (event) {
+          if (closestElement(event.target, "a")) root.open = false;
+        });
+        root.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && root.open) {
+            root.open = false;
+            if (summary) summary.focus();
+          }
+        });
+        document.addEventListener("click", function (event) {
+          if (root.open && !root.contains(event.target)) root.open = false;
+        });
+        applyFilter();
       });
-      list.addEventListener("click", function (event) {
-        if (event.target.closest("a")) root.open = false;
-      });
-      root.addEventListener("keydown", function (event) {
-        if (event.key === "Escape" && root.open) {
-          root.open = false;
-          if (summary) summary.focus();
+    }
+
+    window.shithubInitReadmeOutline = initReadmeOutline;
+    initReadmeOutline(document);
+
+    var overviewTabAbort = null;
+    function isReducedMotion() {
+      return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    function samePageDocumentURL(link) {
+      if (!link || !link.href) return null;
+      var url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return null;
+      if (!url.searchParams.get("tab")) return null;
+      return url;
+    }
+
+    function requestDocumentSwap(url, options) {
+      var current = document.querySelector("[data-repo-overview-document]");
+      if (!current) return Promise.reject(new Error("missing current document"));
+      if (overviewTabAbort) overviewTabAbort.abort();
+      var controller = new AbortController();
+      overviewTabAbort = controller;
+      current.classList.add("is-loading");
+      current.setAttribute("aria-busy", "true");
+
+      return fetch(url.pathname + url.search, {
+        credentials: "same-origin",
+        signal: controller.signal,
+        headers: { "X-Requested-With": "fetch" }
+      }).then(function (response) {
+        if (!response.ok) throw new Error("status " + response.status);
+        return response.text();
+      }).then(function (html) {
+        if (overviewTabAbort !== controller || !current.isConnected) return;
+        var parsed = new DOMParser().parseFromString(html, "text/html");
+        var next = parsed.querySelector("[data-repo-overview-document]");
+        if (!next) throw new Error("missing next document");
+
+        var top = current.getBoundingClientRect().top;
+        current.replaceWith(next);
+        var nextTop = next.getBoundingClientRect().top;
+        window.scrollBy(0, nextTop - top);
+        initReadmeOutline(next);
+
+        var activeTab = next.querySelector("[data-repo-overview-tab][aria-current='page']");
+        if (activeTab) activeTab.focus({ preventScroll: true });
+
+        if (options && options.push) {
+          history.pushState({ shithubRepoOverviewTab: true }, "", url.pathname + url.search + (url.hash || "#readme"));
         }
+
+        var rect = next.getBoundingClientRect();
+        if (rect.top < 0 || rect.top > window.innerHeight * 0.72) {
+          next.scrollIntoView({ block: "start", behavior: isReducedMotion() ? "auto" : "smooth" });
+        }
+      }).finally(function () {
+        if (overviewTabAbort === controller) overviewTabAbort = null;
       });
-      document.addEventListener("click", function (event) {
-        if (root.open && !root.contains(event.target)) root.open = false;
+    }
+
+    document.addEventListener("click", function (event) {
+      var link = closestElement(event.target, "[data-repo-overview-tab]");
+      if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var url = samePageDocumentURL(link);
+      if (!url) return;
+      event.preventDefault();
+      if (link.getAttribute("aria-current") === "page") return;
+      requestDocumentSwap(url, { push: true }).catch(function (error) {
+        if (error && error.name === "AbortError") return;
+        window.location.href = url.href;
       });
-      applyFilter();
+    });
+
+    window.addEventListener("popstate", function () {
+      if (!document.querySelector("[data-repo-overview-document]")) return;
+      var url = new URL(window.location.href);
+      requestDocumentSwap(url, { push: false }).catch(function (error) {
+        if (error && error.name === "AbortError") return;
+        window.location.reload();
+      });
     });
   })();
 </script>
