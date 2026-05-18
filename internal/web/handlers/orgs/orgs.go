@@ -626,13 +626,13 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 			Rows: []orgPlanFeatureRow{
 				{
 					Name: "Actions minutes", Description: "Run CI jobs with usage accounting and plan-aware quotas.",
-					Free: "Low quota", Team: "Higher quota planned", Enterprise: "Contact sales", Owner: "SP23",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Partially shipped",
+					Free: "2,000 min/month", Team: "3,000 min/month", Enterprise: "Contact sales", Owner: "SP23",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Shipped",
 				},
 				{
 					Name: "Environment deployment branches and secrets", Description: "Protect deployments with environment-scoped controls.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP23",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Planned",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP23",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Shipped",
 				},
 				{
 					Name: "Repository projects", Description: "Organize issues and pull requests with repository project views.",

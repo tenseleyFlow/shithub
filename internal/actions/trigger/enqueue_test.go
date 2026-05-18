@@ -419,6 +419,60 @@ func TestEnqueue_BlocksOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
 	}
 }
 
+func TestEnqueue_AllowsTeamOrgActionsBeyondFreeMonthlyMinutes(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	activateTeamOrgForEnqueue(t, f, now)
+	seedCompletedActionsMinutes(t, f, now, entitlements.FreeOrgActionsMinutesQuota)
+
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:team-quota-still-open",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if res.QuotaBlocked || res.RunID == 0 || res.Skipped {
+		t.Fatalf("expected Team org run beyond Free quota to enqueue, got %+v", res)
+	}
+}
+
+func TestEnqueue_BlocksTeamOrgActionsWhenMonthlyMinutesExhausted(t *testing.T) {
+	f := setupOrgEnq(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	f.deps.Now = func() time.Time { return now }
+	activateTeamOrgForEnqueue(t, f, now)
+	seedCompletedActionsMinutes(t, f, now, entitlements.TeamOrgActionsMinutesQuota)
+
+	res, err := trigger.Enqueue(ctx, f.deps, trigger.EnqueueParams{
+		RepoID:         f.repoID,
+		WorkflowFile:   ".shithub/workflows/ci.yml",
+		HeadSHA:        strings.Repeat("a", 40),
+		HeadRef:        "refs/heads/trunk",
+		EventKind:      trigger.EventPush,
+		EventPayload:   map[string]any{"ref": "refs/heads/trunk"},
+		ActorUserID:    f.userID,
+		TriggerEventID: "push:team-quota-exhausted",
+		Workflow:       fixtureWorkflow(t),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if !res.QuotaBlocked || res.RunID == 0 {
+		t.Fatalf("expected Team quota-blocked run, got %+v", res)
+	}
+}
+
 func TestEnqueue_AllowsOrgActionsWithMinutesOverride(t *testing.T) {
 	f := setupOrgEnq(t)
 	ctx := context.Background()
@@ -450,6 +504,23 @@ func TestEnqueue_AllowsOrgActionsWithMinutesOverride(t *testing.T) {
 	}
 	if res.RunID == 0 || res.Skipped {
 		t.Fatalf("expected enqueued run, got %+v", res)
+	}
+}
+
+func activateTeamOrgForEnqueue(t *testing.T, f enqFx, now time.Time) {
+	t.Helper()
+	if _, err := billing.ApplySubscriptionSnapshot(context.Background(), billing.Deps{Pool: f.pool}, billing.SubscriptionSnapshot{
+		OrgID:                    f.orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     fmt.Sprintf("sub_team_%d", f.orgID),
+		StripeSubscriptionItemID: fmt.Sprintf("si_team_%d", f.orgID),
+		LicensedSeats:            1,
+		CurrentPeriodStart:       now.Add(-24 * time.Hour),
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       fmt.Sprintf("evt_team_%d", f.orgID),
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
 }
 
