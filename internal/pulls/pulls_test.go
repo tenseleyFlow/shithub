@@ -212,6 +212,41 @@ func TestCreate_OpensPRWithIssueRow(t *testing.T) {
 	}
 }
 
+// S64: Create enqueues a pr:mergeability job so the new PR's
+// mergeable_state moves off `unknown` without waiting for a human to
+// open the HTML review screen. The earlier "review-handler-only" wiring
+// left CLI-driven PRs stuck on `unknown` forever — A17/A20 audit.
+func TestCreate_EnqueuesMergeabilityJob(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+
+	res, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID:       f.repoID,
+		AuthorUserID: f.userID,
+		Title:        "Add foo",
+		BaseRef:      "trunk",
+		HeadRef:      "feature",
+		GitDir:       f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var n int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM jobs
+		   WHERE kind = 'pr:mergeability'
+		     AND (payload->>'pr_id')::bigint = $1`,
+		res.PullRequest.IssueID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count jobs: %v", err)
+	}
+	if n < 1 {
+		t.Errorf("expected at least one pr:mergeability job for PR %d, got %d", res.PullRequest.IssueID, n)
+	}
+}
+
 func TestCreate_RequestsCodeOwners(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
