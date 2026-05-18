@@ -614,13 +614,17 @@ func (h *Handlers) pullCheckGroups(ctx context.Context, owner, repoName string, 
 			detailsHref := sameRepoLocalDetailsHref(owner, repoName, run.DetailsUrl)
 			rerunHref, isActionsRun := localActionsRunRerunHref(owner, repoName, run.DetailsUrl)
 			isShithubActions := suite.AppSlug == "shithub-actions"
+			canRerunRun := canRerun && isShithubActions && isActionsRun && run.Status == checksdb.CheckStatusCompleted
+			if !canRerunRun {
+				rerunHref = ""
+			}
 			rs = append(rs, pullCheckRunView{
 				R:           run,
 				SummaryHTML: renderCheckSummary(run.Output),
 				AppSlug:     suite.AppSlug,
 				DetailsHref: detailsHref,
 				RerunHref:   rerunHref,
-				CanRerun:    canRerun && isShithubActions && isActionsRun && run.Status == checksdb.CheckStatusCompleted,
+				CanRerun:    canRerunRun,
 				StateClass:  pullCheckRunStateClass(run),
 				StateIcon:   pullCheckRunStateIcon(run),
 			})

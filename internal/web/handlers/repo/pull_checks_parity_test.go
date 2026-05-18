@@ -243,10 +243,11 @@ func (f *repoFixture) requireChecks(t *testing.T, repoID int64, branch string, n
 	ctx := context.Background()
 	q := reposdb.New()
 	ruleID, err := q.UpsertBranchProtectionRule(ctx, f.pool, reposdb.UpsertBranchProtectionRuleParams{
-		RepoID:          repoID,
-		Pattern:         branch,
-		Target:          "branch",
-		CreatedByUserID: pgtype.Int8{Int64: f.owner.ID, Valid: true},
+		RepoID:               repoID,
+		Pattern:              branch,
+		Target:               "branch",
+		AllowedPusherUserIds: []int64{},
+		CreatedByUserID:      pgtype.Int8{Int64: f.owner.ID, Valid: true},
 	})
 	if err != nil {
 		t.Fatalf("UpsertBranchProtectionRule: %v", err)
