@@ -248,6 +248,91 @@ func TestNew_AcceptsRefsResolvedByPartials(t *testing.T) {
 	}
 }
 
+// CX1: when a caller passes an empty message to HTTPError (the dominant
+// pattern at 404 sites — `HTTPError(w, r, 404, "")`), the renderer falls
+// back to the request path so the rendered "page `<X>` doesn't exist"
+// message names the URL the user tried to reach. The pre-fix behavior
+// rendered "page “ doesn't exist", a dead-end for users redirected to
+// a deleted repo after login.
+func TestHTTPError_EmptyMessageFallsBackToRequestPath(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}{{ template "body" . }}{{ end }}`,
+		)},
+		"errors/404.html": &fstest.MapFile{Data: []byte(
+			`{{ define "body" }}missing: {{ .Message }}{{ end }}`,
+		)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/octocat/hello-world", nil)
+	rw := httptest.NewRecorder()
+	r.HTTPError(rw, req, 404, "")
+	if !strings.Contains(rw.Body.String(), "missing: /octocat/hello-world") {
+		t.Errorf("empty message should fall back to req.URL.Path; body=%q", rw.Body.String())
+	}
+}
+
+// HTTPError must not leak query strings into the rendered page — they
+// can carry session tokens (e.g. ?return_to=...&token=...). Only the
+// path falls back.
+func TestHTTPError_FallbackOmitsQueryString(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}{{ template "body" . }}{{ end }}`,
+		)},
+		"errors/404.html": &fstest.MapFile{Data: []byte(
+			`{{ define "body" }}missing: {{ .Message }}{{ end }}`,
+		)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/octocat/hello-world?token=secret", nil)
+	rw := httptest.NewRecorder()
+	r.HTTPError(rw, req, 404, "")
+	body := rw.Body.String()
+	if !strings.Contains(body, "/octocat/hello-world") {
+		t.Errorf("path missing from fallback; body=%q", body)
+	}
+	if strings.Contains(body, "secret") || strings.Contains(body, "token=") {
+		t.Errorf("query string leaked into rendered page; body=%q", body)
+	}
+}
+
+// Explicit non-empty messages are preserved verbatim — the fallback
+// only triggers when the caller didn't supply one.
+func TestHTTPError_ExplicitMessageWins(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"_layout.html": &fstest.MapFile{Data: []byte(
+			`{{ define "layout" }}{{ template "body" . }}{{ end }}`,
+		)},
+		"errors/404.html": &fstest.MapFile{Data: []byte(
+			`{{ define "body" }}missing: {{ .Message }}{{ end }}`,
+		)},
+	}
+	r, err := New(fsys, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/some/path", nil)
+	rw := httptest.NewRecorder()
+	r.HTTPError(rw, req, 404, "custom message")
+	body := rw.Body.String()
+	if !strings.Contains(body, "missing: custom message") {
+		t.Errorf("explicit message not rendered; body=%q", body)
+	}
+	if strings.Contains(body, "/some/path") {
+		t.Errorf("explicit message should suppress path fallback; body=%q", body)
+	}
+}
+
 // RenderPage preserves any Viewer / CSRFToken the handler set itself,
 // rather than overwriting them. The auto-inject is for handlers that
 // hand RenderPage an empty map; explicit handlers stay in control.
