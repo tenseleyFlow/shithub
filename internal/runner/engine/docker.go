@@ -300,7 +300,15 @@ func (d *Docker) executeCheckout(ctx context.Context, job Job, step Step) error 
 	fetchArgs = append(fetchArgs, depthArgs...)
 	fetchArgs = append(fetchArgs, "origin", fetchTarget)
 	if err := runGit(fetchArgs...); err != nil {
-		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+		if ref, ok := checkoutFallbackRef(job.HeadRef); ok {
+			fmt.Fprintf(out, "Exact SHA fetch failed; fetching %s to resolve queued commit\n", ref)
+			fallbackArgs := []string{"-C", job.WorkspaceDir, "-c", credentialHelper, "fetch", "--no-tags", "origin", ref}
+			if fallbackErr := runGit(fallbackArgs...); fallbackErr != nil {
+				return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), errors.Join(err, fallbackErr)))
+			}
+		} else {
+			return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
+		}
 	}
 	if err := runGit("-C", job.WorkspaceDir, "checkout", "--force", "--detach", headSHA); err != nil {
 		return closeWriter(fmt.Errorf("runner engine: checkout step %q failed: %w", stepLabel(step), err))
@@ -503,6 +511,24 @@ func checkoutDepthArgs(with map[string]string) ([]string, error) {
 		return nil, nil
 	}
 	return []string{"--depth=" + strconv.Itoa(depth)}, nil
+}
+
+func checkoutFallbackRef(headRef string) (string, bool) {
+	ref := strings.TrimSpace(headRef)
+	switch {
+	case strings.HasPrefix(ref, "refs/heads/"):
+	case strings.HasPrefix(ref, "refs/tags/"):
+	default:
+		return "", false
+	}
+	if strings.Contains(ref, "..") ||
+		strings.Contains(ref, "//") ||
+		strings.HasSuffix(ref, "/") ||
+		strings.HasSuffix(ref, ".lock") ||
+		strings.ContainsAny(ref, " \t\r\n:~^?*[\\") {
+		return "", false
+	}
+	return ref, true
 }
 
 func shortObjectID(oid string) string {

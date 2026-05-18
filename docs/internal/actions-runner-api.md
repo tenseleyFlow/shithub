@@ -78,7 +78,11 @@ Git smart HTTP performs multiple Basic-authenticated requests during one
 checkout. The git HTTP handler accepts it only for `git-upload-pack`, only
 for the claimed repository, and only while the database still shows that
 the claimed runner is running the job. It is never accepted for pushes or
-runner API endpoints.
+runner API endpoints. The runner first fetches the exact workflow
+`head_sha`; if the server rejects that object as unadvertised, the runner
+falls back to fetching the safe `refs/heads/*` or `refs/tags/*` `head_ref`
+without a shallow depth and still verifies that `git rev-parse HEAD` equals
+the expected `head_sha` before running any later step.
 
 ## Endpoints
 

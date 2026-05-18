@@ -581,7 +581,8 @@ func TestDockerExecute_RejectsUnsupportedUses(t *testing.T) {
 }
 
 type checkoutRunner struct {
-	calls []checkoutCall
+	calls           []checkoutCall
+	failFetchTarget string
 }
 
 type checkoutCall struct {
@@ -596,6 +597,9 @@ func (r *checkoutRunner) Run(_ context.Context, name string, args []string, env 
 		args: append([]string{}, args...),
 		env:  append([]string{}, env...),
 	})
+	if r.failFetchTarget != "" && len(args) >= 2 && args[len(args)-2] == "origin" && args[len(args)-1] == r.failFetchTarget {
+		return errors.New("server does not allow request for unadvertised object")
+	}
 	if len(args) >= 4 && args[len(args)-2] == "rev-parse" && args[len(args)-1] == "HEAD" {
 		_, _ = stdout.Write([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"))
 	}
@@ -663,10 +667,69 @@ func TestDockerExecute_CheckoutUsesScopedCredentialAndVerifiesHead(t *testing.T)
 	}
 }
 
+func TestDockerExecute_CheckoutFallsBackToHeadRefWhenExactSHAIsUnadvertised(t *testing.T) {
+	t.Parallel()
+	rec := &checkoutRunner{failFetchTarget: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	d := NewDocker(DockerConfig{
+		GitBinary:     "git-test",
+		DefaultImage:  "runner-image",
+		Network:       "bridge",
+		Memory:        "2g",
+		CPUs:          "2",
+		LogChunkBytes: 1024,
+		Runner:        rec,
+	})
+	out, err := d.Execute(t.Context(), Job{
+		ID:            1,
+		RunID:         2,
+		CheckoutURL:   "https://shithub.test/alice/demo.git",
+		CheckoutToken: "checkout-token",
+		HeadSHA:       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadRef:       "refs/heads/trunk",
+		WorkspaceDir:  t.TempDir(),
+		Steps: []Step{{
+			ID:   10,
+			Uses: "actions/checkout@v4",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.Conclusion != ConclusionSuccess {
+		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+	if len(rec.calls) != 6 {
+		t.Fatalf("git calls: got %d want 6: %#v", len(rec.calls), rec.calls)
+	}
+	wantFetch := []string{"-C", rec.calls[2].args[1], "-c", rec.calls[2].args[3], "fetch", "--no-tags", "--depth=1", "origin", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if !reflect.DeepEqual(rec.calls[2].args, wantFetch) {
+		t.Fatalf("exact fetch args:\ngot  %#v\nwant %#v", rec.calls[2].args, wantFetch)
+	}
+	wantFallback := []string{"-C", rec.calls[3].args[1], "-c", rec.calls[3].args[3], "fetch", "--no-tags", "origin", "refs/heads/trunk"}
+	if !reflect.DeepEqual(rec.calls[3].args, wantFallback) {
+		t.Fatalf("fallback fetch args:\ngot  %#v\nwant %#v", rec.calls[3].args, wantFallback)
+	}
+}
+
 func TestCheckoutDepthArgsRejectsUnsupportedInputs(t *testing.T) {
 	t.Parallel()
 	if _, err := checkoutDepthArgs(map[string]string{"path": "src"}); err == nil || !strings.Contains(err.Error(), `unsupported checkout input "path"`) {
 		t.Fatalf("checkoutDepthArgs error = %v", err)
+	}
+}
+
+func TestCheckoutFallbackRef(t *testing.T) {
+	t.Parallel()
+	for _, ref := range []string{"refs/heads/trunk", "refs/heads/feature/x", "refs/tags/v1.0.0"} {
+		got, ok := checkoutFallbackRef(ref)
+		if !ok || got != ref {
+			t.Fatalf("checkoutFallbackRef(%q) = %q, %t", ref, got, ok)
+		}
+	}
+	for _, ref := range []string{"", "trunk", "refs/pull/1/head", "refs/heads/../x", "refs/heads/a b", "refs/heads/a:b", "refs/heads/x.lock"} {
+		if got, ok := checkoutFallbackRef(ref); ok {
+			t.Fatalf("checkoutFallbackRef(%q) = %q, true", ref, got)
+		}
 	}
 }
 
