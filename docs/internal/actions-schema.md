@@ -77,7 +77,9 @@ later schema diff:
   plus required-reviewer flags, wait timer, and deployment branch
   policy. Runner claim enforces selected-branch and protected-branch
   deployment policies, wait timers, and required-reviewer holds before
-  a job can leave `queued`. Required-reviewer approval UI is still a
+  a job can leave `queued`. Repository settings expose environment
+  create/update/delete, selected deployment patterns, wait timers, and
+  environment secrets. Required-reviewer approval controls are still a
   follow-up SP23 surface; until then, a manually enabled reviewer gate
   intentionally keeps matching deployment jobs queued.
 - **`workflow_step_log_chunks.chunk`** is capped at 512 KB per row.
@@ -663,6 +665,13 @@ role minimum):
 - `GET /{owner}/{repo}/settings/variables/actions`
 - `POST /{owner}/{repo}/settings/variables/actions`
 - `POST /{owner}/{repo}/settings/variables/actions/{name}/delete`
+- `GET /{owner}/{repo}/settings/environments`
+- `POST /{owner}/{repo}/settings/environments`
+- `GET /{owner}/{repo}/settings/environments/{environment}`
+- `POST /{owner}/{repo}/settings/environments/{environment}`
+- `POST /{owner}/{repo}/settings/environments/{environment}/delete`
+- `POST /{owner}/{repo}/settings/environments/{environment}/secrets`
+- `POST /{owner}/{repo}/settings/environments/{environment}/secrets/{name}/delete`
 
 Organization routes follow the existing org-settings prefix and are
 owner-only:
@@ -689,7 +698,11 @@ job receives those rows only when its parsed `environment` name matches
 a configured `repo_environments` row for the repository. Resolution
 order is org/user → repo → environment, so environment secrets shadow
 broader scopes for deploy-only credentials. Pull request runs still get
-no secrets from any scope.
+no secrets from any scope. The repository settings surface can create,
+edit, and delete environments, configure selected deployment branch/tag
+patterns and wait timers, and rotate/delete environment secrets. It
+does not yet expose required-reviewer approval controls; those are the
+remaining SP23 environment-settings gap.
 
 ## What S41a deliberately doesn't do
 

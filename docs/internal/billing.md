@@ -101,8 +101,8 @@ Rules for paid-org copy:
 | Multiple issue/PR assignees on private org repos | Upgrade | Included | Contact sales |
 | Org-level Actions secrets | Upgrade | Included | Contact sales |
 | Org-level Actions variables | Upgrade | Included | Contact sales |
-| Environment-scoped Actions secrets | Runner substrate shipped; settings UI/API pending | Runner substrate shipped; settings UI/API pending | Contact sales |
-| Environment protection rules and deployment branches | Upgrade on private org repos once settings UI ships | Branch policy and wait timers enforced at runner claim; approval UI pending | Contact sales |
+| Environment-scoped Actions secrets | Upgrade on private org repos | Settings UI and runner injection included; public REST pending | Contact sales |
+| Environment protection rules and deployment branches | Upgrade on private org repos | Branch policy and wait timers configurable and enforced; reviewer approval UI pending | Contact sales |
 | Actions minutes | Low quota once metered | Higher quota once metered | Contact sales |
 | Actions artifacts/storage | Low quota once metered | Higher quota once metered | Contact sales |
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
