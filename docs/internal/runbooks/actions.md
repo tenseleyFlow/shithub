@@ -259,6 +259,11 @@ active container, and reports terminal `cancelled`.
   with matching labels and capacity. Unsupported hosted labels such as
   `windows-latest` and `macos-latest` intentionally remain queued until an
   operator registers matching runners.
+- **Actions usage looks too high:** compare raw job wall-clock runtime with
+  timeout-capped runtime. Billing and usage metrics cap completed/cancelled job
+  runtime at `workflow_jobs.timeout_minutes`; a larger raw
+  `completed_at - started_at` gap usually means a stale running row was
+  cancelled later than the container actually stopped.
 - **Step logs buffer:** verify the Caddy route above and confirm the SSE route
   is still mounted outside compression and short timeouts.
 - **`actions/checkout@v4` fails:** confirm the job is still running, the repo
