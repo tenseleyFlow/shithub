@@ -388,6 +388,9 @@ func seedCompletedActionsMinutes(t *testing.T, f enqFx, completedAt time.Time, m
 		t.Fatalf("claimed seed job id=%d, want %d", claimed.ID, jobs[0].ID)
 	}
 	startedAt := completedAt.Add(-time.Duration(minutes) * time.Minute)
+	if _, err := f.pool.Exec(ctx, `UPDATE workflow_jobs SET timeout_minutes = $2 WHERE id = $1`, jobs[0].ID, minutes); err != nil {
+		t.Fatalf("set seed timeout_minutes: %v", err)
+	}
 	if _, err := q.UpdateWorkflowJobStatus(ctx, f.pool, actionsdb.UpdateWorkflowJobStatusParams{
 		ID:     jobs[0].ID,
 		Status: actionsdb.WorkflowJobStatusCompleted,

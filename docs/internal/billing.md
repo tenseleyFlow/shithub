@@ -351,7 +351,9 @@ PAYMENTS SP08 starts hosted-cost metering:
   durable.
 - Actions minutes are counted from completed or canceled workflow job
   runtime, rounded up to the next whole minute, within the current
-  monthly usage period.
+  monthly usage period. Metered runtime is capped at the job's declared
+  `timeout_minutes` so stale terminal rows cannot bill past the maximum
+  execution time the runner was allowed to consume.
 - `org_usage_counters` stores the current projection,
   `org_usage_snapshots` records audit snapshots, and
   `org_quota_overrides` lets site admins temporarily override a quota

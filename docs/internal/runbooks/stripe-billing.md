@@ -382,7 +382,14 @@ Use this when `BillingQuotaOverage` fires.
 
 1. Open the org billing settings page as a site admin. The Usage panel
    shows storage and Actions minutes against the effective limits.
-2. If counters look stale, run `org:usage_recalc` for that org.
+2. If counters look stale, run `org:usage_recalc` for that org:
+
+   ```sh
+   shithubd admin run-job org:usage_recalc '{"org_id":1,"source":"support-recalc"}'
+   ```
+
+   Replace `org_id` with the affected organization id and use a source label
+   that names the incident or support case.
 3. If the overage is legitimate, ask the org owner to upgrade or reduce
    usage. For support incidents, add a temporary quota override in the
    site-admin debug panel; it is attributed to the operator.
