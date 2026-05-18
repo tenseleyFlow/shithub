@@ -619,6 +619,11 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP19",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md", State: "Shipped",
 				},
+				{
+					Name: "Repository insights", Description: "Analyze Pulse, contributors, commits, code frequency, and fork network data.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP24",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP24-repository-insights-suite.md", State: "Partially shipped",
+				},
 			},
 		},
 		{
