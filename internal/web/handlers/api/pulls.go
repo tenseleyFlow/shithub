@@ -578,6 +578,12 @@ type pullPatchRequest struct {
 	Body  *string `json:"body,omitempty"`
 	State *string `json:"state,omitempty"`
 	Draft *bool   `json:"draft,omitempty"`
+	// G7 (F27): gh-compat `base` ref change. Pre-fix the struct didn't
+	// carry this field and JSON decode silently dropped it — every
+	// `pr edit --base feature` reported success but kept the old
+	// base. Now persisted (with same-as-head guard + git-side ref
+	// existence check) via pulls.SetBase.
+	Base *string `json:"base,omitempty"`
 }
 
 func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
@@ -663,6 +669,33 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := pulls.SetState(r.Context(), pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}, gitDir, auth.UserID, issue.ID, newState); err != nil {
+			writePullsError(w, err)
+			return
+		}
+	}
+
+	// G7 (F27): `pr edit --base <ref>`. Author or repo-write
+	// collaborator can rebase the PR onto a new base; mergeability
+	// recomputes against the new base on the next worker tick. The
+	// orchestrator validates ref existence + same-as-head.
+	if body.Base != nil {
+		canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
+		if !canEdit {
+			canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow
+		}
+		if !canEdit {
+			writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may change the base")
+			return
+		}
+		gitDir, err := h.repoGitDir(r.Context(), &repo)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "base change failed")
+			return
+		}
+		if _, err := pulls.SetBase(r.Context(),
+			pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit},
+			gitDir, auth.UserID, issue.ID, pr.HeadRef, *body.Base); err != nil {
 			writePullsError(w, err)
 			return
 		}
