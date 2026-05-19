@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -55,6 +59,15 @@ type repoSecurityAdvisoryView struct {
 	Row                 reposdb.RepoSecurityAdvisory
 	ReferenceURLs       []string
 	RenderedDescription template.HTML
+}
+
+type repoSecurityAdvisoryCollaboratorView struct {
+	Kind        string
+	UserID      int64
+	TeamID      int64
+	Name        string
+	DisplayName string
+	Role        string
 }
 
 func (h *Handlers) repoSecurityAdvisories(w http.ResponseWriter, r *http.Request) {
@@ -152,26 +165,29 @@ func (h *Handlers) repoSecurityAdvisoryCreate(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handlers) repoSecurityAdvisoryDetail(w http.ResponseWriter, r *http.Request) {
-	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoRead)
+	row, owner, advisory, ok := h.loadRepoSecurityAdvisoryForDisclosure(w, r)
 	if !ok {
 		return
 	}
-	advisory, ok := h.loadRepoSecurityAdvisory(w, r, row.ID)
-	if !ok {
-		return
-	}
+	h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "")
+}
+
+func (h *Handlers) renderSecurityAdvisoryDetail(w http.ResponseWriter, r *http.Request, row reposdb.Repo, ownerSlug string, advisory reposdb.RepoSecurityAdvisory, errMsg string) {
 	canManage := h.canManageRepoSecurityAdvisories(r.Context(), row, middleware.CurrentUserFromContext(r.Context()))
-	if advisory.State != "published" && !canManage {
-		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
-		return
-	}
 	events, _ := h.rq.ListRepoSecurityAdvisoryEvents(r.Context(), h.d.Pool, advisory.ID)
-	data := h.repoHeaderData(r, row, owner.Username, "security")
+	collaborators, err := h.rq.ListRepoSecurityAdvisoryCollaborators(r.Context(), h.d.Pool, advisory.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "security-advisory: list collaborators", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
+		collaborators = nil
+	}
+	data := h.repoHeaderData(r, row, ownerSlug, "security")
 	data["Title"] = advisory.Identifier + " · " + row.Name
-	data["Advisory"] = h.repoSecurityAdvisoryView(r.Context(), row, owner.Username, advisory)
+	data["Advisory"] = h.repoSecurityAdvisoryView(r.Context(), row, ownerSlug, advisory)
 	data["Events"] = events
+	data["Collaborators"] = repoSecurityAdvisoryCollaboratorViews(collaborators)
 	data["CanManageAdvisories"] = canManage
-	data["WriteGate"] = h.repoSecurityAdvisoryGate(r.Context(), row, owner.Username)
+	data["WriteGate"] = h.repoSecurityAdvisoryGate(r.Context(), row, ownerSlug)
+	data["Error"] = errMsg
 	if err := h.d.Render.RenderPage(w, r, "repo/security_advisory_detail", data); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "security-advisory detail render", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
 	}
@@ -341,6 +357,111 @@ func (h *Handlers) repoSecurityAdvisoryState(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, repoSecurityAdvisoryPath(owner.Username, row.Name, updated.Identifier), http.StatusSeeOther)
 }
 
+func (h *Handlers) repoSecurityAdvisoryCollaboratorAdd(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	advisory, ok := h.loadRepoSecurityAdvisory(w, r, row.ID)
+	if !ok {
+		return
+	}
+	gate := h.repoSecurityAdvisoryGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		http.Redirect(w, r, repoSecurityAdvisoryPath(owner.Username, row.Name, advisory.Identifier), http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Could not parse collaborator form.")
+		return
+	}
+	rawSubject := strings.TrimSpace(r.PostFormValue("collaborator"))
+	role := normalizeRepoSecurityAdvisoryCollaboratorRole(r.PostFormValue("role"))
+	viewer := middleware.CurrentUserFromContext(r.Context())
+
+	eventMessage, err := h.addRepoSecurityAdvisoryCollaborator(r.Context(), row, advisory, rawSubject, role, viewer.ID)
+	if err != nil {
+		h.d.Logger.WarnContext(r.Context(), "security-advisory: add collaborator", "repo_id", row.ID, "advisory_id", advisory.ID, "subject", rawSubject, "error", err)
+		h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, err.Error())
+		return
+	}
+	if _, err := h.rq.CreateRepoSecurityAdvisoryEvent(r.Context(), h.d.Pool, reposdb.CreateRepoSecurityAdvisoryEventParams{
+		AdvisoryID: advisory.ID,
+		RepoID:     row.ID,
+		EventType:  "collaborator_added",
+		NewState:   advisory.State,
+		Message:    eventMessage,
+		ActorID:    pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+	}); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "security-advisory: collaborator add event", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
+	}
+	http.Redirect(w, r, repoSecurityAdvisoryPath(owner.Username, row.Name, advisory.Identifier), http.StatusSeeOther)
+}
+
+func (h *Handlers) repoSecurityAdvisoryCollaboratorRemove(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	advisory, ok := h.loadRepoSecurityAdvisory(w, r, row.ID)
+	if !ok {
+		return
+	}
+	gate := h.repoSecurityAdvisoryGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		http.Redirect(w, r, repoSecurityAdvisoryPath(owner.Username, row.Name, advisory.Identifier), http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Could not parse collaborator form.")
+		return
+	}
+	kind := strings.TrimSpace(r.PostFormValue("subject_type"))
+	id, err := strconv.ParseInt(strings.TrimSpace(r.PostFormValue("subject_id")), 10, 64)
+	if err != nil || id <= 0 {
+		h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Choose a collaborator to remove.")
+		return
+	}
+	message := ""
+	switch kind {
+	case "user":
+		if err := h.rq.RemoveRepoSecurityAdvisoryUserCollaborator(r.Context(), h.d.Pool, reposdb.RemoveRepoSecurityAdvisoryUserCollaboratorParams{
+			AdvisoryID: advisory.ID,
+			UserID:     pgtype.Int8{Int64: id, Valid: true},
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "security-advisory: remove user collaborator", "repo_id", row.ID, "advisory_id", advisory.ID, "user_id", id, "error", err)
+			h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Could not remove collaborator.")
+			return
+		}
+		message = "Removed user collaborator."
+	case "team":
+		if err := h.rq.RemoveRepoSecurityAdvisoryTeamCollaborator(r.Context(), h.d.Pool, reposdb.RemoveRepoSecurityAdvisoryTeamCollaboratorParams{
+			AdvisoryID: advisory.ID,
+			TeamID:     pgtype.Int8{Int64: id, Valid: true},
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "security-advisory: remove team collaborator", "repo_id", row.ID, "advisory_id", advisory.ID, "team_id", id, "error", err)
+			h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Could not remove collaborator.")
+			return
+		}
+		message = "Removed team collaborator."
+	default:
+		h.renderSecurityAdvisoryDetail(w, r, row, owner.Username, advisory, "Choose a collaborator to remove.")
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if _, err := h.rq.CreateRepoSecurityAdvisoryEvent(r.Context(), h.d.Pool, reposdb.CreateRepoSecurityAdvisoryEventParams{
+		AdvisoryID: advisory.ID,
+		RepoID:     row.ID,
+		EventType:  "collaborator_removed",
+		NewState:   advisory.State,
+		Message:    message,
+		ActorID:    pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+	}); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "security-advisory: collaborator remove event", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
+	}
+	http.Redirect(w, r, repoSecurityAdvisoryPath(owner.Username, row.Name, advisory.Identifier), http.StatusSeeOther)
+}
+
 func (h *Handlers) renderSecurityAdvisoriesPage(w http.ResponseWriter, r *http.Request, row reposdb.Repo, ownerSlug, errMsg, successMsg string) {
 	advisories, err := h.rq.ListRepoSecurityAdvisories(r.Context(), h.d.Pool, row.ID)
 	if err != nil {
@@ -348,11 +469,12 @@ func (h *Handlers) renderSecurityAdvisoriesPage(w http.ResponseWriter, r *http.R
 		advisories = nil
 	}
 	canManage := h.canManageRepoSecurityAdvisories(r.Context(), row, middleware.CurrentUserFromContext(r.Context()))
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	stateFilter := normalizeRepoSecurityAdvisoryStateFilter(r.URL.Query().Get("state"))
 	views := make([]repoSecurityAdvisoryView, 0, len(advisories))
 	stateCounts := map[string]int{"draft": 0, "published": 0, "withdrawn": 0, "archived": 0}
 	for _, advisory := range advisories {
-		if advisory.State != "published" && !canManage {
+		if advisory.State != "published" && !canManage && !h.userCanAccessRepoSecurityAdvisory(r.Context(), advisory.ID, viewer.ID) {
 			continue
 		}
 		stateCounts[advisory.State]++
@@ -420,6 +542,86 @@ func (h *Handlers) loadRepoSecurityAdvisory(w http.ResponseWriter, r *http.Reque
 	return advisory, true
 }
 
+func (h *Handlers) loadRepoSecurityAdvisoryForDisclosure(w http.ResponseWriter, r *http.Request) (reposdb.Repo, usersdb.User, reposdb.RepoSecurityAdvisory, bool) {
+	row, owner, ok := h.loadRepoByRoute(w, r)
+	if !ok {
+		return reposdb.Repo{}, usersdb.User{}, reposdb.RepoSecurityAdvisory{}, false
+	}
+	advisory, ok := h.loadRepoSecurityAdvisory(w, r, row.ID)
+	if !ok {
+		return reposdb.Repo{}, usersdb.User{}, reposdb.RepoSecurityAdvisory{}, false
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	actor := viewer.PolicyActor()
+	repoRef := policy.NewRepoRefFromRepo(row)
+	readDecision := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoRead, repoRef)
+	advisoryCollaborator := h.userCanAccessRepoSecurityAdvisory(r.Context(), advisory.ID, viewer.ID)
+	if !readDecision.Allow && !advisoryCollaborator {
+		h.d.Render.HTTPError(w, r, policy.Maybe404(readDecision, repoRef, actor), "")
+		return reposdb.Repo{}, usersdb.User{}, reposdb.RepoSecurityAdvisory{}, false
+	}
+	if advisory.State != "published" && !h.canManageRepoSecurityAdvisories(r.Context(), row, viewer) && !advisoryCollaborator {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return reposdb.Repo{}, usersdb.User{}, reposdb.RepoSecurityAdvisory{}, false
+	}
+	return row, owner, advisory, true
+}
+
+func (h *Handlers) loadRepoByRoute(w http.ResponseWriter, r *http.Request) (reposdb.Repo, usersdb.User, bool) {
+	ownerName := chi.URLParam(r, "owner")
+	repoName := chi.URLParam(r, "repo")
+	principal, err := orgs.Resolve(r.Context(), h.d.Pool, ownerName)
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return reposdb.Repo{}, usersdb.User{}, false
+	}
+	var (
+		row   reposdb.Repo
+		owner usersdb.User
+	)
+	switch principal.Kind {
+	case orgs.PrincipalUser:
+		owner, err = h.uq.GetUserByID(r.Context(), h.d.Pool, principal.ID)
+		if err != nil {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+			return reposdb.Repo{}, usersdb.User{}, false
+		}
+		row, err = h.rq.GetRepoByOwnerUserAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerUserAndNameParams{
+			OwnerUserID: pgtype.Int8{Int64: owner.ID, Valid: true},
+			Name:        repoName,
+		})
+	case orgs.PrincipalOrg:
+		row, err = h.rq.GetRepoByOwnerOrgAndName(r.Context(), h.d.Pool, reposdb.GetRepoByOwnerOrgAndNameParams{
+			OwnerOrgID: pgtype.Int8{Int64: principal.ID, Valid: true},
+			Name:       repoName,
+		})
+		owner = usersdb.User{ID: principal.ID, Username: principal.Slug}
+	default:
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return reposdb.Repo{}, usersdb.User{}, false
+	}
+	if err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return reposdb.Repo{}, usersdb.User{}, false
+	}
+	return row, owner, true
+}
+
+func (h *Handlers) userCanAccessRepoSecurityAdvisory(ctx context.Context, advisoryID int64, userID int64) bool {
+	if advisoryID == 0 || userID == 0 {
+		return false
+	}
+	ok, err := h.rq.UserCanAccessRepoSecurityAdvisory(ctx, h.d.Pool, reposdb.UserCanAccessRepoSecurityAdvisoryParams{
+		AdvisoryID: advisoryID,
+		UserID:     pgtype.Int8{Int64: userID, Valid: true},
+	})
+	if err != nil {
+		h.d.Logger.WarnContext(ctx, "security-advisory: collaborator access check", "advisory_id", advisoryID, "user_id", userID, "error", err)
+		return false
+	}
+	return ok
+}
+
 func (h *Handlers) repoSecurityAdvisoryView(ctx context.Context, row reposdb.Repo, ownerSlug string, advisory reposdb.RepoSecurityAdvisory) repoSecurityAdvisoryView {
 	viewer := middleware.CurrentUserFromContext(ctx)
 	rendered, _, _, err := mdrender.Render(ctx, []byte(advisory.Description), mdrender.Options{
@@ -439,6 +641,99 @@ func (h *Handlers) repoSecurityAdvisoryView(ctx context.Context, row reposdb.Rep
 		ReferenceURLs:       repoSecurityAdvisoryReferenceURLs(advisory.ReferenceUrls),
 		RenderedDescription: template.HTML(rendered), //nolint:gosec // sanitized by internal/markdown Render.
 	}
+}
+
+func (h *Handlers) addRepoSecurityAdvisoryCollaborator(ctx context.Context, row reposdb.Repo, advisory reposdb.RepoSecurityAdvisory, rawSubject, role string, actorID int64) (string, error) {
+	subject := normalizeRepoSecurityAdvisoryCollaboratorSubject(rawSubject)
+	if subject == "" {
+		return "", errors.New("enter a username or team slug")
+	}
+	if role == "" {
+		role = "read"
+	}
+	addedBy := pgtype.Int8{Int64: actorID, Valid: actorID != 0}
+	if strings.HasPrefix(subject, "team:") {
+		if !row.OwnerOrgID.Valid {
+			return "", errors.New("team collaborators require an organization-owned repository")
+		}
+		teamSlug := strings.TrimPrefix(subject, "team:")
+		team, err := orgsdb.New().GetTeamByOrgAndSlug(ctx, h.d.Pool, orgsdb.GetTeamByOrgAndSlugParams{
+			OrgID: row.OwnerOrgID.Int64,
+			Slug:  teamSlug,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", errors.New("team collaborator not found")
+			}
+			return "", err
+		}
+		if _, err := h.rq.AddRepoSecurityAdvisoryTeamCollaborator(ctx, h.d.Pool, reposdb.AddRepoSecurityAdvisoryTeamCollaboratorParams{
+			AdvisoryID: advisory.ID,
+			TeamID:     pgtype.Int8{Int64: team.ID, Valid: true},
+			Role:       role,
+			AddedBy:    addedBy,
+		}); err != nil {
+			return "", err
+		}
+		return "Added team " + team.Slug + " as " + role + " collaborator.", nil
+	}
+	user, err := h.uq.GetUserByUsername(ctx, h.d.Pool, subject)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && row.OwnerOrgID.Valid {
+			team, teamErr := orgsdb.New().GetTeamByOrgAndSlug(ctx, h.d.Pool, orgsdb.GetTeamByOrgAndSlugParams{
+				OrgID: row.OwnerOrgID.Int64,
+				Slug:  subject,
+			})
+			if teamErr == nil {
+				if _, err := h.rq.AddRepoSecurityAdvisoryTeamCollaborator(ctx, h.d.Pool, reposdb.AddRepoSecurityAdvisoryTeamCollaboratorParams{
+					AdvisoryID: advisory.ID,
+					TeamID:     pgtype.Int8{Int64: team.ID, Valid: true},
+					Role:       role,
+					AddedBy:    addedBy,
+				}); err != nil {
+					return "", err
+				}
+				return "Added team " + team.Slug + " as " + role + " collaborator.", nil
+			}
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errors.New("collaborator not found")
+		}
+		return "", err
+	}
+	if row.OwnerUserID.Valid && row.OwnerUserID.Int64 == user.ID {
+		return "", errors.New("the repository owner already has advisory access")
+	}
+	if _, err := h.rq.AddRepoSecurityAdvisoryUserCollaborator(ctx, h.d.Pool, reposdb.AddRepoSecurityAdvisoryUserCollaboratorParams{
+		AdvisoryID: advisory.ID,
+		UserID:     pgtype.Int8{Int64: user.ID, Valid: true},
+		Role:       role,
+		AddedBy:    addedBy,
+	}); err != nil {
+		return "", err
+	}
+	return "Added " + user.Username + " as " + role + " collaborator.", nil
+}
+
+func repoSecurityAdvisoryCollaboratorViews(rows []reposdb.ListRepoSecurityAdvisoryCollaboratorsRow) []repoSecurityAdvisoryCollaboratorView {
+	views := make([]repoSecurityAdvisoryCollaboratorView, 0, len(rows))
+	for _, row := range rows {
+		view := repoSecurityAdvisoryCollaboratorView{Role: row.Role}
+		if row.UserID.Valid {
+			view.Kind = "user"
+			view.UserID = row.UserID.Int64
+			view.Name = row.Username.String
+		} else if row.TeamID.Valid {
+			view.Kind = "team"
+			view.TeamID = row.TeamID.Int64
+			view.Name = row.TeamSlug.String
+			view.DisplayName = row.TeamDisplayName.String
+		}
+		if view.Name != "" {
+			views = append(views, view)
+		}
+	}
+	return views
 }
 
 func (h *Handlers) repoSecurityAdvisoryGate(ctx context.Context, row reposdb.Repo, ownerSlug string) repoSecurityAdvisoryGate {
@@ -593,6 +888,28 @@ func repoSecurityAdvisoryPath(owner, repoName, identifier string) string {
 
 func repoSecurityAdvisoryDependencySource(repoID int64) string {
 	return fmt.Sprintf("repo-security-advisory:%d", repoID)
+}
+
+func normalizeRepoSecurityAdvisoryCollaboratorRole(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "write", "admin":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "read"
+	}
+}
+
+func normalizeRepoSecurityAdvisoryCollaboratorSubject(raw string) string {
+	subject := strings.ToLower(strings.TrimSpace(raw))
+	subject = strings.TrimPrefix(subject, "@")
+	subject = strings.TrimPrefix(subject, "/")
+	if strings.HasPrefix(subject, "teams/") {
+		return "team:" + strings.TrimPrefix(subject, "teams/")
+	}
+	if strings.HasPrefix(subject, "team/") {
+		return "team:" + strings.TrimPrefix(subject, "team/")
+	}
+	return subject
 }
 
 func normalizeRepoSecurityAdvisorySeverity(raw string) string {
