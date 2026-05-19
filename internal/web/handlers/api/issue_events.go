@@ -52,7 +52,7 @@ func (h *Handlers) issueEventsList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	issue, ok := h.resolveIssueByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
 	if !ok {
 		return
 	}
