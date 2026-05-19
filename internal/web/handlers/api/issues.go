@@ -748,22 +748,23 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	num, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
-	if err != nil {
-		writeAPIError(w, http.StatusNotFound, "issue not found")
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
 		return
 	}
 	q := issuesdb.New()
-	issue, err := q.GetIssueByNumber(r.Context(), h.d.Pool, issuesdb.GetIssueByNumberParams{
-		RepoID: repo.ID, Number: num,
-	})
-	if err != nil || issue.Kind != issuesdb.IssueKindIssue {
-		writeAPIError(w, http.StatusNotFound, "issue not found")
-		return
-	}
 	var body issuePatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// G2 (F26): PRs share the issues table — label/assignee/milestone
+	// edits route through here per gh-compat. But title/body/state on a
+	// PR belong on `PATCH /pulls/{N}`; rejecting here keeps the two
+	// surfaces honest. (Issue rows still allow the full surface.)
+	if issue.Kind == issuesdb.IssueKindPr && (body.Title != nil || body.Body != nil || body.State != nil || body.StateReason != nil) {
+		writeAPIError(w, http.StatusUnprocessableEntity, "title, body, state, and state_reason on pull requests must be edited via PATCH /pulls/{N}")
 		return
 	}
 
@@ -885,7 +886,14 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	resp := presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u,
 		h.assigneeEnvelopesFor(r.Context(), fresh.ID),
 		h.milestoneEnvelopeFor(r.Context(), fresh))
-	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
+	// G2: PR rows ride through this handler for label/assignee/milestone
+	// edits — point their html_url at the /pulls/{N} surface so clients
+	// don't get an issue URL for a PR.
+	if fresh.Kind == issuesdb.IssueKindPr {
+		resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, fresh.Number)
+	} else {
+		resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -896,7 +904,7 @@ func (h *Handlers) issueCommentsList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	issue, ok := h.resolveIssueByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
 	if !ok {
 		return
 	}
@@ -934,7 +942,7 @@ func (h *Handlers) issueCommentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
-	issue, ok := h.resolveIssueByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
 	if !ok {
 		return
 	}
@@ -1084,7 +1092,7 @@ func (h *Handlers) issueLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
-	issue, ok := h.resolveIssueByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
 	if !ok {
 		return
 	}
@@ -1104,7 +1112,7 @@ func (h *Handlers) issueUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
-	issue, ok := h.resolveIssueByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
 	if !ok {
 		return
 	}
@@ -1118,7 +1126,21 @@ func (h *Handlers) issueUnlock(w http.ResponseWriter, r *http.Request) {
 
 // ─── helpers ────────────────────────────────────────────────────────
 
-func (h *Handlers) resolveIssueByNumber(w http.ResponseWriter, r *http.Request, repoID int64, numberRaw string) (issuesdb.Issue, bool) {
+// resolveIssueOrPRByNumber is the variant for sub-routes that live in
+// the gh-compat shared issue/PR namespace: `/issues/{N}/comments`,
+// `/issues/{N}/lock`, `/issues/{N}/events`, and (selectively) the
+// label/assignee/milestone branches of `PATCH /issues/{N}`. PR rows
+// share the `issues` table (kind='pr'), so per-issue queries
+// (comments, lock, events, labels, assignees) work uniformly across
+// both kinds — the only thing the helper drops is the kind gate.
+//
+// G2 (F3/F26/F44): pre-fix the strict `kind == issue` check 404'd PR
+// numbers across the entire shared sub-route surface, breaking
+// `pr comment`, `pr edit --add-label/--add-assignee`, and `pr lock`
+// end-to-end. The fix is structural: accept either kind here and keep
+// the kind-strict resolver for endpoints that genuinely don't apply
+// to PRs (GET / full PATCH of issue title-body-state).
+func (h *Handlers) resolveIssueOrPRByNumber(w http.ResponseWriter, r *http.Request, repoID int64, numberRaw string) (issuesdb.Issue, bool) {
 	num, err := strconv.ParseInt(numberRaw, 10, 64)
 	if err != nil {
 		writeAPIError(w, http.StatusNotFound, "issue not found")
@@ -1127,7 +1149,7 @@ func (h *Handlers) resolveIssueByNumber(w http.ResponseWriter, r *http.Request, 
 	issue, err := issuesdb.New().GetIssueByNumber(r.Context(), h.d.Pool, issuesdb.GetIssueByNumberParams{
 		RepoID: repoID, Number: num,
 	})
-	if err != nil || issue.Kind != issuesdb.IssueKindIssue {
+	if err != nil {
 		writeAPIError(w, http.StatusNotFound, "issue not found")
 		return issuesdb.Issue{}, false
 	}
