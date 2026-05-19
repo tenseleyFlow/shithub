@@ -16,7 +16,9 @@
     {{ octicon "person" }} People
     {{ with .MemberCount }}<span class="shithub-tab-count">{{ . }}</span>{{ end }}
   </a>
-  <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "shield-check" }} Security and quality</span>
+  <a href="/{{ .Org.Slug }}/security" class="shithub-org-nav-item{{ if eq .ActiveOrgNav "security" }} is-active{{ end }}">
+    {{ octicon "shield-check" }} Security and quality
+  </a>
   <span class="shithub-org-nav-item is-disabled" aria-disabled="true">{{ octicon "pulse" }} Insights</span>
   {{ if .IsOwner }}
   <a href="/organizations/{{ .Org.Slug }}/settings/profile" class="shithub-org-nav-item{{ if eq .ActiveOrgNav "settings" }} is-active{{ end }}">

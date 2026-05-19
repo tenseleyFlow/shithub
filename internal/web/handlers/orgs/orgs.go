@@ -6,6 +6,7 @@
 //	GET  /organizations/new            create form
 //	POST /organizations                create submit
 //	GET  /orgs/{org}/repositories                          repository list
+//	GET  /{org}/security                                   security overview
 //	GET  /{org}/people                                      members + pending invites + invite form
 //	POST /{org}/people/invite                               invite by username or email
 //	POST /{org}/people/{user}/role                          change role
@@ -157,6 +158,7 @@ func (h *Handlers) MountCreate(r chi.Router) {
 // Member-management routes live behind RequireUser at the wiring
 // layer (server.go); profile-style reads stay public.
 func (h *Handlers) MountOrgRoutes(r chi.Router) {
+	r.Get("/{org}/security", h.securityOverview)
 	r.Get("/{org}/people", h.peoplePage)
 	r.Post("/{org}/people/invite", h.invite)
 	r.Post("/{org}/people/{userID}/role", h.changeRole)
