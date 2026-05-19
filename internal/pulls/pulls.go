@@ -581,6 +581,69 @@ func SetReady(ctx context.Context, deps Deps, actorUserID, prID int64) error {
 	return nil
 }
 
+// SetBase changes the PR's base branch (F27/G7). The new ref is
+// resolved in the repo's git dir; missing → ErrBaseNotFound. Same-as-
+// head returns ErrSameBranch. The row's `base_ref` + `base_oid` are
+// persisted and a `base_ref_changed` event is emitted; the
+// mergeability worker re-ticks against the new base. No automatic
+// rebase of the head — matches gh's PATCH semantics. Returns the new
+// base OID so callers can re-render the PR envelope without an extra
+// SELECT.
+func SetBase(ctx context.Context, deps Deps, gitDir string, actorUserID, prID int64, currentHeadRef, newBase string) (string, error) {
+	newBase = strings.TrimSpace(newBase)
+	if newBase == "" {
+		return "", ErrBaseNotFound
+	}
+	if newBase == strings.TrimSpace(currentHeadRef) {
+		return "", ErrSameBranch
+	}
+	baseOID, err := repogit.ResolveRefOID(ctx, gitDir, newBase)
+	if err != nil {
+		if errors.Is(err, repogit.ErrRefNotFound) {
+			return "", ErrBaseNotFound
+		}
+		return "", fmt.Errorf("resolve base: %w", err)
+	}
+
+	q := pullsdb.New()
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if err := q.SetPullRequestBaseRef(ctx, tx, pullsdb.SetPullRequestBaseRefParams{
+		IssueID: prID,
+		BaseRef: newBase,
+		BaseOid: baseOID,
+	}); err != nil {
+		return "", err
+	}
+	iq := issuesdb.New()
+	if _, err := iq.InsertIssueEvent(ctx, tx, issuesdb.InsertIssueEventParams{
+		IssueID:     prID,
+		ActorUserID: pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},
+		Kind:        "base_ref_changed",
+		Meta:        []byte(fmt.Sprintf(`{"base":%q}`, newBase)),
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	committed = true
+
+	// Kick the mergeability worker — the new base likely changes
+	// merge-tree output and we don't want the user to see stale
+	// `mergeable_state` after a base change.
+	mergeenqueue.ForPR(ctx, deps.Pool, deps.Logger, prID, "pr_set_base")
+	return baseOID, nil
+}
+
 // AllowedMethod returns true when the repo allows the named merge
 // strategy. Falls open for unknown methods so callers get a clear
 // error from the orchestrator.
