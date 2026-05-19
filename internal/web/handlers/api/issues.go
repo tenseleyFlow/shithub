@@ -232,12 +232,15 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	// E-audit E4: filters previously silently dropped — assignee, author,
 	// milestone, mention. Resolve each into a typed predicate now and
 	// 422 on unknown values so callers stop getting unfiltered lists.
-	authorID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("author"))
+	// G1: accept gh-canonical aliases (`creator`→author, `mentioned`→
+	// mention) so the gh-clone CLI's wire shape lands on validation
+	// instead of being silently dropped.
+	authorID, aerr := h.resolveOptionalUserID(r.Context(), firstQueryParam(r, "author", "creator"))
 	if aerr != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, "author: "+aerr.Error())
 		return
 	}
-	assigneeID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("assignee"))
+	assigneeID, aerr := h.resolveOptionalUserID(r.Context(), firstQueryParam(r, "assignee"))
 	if aerr != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, "assignee: "+aerr.Error())
 		return
@@ -247,7 +250,7 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, "milestone: "+merr.Error())
 		return
 	}
-	if mention := strings.TrimSpace(r.URL.Query().Get("mention")); mention != "" {
+	if mention := firstQueryParam(r, "mention", "mentioned"); mention != "" {
 		// Mention search needs body-text scanning + an @-mention index
 		// we don't have yet. Reject explicitly rather than silently
 		// returning unfiltered results (the pre-E4 lie).
@@ -432,8 +435,10 @@ func (h *Handlers) issueHTMLURL(ownerLogin, repoName string, number int64) strin
 // Returns the empty slice when no filter was supplied — callers
 // treat that as "no label filter".
 func (h *Handlers) parseAndValidateLabelsFilter(r *http.Request, repoID int64) ([]int64, error) {
-	raw := r.URL.Query().Get("labels")
-	if strings.TrimSpace(raw) == "" {
+	// G1: accept gh-canonical singular `label` as an alias for `labels`.
+	// Either form is comma-separated; AND semantic applies regardless.
+	raw := firstQueryParam(r, "labels", "label")
+	if raw == "" {
 		return nil, nil
 	}
 	names := strings.Split(raw, ",")
