@@ -445,6 +445,12 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// E25 (PR side): PATCH must refuse on archived repos. The read
+	// gate let us through; close the archive escape valve here.
+	if repo.IsArchived {
+		writeAPIError(w, http.StatusForbidden, "repository is archived")
+		return
+	}
 	auth := middleware.PATAuthFromContext(r.Context())
 	if auth.UserID == 0 {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
