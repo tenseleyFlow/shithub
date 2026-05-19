@@ -113,6 +113,41 @@ func (q *Queries) CreatePullRequest(ctx context.Context, db DBTX, arg CreatePull
 	return i, err
 }
 
+const findOpenPullRequestByBranches = `-- name: FindOpenPullRequestByBranches :one
+SELECT pr.issue_id, i.number
+FROM pull_requests pr
+JOIN issues i ON i.id = pr.issue_id
+WHERE i.repo_id = $1
+  AND i.kind = 'pr'
+  AND i.state = 'open'
+  AND pr.base_ref = $2
+  AND pr.head_ref = $3
+LIMIT 1
+`
+
+type FindOpenPullRequestByBranchesParams struct {
+	RepoID  int64
+	BaseRef string
+	HeadRef string
+}
+
+type FindOpenPullRequestByBranchesRow struct {
+	IssueID int64
+	Number  int64
+}
+
+// G6 (F46): uniqueness probe for `(repo_id, base_ref, head_ref)` on
+// OPEN PRs. Used by pulls.Create to refuse a second open PR over the
+// same head→base pair (matches gh's `422 A pull request already exists`).
+// Returns (issue_id, number) of the existing row so the error can name
+// it; pgx.ErrNoRows means "no duplicate, proceed".
+func (q *Queries) FindOpenPullRequestByBranches(ctx context.Context, db DBTX, arg FindOpenPullRequestByBranchesParams) (FindOpenPullRequestByBranchesRow, error) {
+	row := db.QueryRow(ctx, findOpenPullRequestByBranches, arg.RepoID, arg.BaseRef, arg.HeadRef)
+	var i FindOpenPullRequestByBranchesRow
+	err := row.Scan(&i.IssueID, &i.Number)
+	return i, err
+}
+
 const getPullRequestByIssueID = `-- name: GetPullRequestByIssueID :one
 SELECT issue_id, base_ref, head_ref, head_repo_id, base_oid, head_oid, draft, mergeable, mergeable_state, merge_commit_sha, merged_at, merged_by_user_id, merge_method, base_oid_at_merge, head_oid_at_merge, last_synchronized_at FROM pull_requests WHERE issue_id = $1
 `
