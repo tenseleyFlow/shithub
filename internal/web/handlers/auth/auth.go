@@ -182,6 +182,7 @@ func (h *Handlers) Mount(r chi.Router) {
 		// Settings — require an authenticated user.
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireUser)
+			r.Post("/account/switch", h.accountSwitchSubmit)
 			r.Get("/settings/profile", h.settingsProfileForm)
 			r.Post("/settings/profile", h.settingsProfileSubmit)
 			if h.d.ObjectStore != nil {
@@ -474,6 +475,8 @@ func (h *Handlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		notice = "Signed out."
 	case "password-reset":
 		notice = "Password updated. Sign in with your new password."
+	case "account-expired":
+		notice = "That account needs to sign in again before it can be switched to."
 	}
 	h.renderPage(w, r, "auth/login", map[string]any{
 		"Title":     "Sign in",
@@ -567,6 +570,7 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// Pre-2FA marker carries user_id intent without granting full session.
 	if t, terr := h.q.GetUserTOTP(r.Context(), h.d.Pool, user.ID); terr == nil && t.ConfirmedAt.Valid {
 		s := middleware.SessionFromContext(r.Context())
+		h.rememberCurrentSessionAccount(r.Context(), s)
 		s.UserID = 0
 		s.Pre2FAUserID = user.ID
 		s.IssuedAt = time.Now().Unix()
@@ -593,9 +597,15 @@ func (h *Handlers) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// Epoch snapshotting is what powers "log out everywhere": this cookie
 	// is invalidated the moment users.session_epoch advances past it.
 	s := middleware.SessionFromContext(r.Context())
+	h.rememberCurrentSessionAccount(r.Context(), s)
 	s.UserID = user.ID
 	s.Pre2FAUserID = 0
 	s.Epoch = user.SessionEpoch
+	s.Recent2FAAt = 0
+	s.ImpersonatedUserID = 0
+	s.ImpersonateWriteOK = false
+	s.ImpersonationStartedAt = 0
+	rememberUserAccount(s, user, 0)
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "login: save session", "error", err)
