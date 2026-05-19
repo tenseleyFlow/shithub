@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -66,6 +67,9 @@ var (
 	ErrMergeMethodOff   = errors.New("pulls: requested merge method is disabled on this repo")
 	ErrConcurrentMerge  = errors.New("pulls: PR is being merged by another request")
 	ErrPRNotFound       = errors.New("pulls: PR not found")
+	// G8b (F43): `pr update-branch` outcomes.
+	ErrBranchUpToDate     = errors.New("pulls: branch is already up to date with base")
+	ErrUpdateBranchMethod = errors.New("pulls: update-branch method must be merge or rebase")
 )
 
 // DuplicatePRError is returned by Create when an OPEN PR for the same
@@ -579,6 +583,123 @@ func SetReady(ctx context.Context, deps Deps, actorUserID, prID int64) error {
 	}
 	committed = true
 	return nil
+}
+
+// UpdateBranch advances the PR's head branch with the latest base
+// content. Method "merge" creates a merge commit on head with base
+// as its second parent; method "rebase" replays head's commits onto
+// base. Returns the new head OID. `expectedHeadSHA`, when non-empty,
+// acts as a CAS guard so a concurrent push aborts the operation
+// before any commit is written.
+//
+// Sentinel errors callers translate to HTTP codes:
+//   - ErrBranchUpToDate       — head already contains base (no-op 422)
+//   - ErrAlreadyClosed        — PR is not open (422)
+//   - ErrUpdateBranchMethod   — caller asked for an unknown method (422)
+//   - ErrConcurrentMerge      — expected_head_sha didn't match (409)
+//
+// G8b (F43): pre-fix the CLI's `pr update-branch` 404'd against this
+// verb — server endpoint never shipped.
+func UpdateBranch(ctx context.Context, deps Deps, gitDir string, actorUserID, prID int64, method, expectedHeadSHA string) (string, error) {
+	method = strings.TrimSpace(strings.ToLower(method))
+	if method == "" {
+		method = "merge"
+	}
+	if method != "merge" && method != "rebase" {
+		return "", ErrUpdateBranchMethod
+	}
+
+	// Load the PR + the parent issue to verify state.
+	q := pullsdb.New()
+	pr, err := q.GetPullRequestByIssueID(ctx, deps.Pool, prID)
+	if err != nil {
+		return "", ErrPRNotFound
+	}
+	issue, err := issuesdb.New().GetIssueByID(ctx, deps.Pool, prID)
+	if err != nil {
+		return "", ErrPRNotFound
+	}
+	if pr.MergedAt.Valid {
+		return "", ErrAlreadyMerged
+	}
+	if string(issue.State) != "open" {
+		return "", ErrAlreadyClosed
+	}
+	// CAS gate: if the caller pinned a head OID, refuse when the
+	// current head has moved out from under them.
+	if expectedHeadSHA != "" && strings.TrimSpace(expectedHeadSHA) != pr.HeadOid {
+		return "", ErrConcurrentMerge
+	}
+
+	// Commit identity from the actor.
+	uq := usersdb.New()
+	name, email, err := identityFor(ctx, deps.Pool, uq, actorUserID)
+	if err != nil {
+		return "", fmt.Errorf("update-branch: identity: %w", err)
+	}
+
+	// Use the CURRENT tip of base_ref (not the stale snapshot in
+	// pr.BaseOid). The whole point of update-branch is to pull in
+	// commits added to base since the PR was opened.
+	currentBaseOID, err := repogit.ResolveRefOID(ctx, gitDir, pr.BaseRef)
+	if err != nil {
+		if errors.Is(err, repogit.ErrRefNotFound) {
+			return "", ErrBaseNotFound
+		}
+		return "", fmt.Errorf("update-branch: resolve base: %w", err)
+	}
+
+	res, err := repogit.UpdateBranchFromBase(ctx, repogit.UpdateBranchOptions{
+		GitDir:         gitDir,
+		HeadRef:        "refs/heads/" + pr.HeadRef,
+		HeadOID:        pr.HeadOid,
+		BaseOID:        currentBaseOID,
+		Method:         method,
+		AuthorName:     name,
+		AuthorEmail:    email,
+		CommitterName:  name,
+		CommitterEmail: email,
+		When:           time.Now().UTC(),
+	})
+	if err != nil {
+		if errors.Is(err, repogit.ErrBranchAlreadyUpToDate) {
+			return "", ErrBranchUpToDate
+		}
+		return "", err
+	}
+
+	// Persist the new head_oid and emit an event in one tx.
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if err := q.SetPullRequestSnapshot(ctx, tx, pullsdb.SetPullRequestSnapshotParams{
+		IssueID: prID, BaseOid: pr.BaseOid, HeadOid: res.NewHeadOID,
+	}); err != nil {
+		return "", err
+	}
+	if _, err := issuesdb.New().InsertIssueEvent(ctx, tx, issuesdb.InsertIssueEventParams{
+		IssueID:     prID,
+		ActorUserID: pgtype.Int8{Int64: actorUserID, Valid: actorUserID != 0},
+		Kind:        "branch_updated",
+		Meta:        []byte(fmt.Sprintf(`{"method":%q,"new_head_oid":%q}`, method, res.NewHeadOID)),
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	committed = true
+
+	// Re-tick mergeability against the new head.
+	mergeenqueue.ForPR(ctx, deps.Pool, deps.Logger, prID, "pr_update_branch")
+	return res.NewHeadOID, nil
 }
 
 // SetBase changes the PR's base branch (F27/G7). The new ref is
