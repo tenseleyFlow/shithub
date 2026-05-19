@@ -114,6 +114,12 @@ SET ecosystem = EXCLUDED.ecosystem,
     cwe_ids = EXCLUDED.cwe_ids
 RETURNING *;
 
+-- name: GetDependencyAdvisoryBySourceExternalID :one
+SELECT *
+FROM dependency_advisories
+WHERE source = $1
+  AND external_id = $2;
+
 -- name: DeleteDependencyAdvisoryAliases :exec
 DELETE FROM dependency_advisory_aliases
 WHERE advisory_id = $1;
@@ -125,6 +131,12 @@ INSERT INTO dependency_advisory_aliases (
     $1, $2, $3
 )
 ON CONFLICT (advisory_id, alias_kind, lower(alias_value)) DO NOTHING;
+
+-- name: ListDependencyAdvisoryAliases :many
+SELECT *
+FROM dependency_advisory_aliases
+WHERE advisory_id = $1
+ORDER BY alias_kind, alias_value;
 
 -- name: DeleteDependencyAdvisoryAffectedRanges :exec
 DELETE FROM dependency_advisory_affected_ranges
@@ -143,3 +155,9 @@ ON CONFLICT (
     range_expression, introduced, fixed, last_affected
 ) DO UPDATE
 SET metadata = EXCLUDED.metadata;
+
+-- name: ListDependencyAdvisoryAffectedRanges :many
+SELECT *
+FROM dependency_advisory_affected_ranges
+WHERE advisory_id = $1
+ORDER BY ecosystem, lower(package_name), range_expression, introduced, fixed, last_affected;

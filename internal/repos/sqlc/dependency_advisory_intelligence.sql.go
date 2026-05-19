@@ -80,6 +80,46 @@ func (q *Queries) FinishDependencyAdvisorySyncRun(ctx context.Context, db DBTX, 
 	return i, err
 }
 
+const getDependencyAdvisoryBySourceExternalID = `-- name: GetDependencyAdvisoryBySourceExternalID :one
+SELECT id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at, modified_at, source_url, cvss_score, cvss_vector, cwe_ids
+FROM dependency_advisories
+WHERE source = $1
+  AND external_id = $2
+`
+
+type GetDependencyAdvisoryBySourceExternalIDParams struct {
+	Source     string
+	ExternalID string
+}
+
+func (q *Queries) GetDependencyAdvisoryBySourceExternalID(ctx context.Context, db DBTX, arg GetDependencyAdvisoryBySourceExternalIDParams) (DependencyAdvisory, error) {
+	row := db.QueryRow(ctx, getDependencyAdvisoryBySourceExternalID, arg.Source, arg.ExternalID)
+	var i DependencyAdvisory
+	err := row.Scan(
+		&i.ID,
+		&i.Source,
+		&i.ExternalID,
+		&i.Ecosystem,
+		&i.PackageName,
+		&i.AffectedRange,
+		&i.PatchedVersions,
+		&i.Severity,
+		&i.Summary,
+		&i.Description,
+		&i.ReferenceUrls,
+		&i.PublishedAt,
+		&i.WithdrawnAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ModifiedAt,
+		&i.SourceUrl,
+		&i.CvssScore,
+		&i.CvssVector,
+		&i.CweIds,
+	)
+	return i, err
+}
+
 const getDependencyAdvisorySource = `-- name: GetDependencyAdvisorySource :one
 SELECT name, kind, display_name, url, license, attribution, enabled, last_sync_at, last_sync_status, last_sync_error, cursor_value, etag, metadata, created_at, updated_at
 FROM dependency_advisory_sources
@@ -167,6 +207,78 @@ type InsertDependencyAdvisoryAliasParams struct {
 func (q *Queries) InsertDependencyAdvisoryAlias(ctx context.Context, db DBTX, arg InsertDependencyAdvisoryAliasParams) error {
 	_, err := db.Exec(ctx, insertDependencyAdvisoryAlias, arg.AdvisoryID, arg.AliasKind, arg.AliasValue)
 	return err
+}
+
+const listDependencyAdvisoryAffectedRanges = `-- name: ListDependencyAdvisoryAffectedRanges :many
+SELECT id, advisory_id, ecosystem, package_name, range_expression, introduced, fixed, last_affected, metadata, created_at, updated_at
+FROM dependency_advisory_affected_ranges
+WHERE advisory_id = $1
+ORDER BY ecosystem, lower(package_name), range_expression, introduced, fixed, last_affected
+`
+
+func (q *Queries) ListDependencyAdvisoryAffectedRanges(ctx context.Context, db DBTX, advisoryID int64) ([]DependencyAdvisoryAffectedRange, error) {
+	rows, err := db.Query(ctx, listDependencyAdvisoryAffectedRanges, advisoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DependencyAdvisoryAffectedRange{}
+	for rows.Next() {
+		var i DependencyAdvisoryAffectedRange
+		if err := rows.Scan(
+			&i.ID,
+			&i.AdvisoryID,
+			&i.Ecosystem,
+			&i.PackageName,
+			&i.RangeExpression,
+			&i.Introduced,
+			&i.Fixed,
+			&i.LastAffected,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDependencyAdvisoryAliases = `-- name: ListDependencyAdvisoryAliases :many
+SELECT id, advisory_id, alias_kind, alias_value, created_at
+FROM dependency_advisory_aliases
+WHERE advisory_id = $1
+ORDER BY alias_kind, alias_value
+`
+
+func (q *Queries) ListDependencyAdvisoryAliases(ctx context.Context, db DBTX, advisoryID int64) ([]DependencyAdvisoryAlias, error) {
+	rows, err := db.Query(ctx, listDependencyAdvisoryAliases, advisoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DependencyAdvisoryAlias{}
+	for rows.Next() {
+		var i DependencyAdvisoryAlias
+		if err := rows.Scan(
+			&i.ID,
+			&i.AdvisoryID,
+			&i.AliasKind,
+			&i.AliasValue,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDependencyAdvisorySources = `-- name: ListDependencyAdvisorySources :many

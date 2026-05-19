@@ -106,6 +106,7 @@ type Querier interface {
 	// returns existing rows; missing OIDs are absent from the result and
 	// the renderer treats them as "not yet verified".
 	GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error)
+	GetDependencyAdvisoryBySourceExternalID(ctx context.Context, db DBTX, arg GetDependencyAdvisoryBySourceExternalIDParams) (DependencyAdvisory, error)
 	GetDependencyAdvisorySource(ctx context.Context, db DBTX, name string) (DependencyAdvisorySource, error)
 	GetDependencyUpdateConfig(ctx context.Context, db DBTX, id int64) (DependencyUpdateConfig, error)
 	GetDependencyUpdateJob(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
@@ -169,6 +170,8 @@ type Querier interface {
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
 	ListCodeScanningAlertsForRepo(ctx context.Context, db DBTX, arg ListCodeScanningAlertsForRepoParams) ([]CodeScanningAlert, error)
 	ListCodeSecurityCampaignsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListCodeSecurityCampaignsForRepoRow, error)
+	ListDependencyAdvisoryAffectedRanges(ctx context.Context, db DBTX, advisoryID int64) ([]DependencyAdvisoryAffectedRange, error)
+	ListDependencyAdvisoryAliases(ctx context.Context, db DBTX, advisoryID int64) ([]DependencyAdvisoryAlias, error)
 	ListDependencyAdvisorySources(ctx context.Context, db DBTX) ([]DependencyAdvisorySource, error)
 	ListDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListDependencyAlertCandidatesForAdvisoryParams) ([]ListDependencyAlertCandidatesForAdvisoryRow, error)
 	ListDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListDependencyAlertCandidatesForRepoRow, error)
