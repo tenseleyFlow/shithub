@@ -622,3 +622,59 @@ func TestRepos_DeleteOnlyOwners(t *testing.T) {
 		t.Fatalf("cross-user delete: got %d, want 404; body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+// E15: `repo list --visibility nonsense` previously returned every
+// repo. Now invalid values 422; valid values narrow correctly.
+func TestRepos_ListVisibilityStrict(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	// One public + one private repo so visibility filtering actually
+	// has something to narrow against.
+	for _, vis := range []string{"public", "private"} {
+		body, _ := json.Marshal(map[string]any{"name": "demo-" + vis, "visibility": vis})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed %s: %d", vis, rr.Code)
+		}
+	}
+
+	for _, tc := range []struct {
+		filter   string
+		wantCode int
+		wantLen  int
+	}{
+		{"", 200, 2},
+		{"public", 200, 1},
+		{"private", 200, 1},
+		{"internal", 200, 0},
+		{"nonsense", 422, 0},
+		{"PUBLIC", 200, 1}, // case-insensitive accepted
+	} {
+		url := "/api/v1/user/repos"
+		if tc.filter != "" {
+			url += "?visibility=" + tc.filter
+		}
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("visibility=%q: code=%d want %d; body=%s", tc.filter, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiRepo
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("visibility=%q: got %d rows, want %d", tc.filter, len(rows), tc.wantLen)
+		}
+	}
+}
