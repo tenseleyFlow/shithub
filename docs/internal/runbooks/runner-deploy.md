@@ -111,11 +111,12 @@ doctl compute firewall get <runner-firewall-id> \
 ssh shithub-runner-shared-linux-1 hostname
 ```
 
-The firewall should allow TCP/22 only from operator or VPN `/32`/small CIDRs,
-never `0.0.0.0/0`. Operators may keep local SSH aliases for pool hosts, but the
-app/database host does not need SSH access into runner droplets during normal
-operation. Treat app-host-to-runner SSH as a deliberate break-glass expansion
-because runner hosts execute arbitrary repository code.
+The firewall should allow TCP/22 only from operator or VPN `/32`/small CIDRs
+and the production app-host `/32` used by the trusted CI rollout relay, never
+`0.0.0.0/0`. Operators may keep local SSH aliases for pool hosts, but the
+`RUNNER_DEPLOY_HOSTS` values used by CI must be resolvable from the app host
+itself, normally public droplet IPs or real DNS names rather than local-only
+SSH aliases.
 
 Generate an Ansible inventory from the DigitalOcean tag:
 
@@ -262,6 +263,14 @@ source of truth for systemd units, network controls, seccomp, image selection,
 tokens, and host provisioning. The workflow only ships a freshly built
 `shithubd-runner` binary to already-provisioned runner hosts.
 
+Runner droplets do not accept SSH from arbitrary GitHub-hosted runner egress
+IPs. The workflow SSHes only to the app host using the normal production deploy
+key, places the runner binary, runner deploy key, known-hosts file, and host
+list in a mode-`0700` temporary directory, then asks the app host to stream the
+binary to each runner host. The temporary directory is removed at the end of the
+rollout. Keep the runner firewall pinned to the app host public `/32`; do not
+open runner SSH to GitHub's dynamic IP ranges.
+
 The workflow runs after the production `deploy` workflow completes successfully
 on `trunk`, then skips itself unless the merge touched the runner binary's Go
 dependency tree or the rollout scripts/workflow. Operators can also trigger it
@@ -271,22 +280,26 @@ Required production environment secrets:
 
 - `RUNNER_DEPLOY_SSH_KEY` - private key allowed to SSH to runner droplets.
 - `RUNNER_DEPLOY_KNOWN_HOSTS` - known-host entries for runner droplets.
-- `RUNNER_DEPLOY_HOSTS` - newline, comma, or space separated runner hosts.
+- `RUNNER_DEPLOY_HOSTS` - newline, comma, or space separated runner hosts that
+  the app host can resolve and SSH to.
 - `RUNNER_DEPLOY_USER` - optional; defaults to `root`.
 - `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS` -
-  app-host SSH details reused for the post-rollout preflight. If
+  app-host SSH details used for the relay and post-rollout preflight. If
   `DEPLOY_SSH_KEY` is absent, the runner deploy key must also be authorized for
-  the app-host preflight.
+  the app-host relay.
 
 Rollout behavior:
 
 1. Check out the deployed commit.
 2. Build `bin/shithubd-runner` with the normal Makefile ldflags.
 3. Configure SSH with strict known-host checking.
-4. Stream the binary over SSH to each runner host because SFTP is disabled.
-5. Promote and restart one runner at a time.
-6. Verify local `shithubd-runner version` contains the expected commit.
-7. Poll `shithubd admin runner preflight` on the app host until all expected
+4. Upload the binary and runner SSH material to a temporary app-host relay
+   directory because GitHub-hosted runners cannot directly reach runner SSH.
+5. Stream the binary from the app host to each runner host because SFTP is
+   disabled.
+6. Promote and restart one runner at a time.
+7. Verify local `shithubd-runner version` contains the expected commit.
+8. Poll `shithubd admin runner preflight` on the app host until all expected
    runner heartbeats report the same commit.
 
 If any host fails to stage, restart, report the expected binary version, or
