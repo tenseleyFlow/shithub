@@ -130,6 +130,26 @@ func (q *Queries) CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg 
 	return i, err
 }
 
+const countActiveDependencyUpdateJobsForConfigKind = `-- name: CountActiveDependencyUpdateJobsForConfigKind :one
+SELECT count(*)::bigint
+FROM dependency_update_jobs
+WHERE config_id = $1
+  AND job_kind = $2
+  AND status IN ('queued', 'running')
+`
+
+type CountActiveDependencyUpdateJobsForConfigKindParams struct {
+	ConfigID pgtype.Int8
+	JobKind  string
+}
+
+func (q *Queries) CountActiveDependencyUpdateJobsForConfigKind(ctx context.Context, db DBTX, arg CountActiveDependencyUpdateJobsForConfigKindParams) (int64, error) {
+	row := db.QueryRow(ctx, countActiveDependencyUpdateJobsForConfigKind, arg.ConfigID, arg.JobKind)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createDependencyAutoTriageRule = `-- name: CreateDependencyAutoTriageRule :one
 INSERT INTO dependency_auto_triage_rules (
     org_id, repo_id, name, enabled, priority,
@@ -291,6 +311,35 @@ func (q *Queries) GetDependencyUpdateConfig(ctx context.Context, db DBTX, id int
 		&i.LastSyncedSha,
 		&i.LastCheckedAt,
 		&i.NextRunAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getDependencyUpdateJob = `-- name: GetDependencyUpdateJob :one
+SELECT id, repo_id, config_id, job_kind, status, trigger_source, scheduled_for, started_at, completed_at, base_sha, head_sha, result_summary, last_error, created_at, updated_at
+FROM dependency_update_jobs
+WHERE id = $1
+`
+
+func (q *Queries) GetDependencyUpdateJob(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error) {
+	row := db.QueryRow(ctx, getDependencyUpdateJob, id)
+	var i DependencyUpdateJob
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.ConfigID,
+		&i.JobKind,
+		&i.Status,
+		&i.TriggerSource,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.ResultSummary,
+		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -638,6 +687,40 @@ RETURNING id, repo_id, config_id, job_kind, status, trigger_source, scheduled_fo
 
 func (q *Queries) MarkDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error) {
 	row := db.QueryRow(ctx, markDependencyUpdateJobRunning, id)
+	var i DependencyUpdateJob
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.ConfigID,
+		&i.JobKind,
+		&i.Status,
+		&i.TriggerSource,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.ResultSummary,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markQueuedDependencyUpdateJobRunning = `-- name: MarkQueuedDependencyUpdateJobRunning :one
+UPDATE dependency_update_jobs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    completed_at = NULL,
+    last_error = ''
+WHERE id = $1
+  AND status = 'queued'
+RETURNING id, repo_id, config_id, job_kind, status, trigger_source, scheduled_for, started_at, completed_at, base_sha, head_sha, result_summary, last_error, created_at, updated_at
+`
+
+func (q *Queries) MarkQueuedDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error) {
+	row := db.QueryRow(ctx, markQueuedDependencyUpdateJobRunning, id)
 	var i DependencyUpdateJob
 	err := row.Scan(
 		&i.ID,

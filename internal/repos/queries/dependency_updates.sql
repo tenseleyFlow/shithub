@@ -105,12 +105,27 @@ INSERT INTO dependency_update_jobs (
 )
 RETURNING *;
 
+-- name: GetDependencyUpdateJob :one
+SELECT *
+FROM dependency_update_jobs
+WHERE id = $1;
+
 -- name: MarkDependencyUpdateJobRunning :one
 UPDATE dependency_update_jobs
 SET status = 'running',
     started_at = COALESCE(started_at, now()),
     last_error = ''
 WHERE id = $1
+RETURNING *;
+
+-- name: MarkQueuedDependencyUpdateJobRunning :one
+UPDATE dependency_update_jobs
+SET status = 'running',
+    started_at = COALESCE(started_at, now()),
+    completed_at = NULL,
+    last_error = ''
+WHERE id = $1
+  AND status = 'queued'
 RETURNING *;
 
 -- name: CompleteDependencyUpdateJob :one
@@ -130,6 +145,13 @@ FROM dependency_update_jobs
 WHERE repo_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(limit_rows)::int;
+
+-- name: CountActiveDependencyUpdateJobsForConfigKind :one
+SELECT count(*)::bigint
+FROM dependency_update_jobs
+WHERE config_id = $1
+  AND job_kind = $2
+  AND status IN ('queued', 'running');
 
 -- name: UpsertDependencyUpdatePR :one
 INSERT INTO dependency_update_prs (
