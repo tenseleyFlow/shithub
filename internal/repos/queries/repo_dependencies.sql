@@ -484,3 +484,22 @@ LEFT JOIN users u ON u.id = c.user_id
 LEFT JOIN teams t ON t.id = c.team_id
 WHERE c.advisory_id = $1
 ORDER BY COALESCE(u.username, t.slug::text), c.role;
+
+-- name: UserCanAccessRepoSecurityAdvisory :one
+SELECT EXISTS (
+    SELECT 1
+    FROM repo_security_advisory_collaborators c
+    WHERE c.advisory_id = $1
+      AND (
+        c.user_id = $2
+        OR (
+            c.team_id IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM team_members m
+                WHERE m.team_id = c.team_id
+                  AND m.user_id = $2
+            )
+        )
+      )
+);

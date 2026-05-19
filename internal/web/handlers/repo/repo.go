@@ -211,6 +211,8 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}/security/advisories/{identifier}/edit", h.repoSecurityAdvisoryEdit)
 	r.Post("/{owner}/{repo}/security/advisories/{identifier}", h.repoSecurityAdvisoryUpdate)
 	r.Post("/{owner}/{repo}/security/advisories/{identifier}/state", h.repoSecurityAdvisoryState)
+	r.Post("/{owner}/{repo}/security/advisories/{identifier}/collaborators", h.repoSecurityAdvisoryCollaboratorAdd)
+	r.Post("/{owner}/{repo}/security/advisories/{identifier}/collaborators/remove", h.repoSecurityAdvisoryCollaboratorRemove)
 	r.Get("/{owner}/{repo}/security/advisories/{identifier}", h.repoSecurityAdvisoryDetail)
 	r.Get("/{owner}/{repo}/security/advisories", h.repoSecurityAdvisories)
 	r.Get("/{owner}/{repo}/security/code-scanning", h.repoCodeScanning)

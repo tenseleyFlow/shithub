@@ -362,6 +362,7 @@ type Querier interface {
 	UpsertRepoTrafficDailyView(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyViewParams) error
 	UpsertRepoTrafficPathView(ctx context.Context, db DBTX, arg UpsertRepoTrafficPathViewParams) error
 	UpsertRepoTrafficReferrerView(ctx context.Context, db DBTX, arg UpsertRepoTrafficReferrerViewParams) error
+	UserCanAccessRepoSecurityAdvisory(ctx context.Context, db DBTX, arg UserCanAccessRepoSecurityAdvisoryParams) (bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

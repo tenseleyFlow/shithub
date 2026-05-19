@@ -19,6 +19,8 @@
       </div>
     </header>
 
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
     <section class="shithub-org-security-metrics" aria-label="Advisory summary">
       <div>
         <strong>{{ .Advisory.Row.State }}</strong>
@@ -36,6 +38,54 @@
         <strong>{{ .Advisory.Row.AffectedPackage }}</strong>
         <span>Package</span>
       </div>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Collaborators</h2>
+      {{ if .Collaborators }}
+      <ul class="shithub-org-security-list">
+        {{ range .Collaborators }}
+        <li>
+          <div class="shithub-org-security-list-main">
+            <strong>{{ if eq .Kind "team" }}{{ octicon "people" }} {{ .Name }}{{ else }}{{ octicon "person" }} {{ .Name }}{{ end }}</strong>
+            {{ if .DisplayName }}<span>{{ .DisplayName }}</span>{{ end }}
+          </div>
+          <span class="shithub-org-security-list-meta">{{ .Role }}</span>
+          {{ if and $.CanManageAdvisories $.WriteGate.Allowed }}
+          <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/security/advisories/{{ $.Advisory.Row.Identifier }}/collaborators/remove" class="shithub-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="subject_type" value="{{ .Kind }}">
+            <input type="hidden" name="subject_id" value="{{ if eq .Kind "team" }}{{ .TeamID }}{{ else }}{{ .UserID }}{{ end }}">
+            <button type="submit" class="shithub-button shithub-button-sm">Remove</button>
+          </form>
+          {{ end }}
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-muted">No advisory collaborators yet.</p>
+      {{ end }}
+
+      {{ if and .CanManageAdvisories .WriteGate.Allowed }}
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/collaborators" class="shithub-form-grid">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>Username or team</span>
+          <input type="text" name="collaborator" placeholder="octocat or team:security" required>
+        </label>
+        <label>
+          <span>Role</span>
+          <select name="role">
+            <option value="read">Read</option>
+            <option value="write">Write</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <div class="shithub-form-actions shithub-form-actions-start">
+          <button type="submit" class="shithub-button">Add collaborator</button>
+        </div>
+      </form>
+      {{ end }}
     </section>
 
     {{ if and .CanManageAdvisories .WriteGate.Allowed }}

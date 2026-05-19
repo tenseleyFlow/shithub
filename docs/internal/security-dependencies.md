@@ -54,10 +54,8 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
   reference URLs, and lifecycle timestamps.
 - `repo_security_advisory_events` stores the advisory timeline for create,
   update, publish, withdraw, archive, and reopen actions.
-- `repo_security_advisory_collaborators` is the schema foundation for
-  per-advisory user/team collaboration. The collaborator management UI remains
-  planned work; do not claim that invites or collaborator-specific disclosure
-  flows are shipped yet.
+- `repo_security_advisory_collaborators` stores per-advisory user/team
+  disclosure collaborators and their recorded roles.
 
 All repository-owned rows use `ON DELETE CASCADE`; advisory creator references
 use `ON DELETE SET NULL`.
@@ -70,6 +68,14 @@ edit package/severity/description/reference metadata, publish it, withdraw it,
 archive it, or reopen it as a draft. Advisory descriptions render through the
 canonical `internal/markdown` sanitizer before reaching templates.
 
+Advisory managers can add user or organization-team collaborators to an
+advisory. Collaborators can view draft, withdrawn, and archived advisory
+details through the advisory URL, including for private repositories where they
+do not otherwise have repository read access. Collaborator roles are recorded
+as `read`, `write`, or `admin`; SP25c uses them for disclosure membership only,
+while advisory edits, state changes, and collaborator management remain gated
+by repository settings policy.
+
 When a repository advisory has affected ecosystem and package metadata, shithub
 mirrors it into the local `dependency_advisories` catalog under a repo-scoped
 source key. Published advisories have `withdrawn_at = NULL` and immediately
@@ -79,10 +85,10 @@ catalog so existing dependency-review and dependency-scan queries ignore them,
 and open alerts from a previously published advisory are resolved.
 
 Published advisories are visible to normal repository readers. Draft,
-withdrawn, and archived advisories are visible only to viewers who can manage
-general repository settings. Advisory writes are always policy-gated through
-`policy.ActionRepoSettingsGeneral`; handlers do not infer owner or collaborator
-status directly.
+withdrawn, and archived advisories are visible to viewers who can manage
+general repository settings or who were added as advisory collaborators.
+Advisory writes are always policy-gated through
+`policy.ActionRepoSettingsGeneral`.
 
 Public repositories and personal repositories can use the baseline advisory
 workflow. Private organization repositories require the Team

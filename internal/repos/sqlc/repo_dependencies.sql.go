@@ -1430,3 +1430,35 @@ func (q *Queries) UpsertRepoDependencySnapshot(ctx context.Context, db DBTX, arg
 	)
 	return i, err
 }
+
+const userCanAccessRepoSecurityAdvisory = `-- name: UserCanAccessRepoSecurityAdvisory :one
+SELECT EXISTS (
+    SELECT 1
+    FROM repo_security_advisory_collaborators c
+    WHERE c.advisory_id = $1
+      AND (
+        c.user_id = $2
+        OR (
+            c.team_id IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM team_members m
+                WHERE m.team_id = c.team_id
+                  AND m.user_id = $2
+            )
+        )
+      )
+)
+`
+
+type UserCanAccessRepoSecurityAdvisoryParams struct {
+	AdvisoryID int64
+	UserID     pgtype.Int8
+}
+
+func (q *Queries) UserCanAccessRepoSecurityAdvisory(ctx context.Context, db DBTX, arg UserCanAccessRepoSecurityAdvisoryParams) (bool, error) {
+	row := db.QueryRow(ctx, userCanAccessRepoSecurityAdvisory, arg.AdvisoryID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

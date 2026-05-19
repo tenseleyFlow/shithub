@@ -202,7 +202,9 @@ Present but still moving toward full enforcement:
   flows, markdown sanitization, lifecycle events, and private-org Team
   gates. Published advisories with package metadata feed the local dependency
   alert catalog and resolve alerts again when withdrawn or archived.
-  Per-advisory collaborator invitation/disclosure UI is still deferred.
+  Per-advisory user/team disclosure collaborators can view nonpublished
+  advisory details; collaborator roles are stored for audit/disclosure
+  membership, not write delegation.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a

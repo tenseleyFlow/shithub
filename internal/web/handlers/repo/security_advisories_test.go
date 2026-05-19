@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -125,6 +126,79 @@ func TestRepoSecurityAdvisoryPublishAndWithdrawRefreshDependencyAlerts(t *testin
 	}
 	if got := f.countDependencyAlertsByStatus(t, f.publicRepo.ID, "resolved"); got != 1 {
 		t.Fatalf("resolved dependency alerts=%d, want 1", got)
+	}
+}
+
+func TestRepoSecurityAdvisoryUserCollaboratorCanViewDraft(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	row := f.createSecurityAdvisory(t, f.publicRepo.ID, "SHSA-COLLAB-DRAFT", "draft", "coordinated disclosure")
+
+	req := repoRouteRequestWithIdentifier(http.MethodGet, "/alice/public-repo/security/advisories/SHSA-COLLAB-DRAFT", f.owner.Username, f.publicRepo.Name, row.Identifier, anonymousViewer())
+	rw := httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryDetail(rw, req)
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("anonymous draft detail status %d, want 404: %s", rw.Code, rw.Body.String())
+	}
+
+	form := url.Values{"collaborator": {f.stranger.Username}, "role": {"write"}}
+	req = repoRouteFormRequest(http.MethodPost, "/alice/public-repo/security/advisories/SHSA-COLLAB-DRAFT/collaborators", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.owner), form)
+	rw = httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryCollaboratorAdd(rw, req)
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("add collaborator status %d, want 303: %s", rw.Code, rw.Body.String())
+	}
+
+	req = repoRouteRequestWithIdentifier(http.MethodGet, "/alice/public-repo/security/advisories/SHSA-COLLAB-DRAFT", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.stranger))
+	rw = httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryDetail(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("collaborator draft detail status %d, want 200: %s", rw.Code, rw.Body.String())
+	}
+	if body := rw.Body.String(); !strings.Contains(body, "ADV=SHSA-COLLAB-DRAFT:draft") || !strings.Contains(body, "COLLAB=user:bob:write") {
+		t.Fatalf("collaborator detail missing expected data: %s", body)
+	}
+	if got := f.countSecurityAdvisoryEvents(t, row.ID, "collaborator_added"); got != 1 {
+		t.Fatalf("collaborator_added events=%d, want 1", got)
+	}
+
+	form = url.Values{"subject_type": {"user"}, "subject_id": {strconv.FormatInt(f.stranger.ID, 10)}}
+	req = repoRouteFormRequest(http.MethodPost, "/alice/public-repo/security/advisories/SHSA-COLLAB-DRAFT/collaborators/remove", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.owner), form)
+	rw = httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryCollaboratorRemove(rw, req)
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("remove collaborator status %d, want 303: %s", rw.Code, rw.Body.String())
+	}
+
+	req = repoRouteRequestWithIdentifier(http.MethodGet, "/alice/public-repo/security/advisories/SHSA-COLLAB-DRAFT", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.stranger))
+	rw = httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryDetail(rw, req)
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("removed collaborator draft detail status %d, want 404: %s", rw.Code, rw.Body.String())
+	}
+}
+
+func TestRepoSecurityAdvisoryCollaboratorCanOpenPrivateDisclosure(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	row := f.createSecurityAdvisory(t, f.privateRepo.ID, "SHSA-PRIVATE-COLLAB", "draft", "private coordinated disclosure")
+	if _, err := reposdb.New().AddRepoSecurityAdvisoryUserCollaborator(context.Background(), f.pool, reposdb.AddRepoSecurityAdvisoryUserCollaboratorParams{
+		AdvisoryID: row.ID,
+		UserID:     pgtype.Int8{Int64: f.stranger.ID, Valid: true},
+		Role:       "read",
+		AddedBy:    pgtype.Int8{Int64: f.owner.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("AddRepoSecurityAdvisoryUserCollaborator: %v", err)
+	}
+
+	req := repoRouteRequestWithIdentifier(http.MethodGet, "/alice/private-repo/security/advisories/SHSA-PRIVATE-COLLAB", f.owner.Username, f.privateRepo.Name, row.Identifier, viewerFor(f.stranger))
+	rw := httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryDetail(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("private collaborator draft detail status %d, want 200: %s", rw.Code, rw.Body.String())
+	}
+	if body := rw.Body.String(); !strings.Contains(body, "ADV=SHSA-PRIVATE-COLLAB:draft") {
+		t.Fatalf("private collaborator detail missing advisory: %s", body)
 	}
 }
 
