@@ -169,6 +169,27 @@ func TestInvite_AcceptByUsername(t *testing.T) {
 	}
 }
 
+func TestInvite_NormalizesAtPrefixedUsername(t *testing.T) {
+	pool, deps, alice := setup(t)
+	bob := mustUser(t, pool, "bob")
+	row, err := orgs.Create(context.Background(), deps, orgs.CreateParams{
+		Slug: "acme", CreatedByUserID: alice,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	res, err := orgs.Invite(context.Background(), deps, orgs.InviteParams{
+		OrgID: row.ID, InvitedByUserID: alice,
+		TargetUsername: "@bob", Role: "member",
+	})
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	if !res.Invitation.TargetUserID.Valid || res.Invitation.TargetUserID.Int64 != bob {
+		t.Fatalf("target user id mismatch")
+	}
+}
+
 func TestInvite_AcceptByEmail(t *testing.T) {
 	pool, deps, alice := setup(t)
 	carol := mustUser(t, pool, "carol")
