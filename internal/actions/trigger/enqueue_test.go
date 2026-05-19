@@ -612,6 +612,22 @@ func TestListQueuedWorkflowJobRunsOnGroupsByRequestedLabel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("HeartbeatRunner: %v", err)
 	}
+	runner2, err := q.InsertRunner(ctx, f.pool, actionsdb.InsertRunnerParams{
+		Name:     "runner-linux-2",
+		Labels:   []string{"self-hosted", "linux", "ubuntu-latest", "x64"},
+		Capacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("InsertRunner runner2: %v", err)
+	}
+	if _, err := q.HeartbeatRunner(ctx, f.pool, actionsdb.HeartbeatRunnerParams{
+		ID:       runner2.ID,
+		Labels:   runner2.Labels,
+		Capacity: runner2.Capacity,
+		Status:   actionsdb.WorkflowRunnerStatusIdle,
+	}); err != nil {
+		t.Fatalf("HeartbeatRunner runner2: %v", err)
+	}
 
 	for name, runsOn := range map[string]string{
 		"linux":   "ubuntu-latest",
@@ -647,7 +663,7 @@ jobs:
 	for _, row := range rows {
 		got[row.RunsOn] = row
 	}
-	if got["ubuntu-latest"].QueuedJobs != 1 || got["ubuntu-latest"].MatchingRunnerCount != 1 {
+	if got["ubuntu-latest"].QueuedJobs != 1 || got["ubuntu-latest"].MatchingRunnerCount != 2 {
 		t.Fatalf("ubuntu-latest row: %+v", got["ubuntu-latest"])
 	}
 	if got["windows-latest"].QueuedJobs != 1 || got["windows-latest"].MatchingRunnerCount != 0 {

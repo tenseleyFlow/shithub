@@ -56,7 +56,7 @@ jobs:
           fi
           printf 'expected_commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
 
-      - name: Detect runner-owned changes
+      - name: Decide runner rollout
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -66,7 +66,10 @@ jobs:
           set -eu
           needed=false
           reason="no runner-owned path changes"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_FORCE" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            needed=true
+            reason="post-deploy version alignment"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_FORCE" = "true" ]; then
             needed=true
             reason="manual force"
           else
