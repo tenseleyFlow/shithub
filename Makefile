@@ -215,7 +215,7 @@ gen-third-party-notices: ## Regenerate THIRD_PARTY_NOTICES.md from the active go
 audit-actions-ga: ## Run the read-only S41h Actions pre-GA static audit packet.
 	@scripts/audit-actions-ga.sh
 
-audit-actions-ui: ## Capture S41k Actions UI parity screenshots (needs running shithub + puppeteer).
+audit-actions-ui: ## Capture S41k/S41l Actions UI parity screenshots (needs running shithub + puppeteer).
 	@command -v node >/dev/null 2>&1 || { echo "node not installed"; exit 2; }
 	node tests/actions-ui/capture-screenshots.js
 

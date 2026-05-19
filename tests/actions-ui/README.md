@@ -2,7 +2,7 @@
 
 # Actions UI Screenshot Audit
 
-This harness captures the S41k Actions parity surfaces against a running
+This harness captures the S41k/S41l Actions parity surfaces against a running
 shithub server. It is intentionally operator-run instead of CI-required:
 screenshots depend on seeded repositories, real workflow runs, browser fonts,
 and light/dark rendering.
@@ -34,9 +34,11 @@ committed.
 The default route set captures:
 
 - Actions list
+- New workflow route when passed through `SHITHUB_ACTIONS_AUDIT_ROUTES`
 - workflow-specific run list
 - run summary and graph canvas, when `SHITHUB_ACTIONS_RUN` is set
-- step log, when `SHITHUB_ACTIONS_RUN` is set
+- step log, including completed-log group/permalink landmarks when the selected
+  run contains grouped logs
 - caches
 - attestations
 - runners
@@ -51,5 +53,5 @@ present.
 Use `SHITHUB_ACTIONS_AUDIT_ROUTES` for one-off routes:
 
 ```sh
-SHITHUB_ACTIONS_AUDIT_ROUTES='wide=/mfwolffe/scratch/actions/runs/9' make audit-actions-ui
+SHITHUB_ACTIONS_AUDIT_ROUTES='new=/mfwolffe/scratch/actions/new,wide=/mfwolffe/scratch/actions/runs/9' make audit-actions-ui
 ```
