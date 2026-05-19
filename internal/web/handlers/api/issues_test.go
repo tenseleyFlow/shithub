@@ -33,22 +33,31 @@ type apiUser struct {
 }
 
 type apiIssue struct {
-	ID          int64      `json:"id"`
-	Number      int64      `json:"number"`
-	Title       string     `json:"title"`
-	Body        string     `json:"body"`
-	State       string     `json:"state"`
-	StateReason string     `json:"state_reason"`
-	Locked      bool       `json:"locked"`
-	LockReason  string     `json:"lock_reason"`
-	AuthorID    int64      `json:"author_id"`
-	User        *apiUser   `json:"user"`
-	HTMLURL     string     `json:"html_url"`
-	Labels      []apiLabel `json:"labels"`
-	Assignees   []apiUser  `json:"assignees"`
-	CreatedAt   string     `json:"created_at"`
-	UpdatedAt   string     `json:"updated_at"`
-	ClosedAt    string     `json:"closed_at"`
+	ID          int64           `json:"id"`
+	Number      int64           `json:"number"`
+	Title       string          `json:"title"`
+	Body        string          `json:"body"`
+	State       string          `json:"state"`
+	StateReason string          `json:"state_reason"`
+	Locked      bool            `json:"locked"`
+	LockReason  string          `json:"lock_reason"`
+	AuthorID    int64           `json:"author_id"`
+	User        *apiUser        `json:"user"`
+	HTMLURL     string          `json:"html_url"`
+	Labels      []apiLabel      `json:"labels"`
+	Assignees   []apiUser       `json:"assignees"`
+	Milestone   *apiMilestoneIE `json:"milestone"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	ClosedAt    string          `json:"closed_at"`
+}
+
+// apiMilestoneIE mirrors the server's milestoneIssueEnvelope — the
+// trimmed shape that surfaces on issue responses (no issue counts).
+type apiMilestoneIE struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+	State string `json:"state"`
 }
 
 type apiComment struct {
@@ -243,6 +252,36 @@ func TestIssues_CreateWithLabelsAssigneesMilestone(t *testing.T) {
 	}
 	if !fresh.MilestoneID.Valid || fresh.MilestoneID.Int64 != m.ID {
 		t.Errorf("milestone: got %+v, want %d", fresh.MilestoneID, m.ID)
+	}
+
+	// E3 regression: the response must surface the milestone envelope,
+	// not drop the field entirely. Pre-fix the response had no
+	// `milestone` key at all and the CLI's `--json milestone` exporter
+	// returned null even when the row stored a milestone id.
+	if created.Milestone == nil {
+		t.Errorf("response.milestone: got nil, want envelope (E3)")
+	} else if created.Milestone.ID != m.ID || created.Milestone.Title != "v1" {
+		t.Errorf("response.milestone: %+v", created.Milestone)
+	}
+}
+
+// TestIssues_ResponseMilestoneIsNullWhenAbsent is the other half of E3:
+// an issue with no milestone surfaces `milestone: null`, not an absent
+// key. Matches gh — clients can distinguish "no milestone" from "field
+// removed from the schema" only when the key is always present.
+func TestIssues_ResponseMilestoneIsNullWhenAbsent(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{"title": "no milestone", "body": "x"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"milestone":null`)) {
+		t.Errorf("missing `\"milestone\":null` in response; raw=%s", rr.Body.String())
 	}
 }
 
