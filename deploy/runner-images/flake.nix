@@ -75,6 +75,10 @@
               python
               checkoutHelper
             ];
+            # gcc-wrapper and gfortran-wrapper both expose linker helper
+            # symlinks such as ld.gold. Keep both compilers in the hosted
+            # image and let buildEnv de-duplicate those wrapper collisions.
+            ignoreCollisions = true;
             pathsToLink = [ "/bin" "/etc" ];
           };
         in
