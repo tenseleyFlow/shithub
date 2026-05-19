@@ -376,6 +376,77 @@ func TestPulls_PatchTitleBody(t *testing.T) {
 	}
 }
 
+// G7 (F27): PATCH with `base` persists the new ref and recomputes
+// mergeable_state on the next worker tick. Pre-fix the field was
+// dropped at JSON decode and the call was a no-op false-success.
+// This test seeds a third branch (`stable`), changes the PR's base
+// from `trunk` to `stable`, and verifies both the legacy flat field
+// and the nested envelope reflect the change.
+func TestPulls_PatchBaseChange(t *testing.T) {
+	_, router, _, _, token, gitDir := seedPullsEnv(t, "alice")
+	// Add a third branch so we can pivot base off `trunk`.
+	commitOnRepoBranch(t, gitDir, "stable", "stable init", "STABLE.md", "stable\n")
+	openPullFor(t, router, token, "alice", "demo")
+
+	patch, _ := json.Marshal(map[string]any{"base": "stable"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/pulls/1", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch base: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var updated apiPull
+	if err := json.Unmarshal(rr.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if updated.BaseRef != "stable" {
+		t.Errorf("base_ref: got %q want %q", updated.BaseRef, "stable")
+	}
+	if updated.Base == nil || updated.Base.Ref != "stable" {
+		t.Errorf("base envelope: %+v", updated.Base)
+	}
+
+	// GET round-trip: persistence sticks across requests (not just the
+	// reload-in-response).
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d", rr.Code)
+	}
+	var fetched apiPull
+	_ = json.Unmarshal(rr.Body.Bytes(), &fetched)
+	if fetched.BaseRef != "stable" {
+		t.Errorf("base_ref after GET: %q want stable", fetched.BaseRef)
+	}
+}
+
+// G7 (F27): boundary checks — unknown ref 422s; new base == head 422s.
+func TestPulls_PatchBaseRejectsBadInputs(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct{ base, want string }{
+		{"no-such-branch", "base ref not found"},
+		{"feature", "base and head must differ"}, // PR head is `feature`
+	} {
+		patch, _ := json.Marshal(map[string]any{"base": tc.base})
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/pulls/1", bytes.NewReader(patch))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("base=%q: code=%d want 422; body=%s", tc.base, rr.Code, rr.Body.String())
+			continue
+		}
+		if !strings.Contains(rr.Body.String(), tc.want) {
+			t.Errorf("base=%q: body should mention %q; got %s", tc.base, tc.want, rr.Body.String())
+		}
+	}
+}
+
 func TestPulls_PatchNonAuthorForbidden(t *testing.T) {
 	pool, router, _, _, tokenAlice, _ := seedPullsEnv(t, "alice")
 	openPullFor(t, router, tokenAlice, "alice", "demo")
