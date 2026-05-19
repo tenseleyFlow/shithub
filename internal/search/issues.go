@@ -90,7 +90,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	args = append(args, limit, offset)
 
 	queryStr := fmt.Sprintf(`
-		SELECT i.id, r.id, %[7]s, r.name, i.number, i.title,
+		SELECT i.id, r.id, %[7]s, r.name, r.visibility::text, i.number, i.title,
 		       i.state::text, i.kind::text,
 		       coalesce(au.username, '') AS author_name,
 		       i.updated_at,
@@ -116,7 +116,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	for rows.Next() {
 		var r IssueResult
 		if err := rows.Scan(&r.ID, &r.RepoID, &r.OwnerUsername, &r.RepoName,
-			&r.Number, &r.Title, &r.State, &r.Kind, &r.AuthorName,
+			&r.RepoVisibility, &r.Number, &r.Title, &r.State, &r.Kind, &r.AuthorName,
 			&r.UpdatedAt, &r.Rank); err != nil {
 			return nil, 0, err
 		}
