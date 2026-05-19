@@ -2,6 +2,7 @@
 
 SP25 adds a local dependency inventory and advisory surface for organization
 security overview. The owning code lives in `internal/repos/dependencies`,
+`internal/repos/dependencyupdates`,
 `internal/worker/jobs/repo_dependency_scan.go`,
 `internal/worker/jobs/pr_dependency_review.go`, and the web handlers at
 `internal/web/handlers/orgs/security.go` and `internal/web/handlers/repo/pulls.go`.
@@ -35,6 +36,13 @@ security overview. The owning code lives in `internal/repos/dependencies`,
   by PR/base/head SHA.
 - `pull_dependency_review_items` stores package-level dependency changes and
   optional local advisory metadata for the PR review surface.
+- `dependency_update_configs` stores parsed repository update policy from
+  `.github/dependabot.yml` for supported ecosystems.
+- `dependency_update_jobs` stores bounded scheduler/update/triage job state.
+- `dependency_update_prs` records dependency update pull requests by branch and
+  package set.
+- `dependency_auto_triage_rules` stores org- or repo-scoped alert rules.
+- `dependency_auto_triage_events` stores an audit trail of rule applications.
 - `repo_security_advisories` is the repository-maintained advisory table used by
   the org overview. Creation/editing flows are planned separately.
 
@@ -87,6 +95,29 @@ recommendation text. Free organizations only see the upgrade-required check
 state; private package and advisory details are not persisted or queried for
 that path.
 
+## Dependency Update Automation
+
+SP25b starts the dependency update automation foundation. The parser accepts a
+GitHub-compatible `.github/dependabot.yml` subset for `gomod` and `npm` entries,
+normalizes them to shithub ecosystems `go` and `npm`, and stores schedules,
+open PR limits, allow/ignore rules, group rules, registries, unsupported-key
+warnings, and a raw config hash. Supported schedule intervals are `daily`,
+`weekly`, `monthly`, `quarterly`, `semiannually`, `yearly`, and `cron` with a
+`cronjob` value.
+
+Unsupported ecosystems or invalid required fields are diagnostic errors.
+Unsupported keys are diagnostic warnings and are not silently treated as active
+behavior. This is important for billing parity: Team-plan copy can reference
+the feature only once the scheduler and update PR workers are connected, and UI
+surfaces must show unsupported configuration rather than making it appear to
+work.
+
+The storage layer is intentionally wider than the first worker implementation:
+it includes update job state, update PR bookkeeping, and auto-triage rule/audit
+tables so follow-up slices can add the scheduler, Go/npm update adapters,
+branch creation, grouping, and triage application without reshaping the billing
+contract again.
+
 ## Privacy and Product Copy
 
 Organization security overview is only visible to organization members and site
@@ -95,7 +126,8 @@ execute the alert-detail queries, so private package names and advisory
 summaries are not exposed behind the paywall. Free organization pull requests do
 not execute or persist dependency review item details either.
 
-Do not advertise unsupported ecosystems, Dependabot version-update automation,
-semver advisory ranges, advisory import automation, or AI remediation until
-those subsystems exist. Current user-facing copy should say "supported Go and npm
-manifests" or "local advisory matches".
+Do not advertise unsupported ecosystems, semver advisory ranges, advisory
+import automation, or AI remediation until those subsystems exist. Until the
+SP25b workers are connected end to end, user-facing copy should say "supported
+Go and npm manifests", "local advisory matches", or "dependency update
+configuration" rather than claiming live automated update pull requests.

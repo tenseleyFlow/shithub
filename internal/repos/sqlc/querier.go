@@ -20,6 +20,7 @@ type Querier interface {
 	AdminForceDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
+	CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg CompleteDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
 	CountPublicReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountPublicReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
@@ -31,6 +32,8 @@ type Querier interface {
 	CountRepoWikiPages(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	CreateDependencyAutoTriageRule(ctx context.Context, db DBTX, arg CreateDependencyAutoTriageRuleParams) (DependencyAutoTriageRule, error)
+	CreateDependencyUpdateJob(ctx context.Context, db DBTX, arg CreateDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	// ─── S27 forks ─────────────────────────────────────────────────────
 	// Insert a fork shell. Distinct from CreateRepo because forks set
 	// `fork_of_repo_id` (which fires the fork_count trigger) and start
@@ -69,6 +72,7 @@ type Querier interface {
 	DeleteRepoProject(ctx context.Context, db DBTX, arg DeleteRepoProjectParams) error
 	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
 	DeleteRepoWikiPage(ctx context.Context, db DBTX, arg DeleteRepoWikiPageParams) error
+	DisableMissingDependencyUpdateConfigs(ctx context.Context, db DBTX, arg DisableMissingDependencyUpdateConfigsParams) error
 	DismissDependencyAlert(ctx context.Context, db DBTX, arg DismissDependencyAlertParams) error
 	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
@@ -84,6 +88,7 @@ type Querier interface {
 	// returns existing rows; missing OIDs are absent from the result and
 	// the renderer treats them as "not yet verified".
 	GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error)
+	GetDependencyUpdateConfig(ctx context.Context, db DBTX, id int64) (DependencyUpdateConfig, error)
 	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	// ─── profile/org pinned repositories ───────────────────────────────
 	GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
@@ -139,6 +144,13 @@ type Querier interface {
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
+	ListDependencyAutoTriageEventsForAlert(ctx context.Context, db DBTX, alertID int64) ([]DependencyAutoTriageEvent, error)
+	ListDependencyAutoTriageRulesForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyAutoTriageRule, error)
+	ListDependencyUpdateConfigsForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyUpdateConfig, error)
+	ListDependencyUpdateJobsForRepo(ctx context.Context, db DBTX, arg ListDependencyUpdateJobsForRepoParams) ([]DependencyUpdateJob, error)
+	ListDependencyUpdatePRsForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyUpdatePr, error)
+	ListDueDependencyUpdateConfigs(ctx context.Context, db DBTX, limitRows int32) ([]DependencyUpdateConfig, error)
+	ListEnabledDependencyUpdateConfigsForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyUpdateConfig, error)
 	// Forks of a given source repo, paginated, recency-sorted. Joined
 	// with users for the owner display name. Excludes soft-deleted.
 	ListForksOfRepo(ctx context.Context, db DBTX, arg ListForksOfRepoParams) ([]ListForksOfRepoRow, error)
@@ -205,6 +217,7 @@ type Querier interface {
 	// Returns the current repo_id when (old_owner_user_id, old_name) hits
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
+	MarkDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	MarkRepoDependenciesStale(ctx context.Context, db DBTX, arg MarkRepoDependenciesStaleParams) error
 	MarkRepoSourceRemoteFetchError(ctx context.Context, db DBTX, arg MarkRepoSourceRemoteFetchErrorParams) error
 	MarkRepoSourceRemoteFetched(ctx context.Context, db DBTX, repoID int64) error
@@ -218,6 +231,7 @@ type Querier interface {
 	// handler guarantees we don't pause an already-archived repo, but
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
+	RecordDependencyAutoTriageEvent(ctx context.Context, db DBTX, arg RecordDependencyAutoTriageEventParams) (DependencyAutoTriageEvent, error)
 	// Baseline matcher: advisories match exact package/ecosystem plus
 	// affected_range of '', '*', or the dependency's resolved version.
 	// Rich semver range evaluation belongs in a later parser package; this
@@ -253,6 +267,7 @@ type Querier interface {
 	// Distinct name from S11's SoftDeleteRepo so future code that wants to
 	// preserve the lifecycle audit-emission shape can find this one.
 	SoftDeleteRepoLifecycle(ctx context.Context, db DBTX, id int64) error
+	TouchDependencyUpdateConfigChecked(ctx context.Context, db DBTX, arg TouchDependencyUpdateConfigCheckedParams) (DependencyUpdateConfig, error)
 	// Sets owner_user_id (or owner_org_id post-S31) on accept. The xor
 	// check on the table enforces the shape. Also clears the other side
 	// so a user→org transfer flips both columns atomically.
@@ -266,6 +281,7 @@ type Querier interface {
 	// handler calls this alongside UpdateBranchProtectionRule.
 	UpdateBranchProtectionReviewSettings(ctx context.Context, db DBTX, arg UpdateBranchProtectionReviewSettingsParams) error
 	UpdateBranchProtectionRule(ctx context.Context, db DBTX, arg UpdateBranchProtectionRuleParams) error
+	UpdateDependencyAutoTriageRule(ctx context.Context, db DBTX, arg UpdateDependencyAutoTriageRuleParams) (DependencyAutoTriageRule, error)
 	// Used by the default-branch settings handler. The on-disk HEAD update
 	// is a separate step done via `git symbolic-ref` from the orchestrator.
 	UpdateRepoDefaultBranch(ctx context.Context, db DBTX, arg UpdateRepoDefaultBranchParams) error
@@ -294,6 +310,11 @@ type Querier interface {
 	// to the (repo_id, commit_oid) primary key + ON CONFLICT clause.
 	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
 	UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg UpsertDependencyAdvisoryParams) (DependencyAdvisory, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP25b dependency update automation state.
+	UpsertDependencyUpdateConfig(ctx context.Context, db DBTX, arg UpsertDependencyUpdateConfigParams) (DependencyUpdateConfig, error)
+	UpsertDependencyUpdatePR(ctx context.Context, db DBTX, arg UpsertDependencyUpdatePRParams) (DependencyUpdatePr, error)
 	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
 	UpsertRepoDependency(ctx context.Context, db DBTX, arg UpsertRepoDependencyParams) (RepoDependency, error)
