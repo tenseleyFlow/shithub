@@ -53,6 +53,11 @@ func (h *Handlers) mountPulls(r chi.Router) {
 		r.Post("/api/v1/repos/{owner}/{repo}/pulls", h.pullCreate)
 		r.Patch("/api/v1/repos/{owner}/{repo}/pulls/{number}", h.pullPatch)
 		r.Put("/api/v1/repos/{owner}/{repo}/pulls/{number}/merge", h.pullMerge)
+		// G8b (F43): `pr update-branch`. Merge or rebase base into the
+		// PR's head ref, advancing it with the latest base content so
+		// the PR can merge cleanly. CLI shipped full client + tests
+		// against this endpoint long before the server implemented it.
+		r.Put("/api/v1/repos/{owner}/{repo}/pulls/{number}/update-branch", h.pullUpdateBranch)
 	})
 }
 
@@ -849,6 +854,88 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// ─── update-branch ──────────────────────────────────────────────────
+
+// pullUpdateBranchRequest mirrors the CLI's UpdateBranchInput body.
+// `expected_head_sha` (when supplied) is a CAS guard: the operation
+// aborts cleanly if a concurrent push has moved the head.
+type pullUpdateBranchRequest struct {
+	ExpectedHeadSHA string `json:"expected_head_sha,omitempty"`
+}
+
+// pullUpdateBranchResponse matches the CLI's UpdateBranchResult shape.
+type pullUpdateBranchResponse struct {
+	Message string `json:"message,omitempty"`
+	URL     string `json:"url,omitempty"`
+}
+
+// pullUpdateBranch handles PUT /pulls/{N}/update-branch — G8b (F43).
+// Strategy hint comes via `X-Shithub-Strategy: rebase` header (defaults
+// to merge). Permission: author OR repo-write collaborator. Author is
+// allowed because update-branch is the gh-style "I want my branch
+// caught up" workflow that PR authors run constantly.
+func (h *Handlers) pullUpdateBranch(w http.ResponseWriter, r *http.Request) {
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionPullRead)
+	if !ok {
+		return
+	}
+	if policy.NewRepoRefFromRepo(repo).Archived() {
+		writeAPIError(w, http.StatusForbidden, "repository is archived")
+		return
+	}
+	auth := middleware.PATAuthFromContext(r.Context())
+	if auth.UserID == 0 {
+		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	issue, _, ok := h.resolvePRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	canEdit := issue.AuthorUserID.Valid && issue.AuthorUserID.Int64 == auth.UserID
+	if !canEdit {
+		canEdit = policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoWrite, policy.NewRepoRefFromRepo(repo)).Allow
+	}
+	if !canEdit {
+		writeAPIError(w, http.StatusForbidden, "only the author or a repo collaborator may update the branch")
+		return
+	}
+
+	var body pullUpdateBranchRequest
+	// Empty body is fine; only decode when there's content so the CLI
+	// can PUT with no body and still get the default behavior.
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+	}
+
+	method := "merge"
+	if strings.EqualFold(r.Header.Get("X-Shithub-Strategy"), "rebase") {
+		method = "rebase"
+	}
+
+	gitDir, err := h.repoGitDir(r.Context(), &repo)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: resolve gitDir", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "update-branch failed")
+		return
+	}
+
+	newOID, err := pulls.UpdateBranch(r.Context(),
+		pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit},
+		gitDir, auth.UserID, issue.ID, method, body.ExpectedHeadSHA)
+	if err != nil {
+		writePullsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pullUpdateBranchResponse{
+		Message: "branch updated to " + newOID,
+		URL:     h.pullHTMLURL(ownerLogin, repo.Name, issue.Number),
+	})
+}
+
 // ─── helpers ────────────────────────────────────────────────────────
 
 // resolvePRByNumber resolves a PR by repo+number. The repo gate has
@@ -895,7 +982,10 @@ func writePullsError(w http.ResponseWriter, err error) {
 		errors.Is(err, pulls.ErrBaseNotFound),
 		errors.Is(err, pulls.ErrHeadNotFound),
 		errors.Is(err, pulls.ErrNoCommitsToMerge),
-		errors.Is(err, pulls.ErrMergeMethodOff):
+		errors.Is(err, pulls.ErrMergeMethodOff),
+		// G8b (F43): update-branch sentinels.
+		errors.Is(err, pulls.ErrBranchUpToDate),
+		errors.Is(err, pulls.ErrUpdateBranchMethod):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, pulls.ErrAlreadyMerged),
 		errors.Is(err, pulls.ErrAlreadyClosed),
