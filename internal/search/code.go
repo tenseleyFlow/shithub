@@ -34,6 +34,13 @@ func SearchCode(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQuer
 		return nil, 0, nil
 	}
 
+	// G11 (F49): code search requires a textual hit; verify the user
+	// gave at least one token long enough to plausibly match indexed
+	// content. See repos.go for the heuristic rationale.
+	if err := validateFTSNotShortOnly(tsText); err != nil {
+		return nil, 0, err
+	}
+
 	args := []any{tsText}
 	visClause, visArgs := policy.VisibilityPredicate(actor, "r", len(args)+1)
 	args = append(args, visArgs...)

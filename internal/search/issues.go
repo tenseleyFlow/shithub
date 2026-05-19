@@ -32,6 +32,15 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		return nil, 0, nil
 	}
 
+	// G11 (F49): if the user supplied free-text but no narrowing
+	// filters, verify at least one token is long enough to match
+	// indexed content. See repos.go for the heuristic rationale.
+	if hasFTS && q.RepoFilter == nil && q.AuthorFilter == "" && q.AssigneeFilter == "" && q.StateFilter == "" && kindFilter == "" {
+		if err := validateFTSNotShortOnly(tsText); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	args := []any{}
 	tsPlaceholder := 0
 	if hasFTS {
