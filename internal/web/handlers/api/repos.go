@@ -93,6 +93,7 @@ type repoResponse struct {
 	// GitHub-compat nested envelope.
 	Owner         *repoOwnerEnvelope   `json:"owner,omitempty"`
 	Description   string               `json:"description"`
+	Homepage      string               `json:"homepage"`
 	Visibility    string               `json:"visibility"`
 	Private       bool                 `json:"private"`
 	HTMLURL       string               `json:"html_url,omitempty"`
@@ -139,6 +140,7 @@ func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL str
 			Type:  capitalizeFirst(ownerType),
 		},
 		Description:   r.Description,
+		Homepage:      r.Homepage,
 		Visibility:    string(r.Visibility),
 		Private:       repoRef.IsPrivate(),
 		DefaultBranch: r.DefaultBranch,
@@ -580,10 +582,15 @@ func writeRepoCreateError(w http.ResponseWriter, err error) {
 
 type repoPatchRequest struct {
 	Description *string `json:"description,omitempty"`
-	HasIssues   *bool   `json:"has_issues,omitempty"`
-	HasPulls    *bool   `json:"has_pulls,omitempty"`
-	Archived    *bool   `json:"archived,omitempty"`
-	Visibility  *string `json:"visibility,omitempty"`
+	// Homepage persists the repo's homepage URL (E7). Pre-fix the
+	// field was silently dropped because the column didn't exist;
+	// migration 0116 adds the column, and PATCH now round-trips it
+	// through the same general-settings UPDATE.
+	Homepage   *string `json:"homepage,omitempty"`
+	HasIssues  *bool   `json:"has_issues,omitempty"`
+	HasPulls   *bool   `json:"has_pulls,omitempty"`
+	Archived   *bool   `json:"archived,omitempty"`
+	Visibility *string `json:"visibility,omitempty"`
 	// Name dispatches into lifecycle.Rename when non-nil. Closes
 	// audit finding C7: the previous behavior silently dropped the
 	// field, letting `shithub repo rename` print "Renamed to <old
@@ -656,10 +663,12 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 		repo = fresh
 		policy.InvalidateRepo(r.Context(), repo.ID)
 	}
-	// General settings (description, has_issues, has_pulls) go through
-	// the single UpdateRepoGeneralSettings query so the form-driven HTML
-	// surface and this REST path observe the same row updates.
-	if body.Description != nil || body.HasIssues != nil || body.HasPulls != nil {
+	// General settings (description, has_issues, has_pulls, homepage)
+	// go through the single UpdateRepoGeneralSettings query so the
+	// form-driven HTML surface and this REST path observe the same row
+	// updates. Each pointer field defaults to the current value so a
+	// PATCH carrying only one knob doesn't blank the others.
+	if body.Description != nil || body.HasIssues != nil || body.HasPulls != nil || body.Homepage != nil {
 		desc := repo.Description
 		if body.Description != nil {
 			if err := repos.ValidateDescription(*body.Description); err != nil {
@@ -676,11 +685,21 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 		if body.HasPulls != nil {
 			hasPulls = *body.HasPulls
 		}
+		homepage := repo.Homepage
+		if body.Homepage != nil {
+			h := strings.TrimSpace(*body.Homepage)
+			if len(h) > 255 {
+				writeAPIError(w, http.StatusUnprocessableEntity, "homepage too long (max 255)")
+				return
+			}
+			homepage = h
+		}
 		if err := reposdb.New().UpdateRepoGeneralSettings(r.Context(), h.d.Pool, reposdb.UpdateRepoGeneralSettingsParams{
 			ID:          repo.ID,
 			Description: desc,
 			HasIssues:   hasIssues,
 			HasPulls:    hasPulls,
+			Homepage:    homepage,
 		}); err != nil {
 			h.d.Logger.ErrorContext(r.Context(), "api: repo patch general", "error", err)
 			writeAPIError(w, http.StatusInternalServerError, "update failed")
