@@ -591,16 +591,27 @@ type repoPatchRequest struct {
 }
 
 func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
-	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, policy.ActionRepoSettingsGeneral)
-	if !ok {
-		return
-	}
-	auth := middleware.PATAuthFromContext(r.Context())
+	// E9: decode body BEFORE running the archive-aware policy gate so
+	// we can pick the right action. The gate normally uses
+	// ActionRepoSettingsGeneral, which is blocked on archived repos —
+	// that locked unarchive out and turned archive into a one-way
+	// trap. When the body's only change is `archived: false`, route
+	// the gate through ActionRepoArchive (which is exempt from the
+	// archive-write block, see policy.go § 8).
 	var body repoPatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	gateAction := policy.ActionRepoSettingsGeneral
+	if body.Archived != nil {
+		gateAction = policy.ActionRepoArchive
+	}
+	repo, ownerLogin, ok := h.resolveAPIRepoWithLogin(w, r, gateAction)
+	if !ok {
+		return
+	}
+	auth := middleware.PATAuthFromContext(r.Context())
 	// C7: dispatch rename through the existing lifecycle.Rename
 	// pipeline (validate → tx insert-redirect + UPDATE → FS move →
 	// audit). Rename requires repo admin (matches the HTML form
@@ -814,11 +825,34 @@ func (h *Handlers) resolveAPIRepoWithLogin(w http.ResponseWriter, r *http.Reques
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return reposdb.Repo{}, "", false
 	}
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo)).Allow {
-		writeAPIError(w, http.StatusNotFound, "repo not found")
+	decision := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo))
+	if !decision.Allow {
+		writeAPIDenial(w, decision)
 		return reposdb.Repo{}, "", false
 	}
 	return repo, login, true
+}
+
+// writeAPIDenial maps a policy.Decision deny code onto an HTTP status.
+// E18: prior to this, every deny rendered as 404 "repo not found",
+// making archived/paused/org-suspended states indistinguishable from
+// deleted. The 404 path stays for visibility denies (private repos —
+// existence leak guard), but DenyArchived/Paused/OrgSuspended return
+// 403 with a specific message so clients can do something about it.
+func writeAPIDenial(w http.ResponseWriter, d policy.Decision) {
+	switch d.Code {
+	case policy.DenyArchived:
+		writeAPIError(w, http.StatusForbidden, "repository is archived")
+	case policy.DenyPaused:
+		writeAPIError(w, http.StatusPaymentRequired, "repository is paused")
+	case policy.DenyOrgSuspended:
+		writeAPIError(w, http.StatusForbidden, "owning organization is suspended")
+	default:
+		// DenyVisibility, DenyAnonymous, DenyRoleTooLow, etc. all fall
+		// through to 404 to avoid leaking that the repo exists when
+		// the caller can't see it.
+		writeAPIError(w, http.StatusNotFound, "repo not found")
+	}
 }
 
 // actionRequiresAuth returns true for actions that always require a
