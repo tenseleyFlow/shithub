@@ -621,3 +621,96 @@ func TestPulls_ListLabelFilter(t *testing.T) {
 		}
 	}
 }
+
+// G1 (F11): gh-canonical `creator=` is accepted as an alias for the
+// shithub-native `author=`. Pre-fix the CLI's `pr list --author ghost`
+// sent `?creator=ghost`, the server silently dropped the unknown
+// param, and the response was the unfiltered list — wire mismatch
+// hidden by passing per-side unit tests.
+func TestPulls_ListAuthorAliasCreator(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	get := func(q string) (int, []apiPull) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		var rows []apiPull
+		if rr.Code == http.StatusOK {
+			_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		}
+		return rr.Code, rows
+	}
+
+	if code, rows := get("author=alice"); code != 200 || len(rows) != 1 {
+		t.Errorf("author=alice: code=%d rows=%d", code, len(rows))
+	}
+	if code, rows := get("creator=alice"); code != 200 || len(rows) != 1 {
+		t.Errorf("creator=alice (alias): code=%d rows=%d", code, len(rows))
+	}
+	if code, _ := get("creator=ghost"); code != http.StatusUnprocessableEntity {
+		t.Errorf("creator=ghost: code=%d, want 422", code)
+	}
+}
+
+// G1 (F2-1): `assignee` filter on /pulls. Pre-fix the param landed in
+// query-string parse-out land — the handler never read it — so the
+// CLI's `pr list --assignee` silently returned the unfiltered list.
+// Now we validate the username up front (422 on unknown) and post-
+// filter via the shared issue-assignee table.
+func TestPulls_ListAssigneeFilter(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	get := func(q string) (int, []apiPull) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		var rows []apiPull
+		if rr.Code == http.StatusOK {
+			_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		}
+		return rr.Code, rows
+	}
+
+	// alice exists but no PR has her as assignee yet → empty (NOT the
+	// pre-fix "unfiltered 1-row" result).
+	if code, rows := get("assignee=alice"); code != 200 || len(rows) != 0 {
+		t.Errorf("assignee=alice: code=%d rows=%d (want 0)", code, len(rows))
+	}
+	if code, _ := get("assignee=ghost"); code != http.StatusUnprocessableEntity {
+		t.Errorf("assignee=ghost (unknown user): code=%d, want 422", code)
+	}
+}
+
+// G1 (F2-2): `head` filter on /pulls — mirrors the existing `base`
+// post-filter. Pre-fix the CLI's `pr list --head feature` was a no-op
+// (silently returned all rows). Now the head ref is compared per row.
+func TestPulls_ListHeadFilter(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	get := func(q string) (int, []apiPull) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		var rows []apiPull
+		if rr.Code == http.StatusOK {
+			_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		}
+		return rr.Code, rows
+	}
+
+	if code, rows := get("head=feature"); code != 200 || len(rows) != 1 {
+		t.Errorf("head=feature: code=%d rows=%d (want 1)", code, len(rows))
+	}
+	if code, rows := get("head=NOPE"); code != 200 || len(rows) != 0 {
+		t.Errorf("head=NOPE: code=%d rows=%d (want 0)", code, len(rows))
+	}
+}
