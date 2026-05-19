@@ -468,6 +468,28 @@ func SetLock(ctx context.Context, deps Deps, actorUserID, issueID int64, locked 
 	return nil
 }
 
+// Delete hard-deletes an issue row. Schema-level CASCADE removes
+// comments, labels, assignees, milestones, events, references, and
+// the search index entry in the same DB op. Caller MUST gate on
+// ActionRepoAdmin — this is a destructive, non-recoverable mutation.
+//
+// Audit emission lives here so the issue_id is captured before the
+// cascade wipes the row; the caller-supplied actor lands on the
+// audit row.
+//
+// G8 (F45): pre-G8 the CLI shipped `issue delete` and the server
+// returned 405 — the feature was vapor end-to-end.
+func Delete(ctx context.Context, deps Deps, actorUserID, issueID int64) error {
+	if err := issuesdb.New().DeleteIssue(ctx, deps.Pool, issueID); err != nil {
+		return err
+	}
+	if deps.Audit != nil {
+		_ = deps.Audit.Record(ctx, deps.Pool, actorUserID,
+			audit.ActionIssueDeleted, audit.TargetIssue, issueID, nil)
+	}
+	return nil
+}
+
 // renderBody renders markdown to sanitized HTML and returns the
 // resolved mention list. Body length is bounded upstream
 // (orchestrator validation + DB CHECK at 65535), so

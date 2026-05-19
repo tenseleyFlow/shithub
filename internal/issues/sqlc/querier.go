@@ -30,6 +30,12 @@ type Querier interface {
 	CreateLabel(ctx context.Context, db DBTX, arg CreateLabelParams) (Label, error)
 	// ─── milestones ──────────────────────────────────────────────────────
 	CreateMilestone(ctx context.Context, db DBTX, arg CreateMilestoneParams) (Milestone, error)
+	// G8 (F45): hard-delete an issue row. The `issues` table has every
+	// child relation wired ON DELETE CASCADE (comments, labels, assignees,
+	// milestones, events, references, search index, …), so the cascade
+	// does the rest. Caller is responsible for the policy gate
+	// (ActionRepoAdmin) and audit emission.
+	DeleteIssue(ctx context.Context, db DBTX, id int64) error
 	DeleteIssueComment(ctx context.Context, db DBTX, id int64) error
 	DeleteLabel(ctx context.Context, db DBTX, id int64) error
 	DeleteMilestone(ctx context.Context, db DBTX, id int64) error

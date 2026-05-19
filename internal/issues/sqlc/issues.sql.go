@@ -269,6 +269,20 @@ func (q *Queries) CreateMilestone(ctx context.Context, db DBTX, arg CreateMilest
 	return i, err
 }
 
+const deleteIssue = `-- name: DeleteIssue :exec
+DELETE FROM issues WHERE id = $1 AND kind = 'issue'
+`
+
+// G8 (F45): hard-delete an issue row. The `issues` table has every
+// child relation wired ON DELETE CASCADE (comments, labels, assignees,
+// milestones, events, references, search index, …), so the cascade
+// does the rest. Caller is responsible for the policy gate
+// (ActionRepoAdmin) and audit emission.
+func (q *Queries) DeleteIssue(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, deleteIssue, id)
+	return err
+}
+
 const deleteIssueComment = `-- name: DeleteIssueComment :exec
 DELETE FROM issue_comments WHERE id = $1
 `

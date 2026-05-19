@@ -1106,3 +1106,86 @@ func TestIssues_PatchOnArchivedRepoIs403(t *testing.T) {
 		t.Errorf("archived issue patch: got %d, want 403; body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+// G8 (F45): `DELETE /issues/{N}` admin-only, cascades via FKs, 204.
+// Pre-G8 the CLI's `issue delete` got 405 against this verb and the
+// command was vapor end-to-end. Pins:
+//   - happy path returns 204 and the row is gone (GET 404 after)
+//   - non-admin write collaborator gets 403 (gh's rule)
+//   - PR numbers route to /issues/{N} return 404 (PRs delete via own
+//     verb, future sprint)
+func TestIssues_Delete(t *testing.T) {
+	pool, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	// Create an issue + add a comment so the cascade has something
+	// non-trivial to remove.
+	body, _ := json.Marshal(map[string]any{"title": "to-delete", "body": "doomed"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed issue: %d", rr.Code)
+	}
+	cbody, _ := json.Marshal(map[string]any{"body": "child comment"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues/1/comments", bytes.NewReader(cbody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed comment: %d", rr.Code)
+	}
+
+	// Non-admin write collaborator (bob) — 403.
+	bobID := seedRepoCreatorUser(t, pool, "bob")
+	tokenBob := mintRunnerAPIPAT(t, pool, bobID, string(pat.ScopeRepoWrite))
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenBob)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("non-admin delete: code=%d want 403; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Admin (alice, repo owner) — 204 and the row is gone.
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("admin delete: code=%d want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	// GET confirms cascade-deletion.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("GET after delete: code=%d want 404", rr.Code)
+	}
+}
+
+// G8 (F45) boundary: deleting a PR number via /issues/{N} 404s.
+// PRs share the issues table (kind='pr') but the bare GET surface is
+// issue-only; the delete verb mirrors that contract.
+func TestIssues_DeleteRejectsPRNumber(t *testing.T) {
+	pool, router, _, _, token := seedIssuesEnv(t, "alice")
+	// Use seedPullsEnv-style setup but the existing seedIssuesEnv
+	// doesn't initialize a git dir — fake it by creating a kind='pr'
+	// row directly via SQL since we just need the row to exist.
+	// (The handler 404s before reading any other column.)
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO issues (repo_id, number, kind, title, body, author_user_id, state)
+		 VALUES ((SELECT id FROM repos WHERE name='demo'), 1, 'pr', 'fake pr', '', NULL, 'open')`)
+	if err != nil {
+		t.Fatalf("seed kind=pr row: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("DELETE on PR number: code=%d want 404; body=%s", rr.Code, rr.Body.String())
+	}
+}

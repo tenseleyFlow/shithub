@@ -74,16 +74,20 @@ const (
 	ActionIssueStateChanged     Action = "issue_state_changed"
 	ActionIssueLockChanged      Action = "issue_lock_changed"
 	ActionIssueCommentCreated   Action = "issue_comment_created"
-	ActionPullStateChanged      Action = "pull_state_changed"
-	ActionPullMerged            Action = "pull_merged"
-	ActionStarCreated           Action = "star_created"
-	ActionStarDeleted           Action = "star_deleted"
-	ActionWatchSet              Action = "watch_set"
-	ActionWatchUnset            Action = "watch_unset"
-	ActionFollowCreated         Action = "follow_created"
-	ActionFollowDeleted         Action = "follow_deleted"
-	ActionRepoForked            Action = "repo_forked"
-	ActionRepoForkSynced        Action = "repo_fork_synced"
+	// G8 (F45): hard-deletion of an issue row. Security-sensitive
+	// because the cascade removes comments + history; gated on
+	// ActionRepoAdmin in the API layer.
+	ActionIssueDeleted     Action = "issue_deleted"
+	ActionPullStateChanged Action = "pull_state_changed"
+	ActionPullMerged       Action = "pull_merged"
+	ActionStarCreated      Action = "star_created"
+	ActionStarDeleted      Action = "star_deleted"
+	ActionWatchSet         Action = "watch_set"
+	ActionWatchUnset       Action = "watch_unset"
+	ActionFollowCreated    Action = "follow_created"
+	ActionFollowDeleted    Action = "follow_deleted"
+	ActionRepoForked       Action = "repo_forked"
+	ActionRepoForkSynced   Action = "repo_fork_synced"
 
 	// S33 / SR2 H1 — webhook lifecycle. Pre-SR2 webhook create/update
 	// overloaded ActionRepoCreated; delete/toggle/ping/redeliver were

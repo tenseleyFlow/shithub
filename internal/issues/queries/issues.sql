@@ -104,6 +104,14 @@ WHERE id = $1;
 -- name: DeleteIssueComment :exec
 DELETE FROM issue_comments WHERE id = $1;
 
+-- name: DeleteIssue :exec
+-- G8 (F45): hard-delete an issue row. The `issues` table has every
+-- child relation wired ON DELETE CASCADE (comments, labels, assignees,
+-- milestones, events, references, search index, …), so the cascade
+-- does the rest. Caller is responsible for the policy gate
+-- (ActionRepoAdmin) and audit emission.
+DELETE FROM issues WHERE id = $1 AND kind = 'issue';
+
 
 -- ─── assignees ───────────────────────────────────────────────────────
 
