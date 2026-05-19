@@ -1399,7 +1399,7 @@ SET ecosystem = EXCLUDED.ecosystem,
     reference_urls = EXCLUDED.reference_urls,
     published_at = EXCLUDED.published_at,
     withdrawn_at = EXCLUDED.withdrawn_at
-RETURNING id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at
+RETURNING id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at, modified_at, source_url, cvss_score, cvss_vector, cwe_ids
 `
 
 type UpsertDependencyAdvisoryParams struct {
@@ -1449,6 +1449,11 @@ func (q *Queries) UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg Ups
 		&i.WithdrawnAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ModifiedAt,
+		&i.SourceUrl,
+		&i.CvssScore,
+		&i.CvssVector,
+		&i.CweIds,
 	)
 	return i, err
 }

@@ -191,7 +191,7 @@ func (q *Queries) InsertPullDependencyReviewItem(ctx context.Context, db DBTX, a
 }
 
 const listDependencyReviewAdvisoryCandidates = `-- name: ListDependencyReviewAdvisoryCandidates :many
-SELECT id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at
+SELECT id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at, modified_at, source_url, cvss_score, cvss_vector, cwe_ids
 FROM dependency_advisories
 WHERE lower(ecosystem) = lower($1::text)
   AND lower(package_name) = lower($2::text)
@@ -236,6 +236,11 @@ func (q *Queries) ListDependencyReviewAdvisoryCandidates(ctx context.Context, db
 			&i.WithdrawnAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ModifiedAt,
+			&i.SourceUrl,
+			&i.CvssScore,
+			&i.CvssVector,
+			&i.CweIds,
 		); err != nil {
 			return nil, err
 		}

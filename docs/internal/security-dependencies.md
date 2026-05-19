@@ -40,8 +40,19 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
 - `repo_dependencies` stores de-duplicated dependency rows keyed by repository,
   ecosystem, package name, and manifest path. Removed dependencies are marked
   stale rather than deleted.
-- `dependency_advisories` stores the local advisory catalog. Operators or future
-  importers upsert advisories by `(source, external_id)`.
+- `dependency_advisories` stores the local advisory catalog. Operators or
+  importers upsert advisories by `(source, external_id)`. SP25d metadata tracks
+  source URLs, modified timestamps, CVSS score/vector, and CWE IDs when an
+  imported source provides them.
+- `dependency_advisory_sources` stores operator-controlled source configuration
+  and licensing/attribution notes. Runtime handlers do not read from remote
+  sources.
+- `dependency_advisory_aliases` stores GHSA/CVE/OSV aliases for catalog rows.
+- `dependency_advisory_affected_ranges` stores normalized imported affected
+  package/range details alongside the legacy single `affected_range` column used
+  by current alert matching.
+- `dependency_advisory_sync_runs` records import audit history, counts, and
+  failures without logging private repository package data.
 - `repo_dependency_alerts` joins current dependencies to local advisories and
   tracks open, dismissed, and resolved alert state. Alert refresh is reconciled
   in Go so ecosystem-aware range matching, stale dependency resolution, and

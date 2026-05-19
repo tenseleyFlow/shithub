@@ -72,6 +72,8 @@ type Querier interface {
 	// Used by tests to reset cache state between cases. Not called from
 	// production code paths.
 	DeleteCommitVerification(ctx context.Context, db DBTX, arg DeleteCommitVerificationParams) error
+	DeleteDependencyAdvisoryAffectedRanges(ctx context.Context, db DBTX, advisoryID int64) error
+	DeleteDependencyAdvisoryAliases(ctx context.Context, db DBTX, advisoryID int64) error
 	DeleteProfilePinsForSet(ctx context.Context, db DBTX, setID int64) error
 	// Used by the rename compensator: drop a single redirect row when
 	// the rename has to be rolled back due to a filesystem failure. We
@@ -93,6 +95,7 @@ type Querier interface {
 	// Called by the periodic worker (transfers:expire) — flips pending
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
+	FinishDependencyAdvisorySyncRun(ctx context.Context, db DBTX, arg FinishDependencyAdvisorySyncRunParams) (DependencyAdvisorySyncRun, error)
 	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
 	GetCodeScanningAlert(ctx context.Context, db DBTX, arg GetCodeScanningAlertParams) (CodeScanningAlert, error)
 	// Single-commit read. Used by the single-commit page renderer and the
@@ -103,6 +106,7 @@ type Querier interface {
 	// returns existing rows; missing OIDs are absent from the result and
 	// the renderer treats them as "not yet verified".
 	GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error)
+	GetDependencyAdvisorySource(ctx context.Context, db DBTX, name string) (DependencyAdvisorySource, error)
 	GetDependencyUpdateConfig(ctx context.Context, db DBTX, id int64) (DependencyUpdateConfig, error)
 	GetDependencyUpdateJob(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
@@ -134,6 +138,8 @@ type Querier interface {
 	GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetSoftDeletedRepoByOwnerUserAndNameParams) (Repo, error)
 	GetTransferRequest(ctx context.Context, db DBTX, id int64) (RepoTransferRequest, error)
 	HardDeleteRepo(ctx context.Context, db DBTX, id int64) error
+	InsertDependencyAdvisoryAffectedRange(ctx context.Context, db DBTX, arg InsertDependencyAdvisoryAffectedRangeParams) error
+	InsertDependencyAdvisoryAlias(ctx context.Context, db DBTX, arg InsertDependencyAdvisoryAliasParams) error
 	InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error
 	// ─── redirects ─────────────────────────────────────────────────────────
 	// Both old-owner FKs are nullable; pass exactly one. The CHECK
@@ -163,6 +169,7 @@ type Querier interface {
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
 	ListCodeScanningAlertsForRepo(ctx context.Context, db DBTX, arg ListCodeScanningAlertsForRepoParams) ([]CodeScanningAlert, error)
 	ListCodeSecurityCampaignsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListCodeSecurityCampaignsForRepoRow, error)
+	ListDependencyAdvisorySources(ctx context.Context, db DBTX) ([]DependencyAdvisorySource, error)
 	ListDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListDependencyAlertCandidatesForAdvisoryParams) ([]ListDependencyAlertCandidatesForAdvisoryRow, error)
 	ListDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListDependencyAlertCandidatesForRepoRow, error)
 	ListDependencyAutoTriageEventsForAlert(ctx context.Context, db DBTX, alertID int64) ([]DependencyAutoTriageEvent, error)
@@ -243,6 +250,7 @@ type Querier interface {
 	// Returns the current repo_id when (old_owner_user_id, old_name) hits
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
+	MarkDependencyAdvisorySourceSync(ctx context.Context, db DBTX, arg MarkDependencyAdvisorySourceSyncParams) error
 	MarkDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	MarkQueuedDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	MarkRepoDependenciesStale(ctx context.Context, db DBTX, arg MarkRepoDependenciesStaleParams) error
@@ -295,6 +303,7 @@ type Querier interface {
 	// Distinct name from S11's SoftDeleteRepo so future code that wants to
 	// preserve the lifecycle audit-emission shape can find this one.
 	SoftDeleteRepoLifecycle(ctx context.Context, db DBTX, id int64) error
+	StartDependencyAdvisorySyncRun(ctx context.Context, db DBTX, arg StartDependencyAdvisorySyncRunParams) (DependencyAdvisorySyncRun, error)
 	TouchDependencyUpdateConfigChecked(ctx context.Context, db DBTX, arg TouchDependencyUpdateConfigCheckedParams) (DependencyUpdateConfig, error)
 	// Sets owner_user_id (or owner_org_id post-S31) on accept. The xor
 	// check on the table enforces the shape. Also clears the other side
@@ -340,6 +349,9 @@ type Querier interface {
 	// to the (repo_id, commit_oid) primary key + ON CONFLICT clause.
 	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
 	UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg UpsertDependencyAdvisoryParams) (DependencyAdvisory, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	UpsertDependencyAdvisorySource(ctx context.Context, db DBTX, arg UpsertDependencyAdvisorySourceParams) (DependencyAdvisorySource, error)
+	UpsertDependencyAdvisoryWithMetadata(ctx context.Context, db DBTX, arg UpsertDependencyAdvisoryWithMetadataParams) (DependencyAdvisory, error)
 	UpsertDependencyAlertMatch(ctx context.Context, db DBTX, arg UpsertDependencyAlertMatchParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
