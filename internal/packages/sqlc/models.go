@@ -2665,6 +2665,90 @@ type DependencyAdvisory struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type DependencyAutoTriageEvent struct {
+	ID        int64
+	RuleID    pgtype.Int8
+	RepoID    int64
+	AlertID   int64
+	Action    string
+	Outcome   string
+	Message   string
+	CreatedAt pgtype.Timestamptz
+}
+
+type DependencyAutoTriageRule struct {
+	ID              int64
+	OrgID           pgtype.Int8
+	RepoID          pgtype.Int8
+	Name            string
+	Enabled         bool
+	Priority        int32
+	MatchConditions []byte
+	Actions         []byte
+	CreatedBy       pgtype.Int8
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type DependencyUpdateConfig struct {
+	ID                   int64
+	RepoID               int64
+	Ecosystem            string
+	PackageManager       string
+	Directory            string
+	ScheduleInterval     string
+	ScheduleDay          string
+	ScheduleTime         string
+	ScheduleTimezone     string
+	ScheduleCron         string
+	OpenPullRequestLimit int32
+	TargetBranch         string
+	AllowRules           []byte
+	IgnoreRules          []byte
+	Groups               []byte
+	Registries           []byte
+	UnsupportedKeys      []string
+	Enabled              bool
+	RawConfigHash        string
+	RawConfigPath        string
+	LastSyncedSha        string
+	LastCheckedAt        pgtype.Timestamptz
+	NextRunAt            pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type DependencyUpdateJob struct {
+	ID            int64
+	RepoID        int64
+	ConfigID      pgtype.Int8
+	JobKind       string
+	Status        string
+	TriggerSource string
+	ScheduledFor  pgtype.Timestamptz
+	StartedAt     pgtype.Timestamptz
+	CompletedAt   pgtype.Timestamptz
+	BaseSha       string
+	HeadSha       string
+	ResultSummary []byte
+	LastError     string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type DependencyUpdatePr struct {
+	ID            int64
+	JobID         pgtype.Int8
+	RepoID        int64
+	PullRequestID pgtype.Int8
+	BranchName    string
+	PackageSet    []byte
+	UpdateKind    string
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type DeviceAuthorization struct {
 	ID              int64
 	DeviceCodeHash  []byte

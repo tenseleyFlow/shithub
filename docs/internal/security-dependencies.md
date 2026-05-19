@@ -2,9 +2,12 @@
 
 SP25 adds a local dependency inventory and advisory surface for organization
 security overview. The owning code lives in `internal/repos/dependencies`,
+`internal/repos/dependencyupdates`,
 `internal/worker/jobs/repo_dependency_scan.go`,
-`internal/worker/jobs/pr_dependency_review.go`, and the web handlers at
-`internal/web/handlers/orgs/security.go` and `internal/web/handlers/repo/pulls.go`.
+`internal/worker/jobs/pr_dependency_review.go`,
+`internal/worker/jobs/repo_dependency_update_config_sync.go`, and the web
+handlers at `internal/web/handlers/orgs/security.go` and
+`internal/web/handlers/repo/pulls.go`.
 
 ## Scope
 
@@ -35,6 +38,13 @@ security overview. The owning code lives in `internal/repos/dependencies`,
   by PR/base/head SHA.
 - `pull_dependency_review_items` stores package-level dependency changes and
   optional local advisory metadata for the PR review surface.
+- `dependency_update_configs` stores parsed repository update policy from
+  `.github/dependabot.yml` for supported ecosystems.
+- `dependency_update_jobs` stores bounded scheduler/update/triage job state.
+- `dependency_update_prs` records dependency update pull requests by branch and
+  package set.
+- `dependency_auto_triage_rules` stores org- or repo-scoped alert rules.
+- `dependency_auto_triage_events` stores an audit trail of rule applications.
 - `repo_security_advisories` is the repository-maintained advisory table used by
   the org overview. Creation/editing flows are planned separately.
 
@@ -87,6 +97,61 @@ recommendation text. Free organizations only see the upgrade-required check
 state; private package and advisory details are not persisted or queried for
 that path.
 
+## Dependency Update Automation
+
+SP25b starts the dependency update automation foundation. The parser accepts a
+GitHub-compatible `.github/dependabot.yml` subset for `gomod` and `npm` entries,
+normalizes them to shithub ecosystems `go` and `npm`, and stores schedules,
+open PR limits, allow/ignore rules, group rules, registries, unsupported-key
+warnings, the next due check time, and a raw config hash. Supported schedule
+intervals are `daily`, `weekly`, `monthly`, `quarterly`, `semiannually`,
+`yearly`, and `cron` with a `cronjob` value. `daily` schedules run on weekdays,
+`weekly` defaults to Monday, monthly and longer intervals run on the first day
+of their cadence month, and cron uses standard five-field crontab syntax in UTC.
+When a config omits `schedule.time`, shithub assigns a deterministic per-entry
+minute of day from the config hash, ecosystem, and directory to avoid a
+thundering herd while keeping repeated syncs stable.
+
+Unsupported ecosystems or invalid required fields are diagnostic errors.
+Unsupported keys are diagnostic warnings and are not silently treated as active
+behavior. This is important for billing parity: Team-plan copy can reference
+the feature only once the scheduler and update PR workers are connected, and UI
+surfaces must show unsupported configuration rather than making it appear to
+work.
+
+The storage layer is intentionally wider than the first worker implementation:
+it includes update job state, update PR bookkeeping, and auto-triage rule/audit
+tables so follow-up slices can add the scheduler, Go/npm update adapters,
+branch creation, grouping, and triage application without reshaping the billing
+contract again.
+
+`push:process` enqueues `repo:dependency_update_config_sync` when the default
+branch advances. The sync worker:
+
+1. short-circuits personal repositories because the current Team gates apply to
+   organization-owned repositories only;
+2. checks the owning organization's `dependabot_version_updates` Team
+   entitlement before reading or storing config;
+3. disables previously parsed configs when the entitlement is denied, the
+   default branch is missing, or `.github/dependabot.yml` is absent;
+4. validates file type and size before reading the config blob;
+5. stores supported config entries with computed `next_run_at` timestamps and
+   disables stale entries in one transaction; and
+6. writes a `dependency_update_jobs` `config_sync` record with diagnostics and
+   status for operator inspection.
+
+The sync worker still does not create update branches or PRs. Follow-up SP25b
+slices must add the bounded scheduler and update workers before the plan
+comparison should claim live automated update pull requests.
+
+`repo:dependency_update_sweep` is the periodic scheduler worker. Operators
+should enqueue it on the same kind of timer beat used for other sweep workers.
+The sweep claims due `dependency_update_configs` with row locks, creates
+`dependency_update_jobs` rows with `job_kind = 'version_update'`, advances each
+config's `next_run_at`, and self-enqueues when it fills its batch. Those domain
+jobs are intentionally queued-only until the Go/npm update workers and pull
+request creation path are wired in a later SP25b slice.
+
 ## Privacy and Product Copy
 
 Organization security overview is only visible to organization members and site
@@ -95,7 +160,8 @@ execute the alert-detail queries, so private package names and advisory
 summaries are not exposed behind the paywall. Free organization pull requests do
 not execute or persist dependency review item details either.
 
-Do not advertise unsupported ecosystems, Dependabot version-update automation,
-semver advisory ranges, advisory import automation, or AI remediation until
-those subsystems exist. Current user-facing copy should say "supported Go and npm
-manifests" or "local advisory matches".
+Do not advertise unsupported ecosystems, semver advisory ranges, advisory
+import automation, or AI remediation until those subsystems exist. Until the
+SP25b workers are connected end to end, user-facing copy should say "supported
+Go and npm manifests", "local advisory matches", or "dependency update
+configuration" rather than claiming live automated update pull requests.
