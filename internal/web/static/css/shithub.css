@@ -14248,6 +14248,13 @@ button.shithub-repo-action {
 
 /* ----- Pro pill + pro-lock primitive (PRO-EXT01-01) ----- */
 .shithub-pill-pro {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  justify-self: start;
+  align-self: center;
+  white-space: nowrap;
   background: rgba(193, 154, 91, 0.18);
   border-color: rgba(193, 154, 91, 0.55);
   color: #c19a5b;
