@@ -9,7 +9,8 @@ security overview. The owning code lives in `internal/repos/dependencies`,
 workers at `internal/worker/jobs/repo_dependency_update_sweep.go` and
 `internal/worker/jobs/repo_dependency_update_run.go`. Web surfaces live in the
 handlers at `internal/web/handlers/orgs/security.go` and
-`internal/web/handlers/repo/pulls.go`.
+`internal/web/handlers/repo/pulls.go`, with repository security advisory
+workflows in `internal/web/handlers/repo/security_advisories.go`.
 
 ## Scope
 
@@ -48,10 +49,40 @@ handlers at `internal/web/handlers/orgs/security.go` and
 - `dependency_auto_triage_rules` stores org- or repo-scoped alert rules.
 - `dependency_auto_triage_events` stores an audit trail of rule applications.
 - `repo_security_advisories` is the repository-maintained advisory table used by
-  the org overview. Creation/editing flows are planned separately.
+  repo advisory pages and the org overview. It stores draft/published/withdrawn
+  /archived state, severity, affected package metadata, optional GHSA/CVE IDs,
+  reference URLs, and lifecycle timestamps.
+- `repo_security_advisory_events` stores the advisory timeline for create,
+  update, publish, withdraw, archive, and reopen actions.
+- `repo_security_advisory_collaborators` is the schema foundation for
+  per-advisory user/team collaboration. The collaborator management UI remains
+  planned work; do not claim that invites or collaborator-specific disclosure
+  flows are shipped yet.
 
 All repository-owned rows use `ON DELETE CASCADE`; advisory creator references
 use `ON DELETE SET NULL`.
+
+## Repository Security Advisories
+
+Repositories expose a GitHub-shaped advisory surface at
+`/{owner}/{repo}/security/advisories`. Maintainers can create a draft advisory,
+edit package/severity/description/reference metadata, publish it, withdraw it,
+archive it, or reopen it as a draft. Advisory descriptions render through the
+canonical `internal/markdown` sanitizer before reaching templates.
+
+Published advisories are visible to normal repository readers. Draft,
+withdrawn, and archived advisories are visible only to viewers who can manage
+general repository settings. Advisory writes are always policy-gated through
+`policy.ActionRepoSettingsGeneral`; handlers do not infer owner or collaborator
+status directly.
+
+Public repositories and personal repositories can use the baseline advisory
+workflow. Private organization repositories require the Team
+`security_advisories` entitlement for create, edit, and state transitions. When
+the entitlement is denied, the UI renders an upgrade path and does not create
+or mutate advisory rows. Existing advisory details remain readable according to
+the state visibility rules above so downgrade handling does not hide already
+published security information from repository readers.
 
 ## Refresh Flow
 

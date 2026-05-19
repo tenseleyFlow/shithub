@@ -1,0 +1,132 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <div>
+        <h1>{{ octicon "shield-lock" }} {{ .Advisory.Row.Identifier }}</h1>
+        <p class="shithub-muted">{{ .Advisory.Row.Summary }}</p>
+      </div>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories">Security advisories</a>
+        {{ if .CanManageAdvisories }}
+          {{ if .WriteGate.Allowed }}
+          <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/edit">Edit</a>
+          {{ else }}
+          <a class="shithub-button shithub-button-primary" href="{{ .WriteGate.UpgradeHref }}" data-pro-feature="{{ .WriteGate.FeatureKey }}">{{ .WriteGate.UpgradeText }}</a>
+          {{ end }}
+        {{ end }}
+      </div>
+    </header>
+
+    <section class="shithub-org-security-metrics" aria-label="Advisory summary">
+      <div>
+        <strong>{{ .Advisory.Row.State }}</strong>
+        <span>State</span>
+      </div>
+      <div>
+        <strong>{{ .Advisory.Row.Severity }}</strong>
+        <span>Severity</span>
+      </div>
+      <div>
+        <strong>{{ .Advisory.Row.AffectedEcosystem }}</strong>
+        <span>Ecosystem</span>
+      </div>
+      <div>
+        <strong>{{ .Advisory.Row.AffectedPackage }}</strong>
+        <span>Package</span>
+      </div>
+    </section>
+
+    {{ if and .CanManageAdvisories .WriteGate.Allowed }}
+    <section class="shithub-settings-section">
+      <h2>Manage advisory</h2>
+      <div class="shithub-form-actions shithub-form-actions-start">
+        {{ if ne .Advisory.Row.State "published" }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/state" class="shithub-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="action" value="publish">
+          <button type="submit" class="shithub-button shithub-button-primary">Publish advisory</button>
+        </form>
+        {{ end }}
+        {{ if eq .Advisory.Row.State "published" }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/state" class="shithub-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="action" value="withdraw">
+          <button type="submit" class="shithub-button">Withdraw</button>
+        </form>
+        {{ end }}
+        {{ if ne .Advisory.Row.State "draft" }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/state" class="shithub-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="action" value="reopen">
+          <button type="submit" class="shithub-button">Reopen as draft</button>
+        </form>
+        {{ end }}
+        {{ if ne .Advisory.Row.State "archived" }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}/state" class="shithub-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="action" value="archive">
+          <button type="submit" class="shithub-button shithub-button-danger">Archive</button>
+        </form>
+        {{ end }}
+      </div>
+    </section>
+    {{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Affected package</h2>
+      <table class="shithub-table">
+        <tbody>
+          <tr><th>Ecosystem</th><td>{{ .Advisory.Row.AffectedEcosystem }}</td></tr>
+          <tr><th>Package</th><td>{{ .Advisory.Row.AffectedPackage }}</td></tr>
+          <tr><th>Vulnerable versions</th><td>{{ if .Advisory.Row.VulnerableVersions }}{{ .Advisory.Row.VulnerableVersions }}{{ else }}Not specified{{ end }}</td></tr>
+          <tr><th>Patched versions</th><td>{{ if .Advisory.Row.PatchedVersions }}{{ .Advisory.Row.PatchedVersions }}{{ else }}Not specified{{ end }}</td></tr>
+          {{ if .Advisory.Row.GhsaID }}<tr><th>GHSA</th><td>{{ .Advisory.Row.GhsaID }}</td></tr>{{ end }}
+          {{ if .Advisory.Row.CveID }}<tr><th>CVE</th><td>{{ .Advisory.Row.CveID }}</td></tr>{{ end }}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Description</h2>
+      {{ if .Advisory.RenderedDescription }}
+      <div class="markdown-body">{{ .Advisory.RenderedDescription }}</div>
+      {{ else }}
+      <p class="shithub-muted">No description provided.</p>
+      {{ end }}
+    </section>
+
+    {{ if .Advisory.ReferenceURLs }}
+    <section class="shithub-settings-section">
+      <h2>References</h2>
+      <ul>
+        {{ range .Advisory.ReferenceURLs }}
+        <li><a href="{{ . }}">{{ . }}</a></li>
+        {{ end }}
+      </ul>
+    </section>
+    {{ end }}
+
+    <section class="shithub-settings-section">
+      <h2>Timeline</h2>
+      {{ if .Events }}
+      <ul class="shithub-org-security-list">
+        {{ range .Events }}
+        <li>
+          <div class="shithub-org-security-list-main">
+            <strong>{{ if .ActorUsername.Valid }}{{ .ActorUsername.String }}{{ else }}A user{{ end }} {{ .EventType }} this advisory</strong>
+            {{ if .Message }}<span>{{ .Message }}</span>{{ end }}
+            {{ if or .OldState .NewState }}<span>{{ .OldState }}{{ if .OldState }} → {{ end }}{{ .NewState }}</span>{{ end }}
+          </div>
+          <span class="shithub-org-security-list-meta">{{ relativeTime .CreatedAt.Time }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="shithub-muted">No advisory events recorded yet.</p>
+      {{ end }}
+    </section>
+  </section>
+</section>
+{{- end }}

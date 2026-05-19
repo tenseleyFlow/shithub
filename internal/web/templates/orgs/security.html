@@ -231,7 +231,7 @@
             {{ range .Advisories }}
             <li>
               <div class="shithub-org-security-list-main">
-                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security">{{ .Identifier }}</a>
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security/advisories/{{ .Identifier }}">{{ .Identifier }}</a>
                 <strong>{{ .Summary }}</strong>
                 <span>{{ .AffectedEcosystem }} · {{ .AffectedPackage }} · {{ .VulnerableVersions }}</span>
               </div>

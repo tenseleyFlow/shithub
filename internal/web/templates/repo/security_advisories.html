@@ -1,0 +1,66 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <h1>{{ octicon "shield-lock" }} Security advisories</h1>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security">Security overview</a>
+        {{ if .CanManageAdvisories }}
+          {{ if .WriteGate.Allowed }}
+          <a class="shithub-button shithub-button-primary" href="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/new">New draft advisory</a>
+          {{ else }}
+          <a class="shithub-button shithub-button-primary" href="{{ .WriteGate.UpgradeHref }}" data-pro-feature="{{ .WriteGate.FeatureKey }}">{{ .WriteGate.UpgradeText }}</a>
+          {{ end }}
+        {{ end }}
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    {{ if and .CanManageAdvisories (not .WriteGate.Allowed) }}
+    <div class="shithub-org-security-upgrade">
+      <div>
+        <h2>Security advisories are a Team feature for private organization repositories.</h2>
+        <p>Upgrade this organization to coordinate private vulnerability drafts and publish repository advisories.</p>
+      </div>
+      <a class="shithub-button shithub-button-primary" href="{{ .WriteGate.UpgradeHref }}" data-pro-feature="{{ .WriteGate.FeatureKey }}">{{ .WriteGate.UpgradeText }}</a>
+    </div>
+    {{ end }}
+
+    <nav class="shithub-issues-filter" aria-label="Security advisory filters">
+      <a href="?state=" class="shithub-issues-tab {{ if eq .StateFilter "" }}shithub-issues-tab-active{{ end }}">All</a>
+      <a href="?state=draft" class="shithub-issues-tab {{ if eq .StateFilter "draft" }}shithub-issues-tab-active{{ end }}">Draft <span class="shithub-count">{{ index .StateCounts "draft" }}</span></a>
+      <a href="?state=published" class="shithub-issues-tab {{ if eq .StateFilter "published" }}shithub-issues-tab-active{{ end }}">Published <span class="shithub-count">{{ index .StateCounts "published" }}</span></a>
+      <a href="?state=withdrawn" class="shithub-issues-tab {{ if eq .StateFilter "withdrawn" }}shithub-issues-tab-active{{ end }}">Withdrawn <span class="shithub-count">{{ index .StateCounts "withdrawn" }}</span></a>
+      {{ if .CanManageAdvisories }}<a href="?state=archived" class="shithub-issues-tab {{ if eq .StateFilter "archived" }}shithub-issues-tab-active{{ end }}">Archived <span class="shithub-count">{{ index .StateCounts "archived" }}</span></a>{{ end }}
+    </nav>
+
+    <section class="shithub-settings-section">
+      {{ if .Advisories }}
+      <ul class="shithub-org-security-list">
+        {{ range .Advisories }}
+        <li>
+          <div class="shithub-org-security-list-main">
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/security/advisories/{{ .Row.Identifier }}">{{ .Row.Identifier }}</a>
+            <strong>{{ .Row.Summary }}</strong>
+            <span>{{ .Row.AffectedEcosystem }} · {{ .Row.AffectedPackage }}{{ if .Row.VulnerableVersions }} · {{ .Row.VulnerableVersions }}{{ end }}</span>
+          </div>
+          <span class="shithub-org-security-severity is-{{ .Row.Severity }}">{{ .Row.Severity }}</span>
+          <span class="shithub-org-security-list-meta">{{ .Row.State }}</span>
+          <span class="shithub-org-security-list-meta">{{ relativeTime .Row.UpdatedAt.Time }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <div class="shithub-org-security-empty">
+        {{ octicon "shield-check" }}
+        <h2>No security advisories</h2>
+        <p>Repository-maintained advisories will appear here after they are drafted or published.</p>
+      </div>
+      {{ end }}
+    </section>
+  </section>
+</section>
+{{- end }}

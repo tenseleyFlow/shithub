@@ -11,16 +11,94 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addRepoSecurityAdvisoryTeamCollaborator = `-- name: AddRepoSecurityAdvisoryTeamCollaborator :one
+INSERT INTO repo_security_advisory_collaborators (
+    advisory_id, team_id, role, added_by
+) VALUES (
+    $1, $2, $3, $4::bigint
+)
+ON CONFLICT (advisory_id, team_id) DO UPDATE
+SET role = EXCLUDED.role,
+    added_by = EXCLUDED.added_by,
+    added_at = now()
+RETURNING advisory_id, user_id, team_id, role, added_by, added_at
+`
+
+type AddRepoSecurityAdvisoryTeamCollaboratorParams struct {
+	AdvisoryID int64
+	TeamID     pgtype.Int8
+	Role       string
+	AddedBy    pgtype.Int8
+}
+
+func (q *Queries) AddRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg AddRepoSecurityAdvisoryTeamCollaboratorParams) (RepoSecurityAdvisoryCollaborator, error) {
+	row := db.QueryRow(ctx, addRepoSecurityAdvisoryTeamCollaborator,
+		arg.AdvisoryID,
+		arg.TeamID,
+		arg.Role,
+		arg.AddedBy,
+	)
+	var i RepoSecurityAdvisoryCollaborator
+	err := row.Scan(
+		&i.AdvisoryID,
+		&i.UserID,
+		&i.TeamID,
+		&i.Role,
+		&i.AddedBy,
+		&i.AddedAt,
+	)
+	return i, err
+}
+
+const addRepoSecurityAdvisoryUserCollaborator = `-- name: AddRepoSecurityAdvisoryUserCollaborator :one
+INSERT INTO repo_security_advisory_collaborators (
+    advisory_id, user_id, role, added_by
+) VALUES (
+    $1, $2, $3, $4::bigint
+)
+ON CONFLICT (advisory_id, user_id) DO UPDATE
+SET role = EXCLUDED.role,
+    added_by = EXCLUDED.added_by,
+    added_at = now()
+RETURNING advisory_id, user_id, team_id, role, added_by, added_at
+`
+
+type AddRepoSecurityAdvisoryUserCollaboratorParams struct {
+	AdvisoryID int64
+	UserID     pgtype.Int8
+	Role       string
+	AddedBy    pgtype.Int8
+}
+
+func (q *Queries) AddRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg AddRepoSecurityAdvisoryUserCollaboratorParams) (RepoSecurityAdvisoryCollaborator, error) {
+	row := db.QueryRow(ctx, addRepoSecurityAdvisoryUserCollaborator,
+		arg.AdvisoryID,
+		arg.UserID,
+		arg.Role,
+		arg.AddedBy,
+	)
+	var i RepoSecurityAdvisoryCollaborator
+	err := row.Scan(
+		&i.AdvisoryID,
+		&i.UserID,
+		&i.TeamID,
+		&i.Role,
+		&i.AddedBy,
+		&i.AddedAt,
+	)
+	return i, err
+}
+
 const createRepoSecurityAdvisory = `-- name: CreateRepoSecurityAdvisory :one
 INSERT INTO repo_security_advisories (
     repo_id, identifier, state, severity, summary, description,
     affected_ecosystem, affected_package, vulnerable_versions,
-    patched_versions, created_by
+    patched_versions, ghsa_id, cve_id, reference_urls, created_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11::bigint
+    $7, $8, $9, $10, $11, $12, $13, $14::bigint
 )
-RETURNING id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at
+RETURNING id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at, ghsa_id, cve_id, reference_urls, withdrawn_at, archived_at
 `
 
 type CreateRepoSecurityAdvisoryParams struct {
@@ -34,6 +112,9 @@ type CreateRepoSecurityAdvisoryParams struct {
 	AffectedPackage    string
 	VulnerableVersions string
 	PatchedVersions    string
+	GhsaID             string
+	CveID              string
+	ReferenceUrls      []byte
 	CreatedBy          pgtype.Int8
 }
 
@@ -49,6 +130,9 @@ func (q *Queries) CreateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg C
 		arg.AffectedPackage,
 		arg.VulnerableVersions,
 		arg.PatchedVersions,
+		arg.GhsaID,
+		arg.CveID,
+		arg.ReferenceUrls,
 		arg.CreatedBy,
 	)
 	var i RepoSecurityAdvisory
@@ -69,6 +153,55 @@ func (q *Queries) CreateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg C
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GhsaID,
+		&i.CveID,
+		&i.ReferenceUrls,
+		&i.WithdrawnAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const createRepoSecurityAdvisoryEvent = `-- name: CreateRepoSecurityAdvisoryEvent :one
+INSERT INTO repo_security_advisory_events (
+    advisory_id, repo_id, actor_id, event_type, old_state, new_state, message
+) VALUES (
+    $1, $2, $7::bigint, $3, $4, $5, $6
+)
+RETURNING id, advisory_id, repo_id, actor_id, event_type, old_state, new_state, message, created_at
+`
+
+type CreateRepoSecurityAdvisoryEventParams struct {
+	AdvisoryID int64
+	RepoID     int64
+	EventType  string
+	OldState   string
+	NewState   string
+	Message    string
+	ActorID    pgtype.Int8
+}
+
+func (q *Queries) CreateRepoSecurityAdvisoryEvent(ctx context.Context, db DBTX, arg CreateRepoSecurityAdvisoryEventParams) (RepoSecurityAdvisoryEvent, error) {
+	row := db.QueryRow(ctx, createRepoSecurityAdvisoryEvent,
+		arg.AdvisoryID,
+		arg.RepoID,
+		arg.EventType,
+		arg.OldState,
+		arg.NewState,
+		arg.Message,
+		arg.ActorID,
+	)
+	var i RepoSecurityAdvisoryEvent
+	err := row.Scan(
+		&i.ID,
+		&i.AdvisoryID,
+		&i.RepoID,
+		&i.ActorID,
+		&i.EventType,
+		&i.OldState,
+		&i.NewState,
+		&i.Message,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -119,6 +252,47 @@ func (q *Queries) GetRepoDependencySnapshot(ctx context.Context, db DBTX, repoID
 		&i.DependencyCount,
 		&i.GeneratedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getRepoSecurityAdvisoryByIdentifier = `-- name: GetRepoSecurityAdvisoryByIdentifier :one
+SELECT id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at, ghsa_id, cve_id, reference_urls, withdrawn_at, archived_at
+FROM repo_security_advisories
+WHERE repo_id = $1
+  AND identifier = $2
+`
+
+type GetRepoSecurityAdvisoryByIdentifierParams struct {
+	RepoID     int64
+	Identifier string
+}
+
+func (q *Queries) GetRepoSecurityAdvisoryByIdentifier(ctx context.Context, db DBTX, arg GetRepoSecurityAdvisoryByIdentifierParams) (RepoSecurityAdvisory, error) {
+	row := db.QueryRow(ctx, getRepoSecurityAdvisoryByIdentifier, arg.RepoID, arg.Identifier)
+	var i RepoSecurityAdvisory
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.Identifier,
+		&i.State,
+		&i.Severity,
+		&i.Summary,
+		&i.Description,
+		&i.AffectedEcosystem,
+		&i.AffectedPackage,
+		&i.VulnerableVersions,
+		&i.PatchedVersions,
+		&i.CreatedBy,
+		&i.PublishedAt,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GhsaID,
+		&i.CveID,
+		&i.ReferenceUrls,
+		&i.WithdrawnAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -316,6 +490,8 @@ SELECT
     rsa.affected_package,
     rsa.vulnerable_versions,
     rsa.patched_versions,
+    rsa.ghsa_id,
+    rsa.cve_id,
     rsa.updated_at
 FROM repo_security_advisories rsa
 JOIN repos r ON r.id = rsa.repo_id
@@ -325,6 +501,7 @@ ORDER BY
     CASE rsa.state
         WHEN 'draft' THEN 0
         WHEN 'published' THEN 1
+        WHEN 'withdrawn' THEN 2
         ELSE 2
     END,
     rsa.updated_at DESC
@@ -350,6 +527,8 @@ type ListOrgSecurityAdvisoriesRow struct {
 	AffectedPackage    string
 	VulnerableVersions string
 	PatchedVersions    string
+	GhsaID             string
+	CveID              string
 	UpdatedAt          pgtype.Timestamptz
 }
 
@@ -375,6 +554,8 @@ func (q *Queries) ListOrgSecurityAdvisories(ctx context.Context, db DBTX, arg Li
 			&i.AffectedPackage,
 			&i.VulnerableVersions,
 			&i.PatchedVersions,
+			&i.GhsaID,
+			&i.CveID,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -515,13 +696,14 @@ func (q *Queries) ListRepoDependenciesForRepo(ctx context.Context, db DBTX, arg 
 }
 
 const listRepoSecurityAdvisories = `-- name: ListRepoSecurityAdvisories :many
-SELECT id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at
+SELECT id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at, ghsa_id, cve_id, reference_urls, withdrawn_at, archived_at
 FROM repo_security_advisories
 WHERE repo_id = $1
 ORDER BY
     CASE state
         WHEN 'draft' THEN 0
         WHEN 'published' THEN 1
+        WHEN 'withdrawn' THEN 2
         ELSE 2
     END,
     updated_at DESC
@@ -553,6 +735,120 @@ func (q *Queries) ListRepoSecurityAdvisories(ctx context.Context, db DBTX, repoI
 			&i.ClosedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GhsaID,
+			&i.CveID,
+			&i.ReferenceUrls,
+			&i.WithdrawnAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRepoSecurityAdvisoryCollaborators = `-- name: ListRepoSecurityAdvisoryCollaborators :many
+SELECT
+    c.advisory_id,
+    c.user_id,
+    u.username,
+    c.team_id,
+    t.slug AS team_slug,
+    t.display_name AS team_display_name,
+    c.role,
+    c.added_at
+FROM repo_security_advisory_collaborators c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN teams t ON t.id = c.team_id
+WHERE c.advisory_id = $1
+ORDER BY COALESCE(u.username, t.slug::text), c.role
+`
+
+type ListRepoSecurityAdvisoryCollaboratorsRow struct {
+	AdvisoryID      int64
+	UserID          pgtype.Int8
+	Username        pgtype.Text
+	TeamID          pgtype.Int8
+	TeamSlug        pgtype.Text
+	TeamDisplayName pgtype.Text
+	Role            string
+	AddedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) ListRepoSecurityAdvisoryCollaborators(ctx context.Context, db DBTX, advisoryID int64) ([]ListRepoSecurityAdvisoryCollaboratorsRow, error) {
+	rows, err := db.Query(ctx, listRepoSecurityAdvisoryCollaborators, advisoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRepoSecurityAdvisoryCollaboratorsRow{}
+	for rows.Next() {
+		var i ListRepoSecurityAdvisoryCollaboratorsRow
+		if err := rows.Scan(
+			&i.AdvisoryID,
+			&i.UserID,
+			&i.Username,
+			&i.TeamID,
+			&i.TeamSlug,
+			&i.TeamDisplayName,
+			&i.Role,
+			&i.AddedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRepoSecurityAdvisoryEvents = `-- name: ListRepoSecurityAdvisoryEvents :many
+SELECT e.id, e.advisory_id, e.repo_id, e.actor_id, e.event_type, e.old_state, e.new_state, e.message, e.created_at, u.username AS actor_username
+FROM repo_security_advisory_events e
+LEFT JOIN users u ON u.id = e.actor_id
+WHERE e.advisory_id = $1
+ORDER BY e.created_at DESC, e.id DESC
+`
+
+type ListRepoSecurityAdvisoryEventsRow struct {
+	ID            int64
+	AdvisoryID    int64
+	RepoID        int64
+	ActorID       pgtype.Int8
+	EventType     string
+	OldState      string
+	NewState      string
+	Message       string
+	CreatedAt     pgtype.Timestamptz
+	ActorUsername pgtype.Text
+}
+
+func (q *Queries) ListRepoSecurityAdvisoryEvents(ctx context.Context, db DBTX, advisoryID int64) ([]ListRepoSecurityAdvisoryEventsRow, error) {
+	rows, err := db.Query(ctx, listRepoSecurityAdvisoryEvents, advisoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRepoSecurityAdvisoryEventsRow{}
+	for rows.Next() {
+		var i ListRepoSecurityAdvisoryEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AdvisoryID,
+			&i.RepoID,
+			&i.ActorID,
+			&i.EventType,
+			&i.OldState,
+			&i.NewState,
+			&i.Message,
+			&i.CreatedAt,
+			&i.ActorUsername,
 		); err != nil {
 			return nil, err
 		}
@@ -603,7 +899,7 @@ open_alerts AS (
     WHERE alert.status = 'open'
 ),
 repo_advisories AS (
-    SELECT rsa.id, rsa.repo_id, rsa.identifier, rsa.state, rsa.severity, rsa.summary, rsa.description, rsa.affected_ecosystem, rsa.affected_package, rsa.vulnerable_versions, rsa.patched_versions, rsa.created_by, rsa.published_at, rsa.closed_at, rsa.created_at, rsa.updated_at
+    SELECT rsa.id, rsa.repo_id, rsa.identifier, rsa.state, rsa.severity, rsa.summary, rsa.description, rsa.affected_ecosystem, rsa.affected_package, rsa.vulnerable_versions, rsa.patched_versions, rsa.created_by, rsa.published_at, rsa.closed_at, rsa.created_at, rsa.updated_at, rsa.ghsa_id, rsa.cve_id, rsa.reference_urls, rsa.withdrawn_at, rsa.archived_at
     FROM repo_security_advisories rsa
     JOIN org_repos r ON r.id = rsa.repo_id
     WHERE rsa.state IN ('draft', 'published')
@@ -680,6 +976,38 @@ func (q *Queries) RefreshDependencyAlertsForRepo(ctx context.Context, db DBTX, r
 	return err
 }
 
+const removeRepoSecurityAdvisoryTeamCollaborator = `-- name: RemoveRepoSecurityAdvisoryTeamCollaborator :exec
+DELETE FROM repo_security_advisory_collaborators
+WHERE advisory_id = $1
+  AND team_id = $2
+`
+
+type RemoveRepoSecurityAdvisoryTeamCollaboratorParams struct {
+	AdvisoryID int64
+	TeamID     pgtype.Int8
+}
+
+func (q *Queries) RemoveRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryTeamCollaboratorParams) error {
+	_, err := db.Exec(ctx, removeRepoSecurityAdvisoryTeamCollaborator, arg.AdvisoryID, arg.TeamID)
+	return err
+}
+
+const removeRepoSecurityAdvisoryUserCollaborator = `-- name: RemoveRepoSecurityAdvisoryUserCollaborator :exec
+DELETE FROM repo_security_advisory_collaborators
+WHERE advisory_id = $1
+  AND user_id = $2
+`
+
+type RemoveRepoSecurityAdvisoryUserCollaboratorParams struct {
+	AdvisoryID int64
+	UserID     pgtype.Int8
+}
+
+func (q *Queries) RemoveRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryUserCollaboratorParams) error {
+	_, err := db.Exec(ctx, removeRepoSecurityAdvisoryUserCollaborator, arg.AdvisoryID, arg.UserID)
+	return err
+}
+
 const resolveStaleDependencyAlertsForRepo = `-- name: ResolveStaleDependencyAlertsForRepo :exec
 UPDATE repo_dependency_alerts alert
 SET status = 'resolved',
@@ -702,6 +1030,142 @@ WHERE alert.repo_id = $1
 func (q *Queries) ResolveStaleDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error {
 	_, err := db.Exec(ctx, resolveStaleDependencyAlertsForRepo, repoID)
 	return err
+}
+
+const setRepoSecurityAdvisoryState = `-- name: SetRepoSecurityAdvisoryState :one
+UPDATE repo_security_advisories
+SET state = $3,
+    published_at = CASE
+        WHEN $3 = 'published' AND published_at IS NULL THEN now()
+        ELSE published_at
+    END,
+    withdrawn_at = CASE
+        WHEN $3 = 'withdrawn' THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE withdrawn_at
+    END,
+    archived_at = CASE
+        WHEN $3 = 'archived' THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE archived_at
+    END,
+    closed_at = CASE
+        WHEN $3 IN ('withdrawn', 'archived') THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE closed_at
+    END
+WHERE repo_id = $1
+  AND identifier = $2
+RETURNING id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at, ghsa_id, cve_id, reference_urls, withdrawn_at, archived_at
+`
+
+type SetRepoSecurityAdvisoryStateParams struct {
+	RepoID     int64
+	Identifier string
+	State      string
+}
+
+func (q *Queries) SetRepoSecurityAdvisoryState(ctx context.Context, db DBTX, arg SetRepoSecurityAdvisoryStateParams) (RepoSecurityAdvisory, error) {
+	row := db.QueryRow(ctx, setRepoSecurityAdvisoryState, arg.RepoID, arg.Identifier, arg.State)
+	var i RepoSecurityAdvisory
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.Identifier,
+		&i.State,
+		&i.Severity,
+		&i.Summary,
+		&i.Description,
+		&i.AffectedEcosystem,
+		&i.AffectedPackage,
+		&i.VulnerableVersions,
+		&i.PatchedVersions,
+		&i.CreatedBy,
+		&i.PublishedAt,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GhsaID,
+		&i.CveID,
+		&i.ReferenceUrls,
+		&i.WithdrawnAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const updateRepoSecurityAdvisory = `-- name: UpdateRepoSecurityAdvisory :one
+UPDATE repo_security_advisories
+SET severity = $3,
+    summary = $4,
+    description = $5,
+    affected_ecosystem = $6,
+    affected_package = $7,
+    vulnerable_versions = $8,
+    patched_versions = $9,
+    ghsa_id = $10,
+    cve_id = $11,
+    reference_urls = $12
+WHERE repo_id = $1
+  AND identifier = $2
+RETURNING id, repo_id, identifier, state, severity, summary, description, affected_ecosystem, affected_package, vulnerable_versions, patched_versions, created_by, published_at, closed_at, created_at, updated_at, ghsa_id, cve_id, reference_urls, withdrawn_at, archived_at
+`
+
+type UpdateRepoSecurityAdvisoryParams struct {
+	RepoID             int64
+	Identifier         string
+	Severity           string
+	Summary            string
+	Description        string
+	AffectedEcosystem  string
+	AffectedPackage    string
+	VulnerableVersions string
+	PatchedVersions    string
+	GhsaID             string
+	CveID              string
+	ReferenceUrls      []byte
+}
+
+func (q *Queries) UpdateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg UpdateRepoSecurityAdvisoryParams) (RepoSecurityAdvisory, error) {
+	row := db.QueryRow(ctx, updateRepoSecurityAdvisory,
+		arg.RepoID,
+		arg.Identifier,
+		arg.Severity,
+		arg.Summary,
+		arg.Description,
+		arg.AffectedEcosystem,
+		arg.AffectedPackage,
+		arg.VulnerableVersions,
+		arg.PatchedVersions,
+		arg.GhsaID,
+		arg.CveID,
+		arg.ReferenceUrls,
+	)
+	var i RepoSecurityAdvisory
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.Identifier,
+		&i.State,
+		&i.Severity,
+		&i.Summary,
+		&i.Description,
+		&i.AffectedEcosystem,
+		&i.AffectedPackage,
+		&i.VulnerableVersions,
+		&i.PatchedVersions,
+		&i.CreatedBy,
+		&i.PublishedAt,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GhsaID,
+		&i.CveID,
+		&i.ReferenceUrls,
+		&i.WithdrawnAt,
+		&i.ArchivedAt,
+	)
+	return i, err
 }
 
 const upsertDependencyAdvisory = `-- name: UpsertDependencyAdvisory :one

@@ -14,6 +14,8 @@ type Querier interface {
 	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
 	AddCodeSecurityCampaignAlert(ctx context.Context, db DBTX, arg AddCodeSecurityCampaignAlertParams) error
 	AddIssueToRepoProject(ctx context.Context, db DBTX, arg AddIssueToRepoProjectParams) (RepoProjectItem, error)
+	AddRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg AddRepoSecurityAdvisoryTeamCollaboratorParams) (RepoSecurityAdvisoryCollaborator, error)
+	AddRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg AddRepoSecurityAdvisoryUserCollaboratorParams) (RepoSecurityAdvisoryCollaborator, error)
 	// Bypasses the soft-delete grace window (admin only — S34): set
 	// deleted_at to a year ago so the next lifecycle sweep hard-deletes
 	// without waiting. Replaces the inline UPDATE in admin/repos.go
@@ -62,6 +64,7 @@ type Querier interface {
 	// ─── repo projects ─────────────────────────────────────────────────
 	CreateRepoProject(ctx context.Context, db DBTX, arg CreateRepoProjectParams) (RepoProject, error)
 	CreateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg CreateRepoSecurityAdvisoryParams) (RepoSecurityAdvisory, error)
+	CreateRepoSecurityAdvisoryEvent(ctx context.Context, db DBTX, arg CreateRepoSecurityAdvisoryEventParams) (RepoSecurityAdvisoryEvent, error)
 	// ─── repo wiki pages ───────────────────────────────────────────────
 	CreateRepoWikiPage(ctx context.Context, db DBTX, arg CreateRepoWikiPageParams) (RepoWikiPage, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
@@ -123,6 +126,7 @@ type Querier interface {
 	// org slug in the same path position as user-owned repos.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
 	GetRepoProject(ctx context.Context, db DBTX, arg GetRepoProjectParams) (RepoProject, error)
+	GetRepoSecurityAdvisoryByIdentifier(ctx context.Context, db DBTX, arg GetRepoSecurityAdvisoryByIdentifierParams) (RepoSecurityAdvisory, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)
 	GetRepoWikiPageBySlug(ctx context.Context, db DBTX, arg GetRepoWikiPageBySlugParams) (RepoWikiPage, error)
@@ -200,6 +204,8 @@ type Querier interface {
 	ListRepoProjects(ctx context.Context, db DBTX, repoID int64) ([]RepoProject, error)
 	ListRepoProjectsForIssue(ctx context.Context, db DBTX, issueID int64) ([]RepoProject, error)
 	ListRepoSecurityAdvisories(ctx context.Context, db DBTX, repoID int64) ([]RepoSecurityAdvisory, error)
+	ListRepoSecurityAdvisoryCollaborators(ctx context.Context, db DBTX, advisoryID int64) ([]ListRepoSecurityAdvisoryCollaboratorsRow, error)
+	ListRepoSecurityAdvisoryEvents(ctx context.Context, db DBTX, advisoryID int64) ([]ListRepoSecurityAdvisoryEventsRow, error)
 	// ─── repo_topics (S32) ─────────────────────────────────────────────
 	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
 	ListRepoTrafficDaily(ctx context.Context, db DBTX, arg ListRepoTrafficDailyParams) ([]RepoTrafficDaily, error)
@@ -256,6 +262,8 @@ type Querier interface {
 	// keeps SP25 honest about what it can safely claim.
 	RefreshDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	RemoveIssueFromRepoProject(ctx context.Context, db DBTX, arg RemoveIssueFromRepoProjectParams) error
+	RemoveRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryTeamCollaboratorParams) error
+	RemoveRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryUserCollaboratorParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// S16 lifecycle queries. Kept in a separate file from repos.sql so the
@@ -282,6 +290,7 @@ type Querier interface {
 	// runs `git clone --bare --shared`.
 	SetRepoInitStatus(ctx context.Context, db DBTX, arg SetRepoInitStatusParams) error
 	SetRepoProjectState(ctx context.Context, db DBTX, arg SetRepoProjectStateParams) (RepoProject, error)
+	SetRepoSecurityAdvisoryState(ctx context.Context, db DBTX, arg SetRepoSecurityAdvisoryStateParams) (RepoSecurityAdvisory, error)
 	SetRepoVisibility(ctx context.Context, db DBTX, arg SetRepoVisibilityParams) error
 	SoftDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	// Distinct name from S11's SoftDeleteRepo so future code that wants to
@@ -321,6 +330,7 @@ type Querier interface {
 	UpdateRepoGeneralSettings(ctx context.Context, db DBTX, arg UpdateRepoGeneralSettingsParams) error
 	UpdateRepoMergeSettings(ctx context.Context, db DBTX, arg UpdateRepoMergeSettingsParams) error
 	UpdateRepoProject(ctx context.Context, db DBTX, arg UpdateRepoProjectParams) (RepoProject, error)
+	UpdateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg UpdateRepoSecurityAdvisoryParams) (RepoSecurityAdvisory, error)
 	UpdateRepoWikiPage(ctx context.Context, db DBTX, arg UpdateRepoWikiPageParams) (RepoWikiPage, error)
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
 	UpsertCodeScanningAlert(ctx context.Context, db DBTX, arg UpsertCodeScanningAlertParams) (CodeScanningAlert, error)
