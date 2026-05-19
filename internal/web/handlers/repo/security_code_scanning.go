@@ -338,15 +338,16 @@ func readSARIFUpload(w http.ResponseWriter, r *http.Request) ([]byte, sarifUploa
 	form := sarifUploadForm{values: map[string]string{}}
 	switch {
 	case strings.HasPrefix(ct, "multipart/form-data"):
+		// #nosec G120 -- r.Body is capped by http.MaxBytesReader above.
 		if err := r.ParseMultipartForm(codescan.MaxSARIFBytes + 1024); err != nil {
-			return nil, form, errors.New("Could not read the SARIF upload.")
+			return nil, form, errors.New("could not read the SARIF upload")
 		}
 		for _, key := range []string{"commit_sha", "ref_name", "category"} {
 			form.values[key] = r.FormValue(key)
 		}
 		file, _, err := r.FormFile("sarif_file")
 		if err != nil {
-			return nil, form, errors.New("Choose a SARIF file to upload.")
+			return nil, form, errors.New("choose a SARIF file to upload")
 		}
 		defer file.Close()
 		body, err := readLimitedSARIF(file)
@@ -356,17 +357,17 @@ func readSARIFUpload(w http.ResponseWriter, r *http.Request) ([]byte, sarifUploa
 		return body, form, nil
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
 		if err := r.ParseForm(); err != nil {
-			return nil, form, errors.New("Could not read the SARIF upload.")
+			return nil, form, errors.New("could not read the SARIF upload")
 		}
 		for _, key := range []string{"commit_sha", "ref_name", "category"} {
 			form.values[key] = r.FormValue(key)
 		}
 		body := []byte(r.FormValue("sarif"))
 		if len(strings.TrimSpace(string(body))) == 0 {
-			return nil, form, errors.New("Paste a SARIF payload or choose a SARIF file.")
+			return nil, form, errors.New("paste a SARIF payload or choose a SARIF file")
 		}
 		if len(body) > codescan.MaxSARIFBytes {
-			return nil, form, errors.New("SARIF uploads are limited to 5 MiB.")
+			return nil, form, errors.New("SARIF uploads are limited to 5 MiB")
 		}
 		return body, form, nil
 	default:
@@ -381,13 +382,13 @@ func readSARIFUpload(w http.ResponseWriter, r *http.Request) ([]byte, sarifUploa
 func readLimitedSARIF(r io.Reader) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(r, codescan.MaxSARIFBytes+1))
 	if err != nil {
-		return nil, errors.New("Could not read the SARIF upload.")
+		return nil, errors.New("could not read the SARIF upload")
 	}
 	if len(body) > codescan.MaxSARIFBytes {
-		return nil, errors.New("SARIF uploads are limited to 5 MiB.")
+		return nil, errors.New("SARIF uploads are limited to 5 MiB")
 	}
 	if len(strings.TrimSpace(string(body))) == 0 {
-		return nil, errors.New("Paste a SARIF payload or choose a SARIF file.")
+		return nil, errors.New("paste a SARIF payload or choose a SARIF file")
 	}
 	return body, nil
 }
