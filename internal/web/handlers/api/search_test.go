@@ -162,6 +162,49 @@ func TestSearch_IssuesTypeFilterValidates(t *testing.T) {
 	}
 }
 
+// G11 (F49): when the user supplies a non-empty query but every token
+// strips out of the FTS lexer (single-char like "F", or hyphen-split
+// like "F-audit" with single-char halves), the server must 422 with a
+// user-actionable message instead of silently returning 0 results.
+// Pre-fix the search command was indistinguishable from a no-match
+// search; the CLI status line was just "no results found."
+func TestSearch_FTSStrippedQueryReturns422(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	cases := []string{
+		"/api/v1/search/repositories?q=F",
+		"/api/v1/search/issues?q=F",
+		"/api/v1/search/code?q=F",
+	}
+	for _, path := range cases {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: got %d, want 422; body=%s", path, rr.Code, rr.Body.String())
+			continue
+		}
+		if !bytes.Contains(rr.Body.Bytes(), []byte("FTS-indexable")) {
+			t.Errorf("%s: body should explain stripping; got %s", path, rr.Body.String())
+		}
+	}
+}
+
+// G11 (F49) boundary: a query that survives stripping ("audit" is a
+// real word the english stemmer keeps) still 200s — we don't want the
+// new pre-flight to false-positive on legitimate single-word queries.
+func TestSearch_FTSValidLexemeStillSucceeds(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/issues?q=audit", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestSearch_AnonymousAllowed(t *testing.T) {
 	_, router, _, _, _ := seedIssuesEnv(t, "alice")
 

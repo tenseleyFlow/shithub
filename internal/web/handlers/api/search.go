@@ -3,6 +3,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,6 +83,10 @@ func (h *Handlers) searchRepositories(w http.ResponseWriter, r *http.Request) {
 		search.Deps{Pool: h.d.Pool, Logger: h.d.Logger},
 		auth.PolicyActor(), q, perPage, (page-1)*perPage)
 	if err != nil {
+		if errors.Is(err, search.ErrFTSStripped) {
+			writeAPIError(w, http.StatusUnprocessableEntity, "query has no FTS-indexable tokens (try a longer or differently-worded query)")
+			return
+		}
 		h.d.Logger.ErrorContext(r.Context(), "api: search repos", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "search failed")
 		return
@@ -157,6 +162,10 @@ func (h *Handlers) searchIssues(w http.ResponseWriter, r *http.Request) {
 		search.Deps{Pool: h.d.Pool, Logger: h.d.Logger},
 		auth.PolicyActor(), q, kindFilter, perPage, (page-1)*perPage)
 	if err != nil {
+		if errors.Is(err, search.ErrFTSStripped) {
+			writeAPIError(w, http.StatusUnprocessableEntity, "query has no FTS-indexable tokens (try a longer or differently-worded query)")
+			return
+		}
 		h.d.Logger.ErrorContext(r.Context(), "api: search issues", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "search failed")
 		return
@@ -224,6 +233,10 @@ func (h *Handlers) searchCode(w http.ResponseWriter, r *http.Request) {
 		search.Deps{Pool: h.d.Pool, Logger: h.d.Logger},
 		auth.PolicyActor(), q, perPage, (page-1)*perPage)
 	if err != nil {
+		if errors.Is(err, search.ErrFTSStripped) {
+			writeAPIError(w, http.StatusUnprocessableEntity, "query has no FTS-indexable tokens (try a longer or differently-worded query)")
+			return
+		}
 		h.d.Logger.ErrorContext(r.Context(), "api: search code", "error", err)
 		writeAPIError(w, http.StatusInternalServerError, "search failed")
 		return
