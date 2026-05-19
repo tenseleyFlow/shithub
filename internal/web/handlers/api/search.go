@@ -4,6 +4,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -117,6 +118,23 @@ type searchIssueItem struct {
 	AuthorName string  `json:"author_name"`
 	UpdatedAt  string  `json:"updated_at"`
 	Score      float64 `json:"score"`
+	// G9a (F19): pre-fix `shithub status --json` rows had empty
+	// `repository` and `url`. The shape mirrors the per-repo issue
+	// response's `repository` envelope + `html_url`. Existing flat
+	// `repo`/`repo_id` keys remain for one transition cycle.
+	HTMLURL    string                   `json:"html_url,omitempty"`
+	Repository *searchIssueRepoEnvelope `json:"repository,omitempty"`
+}
+
+// searchIssueRepoEnvelope is the trimmed repo node attached to each
+// search-issue result so CLI clients can render `repository.full_name`
+// and link to the repo without an extra fetch (F19).
+type searchIssueRepoEnvelope struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	HTMLURL  string `json:"html_url,omitempty"`
+	Private  bool   `json:"private"`
 }
 
 func (h *Handlers) searchIssues(w http.ResponseWriter, r *http.Request) {
@@ -145,17 +163,39 @@ func (h *Handlers) searchIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]searchIssueItem, 0, len(rows))
 	for _, row := range rows {
+		fullName := row.OwnerUsername + "/" + row.RepoName
+		// G9a (F19): build the URL with the correct issue/PR suffix —
+		// /issues/{N} for kind='issue', /pulls/{N} for kind='pr'. Same
+		// split that issueHTMLURL / pullHTMLURL maintain elsewhere.
+		var htmlURL, repoURL string
+		if h.d.BaseURL != "" {
+			base := strings.TrimRight(h.d.BaseURL, "/") + "/" + fullName
+			repoURL = base
+			suffix := "/issues/"
+			if row.Kind == "pr" {
+				suffix = "/pulls/"
+			}
+			htmlURL = base + suffix + strconv.FormatInt(row.Number, 10)
+		}
 		items = append(items, searchIssueItem{
 			ID:         row.ID,
 			Number:     row.Number,
 			RepoID:     row.RepoID,
-			Repo:       row.OwnerUsername + "/" + row.RepoName,
+			Repo:       fullName,
 			Title:      row.Title,
 			State:      row.State,
 			Kind:       row.Kind,
 			AuthorName: row.AuthorName,
 			UpdatedAt:  row.UpdatedAt.UTC().Format(time.RFC3339),
 			Score:      row.Rank,
+			HTMLURL:    htmlURL,
+			Repository: &searchIssueRepoEnvelope{
+				ID:       row.RepoID,
+				Name:     row.RepoName,
+				FullName: fullName,
+				HTMLURL:  repoURL,
+				Private:  row.RepoVisibility != "public",
+			},
 		})
 	}
 	h.writeSearchEnvelope(w, r, page, perPage, total, items)
