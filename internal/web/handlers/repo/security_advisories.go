@@ -646,7 +646,7 @@ func (h *Handlers) repoSecurityAdvisoryView(ctx context.Context, row reposdb.Rep
 func (h *Handlers) addRepoSecurityAdvisoryCollaborator(ctx context.Context, row reposdb.Repo, advisory reposdb.RepoSecurityAdvisory, rawSubject, role string, actorID int64) (string, error) {
 	subject := normalizeRepoSecurityAdvisoryCollaboratorSubject(rawSubject)
 	if subject == "" {
-		return "", errors.New("Enter a username or team slug.")
+		return "", errors.New("enter a username or team slug")
 	}
 	if role == "" {
 		role = "read"
@@ -654,7 +654,7 @@ func (h *Handlers) addRepoSecurityAdvisoryCollaborator(ctx context.Context, row 
 	addedBy := pgtype.Int8{Int64: actorID, Valid: actorID != 0}
 	if strings.HasPrefix(subject, "team:") {
 		if !row.OwnerOrgID.Valid {
-			return "", errors.New("Team collaborators require an organization-owned repository.")
+			return "", errors.New("team collaborators require an organization-owned repository")
 		}
 		teamSlug := strings.TrimPrefix(subject, "team:")
 		team, err := orgsdb.New().GetTeamByOrgAndSlug(ctx, h.d.Pool, orgsdb.GetTeamByOrgAndSlugParams{
@@ -663,7 +663,7 @@ func (h *Handlers) addRepoSecurityAdvisoryCollaborator(ctx context.Context, row 
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return "", errors.New("Team collaborator not found.")
+				return "", errors.New("team collaborator not found")
 			}
 			return "", err
 		}
@@ -697,12 +697,12 @@ func (h *Handlers) addRepoSecurityAdvisoryCollaborator(ctx context.Context, row 
 			}
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", errors.New("Collaborator not found.")
+			return "", errors.New("collaborator not found")
 		}
 		return "", err
 	}
 	if row.OwnerUserID.Valid && row.OwnerUserID.Int64 == user.ID {
-		return "", errors.New("The repository owner already has advisory access.")
+		return "", errors.New("the repository owner already has advisory access")
 	}
 	if _, err := h.rq.AddRepoSecurityAdvisoryUserCollaborator(ctx, h.d.Pool, reposdb.AddRepoSecurityAdvisoryUserCollaboratorParams{
 		AdvisoryID: advisory.ID,
