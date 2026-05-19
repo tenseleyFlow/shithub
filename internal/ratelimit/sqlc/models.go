@@ -3351,6 +3351,7 @@ type Repo struct {
 	IsPaused           bool
 	PausedAt           pgtype.Timestamptz
 	PauseReason        pgtype.Text
+	Homepage           string
 }
 
 type RepoCollaborator struct {

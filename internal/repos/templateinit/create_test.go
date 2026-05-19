@@ -48,6 +48,7 @@ func makeRepo(t *testing.T, ctx context.Context, pool reposdb.DBTX, ownerID int6
 	if templated {
 		if err := rq.UpdateRepoGeneralSettings(ctx, pool, reposdb.UpdateRepoGeneralSettingsParams{
 			ID: repo.ID, Description: repo.Description, HasIssues: repo.HasIssues, HasPulls: repo.HasPulls, IsTemplate: true,
+			Homepage: repo.Homepage,
 		}); err != nil {
 			t.Fatalf("UpdateRepoGeneralSettings %s: %v", name, err)
 		}

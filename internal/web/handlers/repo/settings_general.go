@@ -135,6 +135,7 @@ func (h *Handlers) settingsGeneralUpdate(w http.ResponseWriter, r *http.Request)
 
 	if err := h.rq.UpdateRepoGeneralSettings(r.Context(), h.d.Pool, reposdb.UpdateRepoGeneralSettingsParams{
 		ID: row.ID, Description: description, HasIssues: hasIssues, HasPulls: hasPulls, IsTemplate: isTemplate,
+		Homepage: row.Homepage,
 	}); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "settings: general update", "error", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
