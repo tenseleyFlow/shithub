@@ -292,6 +292,54 @@ func TestPulls_CreateRejectsMissingHead(t *testing.T) {
 	}
 }
 
+// G6 (F46): a second OPEN PR with the same `(base, head)` must 422
+// and surface the existing PR's number — pre-fix the server stacked
+// unlimited duplicates with no warning. Closing the first PR (or
+// merging it) re-opens the slot, matching gh's rule.
+func TestPulls_CreateRejectsDuplicateOpenPR(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+
+	// First create succeeds.
+	first := openPullFor(t, router, token, "alice", "demo")
+
+	// Second create with the same head→base 422s and names the existing PR.
+	body, _ := json.Marshal(map[string]any{
+		"title": "dup", "base": "trunk", "head": "feature",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("duplicate create: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	wantN := strconv.FormatInt(first.Number, 10)
+	if !strings.Contains(rr.Body.String(), "#"+wantN) {
+		t.Errorf("422 body should name existing PR #%s; got %s", wantN, rr.Body.String())
+	}
+
+	// Close the first PR; a second OPEN PR over the same pair now succeeds.
+	patch, _ := json.Marshal(map[string]any{"state": "closed"})
+	req = httptest.NewRequest(http.MethodPatch,
+		"/api/v1/repos/alice/demo/pulls/"+wantN, bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("close first PR: %d %s", rr.Code, rr.Body.String())
+	}
+	body, _ = json.Marshal(map[string]any{
+		"title": "reopen-slot", "base": "trunk", "head": "feature",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Errorf("after closing first, second create should succeed: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestPulls_CreateRequiresRepoWriteScope(t *testing.T) {
 	pool, router, userID, _, _, _ := seedPullsEnv(t, "alice")
 	readOnly := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoRead))
