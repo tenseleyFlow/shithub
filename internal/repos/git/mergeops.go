@@ -379,3 +379,127 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 	// rebase it's the same as the new base tip.
 	return MergeResult{NewBaseOID: newOID, MergedOID: newOID}, nil
 }
+
+// ErrBranchAlreadyUpToDate is returned by UpdateBranchFromBase when
+// the head ref already contains the base tip in its history — the
+// `pr update-branch` operation would be a no-op.
+var ErrBranchAlreadyUpToDate = errors.New("git: branch already up to date with base")
+
+// UpdateBranchOptions configures a "merge base into head" operation
+// (the inverse of PerformMerge's direction). Used by F43/G8b's
+// `pr update-branch` to advance the PR's head branch with the latest
+// base content.
+type UpdateBranchOptions struct {
+	GitDir         string
+	HeadRef        string // "refs/heads/<head-branch>"
+	HeadOID        string // expected current tip of head
+	BaseOID        string
+	Method         string // "merge" | "rebase"
+	AuthorName     string
+	AuthorEmail    string
+	CommitterName  string
+	CommitterEmail string
+	When           time.Time
+	WorktreesDir   string
+}
+
+// UpdateBranchResult is the post-op state.
+type UpdateBranchResult struct {
+	NewHeadOID string
+}
+
+// UpdateBranchFromBase merges (or rebases) base into head, advancing
+// the head_ref. Atomic update via update-ref CAS gated on the current
+// head OID so a concurrent push aborts the operation cleanly.
+//
+// When head already contains base (the branch is current), returns
+// ErrBranchAlreadyUpToDate without touching the ref.
+//
+// G8b (F43): pre-fix `shithub pr update-branch` 404'd against a verb
+// the server never implemented — the CLI shipped with full client +
+// tests against a vapor endpoint.
+func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (UpdateBranchResult, error) {
+	// Already up-to-date: base is an ancestor of head → nothing to do.
+	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+		"merge-base", "--is-ancestor", opts.BaseOID, opts.HeadOID).CombinedOutput(); err == nil {
+		return UpdateBranchResult{}, ErrBranchAlreadyUpToDate
+	} else {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			return UpdateBranchResult{}, fmt.Errorf("merge-base --is-ancestor: %w (%s)", err, out)
+		}
+		// Non-zero exit (typically 1) means "not an ancestor" — proceed.
+	}
+
+	if opts.WorktreesDir == "" {
+		opts.WorktreesDir = filepath.Join(filepath.Dir(opts.GitDir), ".tmp-worktrees")
+	}
+	if err := os.MkdirAll(opts.WorktreesDir, 0o750); err != nil {
+		return UpdateBranchResult{}, fmt.Errorf("worktrees dir: %w", err)
+	}
+	wt, err := os.MkdirTemp(opts.WorktreesDir, "updbr-*")
+	if err != nil {
+		return UpdateBranchResult{}, fmt.Errorf("mktemp worktree: %w", err)
+	}
+	defer func() {
+		_ = exec.Command("git", "-C", opts.GitDir, "worktree", "remove", "--force", wt).Run()
+		_ = os.RemoveAll(wt)
+	}()
+
+	// Worktree at head_oid (detached). We'll merge/rebase base into
+	// it, then push the resulting tip to head_ref.
+	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+		"worktree", "add", "--detach", wt, opts.HeadOID).CombinedOutput(); err != nil {
+		return UpdateBranchResult{}, fmt.Errorf("worktree add: %w (%s)", err, out)
+	}
+
+	envBase := append(
+		os.Environ(),
+		"GIT_AUTHOR_NAME="+opts.AuthorName,
+		"GIT_AUTHOR_EMAIL="+opts.AuthorEmail,
+		"GIT_COMMITTER_NAME="+opts.CommitterName,
+		"GIT_COMMITTER_EMAIL="+opts.CommitterEmail,
+	)
+	if !opts.When.IsZero() {
+		envBase = append(
+			envBase,
+			"GIT_AUTHOR_DATE="+opts.When.Format(time.RFC3339),
+			"GIT_COMMITTER_DATE="+opts.When.Format(time.RFC3339),
+		)
+	}
+
+	switch opts.Method {
+	case "", "merge":
+		msg := "Merge base into " + strings.TrimPrefix(opts.HeadRef, "refs/heads/")
+		mergeCmd := exec.CommandContext(ctx, "git", "-C", wt,
+			"merge", "--no-ff", "--no-edit", "-m", msg, opts.BaseOID)
+		mergeCmd.Env = envBase
+		if out, err := mergeCmd.CombinedOutput(); err != nil {
+			return UpdateBranchResult{}, fmt.Errorf("merge base into head: %w (%s)", err, out)
+		}
+	case "rebase":
+		// Replay head's commits onto base_oid.
+		rebaseCmd := exec.CommandContext(ctx, "git", "-C", wt,
+			"rebase", "--onto", opts.BaseOID, opts.BaseOID, opts.HeadOID)
+		rebaseCmd.Env = envBase
+		if out, err := rebaseCmd.CombinedOutput(); err != nil {
+			_ = exec.Command("git", "-C", wt, "rebase", "--abort").Run()
+			return UpdateBranchResult{}, fmt.Errorf("rebase head onto base: %w (%s)", err, out)
+		}
+	default:
+		return UpdateBranchResult{}, fmt.Errorf("unknown update-branch method %q", opts.Method)
+	}
+
+	revOut, err := exec.CommandContext(ctx, "git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return UpdateBranchResult{}, fmt.Errorf("rev-parse HEAD: %w", err)
+	}
+	newOID := strings.TrimSpace(string(revOut))
+
+	// Atomic update-ref CAS on the head ref.
+	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+		"update-ref", opts.HeadRef, newOID, opts.HeadOID).CombinedOutput(); err != nil {
+		return UpdateBranchResult{}, fmt.Errorf("update-ref %s: %w (%s)", opts.HeadRef, err, out)
+	}
+	return UpdateBranchResult{NewHeadOID: newOID}, nil
+}
