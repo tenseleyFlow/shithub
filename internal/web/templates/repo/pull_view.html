@@ -239,6 +239,27 @@
               </div>
               {{ end }}
 
+              {{ if .DependencyReview.Show }}
+              <div class="shithub-pull-merge-row shithub-pull-dependency-row shithub-pull-dependency-row-{{ .DependencyReview.StateClass }}">
+                <span class="shithub-pull-status-icon">{{ octicon .DependencyReview.Icon }}</span>
+                <div>
+                  <strong>{{ .DependencyReview.Title }}</strong>
+                  <p class="shithub-muted">{{ .DependencyReview.Summary }}</p>
+                  {{ if .DependencyReview.Items }}
+                  <ul class="shithub-dependency-review-list shithub-dependency-review-list-compact">
+                    {{ range .DependencyReview.Items }}
+                    <li>
+                      <span class="shithub-dependency-review-package">{{ .Row.PackageName }}</span>
+                      <span class="shithub-muted">{{ .ChangeLabel }} {{ .VersionDelta }} in {{ .Row.ManifestPath }}</span>
+                      {{ if .HasAdvisory }}<span class="shithub-dependency-review-severity shithub-dependency-review-severity-{{ .SeverityClass }}">{{ .SeverityLabel }}</span>{{ end }}
+                    </li>
+                    {{ end }}
+                  </ul>
+                  {{ end }}
+                </div>
+              </div>
+              {{ end }}
+
               {{ if .CheckGroups }}
               <ul class="shithub-pull-merge-checks">
                 {{ range .CheckGroups }}
@@ -796,10 +817,16 @@
         </div>
       </section>
     {{ else if eq .Tab "checks" }}
-      {{ if .CheckGroups }}
+      {{ if or .CheckGroups .DependencyReview.Show }}
       <section class="shithub-checks-page">
         <aside class="shithub-checks-sidebar" aria-label="Check runs">
           <a href="#checks-summary" class="shithub-checks-sidebar-item is-active">{{ octicon "home" }} Summary</a>
+          {{ if .DependencyReview.Show }}
+          <a href="#dependency-review" class="shithub-checks-sidebar-item">
+            <span class="shithub-actions-state shithub-actions-state-{{ .DependencyReview.StateClass }}">{{ octicon .DependencyReview.Icon }}</span>
+            <span>Dependency review</span>
+          </a>
+          {{ end }}
           <div class="shithub-checks-sidebar-group">
             <div class="shithub-checks-sidebar-heading">All jobs</div>
             {{ range .CheckGroups }}
@@ -843,6 +870,45 @@
               <strong>—</strong>
             </div>
           </section>
+
+          {{ if .DependencyReview.Show }}
+          <section id="dependency-review" class="shithub-dependency-review-card shithub-dependency-review-card-{{ .DependencyReview.StateClass }}">
+            <header>
+              <span class="shithub-pull-status-icon">{{ octicon .DependencyReview.Icon }}</span>
+              <div>
+                <h2>{{ .DependencyReview.Title }}</h2>
+                <p class="shithub-muted">{{ .DependencyReview.Summary }}</p>
+              </div>
+              {{ if .DependencyReview.Review.ReviewedAt.Valid }}
+              <span class="shithub-muted">Reviewed {{ relativeTime .DependencyReview.Review.ReviewedAt.Time }}</span>
+              {{ end }}
+            </header>
+            {{ if .DependencyReview.Items }}
+            <ul class="shithub-dependency-review-list">
+              {{ range .DependencyReview.Items }}
+              <li>
+                <div>
+                  <strong>{{ .Row.PackageName }}</strong>
+                  <p class="shithub-muted">
+                    {{ .ChangeLabel }} {{ .VersionDelta }} in <code>{{ .Row.ManifestPath }}</code>
+                    {{ if .Row.LockfilePath }} · lockfile <code>{{ .Row.LockfilePath }}</code>{{ end }}
+                  </p>
+                  {{ if .Row.AdvisorySummary }}<p>{{ .Row.AdvisorySummary }}</p>{{ end }}
+                  {{ if .Recommendation }}<p class="shithub-muted">{{ .Recommendation }}</p>{{ end }}
+                </div>
+                <div class="shithub-dependency-review-meta">
+                  <span>{{ .Row.Ecosystem }}</span>
+                  {{ if .HasAdvisory }}<span class="shithub-dependency-review-severity shithub-dependency-review-severity-{{ .SeverityClass }}">{{ .SeverityLabel }}</span>{{ end }}
+                  {{ if .Row.AdvisoryExternalID }}<code>{{ .Row.AdvisoryExternalID }}</code>{{ end }}
+                </div>
+              </li>
+              {{ end }}
+            </ul>
+            {{ else }}
+            <p class="shithub-muted shithub-dependency-review-empty">No package-level dependency review details are available for this head.</p>
+            {{ end }}
+          </section>
+          {{ end }}
 
           {{ range .CheckGroups }}
           <section class="shithub-checks-workflow">

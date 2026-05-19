@@ -168,8 +168,20 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	// mergeable_state moves off `unknown` without waiting for a human to
 	// open the HTML review screen (the only previous trigger).
 	mergeenqueue.ForPR(ctx, deps.Pool, deps.Logger, prRow.IssueID, "pr_create")
+	enqueueDependencyReview(ctx, deps, prRow.IssueID, "pr_create")
 
 	return CreateResult{Issue: issueRow, PullRequest: prRow}, nil
+}
+
+func enqueueDependencyReview(ctx context.Context, deps Deps, prID int64, reason string) {
+	if deps.Pool == nil {
+		return
+	}
+	if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindPRDependencyReview,
+		map[string]any{"pr_id": prID}, worker.EnqueueOptions{}); err != nil && deps.Logger != nil {
+		deps.Logger.WarnContext(ctx, "pulls: enqueue dependency review",
+			"pr_id", prID, "reason", reason, "error", err)
+	}
 }
 
 // enqueueOpenedActionsTrigger is the PR-create-side counterpart to

@@ -72,6 +72,26 @@ type pullRequiredChecksView struct {
 	Error       string
 }
 
+type pullDependencyReviewView struct {
+	Show       bool
+	StateClass string
+	Icon       string
+	Title      string
+	Summary    string
+	Review     pullsdb.PullDependencyReview
+	Items      []pullDependencyReviewItemView
+}
+
+type pullDependencyReviewItemView struct {
+	Row            pullsdb.PullDependencyReviewItem
+	ChangeLabel    string
+	VersionDelta   string
+	HasAdvisory    bool
+	SeverityClass  string
+	SeverityLabel  string
+	Recommendation string
+}
+
 type pullFileView struct {
 	F      pullsdb.PullRequestFile
 	Anchor string
@@ -458,6 +478,7 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 	checkGroups := h.pullCheckGroups(r.Context(), owner.Username, row.Name, row.ID, pr.HeadOid, canRerunChecks)
 	stats := h.pullStats(r.Context(), pr, owner.Username, row.Name, checkGroups)
 	requiredChecks := h.pullRequiredChecksView(r.Context(), row.ID, pr.BaseRef, pr.HeadOid)
+	dependencyReview := h.pullDependencyReviewView(r.Context(), pr, checkGroups)
 	data := map[string]any{
 		"Title":                 "#" + strconv.FormatInt(pr.INumber, 10) + " " + pr.ITitle + " · " + row.Name,
 		"Owner":                 owner.Username,
@@ -469,6 +490,7 @@ func (h *Handlers) renderPullPage(w http.ResponseWriter, r *http.Request, tab st
 		"PullStats":             stats,
 		"CheckGroups":           checkGroups,
 		"RequiredChecks":        requiredChecks,
+		"DependencyReview":      dependencyReview,
 		"CSRFToken":             middleware.CSRFTokenForRequest(r),
 		"RepoActions":           h.repoActions(r, row.ID),
 		"RepoCounts":            h.subnavCounts(r.Context(), row.ID, row.ForkCount),
@@ -702,6 +724,208 @@ func (h *Handlers) pullRequiredChecksView(ctx context.Context, repoID int64, bas
 		Missing:     append([]string(nil), result.Missing...),
 		Satisfied:   result.Satisfied,
 		Reason:      result.Reason,
+	}
+}
+
+const pullDependencyReviewCheckName = "Dependency review"
+
+func (h *Handlers) pullDependencyReviewView(ctx context.Context, pr pullsdb.GetPullRequestByRepoAndNumberRow, checkGroups []pullCheckSuiteView) pullDependencyReviewView {
+	if strings.TrimSpace(pr.HeadOid) == "" {
+		return pullDependencyReviewView{}
+	}
+	review, err := h.pq.GetPullDependencyReviewForHead(ctx, h.d.Pool, pullsdb.GetPullDependencyReviewForHeadParams{
+		PrID:    pr.IID,
+		HeadSha: pr.HeadOid,
+	})
+	if err == nil {
+		items, ierr := h.pq.ListPullDependencyReviewItems(ctx, h.d.Pool, review.ID)
+		if ierr != nil {
+			h.d.Logger.WarnContext(ctx, "pulls: dependency review items", "pr_id", pr.IID, "review_id", review.ID, "error", ierr)
+		}
+		return dependencyReviewFromRows(review, items)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		h.d.Logger.WarnContext(ctx, "pulls: dependency review", "pr_id", pr.IID, "head_sha", pr.HeadOid, "error", err)
+	}
+	if run, ok := latestDependencyReviewCheck(checkGroups); ok {
+		return dependencyReviewFromCheck(run)
+	}
+	return pullDependencyReviewView{}
+}
+
+func latestDependencyReviewCheck(checkGroups []pullCheckSuiteView) (checksdb.CheckRun, bool) {
+	var out checksdb.CheckRun
+	found := false
+	for _, group := range checkGroups {
+		for _, run := range group.Runs {
+			if run.R.Name != pullDependencyReviewCheckName {
+				continue
+			}
+			if !found || checkRunNewer(run.R, out) {
+				out = run.R
+				found = true
+			}
+		}
+	}
+	return out, found
+}
+
+func dependencyReviewFromRows(review pullsdb.PullDependencyReview, rows []pullsdb.PullDependencyReviewItem) pullDependencyReviewView {
+	state, icon, title := dependencyReviewState(review.Conclusion)
+	view := pullDependencyReviewView{
+		Show:       true,
+		StateClass: state,
+		Icon:       icon,
+		Title:      title,
+		Summary:    dependencyReviewSummary(review),
+		Review:     review,
+		Items:      make([]pullDependencyReviewItemView, 0, len(rows)),
+	}
+	for _, row := range rows {
+		view.Items = append(view.Items, dependencyReviewItemView(row))
+	}
+	return view
+}
+
+func dependencyReviewFromCheck(run checksdb.CheckRun) pullDependencyReviewView {
+	view := pullDependencyReviewView{
+		Show:       true,
+		StateClass: pullCheckRunStateClass(run),
+		Icon:       pullCheckRunStateIcon(run),
+		Title:      "Dependency review is queued",
+		Summary:    "Dependency changes will be checked for supported Go and npm manifests.",
+	}
+	if run.Status != checksdb.CheckStatusCompleted || !run.Conclusion.Valid {
+		view.StateClass = "pending"
+		view.Icon = "dot-fill"
+		view.Title = "Dependency review is running"
+		return view
+	}
+	switch run.Conclusion.CheckConclusion {
+	case checksdb.CheckConclusionActionRequired:
+		view.StateClass = "failure"
+		view.Icon = "lock"
+		view.Title = "Dependency review requires Team"
+		view.Summary = "Upgrade this organization to Team to evaluate dependency changes before merge."
+	case checksdb.CheckConclusionFailure:
+		view.StateClass = "failure"
+		view.Icon = "x-circle"
+		view.Title = "Dependency review found vulnerable changes"
+		view.Summary = "Review details are not available for this head yet."
+	case checksdb.CheckConclusionSuccess:
+		view.StateClass = "success"
+		view.Icon = "check-circle"
+		view.Title = "Dependency review passed"
+		view.Summary = "No local advisory matches were found for supported dependency changes."
+	case checksdb.CheckConclusionNeutral:
+		view.StateClass = "neutral"
+		view.Icon = "dot-fill"
+		view.Title = "No dependency changes detected"
+		view.Summary = "No supported dependency manifests changed in this pull request."
+	}
+	return view
+}
+
+func dependencyReviewState(conclusion string) (string, string, string) {
+	switch conclusion {
+	case "failure":
+		return "failure", "x-circle", "Dependency review found vulnerable changes"
+	case "success":
+		return "success", "check-circle", "Dependency review passed"
+	case "neutral":
+		return "neutral", "dot-fill", "No dependency changes detected"
+	default:
+		return "pending", "dot-fill", "Dependency review is running"
+	}
+}
+
+func dependencyReviewSummary(review pullsdb.PullDependencyReview) string {
+	switch review.Conclusion {
+	case "failure":
+		return dependencyReviewCountLabel(review.VulnerableChangeCount, "vulnerable dependency change", "vulnerable dependency changes") +
+			" found in " + dependencyReviewCountLabel(review.ChangeCount, "dependency change", "dependency changes") + "."
+	case "success":
+		return dependencyReviewCountLabel(review.ChangeCount, "dependency change", "dependency changes") +
+			" reviewed with no local advisory matches."
+	default:
+		if review.ChangeCount == 0 {
+			return "No supported dependency changes detected."
+		}
+		return dependencyReviewCountLabel(review.ChangeCount, "dependency change", "dependency changes") + " reviewed."
+	}
+}
+
+func dependencyReviewCountLabel(count int32, singular, plural string) string {
+	label := plural
+	if count == 1 {
+		label = singular
+	}
+	return strconv.FormatInt(int64(count), 10) + " " + label
+}
+
+func dependencyReviewItemView(row pullsdb.PullDependencyReviewItem) pullDependencyReviewItemView {
+	severityClass, severityLabel := dependencyReviewSeverity(row.Severity)
+	return pullDependencyReviewItemView{
+		Row:            row,
+		ChangeLabel:    dependencyReviewChangeLabel(row.ChangeKind),
+		VersionDelta:   dependencyReviewVersionDelta(row),
+		HasAdvisory:    row.AdvisoryID.Valid || strings.TrimSpace(row.AdvisoryExternalID) != "" || strings.TrimSpace(row.AdvisorySummary) != "",
+		SeverityClass:  severityClass,
+		SeverityLabel:  severityLabel,
+		Recommendation: strings.TrimSpace(row.Recommendation),
+	}
+}
+
+func dependencyReviewChangeLabel(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "added":
+		return "Added"
+	case "removed":
+		return "Removed"
+	case "changed":
+		return "Changed"
+	default:
+		return "Changed"
+	}
+}
+
+func dependencyReviewVersionDelta(row pullsdb.PullDependencyReviewItem) string {
+	oldVersion := strings.TrimSpace(row.OldVersion)
+	newVersion := strings.TrimSpace(row.NewVersion)
+	switch strings.ToLower(strings.TrimSpace(row.ChangeKind)) {
+	case "added":
+		if newVersion != "" {
+			return newVersion
+		}
+	case "removed":
+		if oldVersion != "" {
+			return oldVersion
+		}
+	case "changed":
+		switch {
+		case oldVersion != "" && newVersion != "":
+			return oldVersion + " -> " + newVersion
+		case newVersion != "":
+			return newVersion
+		case oldVersion != "":
+			return oldVersion
+		}
+	}
+	return "version unavailable"
+}
+
+func dependencyReviewSeverity(severity string) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical":
+		return "critical", "Critical"
+	case "high":
+		return "high", "High"
+	case "moderate":
+		return "moderate", "Moderate"
+	case "low":
+		return "low", "Low"
+	default:
+		return "unknown", "Advisory"
 	}
 }
 

@@ -149,6 +149,7 @@ var workerCmd = &cobra.Command{
 		prDeps := jobs.PRJobsDeps{Pool: pool, RepoFS: rfs, Logger: logger}
 		p.Register(worker.KindPRSynchronize, jobs.PRSynchronize(prDeps))
 		p.Register(worker.KindPRMergeability, jobs.PRMergeability(prDeps))
+		p.Register(worker.KindPRDependencyReview, jobs.PRDependencyReview(prDeps))
 
 		shithubdPath, _ := shithubdBinaryPath()
 		p.Register(worker.KindRepoForkClone, jobs.RepoForkClone(jobs.ForkCloneDeps{

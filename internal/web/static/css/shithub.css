@@ -11542,10 +11542,70 @@ button.shithub-repo-action {
 .shithub-pull-check-row-pending .shithub-pull-status-icon { color: #bf8700; }
 .shithub-pull-required-row-success .shithub-pull-status-icon { color: #1a7f37; }
 .shithub-pull-required-row-pending .shithub-pull-status-icon { color: #bf8700; }
+.shithub-pull-dependency-row-success .shithub-pull-status-icon { color: #1a7f37; }
+.shithub-pull-dependency-row-failure .shithub-pull-status-icon { color: #cf222e; }
+.shithub-pull-dependency-row-pending .shithub-pull-status-icon { color: #bf8700; }
+.shithub-pull-dependency-row-neutral .shithub-pull-status-icon { color: var(--fg-muted); }
 .shithub-pull-status-icon-merged { color: #8250df; }
 .shithub-pull-required-missing {
   margin: 0.35rem 0 0;
   padding-left: 1.1rem;
+  color: var(--fg-muted);
+}
+.shithub-dependency-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shithub-dependency-review-list-compact {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.shithub-dependency-review-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border-muted);
+}
+.shithub-dependency-review-list-compact li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  border-top: 0;
+  font-size: 0.86rem;
+}
+.shithub-dependency-review-package {
+  font-weight: 600;
+}
+.shithub-dependency-review-severity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.shithub-dependency-review-severity-critical,
+.shithub-dependency-review-severity-high {
+  border-color: rgba(207, 34, 46, 0.55);
+  background: rgba(207, 34, 46, 0.12);
+  color: #cf222e;
+}
+.shithub-dependency-review-severity-moderate {
+  border-color: rgba(154, 103, 0, 0.55);
+  background: rgba(154, 103, 0, 0.12);
+  color: #9a6700;
+}
+.shithub-dependency-review-severity-low,
+.shithub-dependency-review-severity-unknown {
+  background: var(--canvas-subtle);
   color: var(--fg-muted);
 }
 .shithub-mono-link {
@@ -12297,11 +12357,15 @@ button.shithub-repo-action {
 .shithub-checks-failure { color: #cf222e; }
 .shithub-checks-pending { color: #9a6700; }
 .shithub-checks-workflow,
-.shithub-checks-annotations {
+.shithub-checks-annotations,
+.shithub-dependency-review-card {
   border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--canvas-default);
 }
+.shithub-dependency-review-card-failure { border-color: rgba(207, 34, 46, 0.55); }
+.shithub-dependency-review-card-success { border-color: rgba(26, 127, 55, 0.45); }
+.shithub-dependency-review-card-pending { border-color: rgba(154, 103, 0, 0.45); }
 .shithub-checks-workflow > header {
   display: flex;
   justify-content: space-between;
@@ -12311,11 +12375,46 @@ button.shithub-repo-action {
   border-bottom: 1px solid var(--border-default);
 }
 .shithub-checks-workflow h2,
-.shithub-checks-annotations h2 {
+.shithub-checks-annotations h2,
+.shithub-dependency-review-card h2 {
   margin: 0;
   font-size: 1rem;
 }
 .shithub-checks-workflow p { margin: 0.2rem 0 0; }
+.shithub-dependency-review-card > header {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-dependency-review-card-success > header .shithub-pull-status-icon { color: #1a7f37; }
+.shithub-dependency-review-card-failure > header .shithub-pull-status-icon { color: #cf222e; }
+.shithub-dependency-review-card-pending > header .shithub-pull-status-icon { color: #bf8700; }
+.shithub-dependency-review-card-neutral > header .shithub-pull-status-icon { color: var(--fg-muted); }
+.shithub-dependency-review-card > .shithub-dependency-review-list {
+  padding: 0 1rem;
+}
+.shithub-dependency-review-card .shithub-dependency-review-list li:first-child {
+  border-top: 0;
+}
+.shithub-dependency-review-list p {
+  margin: 0.2rem 0 0;
+}
+.shithub-dependency-review-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+.shithub-dependency-review-empty {
+  margin: 0;
+  padding: 1rem;
+}
 .shithub-checks-workflow-map {
   padding: 1rem;
   min-height: 8rem;
@@ -12363,6 +12462,13 @@ button.shithub-repo-action {
   .shithub-checks-page { grid-template-columns: 1fr; }
   .shithub-checks-sidebar { position: static; }
   .shithub-checks-summary-card { grid-template-columns: 1fr; }
+  .shithub-dependency-review-card > header,
+  .shithub-dependency-review-list li {
+    grid-template-columns: 1fr;
+  }
+  .shithub-dependency-review-meta {
+    justify-content: flex-start;
+  }
 }
 .shithub-pull-checks { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.5rem 0; }
 .shithub-pull-check-suite {

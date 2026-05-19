@@ -46,6 +46,9 @@ const (
 const (
 	KindPRSynchronize  Kind = "pr:synchronize"
 	KindPRMergeability Kind = "pr:mergeability"
+	// SP25a: dependency review compares PR base/head dependency
+	// snapshots and publishes the Dependency review check run.
+	KindPRDependencyReview Kind = "pr:dependency_review"
 )
 
 // S27 fork kinds. fork_clone runs `git clone --bare --shared` for a
