@@ -440,6 +440,39 @@ func TestSearchRepos_OwnerFilterUnknownReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestSearchRepos_LanguageAndDateFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos SET primary_language = 'Go', created_at = '2026-05-12T00:00:00Z'
+		WHERE id = $1
+	`, f.orgRepo.ID); err != nil {
+		t.Fatalf("seed org repo language/date: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos SET primary_language = 'Python', created_at = '2026-05-12T00:00:00Z'
+		WHERE id = $1
+	`, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed pub repo language/date: %v", err)
+	}
+
+	got, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("language:Go created:2026-05-12"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos language/date: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("language/date returned zero hits")
+	}
+	for _, r := range got {
+		if r.ID != f.orgRepo.ID {
+			t.Errorf("language/date filter leaked %s/%s", r.OwnerUsername, r.Name)
+		}
+	}
+}
+
 // TestSearchIssues_AnonymousSeesOnlyPublic mirrors the repo test
 // for the issue surface — issues inherit visibility from their repo.
 func TestSearchIssues_AnonymousSeesOnlyPublic(t *testing.T) {
@@ -550,6 +583,62 @@ func TestSearchIssues_AssigneeFilter(t *testing.T) {
 	}
 }
 
+func TestSearchIssues_LabelMilestoneCommenterAndOwnerFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	var targetID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'org public bug report'
+	`, f.orgRepo.ID).Scan(&targetID); err != nil {
+		t.Fatalf("lookup org issue: %v", err)
+	}
+	var labelID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO labels (repo_id, name, color, description)
+		VALUES ($1, 'parity', '0969da', 'Parity work')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&labelID); err != nil {
+		t.Fatalf("seed label: %v", err)
+	}
+	var milestoneID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO milestones (repo_id, title, description)
+		VALUES ($1, 'v1', 'Version one')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&milestoneID); err != nil {
+		t.Fatalf("seed milestone: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_labels (issue_id, label_id, applied_by_user_id)
+		VALUES ($1, $2, $3)
+	`, targetID, labelID, f.alice.ID); err != nil {
+		t.Fatalf("seed issue label: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE issues SET milestone_id = $1 WHERE id = $2
+	`, milestoneID, targetID); err != nil {
+		t.Fatalf("attach milestone: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_comments (issue_id, author_user_id, body)
+		VALUES ($1, $2, 'I can reproduce this')
+	`, targetID, f.bob.ID); err != nil {
+		t.Fatalf("seed comment: %v", err)
+	}
+
+	got, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("org:tenseleyflow label:parity milestone:v1 commenter:bob is:issue"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues structured filters: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != targetID {
+		t.Fatalf("structured filters got %d rows total=%d, want issue %d: %+v", len(got), total, targetID, got)
+	}
+}
+
 func TestSearchIssues_RepoFilter(t *testing.T) {
 	f := setup(t)
 	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
@@ -600,6 +689,23 @@ func TestSearchCode_RepoFilterMatchesOrgOwner(t *testing.T) {
 		}
 	}
 	t.Fatalf("org-owned code hit missing from %d results", len(got))
+}
+
+func TestSearchCode_PathAndExtensionQualifiers(t *testing.T) {
+	f := setup(t)
+	got, total, err := search.SearchCode(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("repo:tenseleyFlow/shithub path:readme extension:md"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchCode path/extension: %v", err)
+	}
+	if total != 1 || len(got) != 1 {
+		t.Fatalf("path/extension got %d rows total=%d, want one README hit", len(got), total)
+	}
+	if got[0].Path != "README.md" || got[0].OwnerUsername != "tenseleyflow" || got[0].RepoName != "shithub" {
+		t.Fatalf("path/extension hit = %+v", got[0])
+	}
 }
 
 func TestSearchUsers_ExcludesSuspended(t *testing.T) {
