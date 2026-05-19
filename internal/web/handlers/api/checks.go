@@ -57,8 +57,9 @@ func (h *Handlers) resolveAPIRepo(w http.ResponseWriter, r *http.Request, action
 		writeAPIError(w, http.StatusNotFound, "repo not found")
 		return nil, false
 	}
-	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo)).Allow {
-		writeAPIError(w, http.StatusNotFound, "repo not found")
+	decision := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), action, policy.NewRepoRefFromRepo(repo))
+	if !decision.Allow {
+		writeAPIDenial(w, decision)
 		return nil, false
 	}
 	return &repo, true
