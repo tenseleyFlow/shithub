@@ -200,8 +200,9 @@ Present but still moving toward full enforcement:
   package protocol sprints.
 - Repository security advisories have repo list/detail/create/edit/state
   flows, markdown sanitization, lifecycle events, and private-org Team
-  gates. Per-advisory collaborator invitation/disclosure UI is still
-  deferred.
+  gates. Published advisories with package metadata feed the local dependency
+  alert catalog and resolve alerts again when withdrawn or archived.
+  Per-advisory collaborator invitation/disclosure UI is still deferred.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a

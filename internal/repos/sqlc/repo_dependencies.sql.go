@@ -942,6 +942,42 @@ func (q *Queries) OrgSecurityOverviewSummary(ctx context.Context, db DBTX, owner
 	return i, err
 }
 
+const refreshDependencyAlertsForAdvisory = `-- name: RefreshDependencyAlertsForAdvisory :exec
+INSERT INTO repo_dependency_alerts (
+    repo_id, dependency_id, advisory_id, status, last_seen_at
+)
+SELECT d.repo_id, d.id, a.id, 'open', now()
+FROM dependency_advisories a
+JOIN repo_dependencies d
+  ON lower(a.ecosystem) = lower(d.ecosystem)
+ AND lower(a.package_name) = lower(d.package_name)
+WHERE a.source = $1
+  AND a.external_id = $2
+  AND a.withdrawn_at IS NULL
+  AND d.stale_at IS NULL
+  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
+ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
+SET last_seen_at = now(),
+    status = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
+        ELSE repo_dependency_alerts.status
+    END,
+    resolved_at = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
+        ELSE repo_dependency_alerts.resolved_at
+    END
+`
+
+type RefreshDependencyAlertsForAdvisoryParams struct {
+	Source     string
+	ExternalID string
+}
+
+func (q *Queries) RefreshDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg RefreshDependencyAlertsForAdvisoryParams) error {
+	_, err := db.Exec(ctx, refreshDependencyAlertsForAdvisory, arg.Source, arg.ExternalID)
+	return err
+}
+
 const refreshDependencyAlertsForRepo = `-- name: RefreshDependencyAlertsForRepo :exec
 INSERT INTO repo_dependency_alerts (
     repo_id, dependency_id, advisory_id, status, last_seen_at
@@ -1005,6 +1041,39 @@ type RemoveRepoSecurityAdvisoryUserCollaboratorParams struct {
 
 func (q *Queries) RemoveRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryUserCollaboratorParams) error {
 	_, err := db.Exec(ctx, removeRepoSecurityAdvisoryUserCollaborator, arg.AdvisoryID, arg.UserID)
+	return err
+}
+
+const resolveStaleDependencyAlertsForAdvisory = `-- name: ResolveStaleDependencyAlertsForAdvisory :exec
+UPDATE repo_dependency_alerts alert
+SET status = 'resolved',
+    resolved_at = now(),
+    last_seen_at = now()
+FROM dependency_advisories a
+WHERE alert.advisory_id = a.id
+  AND a.source = $1
+  AND a.external_id = $2
+  AND alert.status = 'open'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM repo_dependencies d
+      WHERE d.id = alert.dependency_id
+        AND d.repo_id = alert.repo_id
+        AND d.stale_at IS NULL
+        AND a.withdrawn_at IS NULL
+        AND lower(a.ecosystem) = lower(d.ecosystem)
+        AND lower(a.package_name) = lower(d.package_name)
+        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
+  )
+`
+
+type ResolveStaleDependencyAlertsForAdvisoryParams struct {
+	Source     string
+	ExternalID string
+}
+
+func (q *Queries) ResolveStaleDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg ResolveStaleDependencyAlertsForAdvisoryParams) error {
+	_, err := db.Exec(ctx, resolveStaleDependencyAlertsForAdvisory, arg.Source, arg.ExternalID)
 	return err
 }
 
