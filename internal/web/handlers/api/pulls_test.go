@@ -1041,3 +1041,109 @@ func TestPulls_ListRefFilterErrorShape(t *testing.T) {
 		}
 	}
 }
+
+// G8b (F43): PUT /pulls/{N}/update-branch happy path. Seed a PR with
+// base=trunk and head=feature, then advance trunk so the branch is
+// behind. After update-branch, head_oid should have moved and the
+// PR's GET response should reflect the new head.
+func TestPulls_UpdateBranchMergeStrategy(t *testing.T) {
+	_, router, _, _, token, gitDir := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+	oldHead := pr.HeadOID
+
+	commitOnRepoBranch(t, gitDir, "trunk", "trunk advance", "TRUNK.md", "advance\n")
+
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/v1/repos/alice/demo/pulls/"+num+"/update-branch", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update-branch: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Message string `json:"message"`
+		URL     string `json:"url"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp.Message == "" || resp.URL == "" {
+		t.Errorf("response shape: %+v", resp)
+	}
+
+	// GET reflects the moved head_oid.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/"+num, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get pr: %d", rr.Code)
+	}
+	var refreshed apiPull
+	_ = json.Unmarshal(rr.Body.Bytes(), &refreshed)
+	if refreshed.HeadOID == "" || refreshed.HeadOID == oldHead {
+		t.Errorf("head_oid should have advanced: was=%q now=%q", oldHead, refreshed.HeadOID)
+	}
+}
+
+// G8b (F43): when head already contains base, update-branch is a
+// no-op and returns 422 "already up to date".
+func TestPulls_UpdateBranchAlreadyUpToDate(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/v1/repos/alice/demo/pulls/"+num+"/update-branch", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("up-to-date: code=%d want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "already up to date") {
+		t.Errorf("expected 'already up to date' in body: %s", rr.Body.String())
+	}
+}
+
+// G8b (F43): `expected_head_sha` CAS guard rejects with 503 when the
+// caller's pinned SHA doesn't match the current head. Pins the wire
+// shape so a CLI retry-with-fresh-SHA flow can detect the conflict.
+func TestPulls_UpdateBranchExpectedHeadMismatch(t *testing.T) {
+	_, router, _, _, token, gitDir := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+	commitOnRepoBranch(t, gitDir, "trunk", "trunk advance", "TRUNK.md", "advance\n")
+
+	body, _ := json.Marshal(map[string]any{
+		"expected_head_sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+	})
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/v1/repos/alice/demo/pulls/"+num+"/update-branch", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected_head_sha mismatch: code=%d want 503; body=%s", rr.Code, rr.Body.String())
+	}
+	_ = pr.HeadOID
+}
+
+// G8b (F43): non-author read-only collaborator gets 403. Author or
+// repo-write collaborator can run update-branch.
+func TestPulls_UpdateBranchForbidsNonAuthorReader(t *testing.T) {
+	pool, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	bobID := seedRepoCreatorUser(t, pool, "bob")
+	bobTok := mintRunnerAPIPAT(t, pool, bobID, string(pat.ScopeRepoRead))
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/v1/repos/alice/demo/pulls/"+num+"/update-branch", nil)
+	req.Header.Set("Authorization", "Bearer "+bobTok)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("non-author update-branch: code=%d want 403", rr.Code)
+	}
+}
