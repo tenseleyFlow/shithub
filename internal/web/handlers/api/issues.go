@@ -734,7 +734,7 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	// repos here so author-self-edit + label/assignee/milestone/state
 	// changes don't slip through. POST /issues already 404s on
 	// archived (different code path); this aligns PATCH.
-	if repo.IsArchived {
+	if policy.NewRepoRefFromRepo(repo).Archived() {
 		writeAPIError(w, http.StatusForbidden, "repository is archived")
 		return
 	}

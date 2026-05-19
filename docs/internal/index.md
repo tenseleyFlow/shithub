@@ -45,6 +45,8 @@ site.
   inventory, local advisories, and org security overview.
 - [secret-protection.md](./secret-protection.md) — secret scanning,
   push protection, allowlist, and billing gates.
+- [code-security.md](./code-security.md) — SARIF ingestion, code
+  scanning alerts, security campaigns, and billing gates.
 - [hooks.md](./hooks.md) — pre/post-receive contracts.
 
 ## Domain features

@@ -2618,6 +2618,47 @@ type CheckSuite struct {
 	UpdatedAt  pgtype.Timestamptz
 }
 
+type CodeScanningAlert struct {
+	ID            int64
+	RepoID        int64
+	ToolName      string
+	ToolGuid      string
+	RuleID        string
+	RuleName      string
+	Severity      string
+	Message       string
+	Path          string
+	StartLine     int32
+	EndLine       int32
+	StartColumn   int32
+	EndColumn     int32
+	Fingerprint   string
+	CommitSha     string
+	RefName       string
+	Status        string
+	DismissalNote string
+	DismissedBy   pgtype.Int8
+	DismissedAt   pgtype.Timestamptz
+	FixedAt       pgtype.Timestamptz
+	FirstSeenAt   pgtype.Timestamptz
+	LastSeenAt    pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type CodeScanningUpload struct {
+	ID             int64
+	RepoID         int64
+	ToolName       string
+	ToolGuid       string
+	Category       string
+	CommitSha      string
+	RefName        string
+	AlertCount     int32
+	RawSarifSha256 string
+	UploadedBy     pgtype.Int8
+	UploadedAt     pgtype.Timestamptz
+}
+
 type CodeSearchContent struct {
 	RepoID      int64
 	RefName     string
@@ -2631,6 +2672,24 @@ type CodeSearchPath struct {
 	RefName string
 	Path    string
 	Tsv     interface{}
+}
+
+type CodeSecurityCampaign struct {
+	ID          int64
+	RepoID      int64
+	Title       string
+	Description string
+	State       string
+	CreatedBy   pgtype.Int8
+	ClosedAt    pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type CodeSecurityCampaignAlert struct {
+	CampaignID int64
+	AlertID    int64
+	AddedAt    pgtype.Timestamptz
 }
 
 type CommitVerificationCache struct {

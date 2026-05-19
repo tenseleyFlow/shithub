@@ -107,6 +107,7 @@ Rules for paid-org copy:
 | Actions artifacts/storage | Counts against shared storage quota | Counts against shared storage quota | Contact sales |
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
 | Secret scanning and push protection | Public repositories | Supported pattern scanning, repo/org security views, allowlist, and pre-receive push rejection for private org repos | Contact sales |
+| Code scanning and security campaigns | Public repositories | SARIF ingestion, repo/org code scanning views, and campaign grouping for private org repos | Contact sales |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
