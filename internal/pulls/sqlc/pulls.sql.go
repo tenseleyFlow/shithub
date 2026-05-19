@@ -633,6 +633,29 @@ func (q *Queries) LockPullRequestForMerge(ctx context.Context, db DBTX, issueID 
 	return i, err
 }
 
+const setPullRequestBaseRef = `-- name: SetPullRequestBaseRef :exec
+UPDATE pull_requests
+SET base_ref = $2,
+    base_oid = $3,
+    last_synchronized_at = now()
+WHERE issue_id = $1
+`
+
+type SetPullRequestBaseRefParams struct {
+	IssueID int64
+	BaseRef string
+	BaseOid string
+}
+
+// G7 (F27): change a PR's base branch. Persists `base_ref` + the
+// snapshotted `base_oid` so mergeable_state can recompute against the
+// new base on its next tick. Caller is responsible for resolving the
+// new ref to an OID and refusing same-branch (base == head) up front.
+func (q *Queries) SetPullRequestBaseRef(ctx context.Context, db DBTX, arg SetPullRequestBaseRefParams) error {
+	_, err := db.Exec(ctx, setPullRequestBaseRef, arg.IssueID, arg.BaseRef, arg.BaseOid)
+	return err
+}
+
 const setPullRequestDraft = `-- name: SetPullRequestDraft :exec
 UPDATE pull_requests
 SET draft = $2
