@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -242,6 +243,47 @@ func TestIssues_CreateWithLabelsAssigneesMilestone(t *testing.T) {
 	}
 	if !fresh.MilestoneID.Valid || fresh.MilestoneID.Int64 != m.ID {
 		t.Errorf("milestone: got %+v, want %d", fresh.MilestoneID, m.ID)
+	}
+}
+
+// TestIssues_ResponseAlwaysIncludesLabelsKey covers E27: pre-fix the
+// `labels` field carried `omitempty` so an issue with no labels
+// silently dropped the key entirely. gh-compat clients (and the CLI
+// `--json labels` exporter) expect the key to always be present as
+// `[]`. The check is on the raw JSON because both behaviours decode
+// to a zero-length slice on the Go side.
+func TestIssues_ResponseAlwaysIncludesLabelsKey(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{"title": "no labels", "body": "x"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"labels":[]`)) {
+		t.Errorf("create response missing `\"labels\":[]` key; raw=%s", rr.Body.String())
+	}
+
+	// And the same shape on a GET against the freshly-created issue —
+	// the audit's repro was a GET (`shithub api .../issues/1`) not the
+	// POST response.
+	var created apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	getReq := httptest.NewRequest(http.MethodGet,
+		"/api/v1/repos/alice/demo/issues/"+strconv.FormatInt(created.Number, 10), nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("get status: %d", getRR.Code)
+	}
+	if !bytes.Contains(getRR.Body.Bytes(), []byte(`"labels":[]`)) {
+		t.Errorf("get response missing `\"labels\":[]` key; raw=%s", getRR.Body.String())
 	}
 }
 
