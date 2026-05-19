@@ -177,14 +177,50 @@ Add these once paid plans are enabled:
 
 ## Alerting
 
-Three places to set alert rules. Pick one:
+Production uses Grafana-managed alerts because Alloy pushes metrics to Grafana
+Cloud with `remote_write`; there is no local Prometheus process loading
+`deploy/monitoring/prometheus/rules.yml`.
 
-- **Grafana Cloud → Alerts → Alert rules.** UI-first; fires to
-  email/Slack/PagerDuty via Cloud's contact points.
-- **Alertmanager via remote_write.** Out of scope for the free
-  tier without their managed contact points.
-- **Skip Grafana alerts entirely; use the DO alerts (`alerts.md`)
-  for operational pages and read shithubd metrics manually.**
+The committed Prometheus rule file remains the source-of-truth expression
+catalog for self-hosted deployments. For shithub.sh's Grafana Cloud stack, use
+the provisioning helper:
+
+```sh
+GRAFANA_URL=https://<stack>.grafana.net \
+GRAFANA_TOKEN=<service-account-token> \
+./deploy/monitoring/grafana/provision-actions-alerts.sh --dry-run
+
+# Offline payload inspection also works when the datasource UID is known:
+GRAFANA_PROM_DATASOURCE_UID=<prometheus-datasource-uid> \
+./deploy/monitoring/grafana/provision-actions-alerts.sh --dry-run
+
+GRAFANA_URL=https://<stack>.grafana.net \
+GRAFANA_TOKEN=<service-account-token> \
+./deploy/monitoring/grafana/provision-actions-alerts.sh --apply
+```
+
+The script is idempotent. It discovers the Prometheus datasource when exactly
+one exists, or accepts `GRAFANA_PROM_DATASOURCE_UID` /
+`GRAFANA_PROM_DATASOURCE_NAME` when the stack has multiple Prometheus
+datasources. It ensures folder `shithub-ops` exists and then creates or updates
+the `Actions runner idle with assigned jobs` alert. That alert is the page for
+the stale-runner wedge where a fresh idle heartbeat and a running DB assignment
+disagree. `GRAFANA_ORG_ID` defaults to `1`, which is the normal single-org
+Cloud stack value; set it explicitly if the API export for an existing rule
+shows a different `orgID`.
+
+The service account token needs Grafana folder read/write, datasource read, and
+alerting rule provisioning permissions. Keep it out of shell history and do not
+store it in inventory alongside the metric remote-write token.
+
+Other options:
+
+- **Grafana Cloud UI:** acceptable for one-off experiments, but commit the
+  equivalent script change before treating an alert as production-owned.
+- **Alertmanager via remote_write:** out of scope for the free tier without
+  managed contact points.
+- **Skip Grafana alerts entirely:** use the DO alerts (`alerts.md`) for
+  operational pages and read shithubd metrics manually.
 
 Suggested first three alerts (Cloud UI):
 
