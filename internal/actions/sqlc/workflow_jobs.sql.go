@@ -524,7 +524,7 @@ func (q *Queries) ListJobsForRun(ctx context.Context, db DBTX, runID int64) ([]L
 const listQueuedWorkflowJobRunsOn = `-- name: ListQueuedWorkflowJobRunsOn :many
 SELECT
     COALESCE(NULLIF(j.runs_on, ''), '(none)')::text AS runs_on,
-    COUNT(*)::integer AS queued_jobs,
+    COUNT(DISTINCT j.id)::integer AS queued_jobs,
     COUNT(DISTINCT wr.id)::integer AS matching_runner_count,
     MIN(j.created_at)::timestamptz AS oldest_queued_at
 FROM workflow_jobs j

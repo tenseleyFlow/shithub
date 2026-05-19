@@ -45,6 +45,7 @@ func DeriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.
 		return actionsdb.CheckConclusionFailure, true
 	}
 	worst := actionsdb.CheckConclusionSuccess
+	var firstFailure actionsdb.CheckConclusion
 	for _, job := range jobs {
 		switch job.Status {
 		case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusCancelled, actionsdb.WorkflowJobStatusSkipped:
@@ -62,11 +63,17 @@ func DeriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.
 		if c == actionsdb.CheckConclusionFailure ||
 			c == actionsdb.CheckConclusionTimedOut ||
 			c == actionsdb.CheckConclusionActionRequired {
-			return c, true
+			if firstFailure == "" {
+				firstFailure = c
+			}
+			continue
 		}
 		if c == actionsdb.CheckConclusionCancelled {
 			worst = actionsdb.CheckConclusionCancelled
 		}
+	}
+	if firstFailure != "" {
+		return firstFailure, true
 	}
 	return worst, true
 }

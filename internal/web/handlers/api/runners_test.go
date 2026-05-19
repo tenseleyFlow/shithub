@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ import (
 const runnerAPIFixtureHash = "$argon2id$v=19$m=16384,t=1,p=1$" +
 	"AAAAAAAAAAAAAAAA$" +
 	"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+var runnerTestSeq atomic.Int64
 
 func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	ctx := context.Background()
@@ -196,6 +199,62 @@ func TestRunnerHeartbeatClaimsQueuedJob(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("second heartbeat status: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRunnerJobFailureDoesNotCompleteRunWithQueuedSibling(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repoID, userID := setupRunnerAPIRepo(t, pool)
+	runID := enqueueRunnerAPIWorkflowRun(t, pool, logger, repoID, userID, `name: ci
+on: push
+jobs:
+  fails:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+  still-runs:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+`, "refs/heads/trunk", "runner-api-test:failure-with-queued-sibling")
+	token, _ := registerRunnerForTest(t, pool, []string{"ubuntu-latest", "linux"}, 1)
+	router := newRunnerAPIRouter(t, pool, logger, runnerAPISigner(t, time.Now()))
+
+	first := claimRunnerHeartbeat(t, router, token, 1)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%d/status", first.Job.ID),
+		strings.NewReader(`{"status":"completed","conclusion":"failure"}`))
+	req.Header.Set("Authorization", "Bearer "+first.Token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("failure status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	q := actionsdb.New()
+	run, err := q.GetWorkflowRunByID(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunByID: %v", err)
+	}
+	if run.Status != actionsdb.WorkflowRunStatusRunning || run.Conclusion.Valid {
+		t.Fatalf("run completed before queued sibling ran: %+v", run)
+	}
+	jobs, err := q.ListJobsForRun(ctx, pool, runID)
+	if err != nil {
+		t.Fatalf("ListJobsForRun: %v", err)
+	}
+	if len(jobs) != 2 ||
+		jobs[0].Status != actionsdb.WorkflowJobStatusCompleted ||
+		!jobs[0].Conclusion.Valid ||
+		jobs[0].Conclusion.CheckConclusion != actionsdb.CheckConclusionFailure ||
+		jobs[1].Status != actionsdb.WorkflowJobStatusQueued {
+		t.Fatalf("jobs after first failure: %+v", jobs)
+	}
+
+	second := claimRunnerHeartbeat(t, router, token, 1)
+	if second.Job.RunID != runID || second.Job.ID == first.Job.ID {
+		t.Fatalf("second heartbeat did not claim queued sibling: first=%+v second=%+v", first, second)
 	}
 }
 
@@ -1782,7 +1841,7 @@ func registerRunnerForTest(t *testing.T, pool *pgxpool.Pool, labels []string, ca
 	}
 	q := actionsdb.New()
 	runner, err := q.InsertRunner(context.Background(), pool, actionsdb.InsertRunnerParams{
-		Name:     "runner1",
+		Name:     fmt.Sprintf("runner-%d", runnerTestSeq.Add(1)),
 		Labels:   labels,
 		Capacity: capacity,
 	})

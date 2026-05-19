@@ -29,6 +29,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/actions/logstream"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
+	"github.com/tenseleyFlow/shithub/internal/actions/runstate"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
 	actionstelemetry "github.com/tenseleyFlow/shithub/internal/actions/telemetry"
 	"github.com/tenseleyFlow/shithub/internal/auth/runnerjwt"
@@ -1029,34 +1030,7 @@ func workflowRunEventAction(status actionsdb.WorkflowRunStatus) string {
 }
 
 func deriveWorkflowRunConclusion(jobs []actionsdb.ListJobsForRunRow) (actionsdb.CheckConclusion, bool) {
-	if len(jobs) == 0 {
-		return actionsdb.CheckConclusionFailure, true
-	}
-	worst := actionsdb.CheckConclusionSuccess
-	for _, job := range jobs {
-		switch job.Status {
-		case actionsdb.WorkflowJobStatusCompleted, actionsdb.WorkflowJobStatusCancelled, actionsdb.WorkflowJobStatusSkipped:
-		default:
-			return "", false
-		}
-		if job.Status == actionsdb.WorkflowJobStatusCancelled {
-			worst = actionsdb.CheckConclusionCancelled
-			continue
-		}
-		if !job.Conclusion.Valid {
-			return actionsdb.CheckConclusionFailure, true
-		}
-		c := job.Conclusion.CheckConclusion
-		if c == actionsdb.CheckConclusionFailure ||
-			c == actionsdb.CheckConclusionTimedOut ||
-			c == actionsdb.CheckConclusionActionRequired {
-			return c, true
-		}
-		if c == actionsdb.CheckConclusionCancelled {
-			worst = actionsdb.CheckConclusionCancelled
-		}
-	}
-	return worst, true
+	return runstate.DeriveWorkflowRunConclusion(jobs)
 }
 
 func (h *Handlers) updateCheckRunForJob(ctx context.Context, job actionsdb.WorkflowJob) error {
