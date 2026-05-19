@@ -25,10 +25,24 @@ import (
 
 // apiPRRef mirrors the server's prRefEnvelope. S60 added the nested
 // base/head shape so gh-compat clients (the shithub-cli pr view path)
-// can read branch + SHA without parsing the legacy flat fields.
+// can read branch + SHA without parsing the legacy flat fields. E2
+// added the `repo` envelope underneath (A16 partial-regression
+// closeout).
 type apiPRRef struct {
-	Ref string `json:"ref"`
-	SHA string `json:"sha"`
+	Ref  string     `json:"ref"`
+	SHA  string     `json:"sha"`
+	Repo *apiPRRepo `json:"repo"`
+}
+
+// apiPRRepo mirrors the server's prRepoEnvelope — the trimmed repo
+// node that rides on PR base/head (E2).
+type apiPRRepo struct {
+	ID       int64         `json:"id"`
+	Name     string        `json:"name"`
+	FullName string        `json:"full_name"`
+	Owner    *apiRepoOwner `json:"owner"`
+	Private  bool          `json:"private"`
+	HTMLURL  string        `json:"html_url"`
 }
 
 type apiPull struct {
@@ -188,6 +202,66 @@ func TestPulls_CreateAndGet(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get: %d; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestPulls_ResponseCarriesBaseHeadRepoEnvelope is the E2 regression
+// (A16 partial-regression closeout). PR base/head used to emit only
+// `{ref, sha}`; gh-compat fork-PR rendering needs `repo` underneath
+// so the CLI's `--json baseRepository,headRepository` can distinguish
+// same-repo PRs from cross-repo (fork) ones. For a same-repo PR both
+// base.repo and head.repo are the same envelope.
+func TestPulls_ResponseCarriesBaseHeadRepoEnvelope(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "wire", "body": "x",
+		"base": "trunk", "head": "feature",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var got apiPull
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for label, ref := range map[string]*apiPRRef{"base": got.Base, "head": got.Head} {
+		if ref == nil {
+			t.Fatalf("%s envelope absent", label)
+		}
+		if ref.Repo == nil {
+			t.Errorf("%s.repo: missing — E2 regression", label)
+			continue
+		}
+		if ref.Repo.Name != "demo" || ref.Repo.FullName != "alice/demo" {
+			t.Errorf("%s.repo: %+v", label, ref.Repo)
+		}
+		if ref.Repo.Owner == nil || ref.Repo.Owner.Login != "alice" || ref.Repo.Owner.Type != "User" {
+			t.Errorf("%s.repo.owner: %+v", label, ref.Repo.Owner)
+		}
+		if ref.Repo.Private {
+			t.Errorf("%s.repo.private: got true, want false", label)
+		}
+		if !strings.HasSuffix(ref.Repo.HTMLURL, "/alice/demo") {
+			t.Errorf("%s.repo.html_url: %q", label, ref.Repo.HTMLURL)
+		}
+	}
+
+	// Confirm the GET path emits the same shape — the audit's exact
+	// repro was `shithub api .../pulls/N` on a fetched PR.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d", rr.Code)
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"repo":`)) {
+		t.Errorf("GET response missing repo key on base/head; raw=%s", rr.Body.String())
 	}
 }
 
