@@ -105,7 +105,8 @@ const (
 // dependency manifests at the default branch, updates the repo
 // inventory, and matches rows against the local advisory catalog.
 const (
-	KindRepoDependencyScan Kind = "repo:dependency_scan"
+	KindRepoDependencyScan             Kind = "repo:dependency_scan"
+	KindRepoDependencyUpdateConfigSync Kind = "repo:dependency_update_config_sync"
 )
 
 // S29 notification kinds. notify:fanout drains the domain_events

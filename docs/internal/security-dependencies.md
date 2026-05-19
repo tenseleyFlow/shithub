@@ -4,8 +4,10 @@ SP25 adds a local dependency inventory and advisory surface for organization
 security overview. The owning code lives in `internal/repos/dependencies`,
 `internal/repos/dependencyupdates`,
 `internal/worker/jobs/repo_dependency_scan.go`,
-`internal/worker/jobs/pr_dependency_review.go`, and the web handlers at
-`internal/web/handlers/orgs/security.go` and `internal/web/handlers/repo/pulls.go`.
+`internal/worker/jobs/pr_dependency_review.go`,
+`internal/worker/jobs/repo_dependency_update_config_sync.go`, and the web
+handlers at `internal/web/handlers/orgs/security.go` and
+`internal/web/handlers/repo/pulls.go`.
 
 ## Scope
 
@@ -117,6 +119,25 @@ it includes update job state, update PR bookkeeping, and auto-triage rule/audit
 tables so follow-up slices can add the scheduler, Go/npm update adapters,
 branch creation, grouping, and triage application without reshaping the billing
 contract again.
+
+`push:process` enqueues `repo:dependency_update_config_sync` when the default
+branch advances. The sync worker:
+
+1. short-circuits personal repositories because the current Team gates apply to
+   organization-owned repositories only;
+2. checks the owning organization's `dependabot_version_updates` Team
+   entitlement before reading or storing config;
+3. disables previously parsed configs when the entitlement is denied, the
+   default branch is missing, or `.github/dependabot.yml` is absent;
+4. validates file type and size before reading the config blob;
+5. stores supported config entries and disables stale entries in one
+   transaction; and
+6. writes a `dependency_update_jobs` `config_sync` record with diagnostics and
+   status for operator inspection.
+
+The sync worker still does not create update branches or PRs. Follow-up SP25b
+slices must add the bounded scheduler and update workers before the plan
+comparison should claim live automated update pull requests.
 
 ## Privacy and Product Copy
 

@@ -134,6 +134,16 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 					deps.Logger.WarnContext(ctx, "push:process: enqueue dependency_scan",
 						"push_event_id", event.ID, "error", err)
 				}
+				// SP25b: sync Dependabot-compatible update config
+				// from the same default-branch tip. The worker is
+				// Team-gated and only persists config state; update PR
+				// generation happens in later bounded workers.
+				if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindRepoDependencyUpdateConfigSync,
+					map[string]any{"repo_id": repo.ID},
+					worker.EnqueueOptions{}); err != nil {
+					deps.Logger.WarnContext(ctx, "push:process: enqueue dependency_update_config_sync",
+						"push_event_id", event.ID, "error", err)
+				}
 			}
 		}
 
