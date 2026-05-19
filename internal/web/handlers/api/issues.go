@@ -89,10 +89,48 @@ type issueResponse struct {
 	// Labels mirrors Assignees: always present, never nil. gh-compat
 	// clients parse against the key being present (E27); an empty slice
 	// serializes as `[]` rather than disappearing into `omitempty`.
-	Labels    []labelEnvelope `json:"labels"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
-	ClosedAt  string          `json:"closed_at,omitempty"`
+	Labels []labelEnvelope `json:"labels"`
+	// Milestone is the issue's milestone object, or null when none. gh
+	// emits the field with `null` when unset; we mirror that so the
+	// `--json milestone` CLI exporter and gh-compat decoders see a
+	// stable key (E3). Absent before — the field has never been
+	// surfaced.
+	Milestone *milestoneIssueEnvelope `json:"milestone"`
+	CreatedAt string                  `json:"created_at"`
+	UpdatedAt string                  `json:"updated_at"`
+	ClosedAt  string                  `json:"closed_at,omitempty"`
+}
+
+// milestoneIssueEnvelope is the trimmed milestone shape that
+// surfaces on issue responses. The full milestoneResponse carries
+// open_issues / closed_issues counts; we omit them here because
+// they'd cost an extra COUNT(*) per issue on the list endpoint.
+// Callers needing counts hit /api/v1/repos/.../milestones/{id}.
+type milestoneIssueEnvelope struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	State       string `json:"state"`
+	DueOn       string `json:"due_on,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	ClosedAt    string `json:"closed_at,omitempty"`
+}
+
+func presentMilestoneIssueEnvelope(m issuesdb.Milestone) *milestoneIssueEnvelope {
+	out := &milestoneIssueEnvelope{
+		ID:          m.ID,
+		Title:       m.Title,
+		Description: m.Description,
+		State:       string(m.State),
+		CreatedAt:   m.CreatedAt.Time.UTC().Format(time.RFC3339),
+	}
+	if m.DueOn.Valid {
+		out.DueOn = m.DueOn.Time.UTC().Format(time.RFC3339)
+	}
+	if m.ClosedAt.Valid {
+		out.ClosedAt = m.ClosedAt.Time.UTC().Format(time.RFC3339)
+	}
+	return out
 }
 
 // presentIssue fills the issue envelope. The user pointer is optional;
@@ -105,7 +143,11 @@ type issueResponse struct {
 // nil) so the field always serializes — gh-compat clients expect the
 // key to be present (C20a). The single-issue paths build it via
 // assigneeEnvelopesFor; the list endpoint batches.
-func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, assignees []userEnvelope) issueResponse {
+//
+// milestone is the issue's milestone envelope (or nil when none) —
+// callers resolve it via milestoneEnvelopeFor so the lookup happens
+// outside this pure builder.
+func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, assignees []userEnvelope, milestone *milestoneIssueEnvelope) issueResponse {
 	if assignees == nil {
 		assignees = []userEnvelope{}
 	}
@@ -122,6 +164,7 @@ func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, 
 		Labels:    labels,
 		User:      user,
 		Assignees: assignees,
+		Milestone: milestone,
 		CreatedAt: i.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt: i.UpdatedAt.Time.UTC().Format(time.RFC3339),
 	}
@@ -311,7 +354,9 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		if row.AuthorUserID.Valid {
 			u = users[row.AuthorUserID.Int64]
 		}
-		resp := presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u, h.assigneeEnvelopesFor(r.Context(), row.ID))
+		resp := presentIssue(row, h.labelEnvelopesFor(r.Context(), row.ID), u,
+			h.assigneeEnvelopesFor(r.Context(), row.ID),
+			h.milestoneEnvelopeFor(r.Context(), row))
 		resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, row.Number)
 		out = append(out, resp)
 	}
@@ -456,6 +501,21 @@ func (h *Handlers) labelEnvelopesFor(ctx context.Context, issueID int64) []label
 	return presentLabelEnvelopes(rows)
 }
 
+// milestoneEnvelopeFor returns the milestone object attached to an
+// issue, or nil if the issue has none. Pre-E3 the field was absent
+// from the response entirely; now we surface it (matching gh's shape
+// and the CLI's `--json milestone` exporter).
+func (h *Handlers) milestoneEnvelopeFor(ctx context.Context, issue issuesdb.Issue) *milestoneIssueEnvelope {
+	if !issue.MilestoneID.Valid {
+		return nil
+	}
+	m, err := issuesdb.New().GetMilestone(ctx, h.d.Pool, issue.MilestoneID.Int64)
+	if err != nil {
+		return nil
+	}
+	return presentMilestoneIssueEnvelope(m)
+}
+
 // assigneeEnvelopesFor returns the assignees on an issue as gh-compat
 // user envelopes (C20a). Mirrors labelEnvelopesFor's shape. Returns a
 // non-nil empty slice on no-assignees so the response always carries
@@ -514,7 +574,9 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	resp := presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u, h.assigneeEnvelopesFor(r.Context(), issue.ID))
+	resp := presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u,
+		h.assigneeEnvelopesFor(r.Context(), issue.ID),
+		h.milestoneEnvelopeFor(r.Context(), issue))
 	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, issue.Number)
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -634,7 +696,9 @@ func (h *Handlers) issueCreate(w http.ResponseWriter, r *http.Request) {
 	// their envelope so the response is fully populated on the first
 	// round-trip.
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	resp := presentIssue(fresh, labels, u, h.assigneeEnvelopesFor(r.Context(), fresh.ID))
+	resp := presentIssue(fresh, labels, u,
+		h.assigneeEnvelopesFor(r.Context(), fresh.ID),
+		h.milestoneEnvelopeFor(r.Context(), fresh))
 	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -813,7 +877,9 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	if fresh.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), fresh.AuthorUserID.Int64)
 	}
-	resp := presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u, h.assigneeEnvelopesFor(r.Context(), fresh.ID))
+	resp := presentIssue(fresh, h.labelEnvelopesFor(r.Context(), fresh.ID), u,
+		h.assigneeEnvelopesFor(r.Context(), fresh.ID),
+		h.milestoneEnvelopeFor(r.Context(), fresh))
 	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, fresh.Number)
 	writeJSON(w, http.StatusOK, resp)
 }
