@@ -45,12 +45,15 @@ func TestParseQuery(t *testing.T) {
 		{"is:open broken", search.ParsedQuery{Text: "broken", StateFilter: "open"}},
 		{"state:closed bug", search.ParsedQuery{Text: "bug", StateFilter: "closed"}},
 		{"author:bob fix", search.ParsedQuery{Text: "fix", AuthorFilter: "bob"}},
+		{"assignee:bob bug", search.ParsedQuery{Text: "bug", AssigneeFilter: "bob"}},
+		{"assignee: bug", search.ParsedQuery{Text: "assignee: bug"}},
 		{"language:Go x", search.ParsedQuery{Text: "language:Go x"}},
 	}
 	for _, c := range cases {
 		got := search.ParseQuery(c.in)
 		if got.Text != c.want.Text || got.Phrase != c.want.Phrase ||
-			got.StateFilter != c.want.StateFilter || got.AuthorFilter != c.want.AuthorFilter {
+			got.StateFilter != c.want.StateFilter || got.AuthorFilter != c.want.AuthorFilter ||
+			got.AssigneeFilter != c.want.AssigneeFilter {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
 			continue
 		}
@@ -106,7 +109,8 @@ func setup(t *testing.T) fxs {
 		t.Fatalf("CreateUser bob: %v", err)
 	}
 
-	org, err := orgs.Create(ctx,
+	org, err := orgs.Create(
+		ctx,
 		orgs.Deps{Pool: pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
 		orgs.CreateParams{
 			Slug:            "tenseleyflow",
@@ -356,6 +360,69 @@ func TestSearchIssues_StateFilter(t *testing.T) {
 	for _, h := range closedHits {
 		if h.State != "closed" {
 			t.Errorf("is:closed: got state=%s", h.State)
+		}
+	}
+}
+
+// TestSearchIssues_AssigneeFilter is the E10 regression: the CLI
+// `shithub status` view feeds `assignee:<me>` into /api/v1/search/issues
+// and expects assigned-to-me issues back. Before E10 the qualifier
+// fell through as free text, so the dashboard was silently empty.
+func TestSearchIssues_AssigneeFilter(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+
+	// The fixture's pubRepo already has one issue authored by alice
+	// titled "public bug report". Find it, then assign bob.
+	hits, _, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("repo:alice/publicrepo bug"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues seed lookup: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatalf("fixture changed: expected a seeded issue in alice/publicrepo")
+	}
+	target := hits[0]
+	if err := issuesdb.New().AssignUserToIssue(ctx, f.deps.Pool,
+		issuesdb.AssignUserToIssueParams{
+			IssueID:          target.ID,
+			UserID:           f.bob.ID,
+			AssignedByUserID: pgtype.Int8{Int64: f.alice.ID, Valid: true},
+		}); err != nil {
+		t.Fatalf("AssignUserToIssue: %v", err)
+	}
+
+	// Bob is now an assignee. Issue is on a public repo so bob can see it.
+	bob := policy.UserActor(f.bob.ID, f.bob.Username, false, false)
+	got, total, err := search.SearchIssues(ctx, f.deps, bob,
+		search.ParseQuery("assignee:bob"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues assignee:bob: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("assignee:bob returned zero hits — filter dropped (E10 regression)")
+	}
+	found := false
+	for _, h := range got {
+		if h.ID == target.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("assignee:bob results miss the assigned issue id=%d", target.ID)
+	}
+
+	// Negative: assignee:alice should not return the bob-assigned issue
+	// (alice is the author, not an assignee).
+	none, _, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("assignee:alice"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues assignee:alice: %v", err)
+	}
+	for _, h := range none {
+		if h.ID == target.ID {
+			t.Errorf("assignee:alice leaked id=%d (bob is the only assignee)", target.ID)
 		}
 	}
 }

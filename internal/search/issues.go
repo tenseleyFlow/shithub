@@ -26,8 +26,9 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	tsText, tsCtor, hasFTS := tsQueryBindAndCtor(q)
 
 	// At least one signal must drive the query: the FTS payload, a
-	// repo: filter, an author: filter, or a state: filter.
-	if !hasFTS && q.RepoFilter == nil && q.AuthorFilter == "" && q.StateFilter == "" && kindFilter == "" {
+	// repo: filter, an author: filter, an assignee: filter, or a
+	// state: filter.
+	if !hasFTS && q.RepoFilter == nil && q.AuthorFilter == "" && q.AssigneeFilter == "" && q.StateFilter == "" && kindFilter == "" {
 		return nil, 0, nil
 	}
 
@@ -64,6 +65,16 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		whereExtras += fmt.Sprintf(
 			" AND s.author_user_id = (SELECT id FROM users WHERE username = $%d)",
 			authorPos,
+		)
+	}
+	if q.AssigneeFilter != "" {
+		assigneePos := len(args) + 1
+		args = append(args, q.AssigneeFilter)
+		whereExtras += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM issue_assignees ia"+
+				" JOIN users au2 ON au2.id = ia.user_id"+
+				" WHERE ia.issue_id = s.issue_id AND au2.username = $%d)",
+			assigneePos,
 		)
 	}
 
