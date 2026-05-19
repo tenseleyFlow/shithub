@@ -106,6 +106,11 @@ type Querier interface {
 	// the comment has gone outdated.
 	SetPRReviewCommentCurrentPosition(ctx context.Context, db DBTX, arg SetPRReviewCommentCurrentPositionParams) error
 	SetPRReviewCommentResolved(ctx context.Context, db DBTX, arg SetPRReviewCommentResolvedParams) error
+	// G7 (F27): change a PR's base branch. Persists `base_ref` + the
+	// snapshotted `base_oid` so mergeable_state can recompute against the
+	// new base on its next tick. Caller is responsible for resolving the
+	// new ref to an OID and refusing same-branch (base == head) up front.
+	SetPullRequestBaseRef(ctx context.Context, db DBTX, arg SetPullRequestBaseRefParams) error
 	SetPullRequestDraft(ctx context.Context, db DBTX, arg SetPullRequestDraftParams) error
 	SetPullRequestMergeability(ctx context.Context, db DBTX, arg SetPullRequestMergeabilityParams) error
 	SetPullRequestMerged(ctx context.Context, db DBTX, arg SetPullRequestMergedParams) error
