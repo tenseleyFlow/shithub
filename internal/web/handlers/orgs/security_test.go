@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/repos/dependencyalerts"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
@@ -158,7 +159,7 @@ func seedOrgDependencyAlert(t *testing.T, pool *pgxpool.Pool, orgID int64) int64
 		ExternalID:      "GHSA-org-security",
 		Ecosystem:       "go",
 		PackageName:     "example.test/vulnerable",
-		AffectedRange:   "v1.2.3",
+		AffectedRange:   "< v1.2.4",
 		PatchedVersions: "v1.2.4",
 		Severity:        "high",
 		Summary:         "Fixture vulnerability",
@@ -167,8 +168,8 @@ func seedOrgDependencyAlert(t *testing.T, pool *pgxpool.Pool, orgID int64) int64
 	}); err != nil {
 		t.Fatalf("UpsertDependencyAdvisory: %v", err)
 	}
-	if err := rq.RefreshDependencyAlertsForRepo(ctx, pool, repo.ID); err != nil {
-		t.Fatalf("RefreshDependencyAlertsForRepo: %v", err)
+	if err := dependencyalerts.RefreshForRepo(ctx, rq, pool, repo.ID); err != nil {
+		t.Fatalf("RefreshForRepo: %v", err)
 	}
 	return repo.ID
 }

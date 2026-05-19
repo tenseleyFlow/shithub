@@ -19,10 +19,17 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
 - Supported manifests today are `go.mod`, `package.json`, and
   `package-lock.json`.
 - Advisory matching is local-only. Workers do not call GitHub, npm, Go proxy, or
-  external vulnerability services on the push path.
-- The baseline matcher compares ecosystem, package name, and an exact
-  `affected_range` match. Advisories with `affected_range = ''` or `'*'` match
-  all versions. Rich semver range evaluation is intentionally not claimed yet.
+  external vulnerability services on the push or pull-request path.
+- Advisory matching compares ecosystem, package name, and the local advisory
+  `affected_range` through `internal/repos/advisorymatch`. Supported ecosystems
+  for range evaluation are Go modules and npm. Advisories with
+  `affected_range = ''` or `'*'` match all versions, and unsupported ecosystems
+  retain exact-version matching only.
+- Supported range syntax includes exact versions, comparison ranges such as
+  `>= v1.0.0, < v1.2.4`, whitespace-separated comparator sets,
+  hyphen ranges, npm caret/tilde ranges, wildcard ranges such as `1.2.x`, and
+  `||` alternatives. Non-resolved manifest specs such as `^1.2.3` are not
+  treated as concrete installed versions for vulnerability matching.
 - The organization security overview is a Team org feature. Free organizations
   see an upgrade banner and no alert or package details.
 
@@ -36,7 +43,9 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
 - `dependency_advisories` stores the local advisory catalog. Operators or future
   importers upsert advisories by `(source, external_id)`.
 - `repo_dependency_alerts` joins current dependencies to local advisories and
-  tracks open, dismissed, and resolved alert state.
+  tracks open, dismissed, and resolved alert state. Alert refresh is reconciled
+  in Go so ecosystem-aware range matching, stale dependency resolution, and
+  withdrawn advisory resolution share one matcher.
 - `pull_dependency_reviews` stores a durable pull-request review result keyed
   by PR/base/head SHA.
 - `pull_dependency_review_items` stores package-level dependency changes and
@@ -108,7 +117,7 @@ branch advances. The worker:
 3. upserts the snapshot and dependency rows;
 4. marks dependencies stale when they no longer appear at the current head;
 5. opens, reopens, or resolves dependency alerts against the local advisory
-   catalog; and
+   catalog with Go/npm range matching; and
 6. for Team organization repositories with enabled dependency update configs,
    enqueues bounded security-update jobs when matching open alerts exist and no
    security update PR/job is already active.
@@ -132,7 +141,8 @@ worker:
    organization-owned repositories;
 3. parses supported manifests at the base and head SHAs without mutating repo
    state;
-4. stores the dependency diff and local advisory matches; and
+4. stores the dependency diff and local advisory matches using the same
+   Go/npm range matcher as repository alerts; and
 5. publishes a completed check run named `Dependency review`.
 
 The check concludes `success` when changed dependencies have no local advisory
@@ -220,8 +230,8 @@ Manifest edits are limited to supported direct dependencies in `go.mod` and
 until a package-manager adapter can update them safely.
 
 Still-planned SP25b/SP25 follow-up work includes auto-triage rule UI and worker
-application, repo/org settings surfaces for update diagnostics, richer semver
-range evaluation, richer lockfile adapters, and a dedicated bot identity for
+application, repo/org settings surfaces for update diagnostics, external
+advisory imports, richer lockfile adapters, and a dedicated bot identity for
 automated commits. Do not describe those as shipped behavior.
 
 ## Privacy and Product Copy
@@ -232,9 +242,9 @@ execute the alert-detail queries, so private package names and advisory
 summaries are not exposed behind the paywall. Free organization pull requests do
 not execute or persist dependency review item details either.
 
-Do not advertise unsupported ecosystems, semver advisory ranges, advisory
-import automation, auto-triage application, lockfile-only remediation, or AI
-remediation until those subsystems exist. User-facing copy should say
-"supported Go and npm manifests", "local advisory matches", or "dependency
+Do not advertise unsupported ecosystems, advisory import automation,
+auto-triage application, lockfile-only remediation, or AI remediation until
+those subsystems exist. User-facing copy should say "supported Go and npm
+manifests", "local advisory matches", "Go/npm advisory ranges", or "dependency
 update pull requests for supported direct dependencies" rather than claiming
 complete package-manager parity.

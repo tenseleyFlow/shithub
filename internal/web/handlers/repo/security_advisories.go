@@ -24,6 +24,7 @@ import (
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/dependencyalerts"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -783,16 +784,7 @@ func (h *Handlers) syncRepoSecurityAdvisoryDependencyAlerts(ctx context.Context,
 	}); err != nil {
 		return err
 	}
-	params := reposdb.RefreshDependencyAlertsForAdvisoryParams{
-		Source:     source,
-		ExternalID: advisory.Identifier,
-	}
-	if advisory.State == "published" {
-		if err := h.rq.RefreshDependencyAlertsForAdvisory(ctx, db, params); err != nil {
-			return err
-		}
-	}
-	return h.rq.ResolveStaleDependencyAlertsForAdvisory(ctx, db, reposdb.ResolveStaleDependencyAlertsForAdvisoryParams(params))
+	return dependencyalerts.RefreshForAdvisory(ctx, h.rq, db, source, advisory.Identifier)
 }
 
 func (h *Handlers) canManageRepoSecurityAdvisories(ctx context.Context, row reposdb.Repo, viewer middleware.CurrentUser) bool {

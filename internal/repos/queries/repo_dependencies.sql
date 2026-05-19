@@ -79,15 +79,15 @@ SET ecosystem = EXCLUDED.ecosystem,
     withdrawn_at = EXCLUDED.withdrawn_at
 RETURNING *;
 
--- name: RefreshDependencyAlertsForRepo :exec
--- Baseline matcher: advisories match exact package/ecosystem plus
--- affected_range of '', '*', or the dependency's resolved version.
--- Rich semver range evaluation belongs in a later parser package; this
--- keeps SP25 honest about what it can safely claim.
-INSERT INTO repo_dependency_alerts (
-    repo_id, dependency_id, advisory_id, status, last_seen_at
-)
-SELECT d.repo_id, d.id, a.id, 'open', now()
+-- name: ListDependencyAlertCandidatesForRepo :many
+SELECT
+    d.id AS dependency_id,
+    d.repo_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    a.id AS advisory_id,
+    a.affected_range
 FROM repo_dependencies d
 JOIN dependency_advisories a
   ON lower(a.ecosystem) = lower(d.ecosystem)
@@ -95,32 +95,72 @@ JOIN dependency_advisories a
 WHERE d.repo_id = $1
   AND d.stale_at IS NULL
   AND a.withdrawn_at IS NULL
-  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
-SET last_seen_at = now(),
-    status = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
-        ELSE repo_dependency_alerts.status
-    END,
-    resolved_at = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
-        ELSE repo_dependency_alerts.resolved_at
-    END;
+ORDER BY d.id, a.id;
 
--- name: RefreshDependencyAlertsForAdvisory :exec
-INSERT INTO repo_dependency_alerts (
-    repo_id, dependency_id, advisory_id, status, last_seen_at
-)
-SELECT d.repo_id, d.id, a.id, 'open', now()
+-- name: ListOpenDependencyAlertCandidatesForRepo :many
+SELECT
+    alert.id AS alert_id,
+    alert.repo_id,
+    alert.dependency_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    alert.advisory_id,
+    a.affected_range,
+    (d.stale_at IS NULL)::boolean AS dependency_current,
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+FROM repo_dependency_alerts alert
+JOIN repo_dependencies d ON d.id = alert.dependency_id
+JOIN dependency_advisories a ON a.id = alert.advisory_id
+WHERE alert.repo_id = $1
+  AND alert.status = 'open'
+ORDER BY alert.id;
+
+-- name: ListDependencyAlertCandidatesForAdvisory :many
+SELECT
+    d.id AS dependency_id,
+    d.repo_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    a.id AS advisory_id,
+    a.affected_range
 FROM dependency_advisories a
 JOIN repo_dependencies d
-  ON lower(a.ecosystem) = lower(d.ecosystem)
- AND lower(a.package_name) = lower(d.package_name)
+  ON lower(d.ecosystem) = lower(a.ecosystem)
+ AND lower(d.package_name) = lower(a.package_name)
 WHERE a.source = $1
   AND a.external_id = $2
   AND a.withdrawn_at IS NULL
   AND d.stale_at IS NULL
-  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
+ORDER BY d.repo_id, d.id, a.id;
+
+-- name: ListOpenDependencyAlertCandidatesForAdvisory :many
+SELECT
+    alert.id AS alert_id,
+    alert.repo_id,
+    alert.dependency_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    alert.advisory_id,
+    a.affected_range,
+    (d.stale_at IS NULL)::boolean AS dependency_current,
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+FROM repo_dependency_alerts alert
+JOIN repo_dependencies d ON d.id = alert.dependency_id
+JOIN dependency_advisories a ON a.id = alert.advisory_id
+WHERE a.source = $1
+  AND a.external_id = $2
+  AND alert.status = 'open'
+ORDER BY alert.id;
+
+-- name: UpsertDependencyAlertMatch :exec
+INSERT INTO repo_dependency_alerts (
+    repo_id, dependency_id, advisory_id, status, last_seen_at
+) VALUES (
+    $1, $2, $3, 'open', now()
+)
 ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
 SET last_seen_at = now(),
     status = CASE
@@ -132,45 +172,13 @@ SET last_seen_at = now(),
         ELSE repo_dependency_alerts.resolved_at
     END;
 
--- name: ResolveStaleDependencyAlertsForRepo :exec
-UPDATE repo_dependency_alerts alert
+-- name: ResolveDependencyAlertByID :exec
+UPDATE repo_dependency_alerts
 SET status = 'resolved',
     resolved_at = now(),
     last_seen_at = now()
-WHERE alert.repo_id = $1
-  AND alert.status = 'open'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM repo_dependencies d
-      JOIN dependency_advisories a ON a.id = alert.advisory_id
-      WHERE d.id = alert.dependency_id
-        AND d.repo_id = alert.repo_id
-        AND d.stale_at IS NULL
-        AND a.withdrawn_at IS NULL
-        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-  );
-
--- name: ResolveStaleDependencyAlertsForAdvisory :exec
-UPDATE repo_dependency_alerts alert
-SET status = 'resolved',
-    resolved_at = now(),
-    last_seen_at = now()
-FROM dependency_advisories a
-WHERE alert.advisory_id = a.id
-  AND a.source = $1
-  AND a.external_id = $2
-  AND alert.status = 'open'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM repo_dependencies d
-      WHERE d.id = alert.dependency_id
-        AND d.repo_id = alert.repo_id
-        AND d.stale_at IS NULL
-        AND a.withdrawn_at IS NULL
-        AND lower(a.ecosystem) = lower(d.ecosystem)
-        AND lower(a.package_name) = lower(d.package_name)
-        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-  );
+WHERE id = $1
+  AND status = 'open';
 
 -- name: DismissDependencyAlert :exec
 UPDATE repo_dependency_alerts

@@ -163,6 +163,8 @@ type Querier interface {
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
 	ListCodeScanningAlertsForRepo(ctx context.Context, db DBTX, arg ListCodeScanningAlertsForRepoParams) ([]CodeScanningAlert, error)
 	ListCodeSecurityCampaignsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListCodeSecurityCampaignsForRepoRow, error)
+	ListDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListDependencyAlertCandidatesForAdvisoryParams) ([]ListDependencyAlertCandidatesForAdvisoryRow, error)
+	ListDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListDependencyAlertCandidatesForRepoRow, error)
 	ListDependencyAutoTriageEventsForAlert(ctx context.Context, db DBTX, alertID int64) ([]DependencyAutoTriageEvent, error)
 	ListDependencyAutoTriageRulesForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyAutoTriageRule, error)
 	ListDependencyUpdateConfigsForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyUpdateConfig, error)
@@ -178,6 +180,8 @@ type Querier interface {
 	// it has its own copy of the objects. Returns just enough to locate
 	// the bare repo on disk.
 	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
+	ListOpenDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListOpenDependencyAlertCandidatesForAdvisoryParams) ([]ListOpenDependencyAlertCandidatesForAdvisoryRow, error)
+	ListOpenDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListOpenDependencyAlertCandidatesForRepoRow, error)
 	ListOpenDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListOpenDependencyAlertsForRepoRow, error)
 	ListOrgCodeScanningAlerts(ctx context.Context, db DBTX, arg ListOrgCodeScanningAlertsParams) ([]ListOrgCodeScanningAlertsRow, error)
 	ListOrgDependencyAlerts(ctx context.Context, db DBTX, arg ListOrgDependencyAlertsParams) ([]ListOrgDependencyAlertsRow, error)
@@ -256,12 +260,6 @@ type Querier interface {
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
 	RecordDependencyAutoTriageEvent(ctx context.Context, db DBTX, arg RecordDependencyAutoTriageEventParams) (DependencyAutoTriageEvent, error)
-	RefreshDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg RefreshDependencyAlertsForAdvisoryParams) error
-	// Baseline matcher: advisories match exact package/ecosystem plus
-	// affected_range of '', '*', or the dependency's resolved version.
-	// Rich semver range evaluation belongs in a later parser package; this
-	// keeps SP25 honest about what it can safely claim.
-	RefreshDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	RemoveIssueFromRepoProject(ctx context.Context, db DBTX, arg RemoveIssueFromRepoProjectParams) error
 	RemoveRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryTeamCollaboratorParams) error
 	RemoveRepoSecurityAdvisoryUserCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryUserCollaboratorParams) error
@@ -279,8 +277,7 @@ type Querier interface {
 	// then replace the existing rows in one tx (DELETE + INSERT). The
 	// caller's tx wraps both calls for atomicity.
 	ReplaceRepoTopics(ctx context.Context, db DBTX, repoID int64) error
-	ResolveStaleDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg ResolveStaleDependencyAlertsForAdvisoryParams) error
-	ResolveStaleDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
+	ResolveDependencyAlertByID(ctx context.Context, db DBTX, id int64) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
 	// S28 code-search: the worker writes the OID it finished indexing
 	// so the reconciler can detect drift (default_branch_oid moved but
@@ -343,6 +340,7 @@ type Querier interface {
 	// to the (repo_id, commit_oid) primary key + ON CONFLICT clause.
 	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
 	UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg UpsertDependencyAdvisoryParams) (DependencyAdvisory, error)
+	UpsertDependencyAlertMatch(ctx context.Context, db DBTX, arg UpsertDependencyAlertMatchParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// SP25b dependency update automation state.

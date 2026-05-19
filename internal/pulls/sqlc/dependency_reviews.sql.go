@@ -190,17 +190,12 @@ func (q *Queries) InsertPullDependencyReviewItem(ctx context.Context, db DBTX, a
 	return i, err
 }
 
-const listMatchingDependencyReviewAdvisories = `-- name: ListMatchingDependencyReviewAdvisories :many
+const listDependencyReviewAdvisoryCandidates = `-- name: ListDependencyReviewAdvisoryCandidates :many
 SELECT id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at
 FROM dependency_advisories
 WHERE lower(ecosystem) = lower($1::text)
   AND lower(package_name) = lower($2::text)
   AND withdrawn_at IS NULL
-  AND (
-      affected_range = ''
-      OR affected_range = '*'
-      OR affected_range = $3::text
-  )
 ORDER BY
     CASE severity
         WHEN 'critical' THEN 0
@@ -211,15 +206,13 @@ ORDER BY
     id
 `
 
-type ListMatchingDependencyReviewAdvisoriesParams struct {
-	Ecosystem      string
-	PackageName    string
-	PackageVersion string
+type ListDependencyReviewAdvisoryCandidatesParams struct {
+	Ecosystem   string
+	PackageName string
 }
 
-// Baseline matcher inherited from SP25. SP25d owns rich semver/range support.
-func (q *Queries) ListMatchingDependencyReviewAdvisories(ctx context.Context, db DBTX, arg ListMatchingDependencyReviewAdvisoriesParams) ([]DependencyAdvisory, error) {
-	rows, err := db.Query(ctx, listMatchingDependencyReviewAdvisories, arg.Ecosystem, arg.PackageName, arg.PackageVersion)
+func (q *Queries) ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]DependencyAdvisory, error) {
+	rows, err := db.Query(ctx, listDependencyReviewAdvisoryCandidates, arg.Ecosystem, arg.PackageName)
 	if err != nil {
 		return nil, err
 	}

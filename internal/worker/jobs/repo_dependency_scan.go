@@ -18,6 +18,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
+	"github.com/tenseleyFlow/shithub/internal/repos/dependencyalerts"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
@@ -126,11 +127,8 @@ func RepoDependencyScan(deps RepoDependencyScanDeps) worker.Handler {
 		}); err != nil {
 			logger.WarnContext(ctx, "repo dependency scan: mark stale", "repo_id", repo.ID, "error", err)
 		}
-		if err := rq.RefreshDependencyAlertsForRepo(ctx, deps.Pool, repo.ID); err != nil {
-			logger.WarnContext(ctx, "repo dependency scan: refresh alerts", "repo_id", repo.ID, "error", err)
-		}
-		if err := rq.ResolveStaleDependencyAlertsForRepo(ctx, deps.Pool, repo.ID); err != nil {
-			logger.WarnContext(ctx, "repo dependency scan: resolve stale alerts", "repo_id", repo.ID, "error", err)
+		if err := dependencyalerts.RefreshForRepo(ctx, rq, deps.Pool, repo.ID); err != nil {
+			logger.WarnContext(ctx, "repo dependency scan: reconcile alerts", "repo_id", repo.ID, "error", err)
 		}
 		if enqueued, err := enqueueSecurityDependencyUpdateJobsForScan(ctx, deps.Pool, logger, repo); err != nil {
 			logger.WarnContext(ctx, "repo dependency scan: enqueue security updates", "repo_id", repo.ID, "error", err)

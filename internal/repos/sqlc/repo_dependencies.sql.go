@@ -297,6 +297,260 @@ func (q *Queries) GetRepoSecurityAdvisoryByIdentifier(ctx context.Context, db DB
 	return i, err
 }
 
+const listDependencyAlertCandidatesForAdvisory = `-- name: ListDependencyAlertCandidatesForAdvisory :many
+SELECT
+    d.id AS dependency_id,
+    d.repo_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    a.id AS advisory_id,
+    a.affected_range
+FROM dependency_advisories a
+JOIN repo_dependencies d
+  ON lower(d.ecosystem) = lower(a.ecosystem)
+ AND lower(d.package_name) = lower(a.package_name)
+WHERE a.source = $1
+  AND a.external_id = $2
+  AND a.withdrawn_at IS NULL
+  AND d.stale_at IS NULL
+ORDER BY d.repo_id, d.id, a.id
+`
+
+type ListDependencyAlertCandidatesForAdvisoryParams struct {
+	Source     string
+	ExternalID string
+}
+
+type ListDependencyAlertCandidatesForAdvisoryRow struct {
+	DependencyID   int64
+	RepoID         int64
+	Ecosystem      string
+	PackageName    string
+	PackageVersion string
+	AdvisoryID     int64
+	AffectedRange  string
+}
+
+func (q *Queries) ListDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListDependencyAlertCandidatesForAdvisoryParams) ([]ListDependencyAlertCandidatesForAdvisoryRow, error) {
+	rows, err := db.Query(ctx, listDependencyAlertCandidatesForAdvisory, arg.Source, arg.ExternalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDependencyAlertCandidatesForAdvisoryRow{}
+	for rows.Next() {
+		var i ListDependencyAlertCandidatesForAdvisoryRow
+		if err := rows.Scan(
+			&i.DependencyID,
+			&i.RepoID,
+			&i.Ecosystem,
+			&i.PackageName,
+			&i.PackageVersion,
+			&i.AdvisoryID,
+			&i.AffectedRange,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDependencyAlertCandidatesForRepo = `-- name: ListDependencyAlertCandidatesForRepo :many
+SELECT
+    d.id AS dependency_id,
+    d.repo_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    a.id AS advisory_id,
+    a.affected_range
+FROM repo_dependencies d
+JOIN dependency_advisories a
+  ON lower(a.ecosystem) = lower(d.ecosystem)
+ AND lower(a.package_name) = lower(d.package_name)
+WHERE d.repo_id = $1
+  AND d.stale_at IS NULL
+  AND a.withdrawn_at IS NULL
+ORDER BY d.id, a.id
+`
+
+type ListDependencyAlertCandidatesForRepoRow struct {
+	DependencyID   int64
+	RepoID         int64
+	Ecosystem      string
+	PackageName    string
+	PackageVersion string
+	AdvisoryID     int64
+	AffectedRange  string
+}
+
+func (q *Queries) ListDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListDependencyAlertCandidatesForRepoRow, error) {
+	rows, err := db.Query(ctx, listDependencyAlertCandidatesForRepo, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDependencyAlertCandidatesForRepoRow{}
+	for rows.Next() {
+		var i ListDependencyAlertCandidatesForRepoRow
+		if err := rows.Scan(
+			&i.DependencyID,
+			&i.RepoID,
+			&i.Ecosystem,
+			&i.PackageName,
+			&i.PackageVersion,
+			&i.AdvisoryID,
+			&i.AffectedRange,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenDependencyAlertCandidatesForAdvisory = `-- name: ListOpenDependencyAlertCandidatesForAdvisory :many
+SELECT
+    alert.id AS alert_id,
+    alert.repo_id,
+    alert.dependency_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    alert.advisory_id,
+    a.affected_range,
+    (d.stale_at IS NULL)::boolean AS dependency_current,
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+FROM repo_dependency_alerts alert
+JOIN repo_dependencies d ON d.id = alert.dependency_id
+JOIN dependency_advisories a ON a.id = alert.advisory_id
+WHERE a.source = $1
+  AND a.external_id = $2
+  AND alert.status = 'open'
+ORDER BY alert.id
+`
+
+type ListOpenDependencyAlertCandidatesForAdvisoryParams struct {
+	Source     string
+	ExternalID string
+}
+
+type ListOpenDependencyAlertCandidatesForAdvisoryRow struct {
+	AlertID           int64
+	RepoID            int64
+	DependencyID      int64
+	Ecosystem         string
+	PackageName       string
+	PackageVersion    string
+	AdvisoryID        int64
+	AffectedRange     string
+	DependencyCurrent bool
+	AdvisoryActive    bool
+}
+
+func (q *Queries) ListOpenDependencyAlertCandidatesForAdvisory(ctx context.Context, db DBTX, arg ListOpenDependencyAlertCandidatesForAdvisoryParams) ([]ListOpenDependencyAlertCandidatesForAdvisoryRow, error) {
+	rows, err := db.Query(ctx, listOpenDependencyAlertCandidatesForAdvisory, arg.Source, arg.ExternalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenDependencyAlertCandidatesForAdvisoryRow{}
+	for rows.Next() {
+		var i ListOpenDependencyAlertCandidatesForAdvisoryRow
+		if err := rows.Scan(
+			&i.AlertID,
+			&i.RepoID,
+			&i.DependencyID,
+			&i.Ecosystem,
+			&i.PackageName,
+			&i.PackageVersion,
+			&i.AdvisoryID,
+			&i.AffectedRange,
+			&i.DependencyCurrent,
+			&i.AdvisoryActive,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenDependencyAlertCandidatesForRepo = `-- name: ListOpenDependencyAlertCandidatesForRepo :many
+SELECT
+    alert.id AS alert_id,
+    alert.repo_id,
+    alert.dependency_id,
+    d.ecosystem,
+    d.package_name,
+    d.package_version,
+    alert.advisory_id,
+    a.affected_range,
+    (d.stale_at IS NULL)::boolean AS dependency_current,
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+FROM repo_dependency_alerts alert
+JOIN repo_dependencies d ON d.id = alert.dependency_id
+JOIN dependency_advisories a ON a.id = alert.advisory_id
+WHERE alert.repo_id = $1
+  AND alert.status = 'open'
+ORDER BY alert.id
+`
+
+type ListOpenDependencyAlertCandidatesForRepoRow struct {
+	AlertID           int64
+	RepoID            int64
+	DependencyID      int64
+	Ecosystem         string
+	PackageName       string
+	PackageVersion    string
+	AdvisoryID        int64
+	AffectedRange     string
+	DependencyCurrent bool
+	AdvisoryActive    bool
+}
+
+func (q *Queries) ListOpenDependencyAlertCandidatesForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListOpenDependencyAlertCandidatesForRepoRow, error) {
+	rows, err := db.Query(ctx, listOpenDependencyAlertCandidatesForRepo, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenDependencyAlertCandidatesForRepoRow{}
+	for rows.Next() {
+		var i ListOpenDependencyAlertCandidatesForRepoRow
+		if err := rows.Scan(
+			&i.AlertID,
+			&i.RepoID,
+			&i.DependencyID,
+			&i.Ecosystem,
+			&i.PackageName,
+			&i.PackageVersion,
+			&i.AdvisoryID,
+			&i.AffectedRange,
+			&i.DependencyCurrent,
+			&i.AdvisoryActive,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenDependencyAlertsForRepo = `-- name: ListOpenDependencyAlertsForRepo :many
 SELECT
     alert.id,
@@ -942,76 +1196,6 @@ func (q *Queries) OrgSecurityOverviewSummary(ctx context.Context, db DBTX, owner
 	return i, err
 }
 
-const refreshDependencyAlertsForAdvisory = `-- name: RefreshDependencyAlertsForAdvisory :exec
-INSERT INTO repo_dependency_alerts (
-    repo_id, dependency_id, advisory_id, status, last_seen_at
-)
-SELECT d.repo_id, d.id, a.id, 'open', now()
-FROM dependency_advisories a
-JOIN repo_dependencies d
-  ON lower(a.ecosystem) = lower(d.ecosystem)
- AND lower(a.package_name) = lower(d.package_name)
-WHERE a.source = $1
-  AND a.external_id = $2
-  AND a.withdrawn_at IS NULL
-  AND d.stale_at IS NULL
-  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
-SET last_seen_at = now(),
-    status = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
-        ELSE repo_dependency_alerts.status
-    END,
-    resolved_at = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
-        ELSE repo_dependency_alerts.resolved_at
-    END
-`
-
-type RefreshDependencyAlertsForAdvisoryParams struct {
-	Source     string
-	ExternalID string
-}
-
-func (q *Queries) RefreshDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg RefreshDependencyAlertsForAdvisoryParams) error {
-	_, err := db.Exec(ctx, refreshDependencyAlertsForAdvisory, arg.Source, arg.ExternalID)
-	return err
-}
-
-const refreshDependencyAlertsForRepo = `-- name: RefreshDependencyAlertsForRepo :exec
-INSERT INTO repo_dependency_alerts (
-    repo_id, dependency_id, advisory_id, status, last_seen_at
-)
-SELECT d.repo_id, d.id, a.id, 'open', now()
-FROM repo_dependencies d
-JOIN dependency_advisories a
-  ON lower(a.ecosystem) = lower(d.ecosystem)
- AND lower(a.package_name) = lower(d.package_name)
-WHERE d.repo_id = $1
-  AND d.stale_at IS NULL
-  AND a.withdrawn_at IS NULL
-  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
-SET last_seen_at = now(),
-    status = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
-        ELSE repo_dependency_alerts.status
-    END,
-    resolved_at = CASE
-        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
-        ELSE repo_dependency_alerts.resolved_at
-    END
-`
-
-// Baseline matcher: advisories match exact package/ecosystem plus
-// affected_range of ”, '*', or the dependency's resolved version.
-// Rich semver range evaluation belongs in a later parser package; this
-// keeps SP25 honest about what it can safely claim.
-func (q *Queries) RefreshDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error {
-	_, err := db.Exec(ctx, refreshDependencyAlertsForRepo, repoID)
-	return err
-}
-
 const removeRepoSecurityAdvisoryTeamCollaborator = `-- name: RemoveRepoSecurityAdvisoryTeamCollaborator :exec
 DELETE FROM repo_security_advisory_collaborators
 WHERE advisory_id = $1
@@ -1044,60 +1228,17 @@ func (q *Queries) RemoveRepoSecurityAdvisoryUserCollaborator(ctx context.Context
 	return err
 }
 
-const resolveStaleDependencyAlertsForAdvisory = `-- name: ResolveStaleDependencyAlertsForAdvisory :exec
-UPDATE repo_dependency_alerts alert
+const resolveDependencyAlertByID = `-- name: ResolveDependencyAlertByID :exec
+UPDATE repo_dependency_alerts
 SET status = 'resolved',
     resolved_at = now(),
     last_seen_at = now()
-FROM dependency_advisories a
-WHERE alert.advisory_id = a.id
-  AND a.source = $1
-  AND a.external_id = $2
-  AND alert.status = 'open'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM repo_dependencies d
-      WHERE d.id = alert.dependency_id
-        AND d.repo_id = alert.repo_id
-        AND d.stale_at IS NULL
-        AND a.withdrawn_at IS NULL
-        AND lower(a.ecosystem) = lower(d.ecosystem)
-        AND lower(a.package_name) = lower(d.package_name)
-        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-  )
+WHERE id = $1
+  AND status = 'open'
 `
 
-type ResolveStaleDependencyAlertsForAdvisoryParams struct {
-	Source     string
-	ExternalID string
-}
-
-func (q *Queries) ResolveStaleDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg ResolveStaleDependencyAlertsForAdvisoryParams) error {
-	_, err := db.Exec(ctx, resolveStaleDependencyAlertsForAdvisory, arg.Source, arg.ExternalID)
-	return err
-}
-
-const resolveStaleDependencyAlertsForRepo = `-- name: ResolveStaleDependencyAlertsForRepo :exec
-UPDATE repo_dependency_alerts alert
-SET status = 'resolved',
-    resolved_at = now(),
-    last_seen_at = now()
-WHERE alert.repo_id = $1
-  AND alert.status = 'open'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM repo_dependencies d
-      JOIN dependency_advisories a ON a.id = alert.advisory_id
-      WHERE d.id = alert.dependency_id
-        AND d.repo_id = alert.repo_id
-        AND d.stale_at IS NULL
-        AND a.withdrawn_at IS NULL
-        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
-  )
-`
-
-func (q *Queries) ResolveStaleDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error {
-	_, err := db.Exec(ctx, resolveStaleDependencyAlertsForRepo, repoID)
+func (q *Queries) ResolveDependencyAlertByID(ctx context.Context, db DBTX, id int64) error {
+	_, err := db.Exec(ctx, resolveDependencyAlertByID, id)
 	return err
 }
 
@@ -1310,6 +1451,35 @@ func (q *Queries) UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg Ups
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertDependencyAlertMatch = `-- name: UpsertDependencyAlertMatch :exec
+INSERT INTO repo_dependency_alerts (
+    repo_id, dependency_id, advisory_id, status, last_seen_at
+) VALUES (
+    $1, $2, $3, 'open', now()
+)
+ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
+SET last_seen_at = now(),
+    status = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
+        ELSE repo_dependency_alerts.status
+    END,
+    resolved_at = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
+        ELSE repo_dependency_alerts.resolved_at
+    END
+`
+
+type UpsertDependencyAlertMatchParams struct {
+	RepoID       int64
+	DependencyID int64
+	AdvisoryID   int64
+}
+
+func (q *Queries) UpsertDependencyAlertMatch(ctx context.Context, db DBTX, arg UpsertDependencyAlertMatchParams) error {
+	_, err := db.Exec(ctx, upsertDependencyAlertMatch, arg.RepoID, arg.DependencyID, arg.AdvisoryID)
+	return err
 }
 
 const upsertRepoDependency = `-- name: UpsertRepoDependency :one

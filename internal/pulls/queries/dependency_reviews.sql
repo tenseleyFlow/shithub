@@ -86,18 +86,12 @@ ORDER BY
     manifest_path,
     change_kind;
 
--- name: ListMatchingDependencyReviewAdvisories :many
--- Baseline matcher inherited from SP25. SP25d owns rich semver/range support.
+-- name: ListDependencyReviewAdvisoryCandidates :many
 SELECT *
 FROM dependency_advisories
 WHERE lower(ecosystem) = lower(sqlc.arg(ecosystem)::text)
   AND lower(package_name) = lower(sqlc.arg(package_name)::text)
   AND withdrawn_at IS NULL
-  AND (
-      affected_range = ''
-      OR affected_range = '*'
-      OR affected_range = sqlc.arg(package_version)::text
-  )
 ORDER BY
     CASE severity
         WHEN 'critical' THEN 0
