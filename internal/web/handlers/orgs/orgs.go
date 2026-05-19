@@ -647,6 +647,11 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Shipped",
 				},
 				{
+					Name: "Codespaces", Description: "Hosted development environments are not implemented yet; Actions runner workspaces are not interactive Codespaces.",
+					Free: "Not available", Team: "Not available", Enterprise: "Contact sales", Owner: "SP28",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP28-codespaces-org-controls.md", State: "Launch blocker",
+				},
+				{
 					Name: "Environment deployment branches and secrets", Description: "Protect deployments with environment-scoped controls.",
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP23",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Shipped",

@@ -49,6 +49,13 @@ func TestHandlers(t *testing.T) {
 			wantHeader:  map[string]string{"Content-Type": "text/html; charset=utf-8"},
 		},
 		{
+			name:        "codespaces unavailable page",
+			path:        "/codespaces",
+			wantStatus:  http.StatusOK,
+			wantBodyAny: []string{"Hosted development environments are not implemented yet", "Actions runners execute short-lived CI jobs", "paid-organization launch blocker"},
+			wantHeader:  map[string]string{"Content-Type": "text/html; charset=utf-8"},
+		},
+		{
 			name:       "robots",
 			path:       "/robots.txt",
 			wantStatus: http.StatusOK,

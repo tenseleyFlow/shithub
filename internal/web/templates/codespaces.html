@@ -1,0 +1,49 @@
+{{ define "page" -}}
+<section class="shithub-about">
+  <header class="shithub-about-hero">
+    <p class="shithub-about-kicker">Codespaces</p>
+    <h1>Hosted development environments are not implemented yet.</h1>
+    <p>
+      shithub does not currently offer a Codespaces-equivalent product. Actions
+      runners execute short-lived CI jobs; they are not persistent,
+      interactive development workspaces.
+    </p>
+  </header>
+
+  <section class="shithub-about-section">
+    <h2>Current status</h2>
+    <p>
+      Codespaces remain a paid-organization launch blocker until shithub has
+      real workspace lifecycle, interactive access, policy controls, usage
+      metering, and billing separate from Team seats and Actions minutes.
+    </p>
+  </section>
+
+  <section class="shithub-about-section">
+    <h2>What must ship first</h2>
+    <ul class="shithub-about-list">
+      <li>
+        <strong>Workspace lifecycle.</strong>
+        <span>Create, resume, stop, and delete persistent repository workspaces.</span>
+      </li>
+      <li>
+        <strong>Interactive access.</strong>
+        <span>Provide authenticated browser or SSH access without exposing the app host.</span>
+      </li>
+      <li>
+        <strong>Organization controls.</strong>
+        <span>Let owners choose eligible repositories and who pays for usage.</span>
+      </li>
+      <li>
+        <strong>Usage billing.</strong>
+        <span>Meter runtime and storage separately from Team licensed seats.</span>
+      </li>
+    </ul>
+  </section>
+
+  <nav class="shithub-about-actions" aria-label="Codespaces links">
+    <a class="shithub-landing-cta-primary" href="/organizations/plan">Compare organization plans</a>
+    <a class="shithub-landing-cta-secondary" href="/about">About shithub</a>
+  </nav>
+</section>
+{{- end }}

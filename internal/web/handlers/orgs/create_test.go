@@ -97,6 +97,7 @@ func TestOrgPlanSelectionIncludesSP17OwnedCompareRows(t *testing.T) {
 		"CARD=Free:/organizations/new?plan=free&amp;seat_count=1:false:Recommended for 1-4 seats",
 		"CARD=Team:/organizations/new?plan=team&amp;seat_count=5:false:Recommended for 5-10 seats",
 		"ROW=Branch and tag rules|SP18|.docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md|Shipped|Public repositories|Included",
+		"ROW=Codespaces|SP28|.docs/sprints/PAYMENTS/SP28-codespaces-org-controls.md|Launch blocker|Not available|Not available",
 		"ROW=Multiple reviewers in pull requests|SP18|.docs/sprints/PAYMENTS/SP18-private-repo-governance-rules.md|Shipped|Public repositories|Included",
 		"ROW=Code owners|SP19|.docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md|Shipped|Public repositories|Included",
 		"ROW=Team pull request reviewers|SP19|.docs/sprints/PAYMENTS/SP19-codeowners-team-reviewers-auto-assignment.md|Shipped|Public repositories|Included",
