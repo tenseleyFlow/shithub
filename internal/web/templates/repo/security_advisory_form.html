@@ -1,0 +1,92 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <h1>
+        {{ octicon "shield-lock" }}
+        {{ if eq .Mode "edit" }}Edit security advisory{{ else }}New security advisory{{ end }}
+      </h1>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories">Security advisories</a>
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+    {{ if not .WriteGate.Allowed }}
+    <div class="shithub-org-security-upgrade">
+      <div>
+        <h2>Security advisories are a Team feature for private organization repositories.</h2>
+        <p>Upgrade this organization to create and manage private vulnerability advisories.</p>
+      </div>
+      <a class="shithub-button shithub-button-primary" href="{{ .WriteGate.UpgradeHref }}" data-pro-feature="{{ .WriteGate.FeatureKey }}">{{ .WriteGate.UpgradeText }}</a>
+    </div>
+    {{ else }}
+    <form method="POST" action="{{ if eq .Mode "edit" }}/{{ .Owner }}/{{ .Repo.Name }}/security/advisories/{{ .Advisory.Row.Identifier }}{{ else }}/{{ .Owner }}/{{ .Repo.Name }}/security/advisories{{ end }}" class="shithub-saved-reply-form">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+      <label>
+        <span>Summary</span>
+        <input type="text" name="summary" maxlength="500" value="{{ .Form.Summary }}" placeholder="Vulnerability in package-name" required>
+      </label>
+
+      <label>
+        <span>Severity</span>
+        <select name="severity" required>
+          <option value="low"{{ if eq .Form.Severity "low" }} selected{{ end }}>Low</option>
+          <option value="moderate"{{ if eq .Form.Severity "moderate" }} selected{{ end }}>Moderate</option>
+          <option value="high"{{ if eq .Form.Severity "high" }} selected{{ end }}>High</option>
+          <option value="critical"{{ if eq .Form.Severity "critical" }} selected{{ end }}>Critical</option>
+        </select>
+      </label>
+
+      <label>
+        <span>Affected ecosystem</span>
+        <input type="text" name="affected_ecosystem" maxlength="40" value="{{ .Form.AffectedEcosystem }}" placeholder="npm, go, rubygems, pip" required>
+      </label>
+
+      <label>
+        <span>Affected package</span>
+        <input type="text" name="affected_package" maxlength="512" value="{{ .Form.AffectedPackage }}" required>
+      </label>
+
+      <label>
+        <span>Vulnerable versions</span>
+        <input type="text" name="vulnerable_versions" maxlength="255" value="{{ .Form.VulnerableVersions }}" placeholder="&lt; 1.2.3">
+      </label>
+
+      <label>
+        <span>Patched versions</span>
+        <input type="text" name="patched_versions" maxlength="255" value="{{ .Form.PatchedVersions }}" placeholder="1.2.3">
+      </label>
+
+      <label>
+        <span>GHSA ID</span>
+        <input type="text" name="ghsa_id" maxlength="120" value="{{ .Form.GHSAID }}" placeholder="GHSA-xxxx-xxxx-xxxx">
+      </label>
+
+      <label>
+        <span>CVE ID</span>
+        <input type="text" name="cve_id" maxlength="120" value="{{ .Form.CVEID }}" placeholder="CVE-2026-12345">
+      </label>
+
+      <label>
+        <span>Description</span>
+        <textarea name="description" rows="12" maxlength="65535" placeholder="Describe the impact, attack vector, and remediation.">{{ .Form.Description }}</textarea>
+      </label>
+
+      <label>
+        <span>References</span>
+        <textarea name="reference_urls" rows="5" placeholder="https://example.com/advisory">{{ .Form.ReferenceURLsText }}</textarea>
+      </label>
+
+      <div class="shithub-form-actions shithub-form-actions-start">
+        <button type="submit" class="shithub-button shithub-button-primary">{{ if eq .Mode "edit" }}Update advisory{{ else }}Create draft advisory{{ end }}</button>
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security/advisories">Cancel</a>
+      </div>
+    </form>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

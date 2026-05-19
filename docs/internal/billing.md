@@ -110,6 +110,7 @@ Rules for paid-org copy:
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
 | Secret scanning and push protection | Public repositories | Supported pattern scanning, repo/org security views, allowlist, and pre-receive push rejection for private org repos | Contact sales |
 | Code scanning and security campaigns | Public repositories | SARIF ingestion, repo/org code scanning views, and campaign grouping for private org repos | Contact sales |
+| Repository security advisories | Public repositories and personal repos | Draft/publish/withdraw/archive advisory workflow for private org repos | Contact sales |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
@@ -197,6 +198,10 @@ Present but still moving toward full enforcement:
 - Packages storage is active for generic repository package uploads.
   Additional GitHub Packages ecosystems are deferred until follow-up
   package protocol sprints.
+- Repository security advisories have repo list/detail/create/edit/state
+  flows, markdown sanitization, lifecycle events, and private-org Team
+  gates. Per-advisory collaborator invitation/disclosure UI is still
+  deferred.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a
