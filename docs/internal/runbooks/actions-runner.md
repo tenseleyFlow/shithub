@@ -193,7 +193,7 @@ network_allowlist = [
 
 [engine]
 kind = "docker"
-default_image = "ghcr.io/tenseleyflow/shithub/runner-nix:1.0"
+default_image = "ghcr.io/tenseleyflow/shithub/runner-nix:1.1"
 network = "shithub-actions"
 memory = "2g"
 cpus = "2"

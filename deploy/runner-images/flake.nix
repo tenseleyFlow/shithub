@@ -7,6 +7,7 @@
 
   outputs = { self, nixpkgs }:
     let
+      imageVersion = "1.1";
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
@@ -14,6 +15,12 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          python = pkgs.python312.withPackages (ps: [
+            ps.pip
+            ps.setuptools
+            ps.virtualenv
+            ps.wheel
+          ]);
           checkoutHelper = pkgs.writeShellApplication {
             name = "shithub-shallow-checkout";
             runtimeInputs = [
@@ -43,12 +50,16 @@
           imageRoot = pkgs.buildEnv {
             name = "shithub-runner-nix-root";
             paths = [
+              pkgs.gawk
               pkgs.bashInteractive
               pkgs.cacert
               pkgs.coreutils
               pkgs.curl
+              pkgs.diffutils
+              pkgs.file
               pkgs.findutils
               pkgs.gcc
+              pkgs.gfortran
               pkgs.git
               pkgs.gnugrep
               pkgs.gnused
@@ -57,7 +68,11 @@
               pkgs.gnupg
               pkgs.gnumake
               pkgs.openssh
+              pkgs.procps
+              pkgs.util-linux
+              pkgs.which
               pkgs.xz
+              python
               checkoutHelper
             ];
             pathsToLink = [ "/bin" "/etc" ];
@@ -66,7 +81,7 @@
         {
           runnerImage = pkgs.dockerTools.buildLayeredImage {
             name = "ghcr.io/tenseleyflow/shithub/runner-nix";
-            tag = "1.0";
+            tag = imageVersion;
             contents = [ imageRoot ];
             maxLayers = 80;
             config = {
@@ -81,7 +96,7 @@
                 "org.opencontainers.image.title" = "shithub runner-nix";
                 "org.opencontainers.image.description" = "Default container image for shithub Actions run steps.";
                 "org.opencontainers.image.source" = "https://github.com/tenseleyFlow/shithub";
-                "org.opencontainers.image.version" = "1.0";
+                "org.opencontainers.image.version" = imageVersion;
                 "org.opencontainers.image.licenses" = "AGPL-3.0-or-later";
               };
             };
