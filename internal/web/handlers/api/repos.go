@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/repos"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
@@ -588,6 +589,10 @@ type repoPatchRequest struct {
 	// field, letting `shithub repo rename` print "Renamed to <old
 	// name>" against a no-op response.
 	Name *string `json:"name,omitempty"`
+	// DefaultBranch swaps the repo's default branch. The named branch
+	// must exist (validated via repogit.ListRefs); unknown branches
+	// return 422 rather than silently no-op'ing. E28.
+	DefaultBranch *string `json:"default_branch,omitempty"`
 }
 
 func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
@@ -717,6 +722,52 @@ func (h *Handlers) repoPatch(w http.ResponseWriter, r *http.Request) {
 				}
 				writeAPIError(w, http.StatusInternalServerError, "visibility update failed")
 				return
+			}
+		}
+	}
+	if body.DefaultBranch != nil {
+		newDefault := strings.TrimSpace(*body.DefaultBranch)
+		if newDefault == "" {
+			writeAPIError(w, http.StatusUnprocessableEntity, "default_branch must not be empty")
+			return
+		}
+		if newDefault != repo.DefaultBranch {
+			gitDir, gerr := h.d.RepoFS.RepoPath(ownerLogin, repo.Name)
+			if gerr != nil {
+				h.d.Logger.ErrorContext(r.Context(), "api: default-branch repo path", "error", gerr)
+				writeAPIError(w, http.StatusInternalServerError, "default_branch update failed")
+				return
+			}
+			refs, rerr := repogit.ListRefs(r.Context(), gitDir)
+			if rerr != nil {
+				h.d.Logger.ErrorContext(r.Context(), "api: default-branch ref list", "error", rerr)
+				writeAPIError(w, http.StatusInternalServerError, "default_branch update failed")
+				return
+			}
+			found := false
+			for _, b := range refs.Branches {
+				if b.Name == newDefault {
+					found = true
+					break
+				}
+			}
+			if !found {
+				writeAPIError(w, http.StatusUnprocessableEntity,
+					fmt.Sprintf("branch %q not found", newDefault))
+				return
+			}
+			if err := reposdb.New().UpdateRepoDefaultBranch(r.Context(), h.d.Pool, reposdb.UpdateRepoDefaultBranchParams{
+				ID: repo.ID, DefaultBranch: newDefault,
+			}); err != nil {
+				h.d.Logger.ErrorContext(r.Context(), "api: update default branch", "error", err)
+				writeAPIError(w, http.StatusInternalServerError, "default_branch update failed")
+				return
+			}
+			// On-disk HEAD update mirrors the HTML settings handler — DB
+			// is the source of truth; if the symbolic-ref step fails we
+			// log and keep going so the user's UI reflects the change.
+			if err := repogit.SetSymbolicRef(r.Context(), gitDir, "HEAD", "refs/heads/"+newDefault); err != nil {
+				h.d.Logger.WarnContext(r.Context(), "api: default-branch symbolic-ref", "error", err)
 			}
 		}
 	}
