@@ -22,6 +22,7 @@ type Querier interface {
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
 	ClaimDueDependencyUpdateConfigs(ctx context.Context, db DBTX, arg ClaimDueDependencyUpdateConfigsParams) ([]DependencyUpdateConfig, error)
 	CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg CompleteDependencyUpdateJobParams) (DependencyUpdateJob, error)
+	CountActiveDependencyUpdateJobsForConfigKind(ctx context.Context, db DBTX, arg CountActiveDependencyUpdateJobsForConfigKindParams) (int64, error)
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
 	CountPublicReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountPublicReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
@@ -90,6 +91,7 @@ type Querier interface {
 	// the renderer treats them as "not yet verified".
 	GetCommitVerificationsForOIDs(ctx context.Context, db DBTX, arg GetCommitVerificationsForOIDsParams) ([]CommitVerificationCache, error)
 	GetDependencyUpdateConfig(ctx context.Context, db DBTX, id int64) (DependencyUpdateConfig, error)
+	GetDependencyUpdateJob(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	// ─── profile/org pinned repositories ───────────────────────────────
 	GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
@@ -219,6 +221,7 @@ type Querier interface {
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
 	MarkDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
+	MarkQueuedDependencyUpdateJobRunning(ctx context.Context, db DBTX, id int64) (DependencyUpdateJob, error)
 	MarkRepoDependenciesStale(ctx context.Context, db DBTX, arg MarkRepoDependenciesStaleParams) error
 	MarkRepoSourceRemoteFetchError(ctx context.Context, db DBTX, arg MarkRepoSourceRemoteFetchErrorParams) error
 	MarkRepoSourceRemoteFetched(ctx context.Context, db DBTX, repoID int64) error

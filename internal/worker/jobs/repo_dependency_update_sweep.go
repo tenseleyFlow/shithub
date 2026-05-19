@@ -33,9 +33,13 @@ type dependencyUpdateSweepJobSummary struct {
 	NextRunAt string `json:"next_run_at,omitempty"`
 }
 
+type RepoDependencyUpdateRunPayload struct {
+	JobID int64 `json:"job_id"`
+}
+
 // RepoDependencyUpdateSweep claims due dependency update configs and expands
-// each one into a bounded domain job. It deliberately does not create branches
-// or pull requests; later SP25b workers consume queued dependency_update_jobs.
+// each one into a bounded domain job, then enqueues the update worker to
+// consume that job.
 func RepoDependencyUpdateSweep(deps RepoDependencyUpdateSweepDeps) worker.Handler {
 	return func(ctx context.Context, _ json.RawMessage) error {
 		if deps.Pool == nil {
@@ -57,6 +61,11 @@ func RepoDependencyUpdateSweep(deps RepoDependencyUpdateSweepDeps) worker.Handle
 		processed, err := runDependencyUpdateSweep(ctx, deps.Pool, now().UTC(), batch)
 		if err != nil {
 			return err
+		}
+		if processed > 0 {
+			if err := worker.Notify(ctx, deps.Pool); err != nil {
+				logger.WarnContext(ctx, "dependency update sweep notify failed", "error", err)
+			}
 		}
 		if processed > 0 {
 			logger.InfoContext(ctx, "dependency update sweep drained configs", "count", processed)
@@ -94,7 +103,7 @@ func runDependencyUpdateSweep(ctx context.Context, pool *pgxpool.Pool, now time.
 			status = "failed"
 			lastErr = "could not marshal summary"
 		}
-		if _, err := q.CreateDependencyUpdateJob(ctx, tx, reposdb.CreateDependencyUpdateJobParams{
+		job, err := q.CreateDependencyUpdateJob(ctx, tx, reposdb.CreateDependencyUpdateJobParams{
 			RepoID:        cfg.RepoID,
 			ConfigID:      pgtype.Int8{Int64: cfg.ID, Valid: true},
 			JobKind:       "version_update",
@@ -103,8 +112,15 @@ func runDependencyUpdateSweep(ctx context.Context, pool *pgxpool.Pool, now time.
 			ScheduledFor:  cfg.NextRunAt,
 			ResultSummary: summaryJSON,
 			LastError:     lastErr,
-		}); err != nil {
+		})
+		if err != nil {
 			return 0, err
+		}
+		if status == "queued" {
+			if _, err := worker.Enqueue(ctx, tx, worker.KindRepoDependencyUpdateRun,
+				RepoDependencyUpdateRunPayload{JobID: job.ID}, worker.EnqueueOptions{}); err != nil {
+				return 0, err
+			}
 		}
 		if _, err := q.TouchDependencyUpdateConfigChecked(ctx, tx, reposdb.TouchDependencyUpdateConfigCheckedParams{
 			ID:        cfg.ID,

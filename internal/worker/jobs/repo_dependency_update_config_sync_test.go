@@ -180,6 +180,21 @@ func createDependencyUpdateOrgRepo(t *testing.T, ctx context.Context, pool *pgxp
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
+	email, err := usersdb.New().CreateUserEmail(ctx, pool, usersdb.CreateUserEmailParams{
+		UserID:    user.ID,
+		Email:     slug + "owner@example.test",
+		IsPrimary: true,
+		Verified:  true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserEmail: %v", err)
+	}
+	if err := usersdb.New().LinkUserPrimaryEmail(ctx, pool, usersdb.LinkUserPrimaryEmailParams{
+		ID:             user.ID,
+		PrimaryEmailID: pgtype.Int8{Int64: email.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("LinkUserPrimaryEmail: %v", err)
+	}
 	org, err := orgsdb.New().CreateOrg(ctx, pool, orgsdb.CreateOrgParams{
 		Slug:            slug,
 		DisplayName:     "Dependency Update Org",

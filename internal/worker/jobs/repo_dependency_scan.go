@@ -11,8 +11,11 @@ import (
 	"math"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/billing"
+	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -129,11 +132,153 @@ func RepoDependencyScan(deps RepoDependencyScanDeps) worker.Handler {
 		if err := rq.ResolveStaleDependencyAlertsForRepo(ctx, deps.Pool, repo.ID); err != nil {
 			logger.WarnContext(ctx, "repo dependency scan: resolve stale alerts", "repo_id", repo.ID, "error", err)
 		}
+		if enqueued, err := enqueueSecurityDependencyUpdateJobsForScan(ctx, deps.Pool, logger, repo); err != nil {
+			logger.WarnContext(ctx, "repo dependency scan: enqueue security updates", "repo_id", repo.ID, "error", err)
+		} else if enqueued > 0 {
+			logger.InfoContext(ctx, "repo dependency scan enqueued security dependency updates",
+				"repo_id", repo.ID, "jobs", enqueued)
+		}
 		logger.InfoContext(ctx, "repo dependency scan complete",
 			"repo_id", repo.ID, "head_sha", head,
 			"manifests", len(snapshot.Manifests), "dependencies", len(snapshot.Dependencies))
 		return nil
 	}
+}
+
+func enqueueSecurityDependencyUpdateJobsForScan(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, repo reposdb.Repo) (int, error) {
+	if !repo.OwnerOrgID.Valid {
+		return 0, nil
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: pool},
+		billing.PrincipalForOrg(repo.OwnerOrgID.Int64),
+		entitlements.FeatureDependabotSecurityUpdates)
+	if err != nil {
+		return 0, err
+	}
+	if !decision.Allowed {
+		return 0, nil
+	}
+
+	rq := reposdb.New()
+	configs, err := rq.ListEnabledDependencyUpdateConfigsForRepo(ctx, pool, repo.ID)
+	if err != nil {
+		return 0, err
+	}
+	if len(configs) == 0 {
+		return 0, nil
+	}
+	alerts, err := rq.ListOpenDependencyAlertsForRepo(ctx, pool, repo.ID)
+	if err != nil {
+		return 0, err
+	}
+	if len(alerts) == 0 {
+		return 0, nil
+	}
+	prs, err := rq.ListDependencyUpdatePRsForRepo(ctx, pool, repo.ID)
+	if err != nil {
+		return 0, err
+	}
+	if repoHasOpenSecurityDependencyUpdatePR(prs) {
+		return 0, nil
+	}
+
+	enqueued := 0
+	for _, cfg := range configs {
+		if !dependencyUpdateConfigHasSecurityAlert(cfg, alerts) {
+			continue
+		}
+		active, err := rq.CountActiveDependencyUpdateJobsForConfigKind(ctx, pool, reposdb.CountActiveDependencyUpdateJobsForConfigKindParams{
+			ConfigID: pgtype.Int8{Int64: cfg.ID, Valid: true},
+			JobKind:  "security_update",
+		})
+		if err != nil {
+			return enqueued, err
+		}
+		if active > 0 {
+			continue
+		}
+
+		if err := enqueueSecurityDependencyUpdateJobForConfig(ctx, pool, rq, repo, cfg); err != nil {
+			if logger != nil {
+				logger.WarnContext(ctx, "repo dependency scan: security update enqueue transaction failed",
+					"repo_id", repo.ID, "config_id", cfg.ID)
+			}
+			return enqueued, err
+		}
+		enqueued++
+	}
+	if enqueued > 0 {
+		if err := worker.Notify(ctx, pool); err != nil && logger != nil {
+			logger.WarnContext(ctx, "repo dependency scan: dependency update notify failed", "repo_id", repo.ID, "error", err)
+		}
+	}
+	return enqueued, nil
+}
+
+func enqueueSecurityDependencyUpdateJobForConfig(ctx context.Context, pool *pgxpool.Pool, rq *reposdb.Queries, repo reposdb.Repo, cfg reposdb.DependencyUpdateConfig) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	summary := []byte(`{"status":"queued","message":"security update queued from dependency scan"}`)
+	job, err := rq.CreateDependencyUpdateJob(ctx, tx, reposdb.CreateDependencyUpdateJobParams{
+		RepoID:        repo.ID,
+		ConfigID:      pgtype.Int8{Int64: cfg.ID, Valid: true},
+		JobKind:       "security_update",
+		Status:        "queued",
+		TriggerSource: "dependency_scan",
+		ResultSummary: summary,
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := worker.Enqueue(ctx, tx, worker.KindRepoDependencyUpdateRun,
+		RepoDependencyUpdateRunPayload{JobID: job.ID}, worker.EnqueueOptions{}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func dependencyUpdateConfigHasSecurityAlert(cfg reposdb.DependencyUpdateConfig, alerts []reposdb.ListOpenDependencyAlertsForRepoRow) bool {
+	for _, alert := range alerts {
+		if alert.Ecosystem == cfg.Ecosystem && manifestInDependencyUpdateDirectory(alert.ManifestPath, cfg.Directory) {
+			return true
+		}
+	}
+	return false
+}
+
+func repoHasOpenSecurityDependencyUpdatePR(prs []reposdb.DependencyUpdatePr) bool {
+	for _, pr := range prs {
+		if pr.Status != "open" {
+			continue
+		}
+		if pr.UpdateKind == "security" {
+			return true
+		}
+		var packages []dependencyUpdatePackageIO
+		if err := json.Unmarshal(pr.PackageSet, &packages); err != nil {
+			continue
+		}
+		for _, pkg := range packages {
+			if pkg.UpdateKind == "security" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func clampInt32(n int) int32 {
