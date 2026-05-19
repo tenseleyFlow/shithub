@@ -168,7 +168,12 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 	// 8. Archived repos: writes denied even for owners. Reads still go
 	//    through the role check above. (We could short-circuit reads
 	//    earlier but keeping the flow uniform makes the matrix readable.)
-	if repo.IsArchived && isWriteAction(action) {
+	//    E9 escape valve: ActionRepoArchive itself MUST pass — it's how
+	//    archive bits get flipped, and unarchive shares the action.
+	//    Without this, archive becomes a one-way trap with no REST
+	//    escape (HTML form path hits the same gate). Owner/admin still
+	//    needs the role check below to actually flip the bit.
+	if repo.IsArchived && isWriteAction(action) && action != ActionRepoArchive {
 		return deny(DenyArchived, "repo archived")
 	}
 

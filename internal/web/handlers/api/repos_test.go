@@ -678,3 +678,107 @@ func TestRepos_ListVisibilityStrict(t *testing.T) {
 		}
 	}
 }
+
+// archiveRepoViaAPI helps the archive-trap tests below. Fails the test
+// only after confirming the repo's archived flag flipped server-side.
+func archiveRepoViaAPI(t *testing.T, router http.Handler, token, owner, name string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"archived": true})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/repos/"+owner+"/"+name, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("archive %s/%s: %d; body=%s", owner, name, rr.Code, rr.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/"+owner+"/"+name, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get after archive: %d", rr.Code)
+	}
+	var got apiRepo
+	_ = json.Unmarshal(rr.Body.Bytes(), &got)
+	if !got.Archived {
+		t.Fatalf("archive did not stick; repo=%+v", got)
+	}
+}
+
+// E9: archive used to be a one-way trap because the policy gate blocked
+// every write on archived repos — including the unarchive itself. After
+// the fix, PATCH `archived=false` on an archived repo succeeds.
+func TestRepos_PatchUnarchiveEscapeValve(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+	archiveRepoViaAPI(t, router, token, "alice", "demo")
+
+	body, _ = json.Marshal(map[string]any{"archived": false})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unarchive: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	var got apiRepo
+	_ = json.Unmarshal(rr.Body.Bytes(), &got)
+	if got.Archived {
+		t.Errorf("unarchive did not stick; repo=%+v", got)
+	}
+}
+
+// E18: archived-repo writes used to 404 "repo not found", making
+// archived indistinguishable from deleted. Now the deny code propagates
+// through to a 403 with an "archived" message — clients can recover.
+func TestRepos_PatchOnArchivedRepoIs403(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+	archiveRepoViaAPI(t, router, token, "alice", "demo")
+
+	body, _ = json.Marshal(map[string]any{"description": "new desc on archived"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("archived patch: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "archived") {
+		t.Errorf("403 body should mention archived; got %s", rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("archived GET: got %d, want 200", rr.Code)
+	}
+}

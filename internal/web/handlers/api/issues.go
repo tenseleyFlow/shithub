@@ -659,6 +659,15 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// E25: PATCH is a mutation; the read gate above lets the request
+	// reach archived repos. Explicitly refuse writes on archived
+	// repos here so author-self-edit + label/assignee/milestone/state
+	// changes don't slip through. POST /issues already 404s on
+	// archived (different code path); this aligns PATCH.
+	if repo.IsArchived {
+		writeAPIError(w, http.StatusForbidden, "repository is archived")
+		return
+	}
 	auth := middleware.PATAuthFromContext(r.Context())
 	if auth.UserID == 0 {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
