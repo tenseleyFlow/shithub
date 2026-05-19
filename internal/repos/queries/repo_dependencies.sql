@@ -274,10 +274,10 @@ LIMIT $2 OFFSET $3;
 INSERT INTO repo_security_advisories (
     repo_id, identifier, state, severity, summary, description,
     affected_ecosystem, affected_package, vulnerable_versions,
-    patched_versions, created_by
+    patched_versions, ghsa_id, cve_id, reference_urls, created_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, sqlc.narg(created_by)::bigint
+    $7, $8, $9, $10, $11, $12, $13, sqlc.narg(created_by)::bigint
 )
 RETURNING *;
 
@@ -289,9 +289,58 @@ ORDER BY
     CASE state
         WHEN 'draft' THEN 0
         WHEN 'published' THEN 1
+        WHEN 'withdrawn' THEN 2
         ELSE 2
     END,
     updated_at DESC;
+
+-- name: GetRepoSecurityAdvisoryByIdentifier :one
+SELECT *
+FROM repo_security_advisories
+WHERE repo_id = $1
+  AND identifier = $2;
+
+-- name: UpdateRepoSecurityAdvisory :one
+UPDATE repo_security_advisories
+SET severity = $3,
+    summary = $4,
+    description = $5,
+    affected_ecosystem = $6,
+    affected_package = $7,
+    vulnerable_versions = $8,
+    patched_versions = $9,
+    ghsa_id = $10,
+    cve_id = $11,
+    reference_urls = $12
+WHERE repo_id = $1
+  AND identifier = $2
+RETURNING *;
+
+-- name: SetRepoSecurityAdvisoryState :one
+UPDATE repo_security_advisories
+SET state = $3,
+    published_at = CASE
+        WHEN $3 = 'published' AND published_at IS NULL THEN now()
+        ELSE published_at
+    END,
+    withdrawn_at = CASE
+        WHEN $3 = 'withdrawn' THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE withdrawn_at
+    END,
+    archived_at = CASE
+        WHEN $3 = 'archived' THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE archived_at
+    END,
+    closed_at = CASE
+        WHEN $3 IN ('withdrawn', 'archived') THEN now()
+        WHEN $3 IN ('draft', 'published') THEN NULL
+        ELSE closed_at
+    END
+WHERE repo_id = $1
+  AND identifier = $2
+RETURNING *;
 
 -- name: ListOrgSecurityAdvisories :many
 SELECT
@@ -307,6 +356,8 @@ SELECT
     rsa.affected_package,
     rsa.vulnerable_versions,
     rsa.patched_versions,
+    rsa.ghsa_id,
+    rsa.cve_id,
     rsa.updated_at
 FROM repo_security_advisories rsa
 JOIN repos r ON r.id = rsa.repo_id
@@ -316,7 +367,73 @@ ORDER BY
     CASE rsa.state
         WHEN 'draft' THEN 0
         WHEN 'published' THEN 1
+        WHEN 'withdrawn' THEN 2
         ELSE 2
     END,
     rsa.updated_at DESC
 LIMIT $2 OFFSET $3;
+
+-- name: CreateRepoSecurityAdvisoryEvent :one
+INSERT INTO repo_security_advisory_events (
+    advisory_id, repo_id, actor_id, event_type, old_state, new_state, message
+) VALUES (
+    $1, $2, sqlc.narg(actor_id)::bigint, $3, $4, $5, $6
+)
+RETURNING *;
+
+-- name: ListRepoSecurityAdvisoryEvents :many
+SELECT e.*, u.username AS actor_username
+FROM repo_security_advisory_events e
+LEFT JOIN users u ON u.id = e.actor_id
+WHERE e.advisory_id = $1
+ORDER BY e.created_at DESC, e.id DESC;
+
+-- name: AddRepoSecurityAdvisoryUserCollaborator :one
+INSERT INTO repo_security_advisory_collaborators (
+    advisory_id, user_id, role, added_by
+) VALUES (
+    $1, $2, $3, sqlc.narg(added_by)::bigint
+)
+ON CONFLICT (advisory_id, user_id) DO UPDATE
+SET role = EXCLUDED.role,
+    added_by = EXCLUDED.added_by,
+    added_at = now()
+RETURNING *;
+
+-- name: AddRepoSecurityAdvisoryTeamCollaborator :one
+INSERT INTO repo_security_advisory_collaborators (
+    advisory_id, team_id, role, added_by
+) VALUES (
+    $1, $2, $3, sqlc.narg(added_by)::bigint
+)
+ON CONFLICT (advisory_id, team_id) DO UPDATE
+SET role = EXCLUDED.role,
+    added_by = EXCLUDED.added_by,
+    added_at = now()
+RETURNING *;
+
+-- name: RemoveRepoSecurityAdvisoryUserCollaborator :exec
+DELETE FROM repo_security_advisory_collaborators
+WHERE advisory_id = $1
+  AND user_id = $2;
+
+-- name: RemoveRepoSecurityAdvisoryTeamCollaborator :exec
+DELETE FROM repo_security_advisory_collaborators
+WHERE advisory_id = $1
+  AND team_id = $2;
+
+-- name: ListRepoSecurityAdvisoryCollaborators :many
+SELECT
+    c.advisory_id,
+    c.user_id,
+    u.username,
+    c.team_id,
+    t.slug AS team_slug,
+    t.display_name AS team_display_name,
+    c.role,
+    c.added_at
+FROM repo_security_advisory_collaborators c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN teams t ON t.id = c.team_id
+WHERE c.advisory_id = $1
+ORDER BY COALESCE(u.username, t.slug::text), c.role;

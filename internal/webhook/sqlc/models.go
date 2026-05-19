@@ -3580,6 +3580,32 @@ type RepoSecurityAdvisory struct {
 	ClosedAt           pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	GhsaID             string
+	CveID              string
+	ReferenceUrls      []byte
+	WithdrawnAt        pgtype.Timestamptz
+	ArchivedAt         pgtype.Timestamptz
+}
+
+type RepoSecurityAdvisoryCollaborator struct {
+	AdvisoryID int64
+	UserID     pgtype.Int8
+	TeamID     pgtype.Int8
+	Role       string
+	AddedBy    pgtype.Int8
+	AddedAt    pgtype.Timestamptz
+}
+
+type RepoSecurityAdvisoryEvent struct {
+	ID         int64
+	AdvisoryID int64
+	RepoID     int64
+	ActorID    pgtype.Int8
+	EventType  string
+	OldState   string
+	NewState   string
+	Message    string
+	CreatedAt  pgtype.Timestamptz
 }
 
 type RepoSourceRemote struct {
