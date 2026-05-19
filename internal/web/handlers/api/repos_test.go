@@ -37,7 +37,8 @@ type apiRepoOwner struct {
 
 // apiRepoLicense mirrors repoLicenseEnvelope.
 type apiRepoLicense struct {
-	Key string `json:"key"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 type apiRepo struct {
@@ -203,6 +204,55 @@ func TestRepos_CreatePersonalAndGet(t *testing.T) {
 	}
 	if fetched.HTMLURL == "" {
 		t.Error("fetched html_url should be populated")
+	}
+}
+
+// TestRepos_CreateWithLicensePopulatesLicenseName pins F8: the repo
+// response's `license.name` must contain the SPDX title (e.g. "MIT
+// License"), not an empty string. Pre-G13 only `license.key` was
+// populated; gh-compat clients displaying `license.name` saw blanks.
+func TestRepos_CreateWithLicensePopulatesLicenseName(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{
+		"name":             "licensed",
+		"visibility":       "public",
+		"init_readme":      true,
+		"license_template": "MIT",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var created apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.License == nil {
+		t.Fatal("license envelope missing on create response")
+	}
+	if created.License.Key != "MIT" {
+		t.Errorf("license.key: got %q want MIT", created.License.Key)
+	}
+	if created.License.Name != "MIT License" {
+		t.Errorf("license.name: got %q want %q", created.License.Name, "MIT License")
+	}
+
+	// Verify GET also populates the field.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/licensed", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	var fetched apiRepo
+	_ = json.Unmarshal(rr.Body.Bytes(), &fetched)
+	if fetched.License == nil || fetched.License.Name != "MIT License" {
+		t.Errorf("GET license.name: %+v", fetched.License)
 	}
 }
 

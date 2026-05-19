@@ -24,6 +24,7 @@ import (
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/lifecycle"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/templates"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -70,12 +71,13 @@ type repoOwnerEnvelope struct {
 	ID    int64  `json:"id,omitempty"`
 }
 
-// repoLicenseEnvelope is the gh-compat license shape. SPDX id is what
-// the CLI displays under `repo view`; we fill it from the stored
-// license_key column and leave name/url empty when we don't have a
-// catalog lookup yet.
+// repoLicenseEnvelope is the gh-compat license shape. Key is the SPDX
+// id (e.g. "MIT") stored alongside the repo; Name is the human-readable
+// title (e.g. "MIT License"). G13 (F8): pre-fix Name was always empty
+// — gh-compat clients reading `license.name` for display saw blanks.
 type repoLicenseEnvelope struct {
-	Key string `json:"key"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 // repoResponse mirrors GitHub's repo shape. The S62 audit (B14)
@@ -163,7 +165,10 @@ func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL str
 		resp.Owner.ID = r.OwnerOrgID.Int64
 	}
 	if r.LicenseKey.Valid && r.LicenseKey.String != "" {
-		resp.License = &repoLicenseEnvelope{Key: r.LicenseKey.String}
+		resp.License = &repoLicenseEnvelope{
+			Key:  r.LicenseKey.String,
+			Name: templates.LicenseName(r.LicenseKey.String),
+		}
 	}
 	if r.PrimaryLanguage.Valid {
 		resp.Language = r.PrimaryLanguage.String

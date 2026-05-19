@@ -10,12 +10,14 @@ package web
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -384,6 +386,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("register handlers: %w", err)
 	}
 	r.NotFound(notFoundHandler)
+	r.MethodNotAllowed(http.HandlerFunc(methodNotAllowedHandler))
 
 	rootHandler := middleware.Recover(logger, panicHandler)(r)
 
@@ -475,4 +478,29 @@ func buildSessionStore(cfg config.SessionConfig, logger *slog.Logger) (session.S
 		return nil, fmt.Errorf("session: build store: %w", err)
 	}
 	return store, nil
+}
+
+// methodNotAllowedHandler is the global 405 handler attached to the
+// root chi router. G13 (F2-11 / F2-17): chi's default 405 sends a bare
+// response with no body; the API's `{"error":...}` envelope contract
+// requires a message. Branch on path prefix so /api/v1/* requests get
+// the JSON shape callers expect; non-API paths keep the default
+// behavior (HTML pages have their own 405 rendering through
+// middleware).
+//
+// Method and path are user-controlled but flow through json.Encoder,
+// which escapes quotes / control chars so a crafted request can't
+// break the envelope or inject HTML — the response is also tagged
+// application/json with Cache-Control: no-store.
+func methodNotAllowedHandler(w http.ResponseWriter, req *http.Request) {
+	if strings.HasPrefix(req.URL.Path, "/api/v1/") {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "method " + req.Method + " not allowed on " + req.URL.Path,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusMethodNotAllowed)
 }
