@@ -14,8 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -135,6 +137,49 @@ func TestSecretScanning_RunScanProEnqueues(t *testing.T) {
 	}
 }
 
+func TestSecretScanning_PrivateOrgRequiresTeam(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-app", reposdb.RepoVisibilityPrivate)
+
+	gate := f.handlers.repoSecretScanGate(context.Background(), repo, "acme")
+	if gate.Allowed {
+		t.Fatalf("private Free org repo should not allow on-demand secret scanning")
+	}
+	if gate.FeatureKey != "secret_scanning" {
+		t.Fatalf("feature key=%q, want secret_scanning", gate.FeatureKey)
+	}
+	if gate.UpgradeHref != "/organizations/acme/settings/billing" || gate.UpgradeText != "Upgrade to Team" {
+		t.Fatalf("upgrade affordance = %q %q", gate.UpgradeHref, gate.UpgradeText)
+	}
+}
+
+func TestSecretScanning_PrivateOrgTeamAllowsScan(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-app", reposdb.RepoVisibilityPrivate)
+	upgradeOrgToTeamForSecretScan(t, f, orgID)
+
+	gate := f.handlers.repoSecretScanGate(context.Background(), repo, "acme")
+	if !gate.Allowed {
+		t.Fatalf("private Team org repo should allow on-demand secret scanning: %+v", gate)
+	}
+}
+
+func TestSecretScanning_PublicOrgAllowedWithoutTeam(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "public-app", reposdb.RepoVisibilityPublic)
+
+	gate := f.handlers.repoSecretScanGate(context.Background(), repo, "acme")
+	if !gate.Allowed {
+		t.Fatalf("public org repo should keep baseline secret scanning: %+v", gate)
+	}
+}
+
 // securityScanningMux wires the secret-scanning routes against the
 // repoFixture in a minimal chi mux with the test viewer pinned to
 // the owner.
@@ -169,6 +214,23 @@ func upgradeRepoFixtureOwnerToProForSecretScan(t *testing.T, f *repoFixture) {
 		LastWebhookEventID:   "evt_ssh_pro_" + suffix,
 	}); err != nil {
 		t.Fatalf("upgrade to Pro: %v", err)
+	}
+}
+
+func upgradeOrgToTeamForSecretScan(t *testing.T, f *repoFixture, orgID int64) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := orgbilling.ApplySubscriptionSnapshot(context.Background(), orgbilling.Deps{Pool: f.pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_secret_org_" + strconv.FormatInt(orgID, 10),
+		StripeSubscriptionItemID: "si_secret_org_" + strconv.FormatInt(orgID, 10),
+		CurrentPeriodStart:       now.Add(-time.Hour),
+		CurrentPeriodEnd:         now.Add(30 * 24 * time.Hour),
+		LastWebhookEventID:       "evt_secret_org_" + strconv.FormatInt(orgID, 10),
+	}); err != nil {
+		t.Fatalf("upgrade org to Team: %v", err)
 	}
 }
 

@@ -6,6 +6,8 @@ package secretscandb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -31,6 +33,7 @@ type Querier interface {
 	// allowlisted finding just updates the reason via the UPSERT.
 	InsertSecretScanAllowlist(ctx context.Context, db DBTX, arg InsertSecretScanAllowlistParams) (SecretScanAllowlist, error)
 	IsSecretScanAllowlisted(ctx context.Context, db DBTX, arg IsSecretScanAllowlistedParams) (bool, error)
+	ListOrgSecretScanFindings(ctx context.Context, db DBTX, arg ListOrgSecretScanFindingsParams) ([]ListOrgSecretScanFindingsRow, error)
 	ListSecretScanAllowlistForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanAllowlist, error)
 	// Status-filterable list for the UI in 10c. Filter is optional;
 	// empty string lists everything.
@@ -39,6 +42,7 @@ type Querier interface {
 	// flips to 'stale'. Open status only — allowlisted / resolved rows
 	// keep their status so the audit trail isn't lost.
 	MarkSecretScanFindingsStaleForRepo(ctx context.Context, db DBTX, arg MarkSecretScanFindingsStaleForRepoParams) error
+	OrgSecretScanSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecretScanSummaryRow, error)
 	ResolveSecretScanFinding(ctx context.Context, db DBTX, arg ResolveSecretScanFindingParams) error
 	// Recorded after a successful send so the worker can dedupe re-scans
 	// that re-surface a known finding (status=open → stale → open again).

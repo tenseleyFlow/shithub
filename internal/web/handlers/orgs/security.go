@@ -11,6 +11,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -69,6 +70,7 @@ func (h *Handlers) securityOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := reposdb.New()
+	sq := secretscandb.New()
 	orgID := pgtype.Int8{Int64: org.ID, Valid: true}
 	summary, err := q.OrgSecurityOverviewSummary(r.Context(), h.d.Pool, orgID)
 	if err != nil {
@@ -102,6 +104,34 @@ func (h *Handlers) securityOverview(w http.ResponseWriter, r *http.Request) {
 		h.d.Logger.ErrorContext(r.Context(), "org security: repository advisories", "org_id", org.ID, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
+	}
+	secretDecision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureSecretScanning)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org security: secret scanning entitlement check", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	data["SecretScanningAllowed"] = secretDecision.Allowed
+	if secretDecision.Allowed {
+		secretSummary, err := sq.OrgSecretScanSummary(r.Context(), h.d.Pool, orgID)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "org security: secret scan summary", "org_id", org.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		secretFindings, err := sq.ListOrgSecretScanFindings(r.Context(), h.d.Pool, secretscandb.ListOrgSecretScanFindingsParams{
+			OwnerOrgID: orgID,
+			Limit:      25,
+		})
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "org security: secret scan findings", "org_id", org.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		data["SecretSummary"] = secretSummary
+		data["SecretFindings"] = secretFindings
+	} else {
+		data["SecretUpgradeBanner"] = secretDecision.UpgradeBanner("Secret scanning", string(org.Slug))
 	}
 
 	data["Summary"] = summary

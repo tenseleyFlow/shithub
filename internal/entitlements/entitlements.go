@@ -53,6 +53,12 @@ const (
 	FeatureDependabotVersionUpdates  Feature = "dependabot_version_updates"
 	FeatureDependabotAutoTriage      Feature = "dependabot_auto_triage"
 	FeatureSecurityAdvisories        Feature = "security_advisories"
+	// SP26 Secret Protection surfaces. Public repositories keep baseline
+	// scanning/protection; private organization repositories require Team.
+	FeatureSecretScanning       Feature = "secret_scanning"
+	FeatureSecretPushProtection Feature = "secret_push_protection"
+	FeatureSecretCustomPatterns Feature = "secret_custom_patterns"
+	FeatureSecretBypassControls Feature = "secret_bypass_controls"
 	// PRO07 additions.
 	//
 	// FeatureProfilePinsBeyondFree gates raising the personal profile
@@ -322,6 +328,10 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureDependabotVersionUpdates:  {billing.SubjectKindOrg},
 	FeatureDependabotAutoTriage:      {billing.SubjectKindOrg},
 	FeatureSecurityAdvisories:        {billing.SubjectKindOrg},
+	FeatureSecretScanning:            {billing.SubjectKindOrg},
+	FeatureSecretPushProtection:      {billing.SubjectKindOrg},
+	FeatureSecretCustomPatterns:      {billing.SubjectKindOrg},
+	FeatureSecretBypassControls:      {billing.SubjectKindOrg},
 	FeatureProfilePinsBeyondFree:     {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:          {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:             {billing.SubjectKindUser},

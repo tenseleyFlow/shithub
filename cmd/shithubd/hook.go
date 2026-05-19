@@ -95,6 +95,10 @@ var hookPreReceiveCmd = &cobra.Command{
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
 		}
+		if err := enforcePreReceiveSecretProtection(ctx, hook, repo, gitDir, refs); err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
+			return err
+		}
 		for _, rf := range refs {
 			d, perr := protection.Enforce(ctx, hook.pool, gitDir, hook.repoID, protection.Update{
 				OldSHA: rf.before, NewSHA: rf.after, Ref: rf.ref, Pusher: hook.userID,
@@ -236,7 +240,10 @@ func hookRepoFSAndGitDir(h *hookCtx) (*storage.RepoFS, string, error) {
 }
 
 func friendlyHookErr(err error) string {
+	var secretErr errHookSecretProtection
 	switch {
+	case errors.As(err, &secretErr):
+		return secretErr.Friendly()
 	case errors.Is(err, errHookSuspended):
 		return "shithub: your account is suspended; pushes are disabled."
 	case errors.Is(err, errHookArchived):

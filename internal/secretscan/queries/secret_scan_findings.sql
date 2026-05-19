@@ -51,3 +51,40 @@ WHERE repo_id = $1
 UPDATE secret_scan_findings
 SET status = 'resolved', resolved_at = now(), resolution_note = $3
 WHERE id = $1 AND repo_id = $2;
+
+-- name: OrgSecretScanSummary :one
+WITH org_repos AS (
+    SELECT id
+    FROM repos
+    WHERE owner_org_id = $1
+      AND deleted_at IS NULL
+)
+SELECT
+    count(*) FILTER (WHERE f.status = 'open')::bigint AS open_secret_count,
+    count(*) FILTER (WHERE f.status = 'allowlisted')::bigint AS allowlisted_secret_count,
+    count(*) FILTER (WHERE f.status = 'stale')::bigint AS stale_secret_count,
+    count(*)::bigint AS total_secret_count,
+    count(DISTINCT f.repo_id)::bigint AS affected_repo_count
+FROM secret_scan_findings f
+JOIN org_repos r ON r.id = f.repo_id;
+
+-- name: ListOrgSecretScanFindings :many
+SELECT
+    f.id,
+    f.repo_id,
+    r.name AS repo_name,
+    r.visibility AS repo_visibility,
+    f.pattern,
+    f.path,
+    f.line_no,
+    f.excerpt,
+    f.status,
+    f.first_seen_at,
+    f.last_seen_at
+FROM secret_scan_findings f
+JOIN repos r ON r.id = f.repo_id
+WHERE r.owner_org_id = $1
+  AND r.deleted_at IS NULL
+  AND f.status = 'open'
+ORDER BY f.last_seen_at DESC, lower(r.name), lower(f.path), f.line_no
+LIMIT $2 OFFSET $3;

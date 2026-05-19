@@ -22,6 +22,10 @@ func TestAppliesToOrgOnlyFeatures(t *testing.T) {
 		entitlements.FeatureStorageQuota,
 		entitlements.FeatureActionsMinutesQuota,
 		entitlements.FeatureScheduledReminders,
+		entitlements.FeatureSecretScanning,
+		entitlements.FeatureSecretPushProtection,
+		entitlements.FeatureSecretCustomPatterns,
+		entitlements.FeatureSecretBypassControls,
 	}
 	for _, f := range orgOnly {
 		if !entitlements.FeatureAppliesToKind(f, billing.SubjectKindOrg) {

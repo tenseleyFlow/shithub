@@ -67,6 +67,9 @@ Re-checks the following from the DB even though the env carries them
 * User not suspended (`users.suspended_at IS NULL`).
 * Repo not archived (`repos.is_archived = false`).
 * Repo not soft-deleted (`repos.deleted_at IS NULL`).
+* Secret push protection for supported credential patterns. See
+  [`secret-protection.md`](./secret-protection.md) for the entitlement
+  gates, scan bounds, and redaction contract.
 
 Failures emit a `shithub: ...` line on stderr that git surfaces directly
 to the pusher's terminal. Latency budget: <100ms p99.
