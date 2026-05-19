@@ -452,6 +452,80 @@ func TestRepos_PatchRenamesRepo(t *testing.T) {
 	}
 }
 
+// TestRepos_PatchDefaultBranchUnknownBranchIs422 is the E28 regression:
+// PATCH /repos {"default_branch":"nothing"} used to fall through to a
+// 200 with no DB change. We now 422 when the branch isn't in the repo's
+// ref list, matching gh and avoiding the false-success footgun.
+func TestRepos_PatchDefaultBranchUnknownBranchIs422(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	patch, _ := json.Marshal(map[string]any{"default_branch": "nothing"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("not found")) {
+		t.Errorf("error body should mention not found; got %s", rr.Body.String())
+	}
+
+	// Defense in depth: confirm the DB row was not touched.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get status: %d", rr.Code)
+	}
+	var got apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.DefaultBranch != "trunk" {
+		t.Errorf("default_branch leaked update: got %q, want trunk", got.DefaultBranch)
+	}
+}
+
+// TestRepos_PatchDefaultBranchEmptyIs422 catches the trivial bad input.
+func TestRepos_PatchDefaultBranchEmptyIs422(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	patch, _ := json.Marshal(map[string]any{"default_branch": "   "})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 // C7: empty / too-long / illegal names get 422.
 func TestRepos_PatchRenameRejectsInvalidName(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
