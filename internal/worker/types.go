@@ -109,6 +109,7 @@ const (
 	KindRepoDependencyUpdateConfigSync Kind = "repo:dependency_update_config_sync"
 	KindRepoDependencyUpdateSweep      Kind = "repo:dependency_update_sweep"
 	KindRepoDependencyUpdateRun        Kind = "repo:dependency_update_run"
+	KindDependencyAdvisoryOSVImport    Kind = "dependency_advisory:osv_import"
 )
 
 // S29 notification kinds. notify:fanout drains the domain_events

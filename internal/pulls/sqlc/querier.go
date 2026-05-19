@@ -61,8 +61,7 @@ type Querier interface {
 	InsertPullDependencyReviewItem(ctx context.Context, db DBTX, arg InsertPullDependencyReviewItemParams) (PullDependencyReviewItem, error)
 	InsertPullRequestCommit(ctx context.Context, db DBTX, arg InsertPullRequestCommitParams) error
 	InsertPullRequestFile(ctx context.Context, db DBTX, arg InsertPullRequestFileParams) error
-	// Baseline matcher inherited from SP25. SP25d owns rich semver/range support.
-	ListMatchingDependencyReviewAdvisories(ctx context.Context, db DBTX, arg ListMatchingDependencyReviewAdvisoriesParams) ([]DependencyAdvisory, error)
+	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]ListDependencyReviewAdvisoryCandidatesRow, error)
 	// Position-mapping reads only submitted comments (drafts re-anchor
 	// when the user resumes the diff view).
 	ListNonDraftCommentsForPositionMap(ctx context.Context, db DBTX, prIssueID int64) ([]ListNonDraftCommentsForPositionMapRow, error)

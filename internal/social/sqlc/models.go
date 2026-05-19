@@ -2722,6 +2722,64 @@ type DependencyAdvisory struct {
 	WithdrawnAt     pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	ModifiedAt      pgtype.Timestamptz
+	SourceUrl       string
+	CvssScore       pgtype.Numeric
+	CvssVector      string
+	CweIds          []byte
+}
+
+type DependencyAdvisoryAffectedRange struct {
+	ID              int64
+	AdvisoryID      int64
+	Ecosystem       string
+	PackageName     string
+	RangeExpression string
+	Introduced      string
+	Fixed           string
+	LastAffected    string
+	Metadata        []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type DependencyAdvisoryAlias struct {
+	ID         int64
+	AdvisoryID int64
+	AliasKind  string
+	AliasValue string
+	CreatedAt  pgtype.Timestamptz
+}
+
+type DependencyAdvisorySource struct {
+	Name           string
+	Kind           string
+	DisplayName    string
+	Url            string
+	License        string
+	Attribution    string
+	Enabled        bool
+	LastSyncAt     pgtype.Timestamptz
+	LastSyncStatus string
+	LastSyncError  string
+	CursorValue    string
+	Etag           string
+	Metadata       []byte
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type DependencyAdvisorySyncRun struct {
+	ID             int64
+	SourceName     string
+	Status         string
+	StartedAt      pgtype.Timestamptz
+	FinishedAt     pgtype.Timestamptz
+	AdvisoryCount  int32
+	UpsertedCount  int32
+	WithdrawnCount int32
+	ErrorMessage   string
+	Metadata       []byte
 }
 
 type DependencyAutoTriageEvent struct {

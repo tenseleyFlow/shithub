@@ -39,7 +39,7 @@ func TestPRDependencyReview_TeamOrgPersistsFailureCheck(t *testing.T) {
 		ExternalID:      "GHSA-pr-deps",
 		Ecosystem:       "go",
 		PackageName:     "example.test/vulnerable",
-		AffectedRange:   "v1.2.3",
+		AffectedRange:   ">= v1.0.0, < v1.2.4",
 		PatchedVersions: "v1.2.4",
 		Severity:        "high",
 		Summary:         "Fixture PR dependency vulnerability",

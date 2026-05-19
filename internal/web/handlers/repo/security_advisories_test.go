@@ -321,7 +321,7 @@ func (f *repoFixture) createSecurityAdvisory(t *testing.T, repoID int64, identif
 		Description:        description,
 		AffectedEcosystem:  "go",
 		AffectedPackage:    "github.com/example/pkg",
-		VulnerableVersions: "v1.2.2",
+		VulnerableVersions: "< v1.2.3",
 		PatchedVersions:    "1.2.3",
 		ReferenceUrls:      []byte(`[]`),
 		CreatedBy:          pgtype.Int8{Int64: f.owner.ID, Valid: true},

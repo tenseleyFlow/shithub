@@ -19,6 +19,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/advisorymatch"
 	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -261,7 +262,7 @@ func persistPullDependencyReview(ctx context.Context, db txBeginner, pr pullsdb.
 }
 
 type pullReviewQueries interface {
-	ListMatchingDependencyReviewAdvisories(ctx context.Context, db pullsdb.DBTX, arg pullsdb.ListMatchingDependencyReviewAdvisoriesParams) ([]pullsdb.DependencyAdvisory, error)
+	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db pullsdb.DBTX, arg pullsdb.ListDependencyReviewAdvisoryCandidatesParams) ([]pullsdb.ListDependencyReviewAdvisoryCandidatesRow, error)
 }
 
 func matchingReviewAdvisories(ctx context.Context, q pullReviewQueries, db pullsdb.DBTX, change dependencies.Change) ([]pullsdb.DependencyAdvisory, error) {
@@ -272,15 +273,24 @@ func matchingReviewAdvisories(ctx context.Context, q pullReviewQueries, db pulls
 	if strings.TrimSpace(version) == "" {
 		return nil, nil
 	}
-	advisories, err := q.ListMatchingDependencyReviewAdvisories(ctx, db, pullsdb.ListMatchingDependencyReviewAdvisoriesParams{
-		Ecosystem:      change.Ecosystem,
-		PackageName:    change.PackageName,
-		PackageVersion: version,
+	candidates, err := q.ListDependencyReviewAdvisoryCandidates(ctx, db, pullsdb.ListDependencyReviewAdvisoryCandidatesParams{
+		Ecosystem:   change.Ecosystem,
+		PackageName: change.PackageName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("match dependency review advisories: %w", err)
 	}
+	advisories := make([]pullsdb.DependencyAdvisory, 0, len(candidates))
+	for _, candidate := range candidates {
+		if advisorymatch.MatchVersion(candidate.Ecosystem, version, candidate.AffectedRange) {
+			advisories = append(advisories, dependencyReviewAdvisoryCandidate(candidate))
+		}
+	}
 	return advisories, nil
+}
+
+func dependencyReviewAdvisoryCandidate(row pullsdb.ListDependencyReviewAdvisoryCandidatesRow) pullsdb.DependencyAdvisory {
+	return pullsdb.DependencyAdvisory(row)
 }
 
 func reviewItemParams(reviewID int64, change dependencies.Change, advisory pullsdb.DependencyAdvisory) pullsdb.InsertPullDependencyReviewItemParams {
