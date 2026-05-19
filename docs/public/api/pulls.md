@@ -163,6 +163,30 @@ when `mergeable_state` isn't `clean`. `422` when the requested
 merge method is disabled on the repo or when no commits are
 ahead of base. `503` if another merge is in flight.
 
+## Update a pull request branch
+
+```
+PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/update-branch
+```
+
+Required scope: `repo:write` for collaborators, or `repo:read` for the pull
+request author. Policy: read access plus author ownership, or `ActionRepoWrite`
+on the base repository.
+
+Optional JSON body:
+
+```json
+{
+  "expected_head_sha": "<current-head-oid>"
+}
+```
+
+The request updates the pull request head branch with the base branch. It uses
+merge strategy by default; set `X-Shithub-Strategy: rebase` to request a rebase.
+Returns `200` with a short message and pull request URL. `409` indicates the
+head moved, the base moved, or the branch is already up to date. `422` indicates
+a non-updateable pull request shape.
+
 ## Reviews
 
 PR reviews bundle a verdict (`approve`, `request_changes`, or
@@ -273,5 +297,4 @@ when there is no active request for that user.
 
 ## Not yet shipped
 
-- `PUT /pulls/{n}/update-branch`
 - `PUT /pulls/{n}/auto-merge`

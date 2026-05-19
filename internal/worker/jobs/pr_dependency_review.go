@@ -290,28 +290,7 @@ func matchingReviewAdvisories(ctx context.Context, q pullReviewQueries, db pulls
 }
 
 func dependencyReviewAdvisoryCandidate(row pullsdb.ListDependencyReviewAdvisoryCandidatesRow) pullsdb.DependencyAdvisory {
-	return pullsdb.DependencyAdvisory{
-		ID:              row.ID,
-		Source:          row.Source,
-		ExternalID:      row.ExternalID,
-		Ecosystem:       row.Ecosystem,
-		PackageName:     row.PackageName,
-		AffectedRange:   row.AffectedRange,
-		PatchedVersions: row.PatchedVersions,
-		Severity:        row.Severity,
-		Summary:         row.Summary,
-		Description:     row.Description,
-		ReferenceUrls:   row.ReferenceUrls,
-		PublishedAt:     row.PublishedAt,
-		WithdrawnAt:     row.WithdrawnAt,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
-		ModifiedAt:      row.ModifiedAt,
-		SourceUrl:       row.SourceUrl,
-		CvssScore:       row.CvssScore,
-		CvssVector:      row.CvssVector,
-		CweIds:          row.CweIds,
-	}
+	return pullsdb.DependencyAdvisory(row)
 }
 
 func reviewItemParams(reviewID int64, change dependencies.Change, advisory pullsdb.DependencyAdvisory) pullsdb.InsertPullDependencyReviewItemParams {
