@@ -186,8 +186,10 @@ func expect(actor actorKind, repo repoKind, action policy.Action) bool {
 		have = policy.RoleAdmin
 	}
 
-	// Archived: writes denied (covers owner too).
-	if isArchived && isWrite {
+	// Archived: writes denied (covers owner too) — except for
+	// ActionRepoArchive itself, which is the escape valve for
+	// unarchive. The role check below still has to clear.
+	if isArchived && isWrite && action != policy.ActionRepoArchive {
 		return false
 	}
 
