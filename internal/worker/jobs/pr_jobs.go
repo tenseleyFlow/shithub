@@ -56,6 +56,10 @@ func PRSynchronize(deps PRJobsDeps) worker.Handler {
 		if err := pulls.Synchronize(ctx, pulls.Deps{Pool: deps.Pool, Logger: deps.Logger}, gitDir, p.PRID); err != nil {
 			return err
 		}
+		if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindPRDependencyReview,
+			map[string]any{"pr_id": p.PRID}, worker.EnqueueOptions{}); err != nil {
+			deps.Logger.WarnContext(ctx, "pr:synchronize: enqueue dependency review", "pr_id", p.PRID, "error", err)
+		}
 		// Chain a mergeability tick.
 		if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindPRMergeability,
 			map[string]any{"pr_id": p.PRID}, worker.EnqueueOptions{}); err != nil {
