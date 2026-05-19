@@ -31,6 +31,24 @@ func (q *Queries) AddCodeSecurityCampaignAlert(ctx context.Context, db DBTX, arg
 	return err
 }
 
+const closeCodeSecurityCampaign = `-- name: CloseCodeSecurityCampaign :exec
+UPDATE code_security_campaigns
+SET state = 'closed',
+    closed_at = now()
+WHERE id = $1
+  AND repo_id = $2
+`
+
+type CloseCodeSecurityCampaignParams struct {
+	ID     int64
+	RepoID int64
+}
+
+func (q *Queries) CloseCodeSecurityCampaign(ctx context.Context, db DBTX, arg CloseCodeSecurityCampaignParams) error {
+	_, err := db.Exec(ctx, closeCodeSecurityCampaign, arg.ID, arg.RepoID)
+	return err
+}
+
 const codeScanningSummaryForRepo = `-- name: CodeScanningSummaryForRepo :one
 SELECT
     count(*) FILTER (WHERE status = 'open')::bigint AS open_alert_count,
@@ -531,6 +549,24 @@ type ReopenCodeScanningAlertParams struct {
 
 func (q *Queries) ReopenCodeScanningAlert(ctx context.Context, db DBTX, arg ReopenCodeScanningAlertParams) error {
 	_, err := db.Exec(ctx, reopenCodeScanningAlert, arg.ID, arg.RepoID)
+	return err
+}
+
+const reopenCodeSecurityCampaign = `-- name: ReopenCodeSecurityCampaign :exec
+UPDATE code_security_campaigns
+SET state = 'open',
+    closed_at = NULL
+WHERE id = $1
+  AND repo_id = $2
+`
+
+type ReopenCodeSecurityCampaignParams struct {
+	ID     int64
+	RepoID int64
+}
+
+func (q *Queries) ReopenCodeSecurityCampaign(ctx context.Context, db DBTX, arg ReopenCodeSecurityCampaignParams) error {
+	_, err := db.Exec(ctx, reopenCodeSecurityCampaign, arg.ID, arg.RepoID)
 	return err
 }
 

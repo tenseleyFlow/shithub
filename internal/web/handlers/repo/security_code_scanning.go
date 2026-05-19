@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
@@ -121,6 +123,119 @@ func (h *Handlers) repoCodeScanningUpload(w http.ResponseWriter, r *http.Request
 		"SARIF upload stored. Code scanning alerts were updated.")
 }
 
+func (h *Handlers) repoCodeSecurityCampaignCreate(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	gate := h.repoSecurityCampaignGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		h.renderCodeScanningPage(w, r, row, owner.Username,
+			"Security campaigns require Team for private organization repositories.", "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
+		return
+	}
+	title := strings.TrimSpace(r.PostFormValue("title"))
+	description := strings.TrimSpace(r.PostFormValue("description"))
+	alertIDs := parsePositiveInt64s(r.PostForm["alert_ids"])
+	switch {
+	case title == "":
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Campaign title is required.", "")
+		return
+	case len(title) > 200:
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Campaign title is too long.", "")
+		return
+	case len(description) > 2000:
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Campaign description is too long.", "")
+		return
+	case len(alertIDs) == 0:
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Select at least one code scanning alert.", "")
+		return
+	}
+
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	tx, err := h.d.Pool.Begin(r.Context())
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "code-security-campaign: begin tx", "repo_id", row.ID, "error", err)
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Could not create the campaign.", "")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	campaign, err := h.rq.CreateCodeSecurityCampaign(r.Context(), tx, reposdb.CreateCodeSecurityCampaignParams{
+		RepoID:      row.ID,
+		Title:       title,
+		Description: description,
+		CreatedBy:   pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "code-security-campaign: create", "repo_id", row.ID, "error", err)
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Could not create the campaign.", "")
+		return
+	}
+	for _, alertID := range alertIDs {
+		if err := h.rq.AddCodeSecurityCampaignAlert(r.Context(), tx, reposdb.AddCodeSecurityCampaignAlertParams{
+			CampaignID: campaign.ID,
+			ID:         alertID,
+		}); err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "code-security-campaign: add alert", "repo_id", row.ID, "campaign_id", campaign.ID, "alert_id", alertID, "error", err)
+			h.renderCodeScanningPage(w, r, row, owner.Username, "Could not add selected alerts to the campaign.", "")
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "code-security-campaign: commit", "repo_id", row.ID, "campaign_id", campaign.ID, "error", err)
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Could not create the campaign.", "")
+		return
+	}
+	h.renderCodeScanningPage(w, r, row, owner.Username, "", "Security campaign created.")
+}
+
+func (h *Handlers) repoCodeSecurityCampaignState(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	gate := h.repoSecurityCampaignGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		h.renderCodeScanningPage(w, r, row, owner.Username,
+			"Security campaigns require Team for private organization repositories.", "")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
+		return
+	}
+	campaignID, err := strconv.ParseInt(chi.URLParam(r, "campaignID"), 10, 64)
+	if err != nil || campaignID <= 0 {
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Invalid campaign.", "")
+		return
+	}
+	switch strings.TrimSpace(r.PostFormValue("state")) {
+	case "closed":
+		err = h.rq.CloseCodeSecurityCampaign(r.Context(), h.d.Pool, reposdb.CloseCodeSecurityCampaignParams{
+			ID:     campaignID,
+			RepoID: row.ID,
+		})
+	case "open":
+		err = h.rq.ReopenCodeSecurityCampaign(r.Context(), h.d.Pool, reposdb.ReopenCodeSecurityCampaignParams{
+			ID:     campaignID,
+			RepoID: row.ID,
+		})
+	default:
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Invalid campaign state.", "")
+		return
+	}
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "code-security-campaign: state", "repo_id", row.ID, "campaign_id", campaignID, "error", err)
+		h.renderCodeScanningPage(w, r, row, owner.Username, "Could not update the campaign.", "")
+		return
+	}
+	h.renderCodeScanningPage(w, r, row, owner.Username, "", "Security campaign updated.")
+}
+
 func (h *Handlers) renderCodeScanningPage(w http.ResponseWriter, r *http.Request, row reposdb.Repo, ownerSlug, errMsg, successMsg string) {
 	statusFilter := normalizeCodeScanStatus(r.URL.Query().Get("status"))
 	alerts, _ := h.rq.ListCodeScanningAlertsForRepo(r.Context(), h.d.Pool, reposdb.ListCodeScanningAlertsForRepoParams{
@@ -143,6 +258,11 @@ func (h *Handlers) renderCodeScanningPage(w http.ResponseWriter, r *http.Request
 	data["UploadFeatureKey"] = gate.FeatureKey
 	data["UploadUpgradeHref"] = gate.UpgradeHref
 	data["UploadUpgradeText"] = gate.UpgradeText
+	campaignGate := h.repoSecurityCampaignGate(r.Context(), row, ownerSlug)
+	data["CampaignsAllowed"] = campaignGate.Allowed
+	data["CampaignsFeatureKey"] = campaignGate.FeatureKey
+	data["CampaignsUpgradeHref"] = campaignGate.UpgradeHref
+	data["CampaignsUpgradeText"] = campaignGate.UpgradeText
 	data["Error"] = errMsg
 	data["Success"] = successMsg
 	if err := h.d.Render.RenderPage(w, r, "repo/security_code_scanning", data); err != nil {
@@ -171,6 +291,28 @@ func (h *Handlers) repoCodeScanGate(ctx context.Context, row reposdb.Repo, owner
 		entitlements.Deps{Pool: h.d.Pool},
 		billing.PrincipalForOrg(row.OwnerOrgID.Int64),
 		entitlements.FeatureCodeScanning)
+	if err != nil {
+		gate.Allowed = false
+		return gate
+	}
+	gate.Allowed = decision.Allowed
+	return gate
+}
+
+func (h *Handlers) repoSecurityCampaignGate(ctx context.Context, row reposdb.Repo, ownerSlug string) repoCodeScanGate {
+	gate := repoCodeScanGate{
+		Allowed:     true,
+		FeatureKey:  string(entitlements.FeatureSecurityCampaigns),
+		UpgradeHref: "/organizations/" + ownerSlug + "/settings/billing",
+		UpgradeText: "Upgrade to Team",
+	}
+	if row.Visibility != reposdb.RepoVisibilityPrivate || !row.OwnerOrgID.Valid {
+		return gate
+	}
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForOrg(row.OwnerOrgID.Int64),
+		entitlements.FeatureSecurityCampaigns)
 	if err != nil {
 		gate.Allowed = false
 		return gate
@@ -279,4 +421,21 @@ func firstNonBlank(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parsePositiveInt64s(values []string) []int64 {
+	out := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		id, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

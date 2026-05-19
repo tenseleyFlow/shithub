@@ -189,3 +189,17 @@ JOIN code_security_campaigns c ON c.id = $1
 WHERE a.id = $2
   AND a.repo_id = c.repo_id
 ON CONFLICT DO NOTHING;
+
+-- name: CloseCodeSecurityCampaign :exec
+UPDATE code_security_campaigns
+SET state = 'closed',
+    closed_at = now()
+WHERE id = $1
+  AND repo_id = $2;
+
+-- name: ReopenCodeSecurityCampaign :exec
+UPDATE code_security_campaigns
+SET state = 'open',
+    closed_at = NULL
+WHERE id = $1
+  AND repo_id = $2;

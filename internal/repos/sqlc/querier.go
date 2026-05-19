@@ -22,6 +22,7 @@ type Querier interface {
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
 	ClaimDueDependencyUpdateConfigs(ctx context.Context, db DBTX, arg ClaimDueDependencyUpdateConfigsParams) ([]DependencyUpdateConfig, error)
+	CloseCodeSecurityCampaign(ctx context.Context, db DBTX, arg CloseCodeSecurityCampaignParams) error
 	CodeScanningSummaryForRepo(ctx context.Context, db DBTX, repoID int64) (CodeScanningSummaryForRepoRow, error)
 	CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg CompleteDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	CountActiveDependencyUpdateJobsForConfigKind(ctx context.Context, db DBTX, arg CountActiveDependencyUpdateJobsForConfigKindParams) (int64, error)
@@ -264,6 +265,7 @@ type Querier interface {
 	// redirect row is INSERTed in the same tx.
 	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
 	ReopenCodeScanningAlert(ctx context.Context, db DBTX, arg ReopenCodeScanningAlertParams) error
+	ReopenCodeSecurityCampaign(ctx context.Context, db DBTX, arg ReopenCodeSecurityCampaignParams) error
 	// Atomic full-replace: callers compose the new topic set in Go,
 	// then replace the existing rows in one tx (DELETE + INSERT). The
 	// caller's tx wraps both calls for atomicity.

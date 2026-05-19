@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,6 +93,40 @@ func TestCodeScanningPrivateOrgTeamAllowsUpload(t *testing.T) {
 	}
 }
 
+func TestCodeSecurityCampaignCreateAndClose(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	mux := f.codeScanningMux(f.owner.ID, f.owner.Username)
+	alertID := seedCodeScanningAlert(t, f, f.publicRepo.ID)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/alice/public-repo/security/code-scanning/campaigns", url.Values{
+		"title":     {"High severity sweep"},
+		"alert_ids": {strconv.FormatInt(alertID, 10)},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("campaign create status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	campaignID, state := codeSecurityCampaignState(t, f, f.publicRepo.ID)
+	if state != "open" {
+		t.Fatalf("campaign state=%q, want open", state)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost,
+		"/alice/public-repo/security/code-scanning/campaigns/"+strconv.FormatInt(campaignID, 10)+"/state",
+		url.Values{"state": {"closed"}})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("campaign close status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	_, state = codeSecurityCampaignState(t, f, f.publicRepo.ID)
+	if state != "closed" {
+		t.Fatalf("campaign state=%q, want closed", state)
+	}
+}
+
 func (f *repoFixture) codeScanningMux(userID int64, username string) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(func(next http.Handler) http.Handler {
@@ -102,6 +137,8 @@ func (f *repoFixture) codeScanningMux(userID int64, username string) http.Handle
 	})
 	mux.Get("/{owner}/{repo}/security/code-scanning", f.handlers.repoCodeScanning)
 	mux.Post("/{owner}/{repo}/security/code-scanning/upload", f.handlers.repoCodeScanningUpload)
+	mux.Post("/{owner}/{repo}/security/code-scanning/campaigns", f.handlers.repoCodeSecurityCampaignCreate)
+	mux.Post("/{owner}/{repo}/security/code-scanning/campaigns/{campaignID}/state", f.handlers.repoCodeSecurityCampaignState)
 	return mux
 }
 
@@ -148,6 +185,39 @@ func codeScanningUploadCount(t *testing.T, f *repoFixture, repoID int64) int64 {
 		t.Fatalf("count code scanning uploads: %v", err)
 	}
 	return got
+}
+
+func seedCodeScanningAlert(t *testing.T, f *repoFixture, repoID int64) int64 {
+	t.Helper()
+	alert, err := f.handlers.rq.UpsertCodeScanningAlert(context.Background(), f.pool, reposdb.UpsertCodeScanningAlertParams{
+		RepoID:      repoID,
+		ToolName:    "gosec",
+		RuleID:      "G401",
+		RuleName:    "Weak cryptography",
+		Severity:    "high",
+		Message:     "Use of weak crypto primitive",
+		Path:        "internal/app/main.go",
+		StartLine:   42,
+		Fingerprint: "campaign-fingerprint",
+		CommitSha:   "deadbeef",
+		RefName:     "trunk",
+	})
+	if err != nil {
+		t.Fatalf("UpsertCodeScanningAlert: %v", err)
+	}
+	return alert.ID
+}
+
+func codeSecurityCampaignState(t *testing.T, f *repoFixture, repoID int64) (int64, string) {
+	t.Helper()
+	var id int64
+	var state string
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT id, state FROM code_security_campaigns WHERE repo_id = $1 ORDER BY id DESC LIMIT 1`, repoID,
+	).Scan(&id, &state); err != nil {
+		t.Fatalf("campaign state: %v", err)
+	}
+	return id, state
 }
 
 func upgradeOrgToTeamForCodeScanning(t *testing.T, f *repoFixture, orgID int64) {

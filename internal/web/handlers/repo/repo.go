@@ -208,6 +208,8 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}/security", h.repoTabSecurity)
 	r.Get("/{owner}/{repo}/security/code-scanning", h.repoCodeScanning)
 	r.Post("/{owner}/{repo}/security/code-scanning/upload", h.repoCodeScanningUpload)
+	r.Post("/{owner}/{repo}/security/code-scanning/campaigns", h.repoCodeSecurityCampaignCreate)
+	r.Post("/{owner}/{repo}/security/code-scanning/campaigns/{campaignID}/state", h.repoCodeSecurityCampaignState)
 	r.Get("/{owner}/{repo}/security/secret-scanning", h.repoSecretScanning)
 	r.Post("/{owner}/{repo}/security/secret-scanning/scan", h.repoSecretScanningRunScan)
 	r.Post("/{owner}/{repo}/security/secret-scanning/allowlist", h.repoSecretScanningAllowlistAdd)

@@ -2567,6 +2567,20 @@ button.shithub-contrib-setting-item:hover {
 }
 .shithub-settings-section textarea { min-height: 4rem; resize: vertical; }
 .shithub-settings-section .shithub-button { justify-self: start; }
+.shithub-settings-section form.shithub-code-campaign-form {
+  max-width: none;
+}
+.shithub-code-campaign-fields {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(16rem, 2fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+@media (max-width: 700px) {
+  .shithub-code-campaign-fields {
+    grid-template-columns: 1fr;
+  }
+}
 
 .shithub-settings-danger-zone {
   border: 1px solid rgba(207, 34, 46, 0.4);

@@ -89,9 +89,25 @@
     <section class="shithub-settings-section">
       <h2>Alerts</h2>
       {{ if .Alerts }}
+      {{ if .CampaignsAllowed }}
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/code-scanning/campaigns" class="shithub-code-campaign-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <div class="shithub-code-campaign-fields">
+          <label>
+            <span>Campaign title</span>
+            <input type="text" name="title" maxlength="200" placeholder="Address high-severity scanner findings">
+          </label>
+          <label>
+            <span>Description</span>
+            <input type="text" name="description" maxlength="2000" placeholder="Coordinate remediation for selected alerts">
+          </label>
+          <button type="submit" class="shithub-button">Create campaign from selected</button>
+        </div>
+      {{ end }}
       <table class="shithub-table">
         <thead>
           <tr>
+            {{ if .CampaignsAllowed }}<th><span class="sr-only">Select</span></th>{{ end }}
             <th>Severity</th>
             <th>Alert</th>
             <th>Tool</th>
@@ -102,6 +118,11 @@
         <tbody>
           {{ range .Alerts }}
           <tr>
+            {{ if $.CampaignsAllowed }}
+            <td>
+              <input type="checkbox" name="alert_ids" value="{{ .ID }}"{{ if ne .Status "open" }} disabled{{ end }} aria-label="Select {{ .RuleID }}">
+            </td>
+            {{ end }}
             <td><span class="shithub-org-security-severity is-{{ .Severity }}">{{ .Severity }}</span></td>
             <td>
               <strong>{{ if .RuleName }}{{ .RuleName }}{{ else }}{{ .RuleID }}{{ end }}</strong>
@@ -118,6 +139,7 @@
           {{ end }}
         </tbody>
       </table>
+      {{ if .CampaignsAllowed }}</form>{{ end }}
       {{ else }}
       <p class="shithub-empty-note">No code scanning alerts match this filter.</p>
       {{ end }}
@@ -125,6 +147,15 @@
 
     <section class="shithub-settings-section">
       <h2>Security campaigns</h2>
+      {{ if not .CampaignsAllowed }}
+      <div class="shithub-org-security-upgrade">
+        <div>
+          <h2>Security campaigns are a Team feature for private organization repositories.</h2>
+          <p>Create focused remediation campaigns from selected code scanning alerts after upgrading this organization.</p>
+        </div>
+        <a class="shithub-button shithub-button-primary" href="{{ .CampaignsUpgradeHref }}" data-pro-feature="{{ .CampaignsFeatureKey }}">{{ .CampaignsUpgradeText }}</a>
+      </div>
+      {{ else }}
       {{ if .Campaigns }}
       <table class="shithub-table">
         <thead>
@@ -133,6 +164,7 @@
             <th>State</th>
             <th>Open alerts</th>
             <th>Total alerts</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -145,12 +177,25 @@
             <td><span class="shithub-pill shithub-pill-status-{{ .State }}">{{ .State }}</span></td>
             <td>{{ .OpenAlertCount }}</td>
             <td>{{ .AlertCount }}</td>
+            <td>
+              <form method="POST" action="/{{ $.Owner }}/{{ $.Repo.Name }}/security/code-scanning/campaigns/{{ .ID }}/state" class="shithub-inline-form">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                {{ if eq .State "open" }}
+                <input type="hidden" name="state" value="closed">
+                <button type="submit" class="shithub-button shithub-button-small">Close</button>
+                {{ else }}
+                <input type="hidden" name="state" value="open">
+                <button type="submit" class="shithub-button shithub-button-small">Reopen</button>
+                {{ end }}
+              </form>
+            </td>
           </tr>
           {{ end }}
         </tbody>
       </table>
       {{ else }}
       <p class="shithub-empty-note">No security campaigns yet. Campaign grouping will use the alerts stored on this page.</p>
+      {{ end }}
       {{ end }}
     </section>
   </section>
