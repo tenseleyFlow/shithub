@@ -99,13 +99,10 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	if stateFilter == "" {
 		stateFilter = "open"
 	}
-	stateNarg := pgtype.Text{}
-	if stateFilter == "open" || stateFilter == "closed" {
-		stateNarg = pgtype.Text{String: stateFilter, Valid: true}
-	} else {
+	if stateFilter != "open" && stateFilter != "closed" {
 		stateFilter = "open"
-		stateNarg = pgtype.Text{String: stateFilter, Valid: true}
 	}
+	stateNarg := pgtype.Text{String: stateFilter, Valid: true}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
