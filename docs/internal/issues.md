@@ -68,7 +68,7 @@ SQL `INSERT … ON CONFLICT DO NOTHING`.
 
 | Route                                                          | Auth          |
 | -------------------------------------------------------------- | ------------- |
-| `GET  /{owner}/{repo}/issues?state=open\|closed`               | public        |
+| `GET  /{owner}/{repo}/issues?q=is:issue state:open\|closed`    | public        |
 | `GET  /{owner}/{repo}/issues/{number}`                         | public        |
 | `GET  /{owner}/{repo}/labels`                                  | public        |
 | `GET  /{owner}/{repo}/milestones`                              | public        |
@@ -91,6 +91,12 @@ gives anonymous browsers a `/login` redirect instead of the same 404.
 Issue creation and commenting follow GitHub's public-participation
 model: any logged-in user may open or comment on issues in a public
 repo, while private repos require `read` access.
+
+The issue index follows GitHub's search-first list surface. `state=open`
+and `state=closed` still work, but the rendered search bar uses the
+GitHub-style `q=is:issue state:<state>` query. Labels and milestones are
+public management pages; milestones split open/closed counts and render the
+GitHub empty state when no milestones match the selected state.
 
 The issue page is capability-driven:
 
