@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
@@ -70,7 +71,7 @@ func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, repo rep
 }
 
 func preReceiveSecretProtectionEnabled(ctx context.Context, h *hookCtx, repo reposdb.Repo) (bool, error) {
-	if repo.Visibility == reposdb.RepoVisibilityPublic {
+	if policy.NewRepoRefFromRepo(repo).IsPublic() {
 		return true, nil
 	}
 	if repo.OwnerOrgID.Valid {

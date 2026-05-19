@@ -48,6 +48,11 @@ func (r RepoRef) IsPublic() bool { return r.Visibility == "public" }
 // call site.
 func (r RepoRef) IsPrivate() bool { return r.Visibility == "private" }
 
+// Archived reports whether writes should be blocked because the repository is
+// archived. Keep archive-state reads policy-side so handlers and hooks do not
+// grow their own repo-state authorization checks.
+func (r RepoRef) Archived() bool { return r.IsArchived }
+
 // IsOwnedByUser reports whether userID is the direct user owner. Keep
 // ownership interpretation here so handlers do not grow inline owner
 // checks next to request behavior.
