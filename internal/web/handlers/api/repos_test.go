@@ -48,6 +48,7 @@ type apiRepo struct {
 	OwnerType     string          `json:"owner_type"`
 	Owner         *apiRepoOwner   `json:"owner"`
 	Description   string          `json:"description"`
+	Homepage      string          `json:"homepage"`
 	Visibility    string          `json:"visibility"`
 	Private       bool            `json:"private"`
 	HTMLURL       string          `json:"html_url"`
@@ -449,6 +450,113 @@ func TestRepos_PatchRenamesRepo(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("GET new name: %d; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestRepos_PatchHomepagePersists is the E7 regression: pre-fix the
+// PATCH handler silently dropped the homepage field (the column didn't
+// even exist). Migration 0116 adds the column; the round-trip is now:
+// POST repo → PATCH homepage=… → GET surfaces the persisted value.
+func TestRepos_PatchHomepagePersists(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+	var created apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.Homepage != "" {
+		t.Errorf("fresh repo: homepage = %q, want empty", created.Homepage)
+	}
+
+	// PATCH homepage. Response must reflect the new value AND a follow-up
+	// GET must surface it — the audit caught this gap on the GET side.
+	patch, _ := json.Marshal(map[string]any{"homepage": "https://example.com"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status: %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var patched apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patched.Homepage != "https://example.com" {
+		t.Errorf("patch response: homepage = %q, want https://example.com", patched.Homepage)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d", rr.Code)
+	}
+	var got apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get: %v", err)
+	}
+	if got.Homepage != "https://example.com" {
+		t.Errorf("get response: homepage = %q, want https://example.com", got.Homepage)
+	}
+}
+
+// TestRepos_PatchHomepagePreservedAcrossUnrelatedPatch confirms the
+// "default to existing value when not specified" branch: patching only
+// description must not clear a previously-set homepage.
+func TestRepos_PatchHomepagePreservedAcrossUnrelatedPatch(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{"name": "demo", "visibility": "public"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	for _, p := range []map[string]any{
+		{"homepage": "https://example.com"},
+		{"description": "now described"},
+	} {
+		raw, _ := json.Marshal(p)
+		req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo", bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr = httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("patch %v: %d; body=%s", p, rr.Code, rr.Body.String())
+		}
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	var got apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Homepage != "https://example.com" {
+		t.Errorf("homepage cleared by description patch: got %q", got.Homepage)
+	}
+	if got.Description != "now described" {
+		t.Errorf("description: got %q", got.Description)
 	}
 }
 
