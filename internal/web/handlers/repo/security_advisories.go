@@ -138,6 +138,11 @@ func (h *Handlers) repoSecurityAdvisoryCreate(w http.ResponseWriter, r *http.Req
 		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "new", "Could not create the advisory.")
 		return
 	}
+	if err := h.syncRepoSecurityAdvisoryDependencyAlerts(r.Context(), tx, advisory); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "security-advisory: sync dependency alerts on create", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
+		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "new", "Could not create the advisory.")
+		return
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "security-advisory: commit create", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
 		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "new", "Could not create the advisory.")
@@ -251,6 +256,11 @@ func (h *Handlers) repoSecurityAdvisoryUpdate(w http.ResponseWriter, r *http.Req
 		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "edit", "Could not update the advisory.")
 		return
 	}
+	if err := h.syncRepoSecurityAdvisoryDependencyAlerts(r.Context(), tx, updated); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "security-advisory: sync dependency alerts on update", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
+		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "edit", "Could not update the advisory.")
+		return
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "security-advisory: commit update", "repo_id", row.ID, "advisory_id", advisory.ID, "error", err)
 		h.renderSecurityAdvisoryForm(w, r, row, owner.Username, form, nil, "edit", "Could not update the advisory.")
@@ -315,6 +325,11 @@ func (h *Handlers) repoSecurityAdvisoryState(w http.ResponseWriter, r *http.Requ
 		ActorID:    pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "security-advisory: state event", "repo_id", row.ID, "advisory_id", advisory.ID, "state", newState, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if err := h.syncRepoSecurityAdvisoryDependencyAlerts(r.Context(), tx, updated); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "security-advisory: sync dependency alerts on state", "repo_id", row.ID, "advisory_id", advisory.ID, "state", newState, "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
@@ -448,6 +463,43 @@ func (h *Handlers) repoSecurityAdvisoryGate(ctx context.Context, row reposdb.Rep
 	return gate
 }
 
+func (h *Handlers) syncRepoSecurityAdvisoryDependencyAlerts(ctx context.Context, db reposdb.DBTX, advisory reposdb.RepoSecurityAdvisory) error {
+	if strings.TrimSpace(advisory.AffectedEcosystem) == "" || strings.TrimSpace(advisory.AffectedPackage) == "" {
+		return nil
+	}
+	source := repoSecurityAdvisoryDependencySource(advisory.RepoID)
+	withdrawnAt := pgtype.Timestamptz{}
+	if advisory.State != "published" {
+		withdrawnAt = pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+	}
+	if _, err := h.rq.UpsertDependencyAdvisory(ctx, db, reposdb.UpsertDependencyAdvisoryParams{
+		Source:          source,
+		ExternalID:      advisory.Identifier,
+		Ecosystem:       advisory.AffectedEcosystem,
+		PackageName:     advisory.AffectedPackage,
+		AffectedRange:   advisory.VulnerableVersions,
+		PatchedVersions: advisory.PatchedVersions,
+		Severity:        advisory.Severity,
+		Summary:         advisory.Summary,
+		Description:     advisory.Description,
+		ReferenceUrls:   advisory.ReferenceUrls,
+		PublishedAt:     advisory.PublishedAt,
+		WithdrawnAt:     withdrawnAt,
+	}); err != nil {
+		return err
+	}
+	params := reposdb.RefreshDependencyAlertsForAdvisoryParams{
+		Source:     source,
+		ExternalID: advisory.Identifier,
+	}
+	if advisory.State == "published" {
+		if err := h.rq.RefreshDependencyAlertsForAdvisory(ctx, db, params); err != nil {
+			return err
+		}
+	}
+	return h.rq.ResolveStaleDependencyAlertsForAdvisory(ctx, db, reposdb.ResolveStaleDependencyAlertsForAdvisoryParams(params))
+}
+
 func (h *Handlers) canManageRepoSecurityAdvisories(ctx context.Context, row reposdb.Repo, viewer middleware.CurrentUser) bool {
 	if viewer.IsAnonymous() {
 		return false
@@ -537,6 +589,10 @@ func repoSecurityAdvisoryIdentifier(repoID int64, form repoSecurityAdvisoryForm)
 
 func repoSecurityAdvisoryPath(owner, repoName, identifier string) string {
 	return "/" + url.PathEscape(owner) + "/" + url.PathEscape(repoName) + "/security/advisories/" + url.PathEscape(identifier)
+}
+
+func repoSecurityAdvisoryDependencySource(repoID int64) string {
+	return fmt.Sprintf("repo-security-advisory:%d", repoID)
 }
 
 func normalizeRepoSecurityAdvisorySeverity(raw string) string {

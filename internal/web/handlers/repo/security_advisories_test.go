@@ -72,6 +72,62 @@ func TestRepoSecurityAdvisoryStateTransitions(t *testing.T) {
 	}
 }
 
+func TestRepoSecurityAdvisoryPublishAndWithdrawRefreshDependencyAlerts(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	ctx := context.Background()
+	f.upsertCurrentDependency(t, f.publicRepo.ID, "go", "github.com/example/pkg", "v1.2.2")
+	row := f.createSecurityAdvisory(t, f.publicRepo.ID, "SHSA-LOCAL-DEPS", "draft", "Upgrade to `v1.2.3`.")
+
+	alerts, err := reposdb.New().ListOpenDependencyAlertsForRepo(ctx, f.pool, f.publicRepo.ID)
+	if err != nil {
+		t.Fatalf("ListOpenDependencyAlertsForRepo pre-publish: %v", err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("draft advisory opened alerts: %+v", alerts)
+	}
+
+	form := url.Values{"action": {"publish"}}
+	req := repoRouteFormRequest(http.MethodPost, "/alice/public-repo/security/advisories/SHSA-LOCAL-DEPS/state", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.owner), form)
+	rw := httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryState(rw, req)
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("publish status %d, want 303: %s", rw.Code, rw.Body.String())
+	}
+
+	alerts, err = reposdb.New().ListOpenDependencyAlertsForRepo(ctx, f.pool, f.publicRepo.ID)
+	if err != nil {
+		t.Fatalf("ListOpenDependencyAlertsForRepo post-publish: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("open alerts after publish = %+v, want one", alerts)
+	}
+	if alerts[0].Source != repoSecurityAdvisoryDependencySource(f.publicRepo.ID) ||
+		alerts[0].ExternalID != "SHSA-LOCAL-DEPS" ||
+		alerts[0].PatchedVersions != "1.2.3" {
+		t.Fatalf("alert mismatch after publish: %+v", alerts[0])
+	}
+
+	form = url.Values{"action": {"withdraw"}}
+	req = repoRouteFormRequest(http.MethodPost, "/alice/public-repo/security/advisories/SHSA-LOCAL-DEPS/state", f.owner.Username, f.publicRepo.Name, row.Identifier, viewerFor(f.owner), form)
+	rw = httptest.NewRecorder()
+	f.handlers.repoSecurityAdvisoryState(rw, req)
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("withdraw status %d, want 303: %s", rw.Code, rw.Body.String())
+	}
+
+	alerts, err = reposdb.New().ListOpenDependencyAlertsForRepo(ctx, f.pool, f.publicRepo.ID)
+	if err != nil {
+		t.Fatalf("ListOpenDependencyAlertsForRepo post-withdraw: %v", err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("withdrawn advisory left open alerts: %+v", alerts)
+	}
+	if got := f.countDependencyAlertsByStatus(t, f.publicRepo.ID, "resolved"); got != 1 {
+		t.Fatalf("resolved dependency alerts=%d, want 1", got)
+	}
+}
+
 func TestRepoSecurityAdvisoryDetailSanitizesMarkdown(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -191,7 +247,7 @@ func (f *repoFixture) createSecurityAdvisory(t *testing.T, repoID int64, identif
 		Description:        description,
 		AffectedEcosystem:  "go",
 		AffectedPackage:    "github.com/example/pkg",
-		VulnerableVersions: "< 1.2.3",
+		VulnerableVersions: "v1.2.2",
 		PatchedVersions:    "1.2.3",
 		ReferenceUrls:      []byte(`[]`),
 		CreatedBy:          pgtype.Int8{Int64: f.owner.ID, Valid: true},
@@ -232,6 +288,35 @@ func (f *repoFixture) countSecurityAdvisories(t *testing.T, repoID int64) int {
 		`SELECT count(*) FROM repo_security_advisories WHERE repo_id = $1`,
 		repoID).Scan(&count); err != nil {
 		t.Fatalf("count security advisories: %v", err)
+	}
+	return count
+}
+
+func (f *repoFixture) upsertCurrentDependency(t *testing.T, repoID int64, ecosystem, packageName, version string) {
+	t.Helper()
+	if _, err := reposdb.New().UpsertRepoDependency(context.Background(), f.pool, reposdb.UpsertRepoDependencyParams{
+		RepoID:         repoID,
+		Ecosystem:      ecosystem,
+		PackageName:    packageName,
+		PackageVersion: version,
+		ManifestPath:   "go.mod",
+		Scope:          "runtime",
+		Direct:         true,
+		PackageManager: "gomod",
+		Source:         "go.mod",
+		LastSeenSha:    "deadbeef",
+	}); err != nil {
+		t.Fatalf("UpsertRepoDependency: %v", err)
+	}
+}
+
+func (f *repoFixture) countDependencyAlertsByStatus(t *testing.T, repoID int64, status string) int {
+	t.Helper()
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM repo_dependency_alerts WHERE repo_id = $1 AND status = $2`,
+		repoID, status).Scan(&count); err != nil {
+		t.Fatalf("count dependency alerts by status: %v", err)
 	}
 	return count
 }

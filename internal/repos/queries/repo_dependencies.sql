@@ -107,6 +107,31 @@ SET last_seen_at = now(),
         ELSE repo_dependency_alerts.resolved_at
     END;
 
+-- name: RefreshDependencyAlertsForAdvisory :exec
+INSERT INTO repo_dependency_alerts (
+    repo_id, dependency_id, advisory_id, status, last_seen_at
+)
+SELECT d.repo_id, d.id, a.id, 'open', now()
+FROM dependency_advisories a
+JOIN repo_dependencies d
+  ON lower(a.ecosystem) = lower(d.ecosystem)
+ AND lower(a.package_name) = lower(d.package_name)
+WHERE a.source = $1
+  AND a.external_id = $2
+  AND a.withdrawn_at IS NULL
+  AND d.stale_at IS NULL
+  AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
+ON CONFLICT (repo_id, dependency_id, advisory_id) DO UPDATE
+SET last_seen_at = now(),
+    status = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN 'open'
+        ELSE repo_dependency_alerts.status
+    END,
+    resolved_at = CASE
+        WHEN repo_dependency_alerts.status = 'resolved' THEN NULL
+        ELSE repo_dependency_alerts.resolved_at
+    END;
+
 -- name: ResolveStaleDependencyAlertsForRepo :exec
 UPDATE repo_dependency_alerts alert
 SET status = 'resolved',
@@ -122,6 +147,28 @@ WHERE alert.repo_id = $1
         AND d.repo_id = alert.repo_id
         AND d.stale_at IS NULL
         AND a.withdrawn_at IS NULL
+        AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
+  );
+
+-- name: ResolveStaleDependencyAlertsForAdvisory :exec
+UPDATE repo_dependency_alerts alert
+SET status = 'resolved',
+    resolved_at = now(),
+    last_seen_at = now()
+FROM dependency_advisories a
+WHERE alert.advisory_id = a.id
+  AND a.source = $1
+  AND a.external_id = $2
+  AND alert.status = 'open'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM repo_dependencies d
+      WHERE d.id = alert.dependency_id
+        AND d.repo_id = alert.repo_id
+        AND d.stale_at IS NULL
+        AND a.withdrawn_at IS NULL
+        AND lower(a.ecosystem) = lower(d.ecosystem)
+        AND lower(a.package_name) = lower(d.package_name)
         AND (a.affected_range = '' OR a.affected_range = '*' OR a.affected_range = d.package_version)
   );
 
