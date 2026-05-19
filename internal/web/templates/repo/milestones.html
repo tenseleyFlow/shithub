@@ -1,53 +1,116 @@
 {{ define "page" -}}
 <section class="shithub-repo-page">
-  {{ template "repo-header" . }}
-  <section class="shithub-milestones">
-  <header class="shithub-issues-head">
-    <h1>
-      Milestones
-    </h1>
-  </header>
+  <section class="shithub-milestones shithub-issues-page">
+    <header class="shithub-list-page-heading">
+      <h1>Milestones</h1>
+      {{ if .CanManageIssue }}
+      <details class="shithub-milestone-create shithub-inline-create">
+        <summary class="shithub-button shithub-button-primary">New milestone</summary>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-milestone-form shithub-create-panel">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Title</span>
+            <input type="text" name="title" placeholder="Title" maxlength="200" required>
+          </label>
+          <label>
+            <span>Due date</span>
+            <input type="date" name="due_on">
+          </label>
+          <label class="shithub-wide-label">
+            <span>Description</span>
+            <textarea name="description" placeholder="Description (optional)" rows="3"></textarea>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Create milestone</button>
+        </form>
+      </details>
+      {{ end }}
+    </header>
 
-  {{ if .CanManageIssue }}
-  <details class="shithub-milestone-create">
-    <summary class="shithub-button shithub-button-primary">New milestone</summary>
-    <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-milestone-form">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <input type="text" name="title" placeholder="title" maxlength="200" required>
-      <input type="date" name="due_on">
-      <textarea name="description" placeholder="description (optional)" rows="3"></textarea>
-      <button type="submit" class="shithub-button">Create</button>
-    </form>
-  </details>
-  {{ end }}
+    <div class="shithub-milestones-box">
+      <div class="shithub-milestones-box-head">
+        <nav class="shithub-issues-state-tabs" aria-label="Milestone states">
+          <a href="?state=open" class="{{ if eq .State "open" }}is-selected{{ end }}">
+            <span>Open</span>
+            <span class="shithub-counter-label">{{ .OpenCount }}</span>
+          </a>
+          <a href="?state=closed" class="{{ if eq .State "closed" }}is-selected{{ end }}">
+            <span>Closed</span>
+            <span class="shithub-counter-label">{{ .ClosedCount }}</span>
+          </a>
+        </nav>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">{{ octicon "list-unordered" }} Sort {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Sort by</div>
+            <button type="button" class="shithub-menu-item is-selected" role="menuitem">{{ octicon "check" }} Due date</button>
+            <button type="button" class="shithub-menu-item" role="menuitem">Newest</button>
+          </div>
+        </details>
+      </div>
 
-  <ul class="shithub-milestones-list">
-    {{ range .Milestones }}
-    <li class="shithub-milestones-row">
-      <h3>{{ .Title }}
-        <span class="shithub-pill shithub-issues-state-{{ printf "%s" .State }}">{{ printf "%s" .State }}</span>
-        {{ if .DueOn.Valid }}<small>due {{ .DueOn.Time.Format "Jan 2, 2006" }}</small>{{ end }}
-      </h3>
-      {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
-      {{ if $.CanManageIssue }}
-      <div class="shithub-milestone-actions">
-        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/state">
-          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-          {{ if eq (printf "%s" .State) "open" }}
-          <button type="submit" name="state" value="closed" class="shithub-button">Close milestone</button>
-          {{ else }}
-          <button type="submit" name="state" value="open" class="shithub-button">Reopen milestone</button>
+      {{ if .Milestones }}
+      <ul class="shithub-milestones-list">
+        {{ range .Milestones }}
+        <li class="shithub-milestones-row">
+          <div class="shithub-milestones-icon">{{ octicon "milestone" }}</div>
+          <div class="shithub-milestones-main">
+            <h2>
+              <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones">{{ .Title }}</a>
+              <span class="shithub-pill shithub-issues-state-{{ printf "%s" .State }}">{{ printf "%s" .State }}</span>
+            </h2>
+            {{ if .Description }}<p>{{ .Description }}</p>{{ end }}
+            <div class="shithub-milestones-meta">
+              {{ if .DueOn.Valid }}Due by {{ .DueOn.Time.Format "Jan 2, 2006" }}{{ else }}No due date{{ end }}
+            </div>
+          </div>
+          {{ if $.CanManageIssue }}
+          <div class="shithub-milestone-actions">
+            <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/state">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              {{ if eq (printf "%s" .State) "open" }}
+              <button type="submit" name="state" value="closed" class="shithub-button">Close milestone</button>
+              {{ else }}
+              <button type="submit" name="state" value="open" class="shithub-button">Reopen milestone</button>
+              {{ end }}
+            </form>
+            <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/delete">
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+              <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+            </form>
+          </div>
           {{ end }}
-        </form>
-        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones/{{ .ID }}/delete">
-          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-          <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
-        </form>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <div class="shithub-milestones-empty">
+        <div class="shithub-empty-state-icon">{{ octicon "milestone" }}</div>
+        <h2>You haven't created any Milestones.</h2>
+        <p>Use Milestones to create collections of Issues and Pull Requests for a particular release or project.</p>
+        {{ if .CanManageIssue }}
+        <details class="shithub-milestone-create shithub-inline-create">
+          <summary class="shithub-button shithub-button-primary">Create a milestone</summary>
+          <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-milestone-form shithub-create-panel">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+            <label>
+              <span>Title</span>
+              <input type="text" name="title" placeholder="Title" maxlength="200" required>
+            </label>
+            <label>
+              <span>Due date</span>
+              <input type="date" name="due_on">
+            </label>
+            <label class="shithub-wide-label">
+              <span>Description</span>
+              <textarea name="description" placeholder="Description (optional)" rows="3"></textarea>
+            </label>
+            <button type="submit" class="shithub-button shithub-button-primary">Create milestone</button>
+          </form>
+        </details>
+        {{ end }}
       </div>
       {{ end }}
-    </li>
-    {{ end }}
-  </ul>
+    </div>
   </section>
 </section>
 {{- end }}
