@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -179,8 +180,45 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
-	stateFilter := normalizeIssueState(r.URL.Query().Get("state"))
-	draftFilter := normalizeDraftFilter(r.URL.Query().Get("draft"))
+	// E5: strict state. PR-specific value `merged` is post-filter
+	// (merged_at IS NOT NULL); the sqlc query still takes open/closed/NULL.
+	rawState := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("state")))
+	var stateFilter pgtype.Text
+	var wantMerged bool
+	switch rawState {
+	case "open":
+		stateFilter = pgtype.Text{String: "open", Valid: true}
+	case "closed":
+		stateFilter = pgtype.Text{String: "closed", Valid: true}
+	case "merged":
+		// Merged PRs are closed; post-filter narrows further.
+		stateFilter = pgtype.Text{String: "closed", Valid: true}
+		wantMerged = true
+	case "", "all":
+		stateFilter = pgtype.Text{}
+	default:
+		writeAPIError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("state: must be one of open, closed, merged, all (got %q)", rawState))
+		return
+	}
+	draftFilter, derr := strictDraftFilter(r.URL.Query().Get("draft"))
+	if derr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, derr.Error())
+		return
+	}
+
+	// E5: author/base/label filters — same treatment as the issue side.
+	authorID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("author"))
+	if aerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "author: "+aerr.Error())
+		return
+	}
+	baseRef := strings.TrimSpace(r.URL.Query().Get("base"))
+	wantedLabelIDs, lerr := h.parseAndValidateLabelsFilter(r, repo.ID)
+	if lerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, lerr.Error())
+		return
+	}
 
 	q := pullsdb.New()
 	total, err := q.CountPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.CountPullRequestsByRepoParams{
@@ -205,6 +243,62 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	// E5 post-filters. Cheap row-local filters first; label post-filter
+	// piggybacks on the issue-side helper since PRs share the issue
+	// schema (kind='pr').
+	if authorID != 0 {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.AuthorUserID.Valid && row.AuthorUserID.Int64 == authorID {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if baseRef != "" {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.BaseRef == baseRef {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if wantMerged {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.MergedAt.Valid {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if len(wantedLabelIDs) > 0 {
+		// Reuse the issue-side post-filter: it operates on rows that
+		// have ID + RepoID, which both schemas share. Adapt via a
+		// shim type so we can pass PR rows through.
+		filtered := rows[:0]
+		for _, row := range rows {
+			matched := 0
+			labels, err := issuesdb.New().ListLabelsOnIssue(r.Context(), h.d.Pool, row.IssueID)
+			if err != nil {
+				continue
+			}
+			for _, l := range labels {
+				for _, wantID := range wantedLabelIDs {
+					if l.ID == wantID {
+						matched++
+						break
+					}
+				}
+			}
+			if matched == len(wantedLabelIDs) {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+
 	link := apipage.Page{Current: page, PerPage: perPage, Total: int(total)}.LinkHeader(h.d.BaseURL, sanitizedURL(r))
 	if link != "" {
 		w.Header().Set("Link", link)
@@ -253,14 +347,20 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func normalizeDraftFilter(s string) pgtype.Bool {
+// strictDraftFilter validates the `draft` query parameter. Empty
+// returns no filter; "true"/"false" set the filter; anything else
+// 422s. Was previously lenient (silently dropped non-bool); tightened
+// for the E5 cluster.
+func strictDraftFilter(s string) (pgtype.Bool, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "true":
-		return pgtype.Bool{Bool: true, Valid: true}
+		return pgtype.Bool{Bool: true, Valid: true}, nil
 	case "false":
-		return pgtype.Bool{Bool: false, Valid: true}
+		return pgtype.Bool{Bool: false, Valid: true}, nil
+	case "":
+		return pgtype.Bool{}, nil
 	default:
-		return pgtype.Bool{}
+		return pgtype.Bool{}, fmt.Errorf("draft: must be true or false (got %q)", s)
 	}
 }
 
