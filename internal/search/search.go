@@ -31,6 +31,14 @@ type Deps struct {
 // Errors surfaced to handlers.
 var (
 	ErrEmptyQuery = errors.New("search: query is empty")
+
+	// ErrFTSStripped signals that the user supplied a non-empty query
+	// but Postgres FTS stripped every lexeme — single-char tokens like
+	// "F" or hyphen-split words like "F-audit" where neither half
+	// survives stemming. G11 (F49): pre-fix the search command silently
+	// returned 0 results; the typed error lets the API handler emit a
+	// 422 with a user-actionable explanation.
+	ErrFTSStripped = errors.New("search: query has no FTS-indexable tokens (try a longer query)")
 )
 
 // PageSize is the per-type result count for the full results page.

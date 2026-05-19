@@ -29,6 +29,18 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 		return nil, 0, nil
 	}
 
+	// G11 (F49): if free-text was supplied without any narrowing
+	// filter (repo:/user:/org:), verify the user gave at least one
+	// token long enough to plausibly match indexed content. Short
+	// queries like "F" are syntactically valid but never produce hits,
+	// so we surface a typed 422 instead of letting the CLI report
+	// "no results found" the same as a real no-match search.
+	if hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" {
+		if err := validateFTSNotShortOnly(tsText); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	// $1 is the tsquery text payload (only when hasFTS); the
 	// visibility predicate gets the next placeholders.
 	args := []any{}
@@ -144,4 +156,40 @@ func tsQueryBindAndCtor(q ParsedQuery) (text, ctor string, hasFTS bool) {
 		return q.Text, "plainto_tsquery", true
 	}
 	return "", "", false
+}
+
+// minIndexableTokenLen is the floor for a free-text query token to be
+// likely-matchable by Postgres FTS. The english stemmer + index don't
+// strip single-char tokens *syntactically*, but they almost never have
+// a matching term in indexed content (no document contains lone "F").
+// 3 was picked over 2 to still allow "go"/"ci"/"v1" — short but real.
+const minIndexableTokenLen = 2
+
+// validateFTSNotShortOnly returns ErrFTSStripped when every alphanumeric
+// run in the raw free-text is shorter than minIndexableTokenLen. G11
+// (F49): pre-fix `search issues "F"` returned 200 + empty, indistinct
+// from a genuine no-match search; this surfaces a typed 422 the CLI
+// translates to "try a longer or differently-worded query."
+//
+// Punctuation, whitespace, and non-letter/digit runes are token
+// separators. A query like "F-audit" has token "audit" (length 5) and
+// passes; a query like "F" or "F-" has only single-char tokens and
+// fails.
+func validateFTSNotShortOnly(text string) error {
+	cur := 0
+	for _, r := range text {
+		if isTokenRune(r) {
+			cur++
+			if cur >= minIndexableTokenLen {
+				return nil
+			}
+			continue
+		}
+		cur = 0
+	}
+	return ErrFTSStripped
+}
+
+func isTokenRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
