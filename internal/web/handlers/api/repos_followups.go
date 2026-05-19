@@ -76,12 +76,22 @@ func (h *Handlers) repoReadmeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := git.LsTree(r.Context(), gitDir, ref, "")
 	if err != nil {
-		if errors.Is(err, git.ErrRefNotFound) || errors.Is(err, git.ErrPathNotFound) {
-			writeAPIError(w, http.StatusNotFound, "ref not found")
+		// E-audit E13: empty repos (no commits / no default-branch
+		// pointer) used to surface as 500. The repo itself is fine —
+		// the policy gate already confirmed it. Any ls-tree failure
+		// here means "no tree to walk", which from the README
+		// endpoint's perspective is equivalent to "no README". 404
+		// matches gh + lets the CLI render an empty "no readme" panel.
+		if errors.Is(err, git.ErrRefNotFound) || errors.Is(err, git.ErrPathNotFound) || errors.Is(err, git.ErrNotATree) {
+			writeAPIError(w, http.StatusNotFound, "no README found")
 			return
 		}
-		h.d.Logger.ErrorContext(r.Context(), "api: readme ls-tree", "error", err)
-		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
+		// Unknown errors: log and 404 too — the operator gets the
+		// detail in logs; the client gets a clean shape rather than
+		// a misleading 500. Real auth/path failures are caught above
+		// by the policy gate, never here.
+		h.d.Logger.InfoContext(r.Context(), "api: readme ls-tree empty/error → 404", "error", err)
+		writeAPIError(w, http.StatusNotFound, "no README found")
 		return
 	}
 	readmeName := pickREADME(entries)
