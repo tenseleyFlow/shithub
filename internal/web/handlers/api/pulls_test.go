@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -712,5 +713,174 @@ func TestPulls_ListHeadFilter(t *testing.T) {
 	}
 	if code, rows := get("head=NOPE"); code != 200 || len(rows) != 0 {
 		t.Errorf("head=NOPE: code=%d rows=%d (want 0)", code, len(rows))
+	}
+}
+
+// G2 (F3): `pr comment` POSTs to `/issues/{N}/comments` (gh-compat
+// shared namespace). Pre-fix the server's strict `kind=issue` gate
+// 404'd PR numbers there — `pr comment` broken end-to-end. Same gate
+// also broke GET (listing PR conversation comments). This test pins
+// both directions of the comments roundtrip against a PR row.
+func TestPulls_SharedNamespace_CommentsRoundtrip(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+
+	// POST /issues/{N}/comments against PR number must succeed.
+	body, _ := json.Marshal(map[string]any{"body": "looks great"})
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/repos/alice/demo/issues/"+strconv.FormatInt(pr.Number, 10)+"/comments",
+		bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST comment: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// GET /issues/{N}/comments must list the conversation comment we
+	// just posted — verifies the gate is lifted on both verbs.
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/v1/repos/alice/demo/issues/"+strconv.FormatInt(pr.Number, 10)+"/comments", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET comments: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var rows []apiComment
+	if err := json.Unmarshal(rr.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode comments: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Body != "looks great" {
+		t.Errorf("comments: %+v", rows)
+	}
+}
+
+// G2 (F44): `pr lock` / `pr unlock` route through /issues/{N}/lock
+// (gh-compat shared namespace). Pre-fix the kind gate 404'd PR
+// numbers. Verifies both verbs against a PR and that lock state
+// persists (visible on GET /pulls/{N}).
+func TestPulls_SharedNamespace_LockUnlock(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	// PUT lock
+	body, _ := json.Marshal(map[string]any{"lock_reason": "off-topic"})
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/v1/repos/alice/demo/issues/"+num+"/lock", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("PUT lock: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// DELETE unlock
+	req = httptest.NewRequest(http.MethodDelete,
+		"/api/v1/repos/alice/demo/issues/"+num+"/lock", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE lock: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// G2 (F26): `pr edit --add-label`, `--add-assignee` PATCH
+// `/issues/{N}` with labels/assignees fields. Pre-fix the strict
+// kind gate 404'd PR numbers there. PRs share the issue label +
+// assignee tables, so once the gate lifts the existing code paths
+// just work. This test pins both fields on a PR row.
+func TestPulls_SharedNamespace_PatchLabelsAndAssignees(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	// PATCH /issues/{N} with labels — "bug" is one of the default seeded
+	// labels on a new repo.
+	body, _ := json.Marshal(map[string]any{
+		"labels":    []string{"bug"},
+		"assignees": []string{"alice"},
+	})
+	req := httptest.NewRequest(http.MethodPatch,
+		"/api/v1/repos/alice/demo/issues/"+num, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH labels+assignees on PR: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// G2: PR rows must surface the /pulls/{N} URL, not /issues/{N},
+	// even though the response shape rides on the issue handler.
+	if !strings.HasSuffix(resp.HTMLURL, "/alice/demo/pulls/"+num) {
+		t.Errorf("html_url on PR: got %q, want suffix /alice/demo/pulls/%s", resp.HTMLURL, num)
+	}
+	if len(resp.Labels) != 1 || resp.Labels[0].Name != "bug" {
+		t.Errorf("labels: %+v", resp.Labels)
+	}
+	if len(resp.Assignees) != 1 || resp.Assignees[0].Login != "alice" {
+		t.Errorf("assignees: %+v", resp.Assignees)
+	}
+
+	// GET /pulls/{N} should reflect the same label set (PRs share the
+	// issue_labels join table).
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/"+num, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET pull: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// G2 boundary: PRs go through /pulls/{N} for title/body/state. The
+// shared-namespace PATCH /issues/{N} accepts label/assignee/milestone
+// on a PR but rejects title/body/state with a 422 directive pointing
+// the caller at the correct route. Locks in the design boundary.
+func TestPulls_SharedNamespace_PatchTitleBodyStateRejected(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	for _, field := range []map[string]any{
+		{"title": "new title"},
+		{"body": "new body"},
+		{"state": "closed"},
+		{"state_reason": "completed"},
+	} {
+		body, _ := json.Marshal(field)
+		req := httptest.NewRequest(http.MethodPatch,
+			"/api/v1/repos/alice/demo/issues/"+num, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("PATCH %v: code=%d want 422; body=%s", field, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "PATCH /pulls/") {
+			t.Errorf("PATCH %v: error should redirect to /pulls/{N}; got %s", field, rr.Body.String())
+		}
+	}
+}
+
+// G2 boundary: GET /issues/{N} on a PR number must still 404. The
+// kindless resolver is opt-in for sub-routes; the bare GET surface
+// is issue-specific (PRs get their own /pulls/{N} GET).
+func TestPulls_BareIssuesGetStillRejectsPR(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/"+num, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("GET /issues/{PR}: code=%d want 404; body=%s", rr.Code, rr.Body.String())
 	}
 }
