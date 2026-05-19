@@ -107,15 +107,19 @@ func refreshActionRunnerGauges(ctx context.Context, pool *pgxpool.Pool) {
 	ActionsRunnerOnline.Reset()
 	ActionsRunnerDraining.Reset()
 	ActionsRunnerCapacity.Reset()
+	ActionsRunnerActiveJobs.Reset()
 	ActionsRunnerStaleTotal.Set(0)
 	rows, err := pool.Query(ctx, `
-SELECT name::text,
-       status::text,
-       capacity::double precision,
-       COALESCE(EXTRACT(EPOCH FROM (now() - last_heartbeat_at))::double precision, -1) AS heartbeat_age_seconds,
-       (draining_at IS NOT NULL)::boolean AS draining,
-       (revoked_at IS NOT NULL)::boolean AS revoked
-FROM workflow_runners`)
+SELECT r.name::text,
+       r.status::text,
+       r.capacity::double precision,
+       COALESCE(EXTRACT(EPOCH FROM (now() - r.last_heartbeat_at))::double precision, -1) AS heartbeat_age_seconds,
+       (r.draining_at IS NOT NULL)::boolean AS draining,
+       (r.revoked_at IS NOT NULL)::boolean AS revoked,
+       COUNT(j.id)::double precision AS active_jobs
+FROM workflow_runners r
+LEFT JOIN workflow_jobs j ON j.runner_id = r.id AND j.status = 'running'
+GROUP BY r.id, r.name, r.status, r.capacity, r.last_heartbeat_at, r.draining_at, r.revoked_at`)
 	if err != nil {
 		return
 	}
@@ -123,12 +127,13 @@ FROM workflow_runners`)
 	var stale float64
 	for rows.Next() {
 		var name, status string
-		var capacity, age float64
+		var capacity, age, activeJobs float64
 		var draining, revoked bool
-		if err := rows.Scan(&name, &status, &capacity, &age, &draining, &revoked); err != nil {
+		if err := rows.Scan(&name, &status, &capacity, &age, &draining, &revoked, &activeJobs); err != nil {
 			return
 		}
 		ActionsRunnerCapacity.WithLabelValues(name, status).Set(capacity)
+		ActionsRunnerActiveJobs.WithLabelValues(name, status).Set(activeJobs)
 		if age >= 0 {
 			ActionsRunnerHeartbeatAgeSeconds.WithLabelValues(name, status).Set(age)
 		}

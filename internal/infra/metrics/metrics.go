@@ -342,6 +342,13 @@ var (
 		},
 		[]string{"runner", "status"},
 	)
+	ActionsRunnerActiveJobs = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "shithub_actions_runner_active_jobs",
+			Help: "Current running Actions jobs assigned to each runner.",
+		},
+		[]string{"runner", "status"},
+	)
 	ActionsRunnerRevocationsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "shithub_actions_runner_revocations_total",
@@ -437,6 +444,7 @@ func init() {
 		ActionsRunnerStaleTotal,
 		ActionsRunnerDraining,
 		ActionsRunnerCapacity,
+		ActionsRunnerActiveJobs,
 		ActionsRunnerRevocationsTotal,
 		ActionsStorageObjects,
 		ActionsStorageBytes,

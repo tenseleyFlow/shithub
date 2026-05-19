@@ -154,6 +154,7 @@ type Querier interface {
 	// ciphertext + nonce in the single list query.
 	ListRepoSecretsWithCiphertext(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoSecretsWithCiphertextRow, error)
 	ListRepoVariables(ctx context.Context, db DBTX, repoID pgtype.Int8) ([]ListRepoVariablesRow, error)
+	ListRunnerRunningJobsForAdmin(ctx context.Context, db DBTX, arg ListRunnerRunningJobsForAdminParams) ([]ListRunnerRunningJobsForAdminRow, error)
 	ListRunnerStepsForJob(ctx context.Context, db DBTX, jobID int64) ([]ListRunnerStepsForJobRow, error)
 	ListRunners(ctx context.Context, db DBTX) ([]ListRunnersRow, error)
 	// Repo UI visibility is intentionally narrower than the admin runner list:

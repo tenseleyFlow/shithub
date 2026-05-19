@@ -147,6 +147,17 @@ groups:
           summary: "Actions runner {{ $labels.runner }} heartbeat stale for > 60s"
           runbook: "runbooks/incidents.md#actions-runner-heartbeat-stale"
 
+      - alert: ActionsRunnerIdleWithAssignedJobs
+        expr: |
+          shithub_actions_runner_active_jobs{status="idle"} > 0
+            and on (runner, status)
+          shithub_actions_runner_heartbeat_age_seconds{status="idle"} < 60
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "Actions runner {{ $labels.runner }} is idle with assigned running jobs"
+          runbook: "runbooks/incidents.md#actions-runner-idle-with-assigned-jobs"
+
       - alert: ActionsQueueDepthHigh
         expr: shithub_actions_queue_depth{resource="jobs"} > 100
         for: 10m

@@ -422,12 +422,14 @@ Other admin surfaces are scoped to later sub-sprints:
 
 - S41c: `shithubd admin runner register --name <foo>` issues a
   registration token + writes a row to `workflow_runners`.
-- S41j: `shithubd admin runner drain|undrain|rotate-token|revoke|cleanup-stale`
+- S41j/S41m: `shithubd admin runner
+  drain|undrain|rotate-token|revoke|cleanup-stale|jobs|recover-stale-jobs`
   gives operators pool controls. Drained runners keep heartbeating and
   may finish already claimed jobs but receive no new claims. Revoked
   runners are set offline, all registration tokens are revoked, and job
   API JWTs from that runner are rejected even if the runner still has an
-  old config file.
+  old config file. S41m adds SQL-free stale-assignment inspection and
+  recovery for dead or old runners that cannot report `active_job_ids`.
 - S41g: `POST /api/v1/jobs/{id}/cancel` and the repository run-detail
   UI request cancellation. Running jobs flip `cancel_requested`; queued
   jobs are made terminal immediately.
