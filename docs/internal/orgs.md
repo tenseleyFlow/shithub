@@ -203,7 +203,10 @@ Both paths use a 7-day expiry. Tokens are sha256-hashed at rest;
 `token_hash` is the column we look up by for emailed links. Logged-in
 users can also accept or decline any pending invitation addressed to
 their user id or verified email from `GET /invitations`, and matching
-org people pages render the same action callout.
+org people pages render the same action callout. The inbox route is not
+linked from the profile dropdown; GitHub's documented invitee flow is
+the emailed invitation link, with owner-side invitation management under
+the organization's People page.
 
 ## Principals trigger
 
