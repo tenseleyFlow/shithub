@@ -52,6 +52,11 @@ func (h *Handlers) mountIssues(r chi.Router) {
 		r.Use(middleware.RequireScope(pat.ScopeRepoWrite))
 		r.Post("/api/v1/repos/{owner}/{repo}/issues", h.issueCreate)
 		r.Patch("/api/v1/repos/{owner}/{repo}/issues/{number}", h.issuePatch)
+		// G8 (F45): DELETE /issues/{N} is admin-only — mounted in the
+		// write group so the scope check passes, then the handler
+		// re-gates on ActionRepoAdmin so non-admin write collaborators
+		// can't hard-delete issues.
+		r.Delete("/api/v1/repos/{owner}/{repo}/issues/{number}", h.issueDelete)
 		r.Post("/api/v1/repos/{owner}/{repo}/issues/{number}/comments", h.issueCommentCreate)
 		r.Patch("/api/v1/repos/{owner}/{repo}/issues/comments/{cid}", h.issueCommentUpdate)
 		r.Delete("/api/v1/repos/{owner}/{repo}/issues/comments/{cid}", h.issueCommentDelete)
@@ -1134,6 +1139,57 @@ func (h *Handlers) issueUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ─── delete ─────────────────────────────────────────────────────────
+
+// issueDelete hard-deletes an issue. G8 (F45). The CLI's `issue
+// delete` command shipped against this endpoint long before the
+// server implemented it — pre-G8 the verb returned `405 (no message)`
+// and the audit caught it. Now: admin-only, returns 204 on success,
+// CASCADE handles comments/labels/assignees/milestone/events/refs.
+// PR rows reject with 404 (this is the issues-only surface; PRs have
+// no parallel delete in v1 — closing is sufficient for PRs and the
+// audit doesn't flag the absence).
+func (h *Handlers) issueDelete(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.resolveAPIRepo(w, r, policy.ActionIssueRead)
+	if !ok {
+		return
+	}
+	// Repo-admin gate matches gh's behavior: writers can edit/lock,
+	// but only admins can hard-delete because the cascade is non-
+	// recoverable.
+	auth := middleware.PATAuthFromContext(r.Context())
+	if !policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.ActionRepoAdmin, policy.NewRepoRefFromRepo(*repo)).Allow {
+		writeAPIError(w, http.StatusForbidden, "only repo admins may delete issues")
+		return
+	}
+	issue, ok := h.resolveIssueByNumberStrict(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
+		return
+	}
+	if err := issues.Delete(r.Context(), h.issuesDeps(), auth.UserID, issue.ID); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: delete issue", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resolveIssueByNumberStrict is the kind=issue-only resolver for the
+// delete endpoint. PRs route through their own /pulls surface; this
+// keeps the delete verb scoped to actual issues and lets us 404 on
+// PR numbers explicitly (matches issueGet's gate).
+func (h *Handlers) resolveIssueByNumberStrict(w http.ResponseWriter, r *http.Request, repoID int64, numberRaw string) (issuesdb.Issue, bool) {
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repoID, numberRaw)
+	if !ok {
+		return issuesdb.Issue{}, false
+	}
+	if issue.Kind != issuesdb.IssueKindIssue {
+		writeAPIError(w, http.StatusNotFound, "issue not found")
+		return issuesdb.Issue{}, false
+	}
+	return issue, true
 }
 
 // ─── helpers ────────────────────────────────────────────────────────
