@@ -5,7 +5,9 @@ security overview. The owning code lives in `internal/repos/dependencies`,
 `internal/repos/dependencyupdates`,
 `internal/worker/jobs/repo_dependency_scan.go`,
 `internal/worker/jobs/pr_dependency_review.go`,
-`internal/worker/jobs/repo_dependency_update_config_sync.go`, and the web
+`internal/worker/jobs/repo_dependency_update_config_sync.go`, and the update
+workers at `internal/worker/jobs/repo_dependency_update_sweep.go` and
+`internal/worker/jobs/repo_dependency_update_run.go`. Web surfaces live in the
 handlers at `internal/web/handlers/orgs/security.go` and
 `internal/web/handlers/repo/pulls.go`.
 
@@ -61,7 +63,10 @@ branch advances. The worker:
 3. upserts the snapshot and dependency rows;
 4. marks dependencies stale when they no longer appear at the current head;
 5. opens, reopens, or resolves dependency alerts against the local advisory
-   catalog.
+   catalog; and
+6. for Team organization repositories with enabled dependency update configs,
+   enqueues bounded security-update jobs when matching open alerts exist and no
+   security update PR/job is already active.
 
 Existing repositories can be reconciled after deploy with:
 
@@ -114,16 +119,9 @@ thundering herd while keeping repeated syncs stable.
 
 Unsupported ecosystems or invalid required fields are diagnostic errors.
 Unsupported keys are diagnostic warnings and are not silently treated as active
-behavior. This is important for billing parity: Team-plan copy can reference
-the feature only once the scheduler and update PR workers are connected, and UI
-surfaces must show unsupported configuration rather than making it appear to
-work.
-
-The storage layer is intentionally wider than the first worker implementation:
-it includes update job state, update PR bookkeeping, and auto-triage rule/audit
-tables so follow-up slices can add the scheduler, Go/npm update adapters,
-branch creation, grouping, and triage application without reshaping the billing
-contract again.
+behavior. This is important for billing parity: Team-plan copy should reference
+only the supported ecosystem/configuration envelope, and UI surfaces must show
+unsupported configuration rather than making it appear to work.
 
 `push:process` enqueues `repo:dependency_update_config_sync` when the default
 branch advances. The sync worker:
@@ -140,17 +138,46 @@ branch advances. The sync worker:
 6. writes a `dependency_update_jobs` `config_sync` record with diagnostics and
    status for operator inspection.
 
-The sync worker still does not create update branches or PRs. Follow-up SP25b
-slices must add the bounded scheduler and update workers before the plan
-comparison should claim live automated update pull requests.
-
 `repo:dependency_update_sweep` is the periodic scheduler worker. Operators
 should enqueue it on the same kind of timer beat used for other sweep workers.
 The sweep claims due `dependency_update_configs` with row locks, creates
 `dependency_update_jobs` rows with `job_kind = 'version_update'`, advances each
-config's `next_run_at`, and self-enqueues when it fills its batch. Those domain
-jobs are intentionally queued-only until the Go/npm update workers and pull
-request creation path are wired in a later SP25b slice.
+config's `next_run_at`, enqueues `repo:dependency_update_run`, and
+self-enqueues when it fills its batch.
+
+`repo:dependency_scan` also creates queued `security_update` jobs after alert
+refresh when all of the following are true:
+
+- the repository is organization-owned;
+- the organization has the Team `dependabot_security_updates` entitlement;
+- an enabled dependency update config matches at least one open alert; and
+- there is no active queued/running security update job and no open security
+  dependency update PR for the repository.
+
+`repo:dependency_update_run` idempotently claims only queued
+`dependency_update_jobs`, rechecks repository and entitlement gates, builds the
+supported dependency snapshot, plans candidate updates, creates
+`shithub/dependency-updates/...` branches, commits manifest changes through the
+same `webedit` path as browser edits, opens pull requests with the existing PR
+service, and records `dependency_update_prs` bookkeeping. Version update jobs
+resolve latest versions for direct Go and npm dependencies. Security update
+jobs use local open advisory alerts and require an exact patched version from
+the local advisory catalog. Grouped update rules can combine related Go/npm
+direct manifest updates into one pull request. Open PR limits are enforced
+before branches are created.
+
+The current adapters deliberately avoid running arbitrary package-manager
+scripts in the server process. Go version resolution shells out to
+`go list -m -json -versions` with a bounded timeout; npm version resolution
+performs a bounded registry metadata HTTP request and reads `dist-tags.latest`.
+Manifest edits are limited to supported direct dependencies in `go.mod` and
+`package.json`. Lockfile-only and transitive updates are detected but skipped
+until a package-manager adapter can update them safely.
+
+Still-planned SP25b/SP25 follow-up work includes auto-triage rule UI and worker
+application, repo/org settings surfaces for update diagnostics, richer semver
+range evaluation, richer lockfile adapters, and a dedicated bot identity for
+automated commits. Do not describe those as shipped behavior.
 
 ## Privacy and Product Copy
 
@@ -161,7 +188,8 @@ summaries are not exposed behind the paywall. Free organization pull requests do
 not execute or persist dependency review item details either.
 
 Do not advertise unsupported ecosystems, semver advisory ranges, advisory
-import automation, or AI remediation until those subsystems exist. Until the
-SP25b workers are connected end to end, user-facing copy should say "supported
-Go and npm manifests", "local advisory matches", or "dependency update
-configuration" rather than claiming live automated update pull requests.
+import automation, auto-triage application, lockfile-only remediation, or AI
+remediation until those subsystems exist. User-facing copy should say
+"supported Go and npm manifests", "local advisory matches", or "dependency
+update pull requests for supported direct dependencies" rather than claiming
+complete package-manager parity.
