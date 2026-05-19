@@ -289,12 +289,21 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// E5: author/base/label filters — same treatment as the issue side.
-	authorID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("author"))
+	// G1: accept gh-canonical `creator` as an alias for `author`, and
+	// add `assignee` + `head` filters so the CLI's gh-shape lands on
+	// validation instead of silently passing through unfiltered.
+	authorID, aerr := h.resolveOptionalUserID(r.Context(), firstQueryParam(r, "author", "creator"))
 	if aerr != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, "author: "+aerr.Error())
 		return
 	}
-	baseRef := strings.TrimSpace(r.URL.Query().Get("base"))
+	assigneeID, aerr := h.resolveOptionalUserID(r.Context(), firstQueryParam(r, "assignee"))
+	if aerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "assignee: "+aerr.Error())
+		return
+	}
+	baseRef := firstQueryParam(r, "base")
+	headRef := firstQueryParam(r, "head")
 	wantedLabelIDs, lerr := h.parseAndValidateLabelsFilter(r, repo.ID)
 	if lerr != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, lerr.Error())
@@ -341,6 +350,34 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		for _, row := range rows {
 			if row.BaseRef == baseRef {
 				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if headRef != "" {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.HeadRef == headRef {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if assigneeID != 0 {
+		// PRs share the issue assignee table (PR row joins to issues by
+		// IssueID). Mirror the issue-side post-filter so `assignee=`
+		// behaves consistently across both surfaces.
+		filtered := rows[:0]
+		for _, row := range rows {
+			as, err := issuesdb.New().ListIssueAssignees(r.Context(), h.d.Pool, row.IssueID)
+			if err != nil {
+				continue
+			}
+			for _, a := range as {
+				if a.UserID == assigneeID {
+					filtered = append(filtered, row)
+					break
+				}
 			}
 		}
 		rows = filtered
