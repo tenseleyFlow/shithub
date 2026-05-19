@@ -175,6 +175,11 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountRepos(r)
 		// S50 §3 — issues + comments + lock.
 		h.mountIssues(r)
+		// G9b (F29) — user-scoped /issues for `pr status` / `issue
+		// status` cross-repo dashboards. Distinct from the per-repo
+		// /repos/{o}/{r}/issues listing mounted by mountIssues; the
+		// CLI's ListAcrossRepos targets the bare /issues path.
+		h.mountIssuesAcrossRepos(r)
 		// S50 §3 — repo labels CRUD.
 		h.mountLabels(r)
 		// S50 §3 follow-up — milestones CRUD.
