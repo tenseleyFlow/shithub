@@ -61,7 +61,7 @@ type Querier interface {
 	InsertPullDependencyReviewItem(ctx context.Context, db DBTX, arg InsertPullDependencyReviewItemParams) (PullDependencyReviewItem, error)
 	InsertPullRequestCommit(ctx context.Context, db DBTX, arg InsertPullRequestCommitParams) error
 	InsertPullRequestFile(ctx context.Context, db DBTX, arg InsertPullRequestFileParams) error
-	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]DependencyAdvisory, error)
+	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]ListDependencyReviewAdvisoryCandidatesRow, error)
 	// Position-mapping reads only submitted comments (drafts re-anchor
 	// when the user resumes the diff view).
 	ListNonDraftCommentsForPositionMap(ctx context.Context, db DBTX, prIssueID int64) ([]ListNonDraftCommentsForPositionMapRow, error)

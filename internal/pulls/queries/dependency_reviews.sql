@@ -87,13 +87,50 @@ ORDER BY
     change_kind;
 
 -- name: ListDependencyReviewAdvisoryCandidates :many
-SELECT *
-FROM dependency_advisories
-WHERE lower(ecosystem) = lower(sqlc.arg(ecosystem)::text)
-  AND lower(package_name) = lower(sqlc.arg(package_name)::text)
-  AND withdrawn_at IS NULL
+SELECT
+    a.id,
+    a.source,
+    a.external_id,
+    a.ecosystem,
+    a.package_name,
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range,
+    a.patched_versions,
+    a.severity,
+    a.summary,
+    a.description,
+    a.reference_urls,
+    a.published_at,
+    a.withdrawn_at,
+    a.created_at,
+    a.updated_at,
+    a.modified_at,
+    a.source_url,
+    a.cvss_score,
+    a.cvss_vector,
+    a.cwe_ids
+FROM dependency_advisories a
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower(sqlc.arg(ecosystem)::text)
+      AND lower(ar.package_name) = lower(sqlc.arg(package_name)::text)
+) ar ON true
+WHERE a.withdrawn_at IS NULL
+  AND (
+      ar.range_expression IS NOT NULL
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM dependency_advisory_affected_ranges ar2
+              WHERE ar2.advisory_id = a.id
+          )
+          AND lower(a.ecosystem) = lower(sqlc.arg(ecosystem)::text)
+          AND lower(a.package_name) = lower(sqlc.arg(package_name)::text)
+      )
+  )
 ORDER BY
-    CASE severity
+    CASE a.severity
         WHEN 'critical' THEN 0
         WHEN 'high' THEN 1
         WHEN 'moderate' THEN 2

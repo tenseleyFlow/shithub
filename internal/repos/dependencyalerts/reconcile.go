@@ -37,13 +37,23 @@ func RefreshForRepo(ctx context.Context, q *reposdb.Queries, db reposdb.DBTX, re
 	if err != nil {
 		return fmt.Errorf("list open dependency alerts for repo: %w", err)
 	}
+	repoKeep := make(map[int64]bool, len(open))
 	for _, alert := range open {
+		if _, ok := repoKeep[alert.AlertID]; !ok {
+			repoKeep[alert.AlertID] = false
+		}
 		if alert.DependencyCurrent &&
 			alert.AdvisoryActive &&
+			alert.PackageCurrent &&
 			advisorymatch.MatchVersion(alert.Ecosystem, alert.PackageVersion, alert.AffectedRange) {
+			repoKeep[alert.AlertID] = true
+		}
+	}
+	for alertID, keep := range repoKeep {
+		if keep {
 			continue
 		}
-		if err := q.ResolveDependencyAlertByID(ctx, db, alert.AlertID); err != nil {
+		if err := q.ResolveDependencyAlertByID(ctx, db, alertID); err != nil {
 			return fmt.Errorf("resolve dependency alert: %w", err)
 		}
 	}
@@ -83,13 +93,23 @@ func RefreshForAdvisory(ctx context.Context, q *reposdb.Queries, db reposdb.DBTX
 	if err != nil {
 		return fmt.Errorf("list open dependency alerts for advisory: %w", err)
 	}
+	advisoryKeep := make(map[int64]bool, len(open))
 	for _, alert := range open {
+		if _, ok := advisoryKeep[alert.AlertID]; !ok {
+			advisoryKeep[alert.AlertID] = false
+		}
 		if alert.DependencyCurrent &&
 			alert.AdvisoryActive &&
+			alert.PackageCurrent &&
 			advisorymatch.MatchVersion(alert.Ecosystem, alert.PackageVersion, alert.AffectedRange) {
+			advisoryKeep[alert.AlertID] = true
+		}
+	}
+	for alertID, keep := range advisoryKeep {
+		if keep {
 			continue
 		}
-		if err := q.ResolveDependencyAlertByID(ctx, db, alert.AlertID); err != nil {
+		if err := q.ResolveDependencyAlertByID(ctx, db, alertID); err != nil {
 			return fmt.Errorf("resolve dependency alert: %w", err)
 		}
 	}

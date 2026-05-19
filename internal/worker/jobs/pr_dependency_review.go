@@ -262,7 +262,7 @@ func persistPullDependencyReview(ctx context.Context, db txBeginner, pr pullsdb.
 }
 
 type pullReviewQueries interface {
-	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db pullsdb.DBTX, arg pullsdb.ListDependencyReviewAdvisoryCandidatesParams) ([]pullsdb.DependencyAdvisory, error)
+	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db pullsdb.DBTX, arg pullsdb.ListDependencyReviewAdvisoryCandidatesParams) ([]pullsdb.ListDependencyReviewAdvisoryCandidatesRow, error)
 }
 
 func matchingReviewAdvisories(ctx context.Context, q pullReviewQueries, db pullsdb.DBTX, change dependencies.Change) ([]pullsdb.DependencyAdvisory, error) {
@@ -281,12 +281,37 @@ func matchingReviewAdvisories(ctx context.Context, q pullReviewQueries, db pulls
 		return nil, fmt.Errorf("match dependency review advisories: %w", err)
 	}
 	advisories := make([]pullsdb.DependencyAdvisory, 0, len(candidates))
-	for _, advisory := range candidates {
-		if advisorymatch.MatchVersion(advisory.Ecosystem, version, advisory.AffectedRange) {
-			advisories = append(advisories, advisory)
+	for _, candidate := range candidates {
+		if advisorymatch.MatchVersion(candidate.Ecosystem, version, candidate.AffectedRange) {
+			advisories = append(advisories, dependencyReviewAdvisoryCandidate(candidate))
 		}
 	}
 	return advisories, nil
+}
+
+func dependencyReviewAdvisoryCandidate(row pullsdb.ListDependencyReviewAdvisoryCandidatesRow) pullsdb.DependencyAdvisory {
+	return pullsdb.DependencyAdvisory{
+		ID:              row.ID,
+		Source:          row.Source,
+		ExternalID:      row.ExternalID,
+		Ecosystem:       row.Ecosystem,
+		PackageName:     row.PackageName,
+		AffectedRange:   row.AffectedRange,
+		PatchedVersions: row.PatchedVersions,
+		Severity:        row.Severity,
+		Summary:         row.Summary,
+		Description:     row.Description,
+		ReferenceUrls:   row.ReferenceUrls,
+		PublishedAt:     row.PublishedAt,
+		WithdrawnAt:     row.WithdrawnAt,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+		ModifiedAt:      row.ModifiedAt,
+		SourceUrl:       row.SourceUrl,
+		CvssScore:       row.CvssScore,
+		CvssVector:      row.CvssVector,
+		CweIds:          row.CweIds,
+	}
 }
 
 func reviewItemParams(reviewID int64, change dependencies.Change, advisory pullsdb.DependencyAdvisory) pullsdb.InsertPullDependencyReviewItemParams {

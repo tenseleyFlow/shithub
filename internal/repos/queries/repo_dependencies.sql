@@ -87,14 +87,30 @@ SELECT
     d.package_name,
     d.package_version,
     a.id AS advisory_id,
-    a.affected_range
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range
 FROM repo_dependencies d
-JOIN dependency_advisories a
-  ON lower(a.ecosystem) = lower(d.ecosystem)
- AND lower(a.package_name) = lower(d.package_name)
+JOIN dependency_advisories a ON a.withdrawn_at IS NULL
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower(d.ecosystem)
+      AND lower(ar.package_name) = lower(d.package_name)
+) ar ON true
 WHERE d.repo_id = $1
   AND d.stale_at IS NULL
-  AND a.withdrawn_at IS NULL
+  AND (
+      ar.range_expression IS NOT NULL
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM dependency_advisory_affected_ranges ar2
+              WHERE ar2.advisory_id = a.id
+          )
+          AND lower(a.ecosystem) = lower(d.ecosystem)
+          AND lower(a.package_name) = lower(d.package_name)
+      )
+  )
 ORDER BY d.id, a.id;
 
 -- name: ListOpenDependencyAlertCandidatesForRepo :many
@@ -106,12 +122,31 @@ SELECT
     d.package_name,
     d.package_version,
     alert.advisory_id,
-    a.affected_range,
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range,
     (d.stale_at IS NULL)::boolean AS dependency_current,
-    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active,
+    (
+        ar.range_expression IS NOT NULL
+        OR (
+            NOT EXISTS (
+                SELECT 1
+                FROM dependency_advisory_affected_ranges ar2
+                WHERE ar2.advisory_id = a.id
+            )
+            AND lower(a.ecosystem) = lower(d.ecosystem)
+            AND lower(a.package_name) = lower(d.package_name)
+        )
+    )::boolean AS package_current
 FROM repo_dependency_alerts alert
 JOIN repo_dependencies d ON d.id = alert.dependency_id
 JOIN dependency_advisories a ON a.id = alert.advisory_id
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower(d.ecosystem)
+      AND lower(ar.package_name) = lower(d.package_name)
+) ar ON true
 WHERE alert.repo_id = $1
   AND alert.status = 'open'
 ORDER BY alert.id;
@@ -124,15 +159,31 @@ SELECT
     d.package_name,
     d.package_version,
     a.id AS advisory_id,
-    a.affected_range
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range
 FROM dependency_advisories a
-JOIN repo_dependencies d
-  ON lower(d.ecosystem) = lower(a.ecosystem)
- AND lower(d.package_name) = lower(a.package_name)
+JOIN repo_dependencies d ON d.stale_at IS NULL
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower(d.ecosystem)
+      AND lower(ar.package_name) = lower(d.package_name)
+) ar ON true
 WHERE a.source = $1
   AND a.external_id = $2
   AND a.withdrawn_at IS NULL
-  AND d.stale_at IS NULL
+  AND (
+      ar.range_expression IS NOT NULL
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM dependency_advisory_affected_ranges ar2
+              WHERE ar2.advisory_id = a.id
+          )
+          AND lower(a.ecosystem) = lower(d.ecosystem)
+          AND lower(a.package_name) = lower(d.package_name)
+      )
+  )
 ORDER BY d.repo_id, d.id, a.id;
 
 -- name: ListOpenDependencyAlertCandidatesForAdvisory :many
@@ -144,12 +195,31 @@ SELECT
     d.package_name,
     d.package_version,
     alert.advisory_id,
-    a.affected_range,
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range,
     (d.stale_at IS NULL)::boolean AS dependency_current,
-    (a.withdrawn_at IS NULL)::boolean AS advisory_active
+    (a.withdrawn_at IS NULL)::boolean AS advisory_active,
+    (
+        ar.range_expression IS NOT NULL
+        OR (
+            NOT EXISTS (
+                SELECT 1
+                FROM dependency_advisory_affected_ranges ar2
+                WHERE ar2.advisory_id = a.id
+            )
+            AND lower(a.ecosystem) = lower(d.ecosystem)
+            AND lower(a.package_name) = lower(d.package_name)
+        )
+    )::boolean AS package_current
 FROM repo_dependency_alerts alert
 JOIN repo_dependencies d ON d.id = alert.dependency_id
 JOIN dependency_advisories a ON a.id = alert.advisory_id
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower(d.ecosystem)
+      AND lower(ar.package_name) = lower(d.package_name)
+) ar ON true
 WHERE a.source = $1
   AND a.external_id = $2
   AND alert.status = 'open'

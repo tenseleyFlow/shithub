@@ -56,19 +56,29 @@ func TestRepoDependencyScan_StoresSupportedDependenciesAndAlerts(t *testing.T) {
 require example.test/vulnerable v1.2.3
 `, "Add go.mod")
 
-	if _, err := rq.UpsertDependencyAdvisory(ctx, pool, reposdb.UpsertDependencyAdvisoryParams{
+	advisory, err := rq.UpsertDependencyAdvisory(ctx, pool, reposdb.UpsertDependencyAdvisoryParams{
 		Source:          "test-fixture",
 		ExternalID:      "GHSA-test-vuln",
 		Ecosystem:       "go",
-		PackageName:     "example.test/vulnerable",
-		AffectedRange:   "v1.2.3",
+		PackageName:     "example.test/primary",
+		AffectedRange:   ">= v9.0.0",
 		PatchedVersions: "v1.2.4",
 		Severity:        "high",
 		Summary:         "Fixture vulnerability",
 		Description:     "Only used by the dependency scanner test.",
 		ReferenceUrls:   []byte("[]"),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpsertDependencyAdvisory: %v", err)
+	}
+	if err := rq.InsertDependencyAdvisoryAffectedRange(ctx, pool, reposdb.InsertDependencyAdvisoryAffectedRangeParams{
+		AdvisoryID:      advisory.ID,
+		Ecosystem:       "go",
+		PackageName:     "example.test/vulnerable",
+		RangeExpression: ">= v1.0.0, < v1.2.4",
+		Metadata:        []byte("{}"),
+	}); err != nil {
+		t.Fatalf("InsertDependencyAdvisoryAffectedRange: %v", err)
 	}
 
 	handler := jobs.RepoDependencyScan(jobs.RepoDependencyScanDeps{

@@ -191,13 +191,50 @@ func (q *Queries) InsertPullDependencyReviewItem(ctx context.Context, db DBTX, a
 }
 
 const listDependencyReviewAdvisoryCandidates = `-- name: ListDependencyReviewAdvisoryCandidates :many
-SELECT id, source, external_id, ecosystem, package_name, affected_range, patched_versions, severity, summary, description, reference_urls, published_at, withdrawn_at, created_at, updated_at, modified_at, source_url, cvss_score, cvss_vector, cwe_ids
-FROM dependency_advisories
-WHERE lower(ecosystem) = lower($1::text)
-  AND lower(package_name) = lower($2::text)
-  AND withdrawn_at IS NULL
+SELECT
+    a.id,
+    a.source,
+    a.external_id,
+    a.ecosystem,
+    a.package_name,
+    COALESCE(ar.range_expression, a.affected_range) AS affected_range,
+    a.patched_versions,
+    a.severity,
+    a.summary,
+    a.description,
+    a.reference_urls,
+    a.published_at,
+    a.withdrawn_at,
+    a.created_at,
+    a.updated_at,
+    a.modified_at,
+    a.source_url,
+    a.cvss_score,
+    a.cvss_vector,
+    a.cwe_ids
+FROM dependency_advisories a
+LEFT JOIN LATERAL (
+    SELECT range_expression
+    FROM dependency_advisory_affected_ranges ar
+    WHERE ar.advisory_id = a.id
+      AND lower(ar.ecosystem) = lower($1::text)
+      AND lower(ar.package_name) = lower($2::text)
+) ar ON true
+WHERE a.withdrawn_at IS NULL
+  AND (
+      ar.range_expression IS NOT NULL
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM dependency_advisory_affected_ranges ar2
+              WHERE ar2.advisory_id = a.id
+          )
+          AND lower(a.ecosystem) = lower($1::text)
+          AND lower(a.package_name) = lower($2::text)
+      )
+  )
 ORDER BY
-    CASE severity
+    CASE a.severity
         WHEN 'critical' THEN 0
         WHEN 'high' THEN 1
         WHEN 'moderate' THEN 2
@@ -211,15 +248,38 @@ type ListDependencyReviewAdvisoryCandidatesParams struct {
 	PackageName string
 }
 
-func (q *Queries) ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]DependencyAdvisory, error) {
+type ListDependencyReviewAdvisoryCandidatesRow struct {
+	ID              int64
+	Source          string
+	ExternalID      string
+	Ecosystem       string
+	PackageName     string
+	AffectedRange   string
+	PatchedVersions string
+	Severity        string
+	Summary         string
+	Description     string
+	ReferenceUrls   []byte
+	PublishedAt     pgtype.Timestamptz
+	WithdrawnAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	ModifiedAt      pgtype.Timestamptz
+	SourceUrl       string
+	CvssScore       pgtype.Numeric
+	CvssVector      string
+	CweIds          []byte
+}
+
+func (q *Queries) ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]ListDependencyReviewAdvisoryCandidatesRow, error) {
 	rows, err := db.Query(ctx, listDependencyReviewAdvisoryCandidates, arg.Ecosystem, arg.PackageName)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []DependencyAdvisory{}
+	items := []ListDependencyReviewAdvisoryCandidatesRow{}
 	for rows.Next() {
-		var i DependencyAdvisory
+		var i ListDependencyReviewAdvisoryCandidatesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Source,
