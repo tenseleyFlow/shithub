@@ -124,6 +124,16 @@ func PushProcess(deps PushProcessDeps) worker.Handler {
 					deps.Logger.WarnContext(ctx, "push:process: enqueue insights_recalc",
 						"push_event_id", event.ID, "error", err)
 				}
+				// SP25: refresh dependency inventory for the
+				// default-branch tip. The worker only parses supported
+				// manifests and matches local advisories; it never calls
+				// external vulnerability services on the push path.
+				if _, err := worker.Enqueue(ctx, deps.Pool, worker.KindRepoDependencyScan,
+					map[string]any{"repo_id": repo.ID},
+					worker.EnqueueOptions{}); err != nil {
+					deps.Logger.WarnContext(ctx, "push:process: enqueue dependency_scan",
+						"push_event_id", event.ID, "error", err)
+				}
 			}
 		}
 
