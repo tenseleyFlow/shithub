@@ -26,7 +26,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
-	"github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
 	"github.com/tenseleyFlow/shithub/internal/repos/dependencyupdates"
@@ -912,11 +912,12 @@ func dependencyUpdatePRTitle(batch dependencyUpdateBatch) string {
 
 func dependencyUpdatePRBody(batch dependencyUpdateBatch) string {
 	var b strings.Builder
-	if batch.Group != "" {
+	switch {
+	case batch.Group != "":
 		fmt.Fprintf(&b, "Updates the `%s` dependency group.\n\n", batch.Group)
-	} else if batch.Candidates[0].UpdateKind == "security" {
+	case batch.Candidates[0].UpdateKind == "security":
 		b.WriteString("Updates a vulnerable dependency to a patched version.\n\n")
-	} else {
+	default:
 		b.WriteString("Updates a dependency according to the repository dependency update configuration.\n\n")
 	}
 	b.WriteString("| Package | From | To | Manifest |\n")
