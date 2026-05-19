@@ -149,16 +149,44 @@ func (h *Handlers) pullsDeps() pulls.Deps {
 	return pulls.Deps{Pool: h.d.Pool, Logger: h.d.Logger, Audit: h.d.Audit}
 }
 
+func pullListRowFromDetail(pr pullsdb.GetPullRequestByRepoAndNumberRow) pullsdb.ListPullRequestsByRepoRow {
+	return pullsdb.ListPullRequestsByRepoRow{
+		IssueID:            pr.IssueID,
+		BaseRef:            pr.BaseRef,
+		HeadRef:            pr.HeadRef,
+		HeadRepoID:         pr.HeadRepoID,
+		BaseOid:            pr.BaseOid,
+		HeadOid:            pr.HeadOid,
+		Draft:              pr.Draft,
+		Mergeable:          pr.Mergeable,
+		MergeableState:     pr.MergeableState,
+		MergeCommitSha:     pr.MergeCommitSha,
+		MergedAt:           pr.MergedAt,
+		MergedByUserID:     pr.MergedByUserID,
+		MergeMethod:        pr.MergeMethod,
+		BaseOidAtMerge:     pr.BaseOidAtMerge,
+		HeadOidAtMerge:     pr.HeadOidAtMerge,
+		LastSynchronizedAt: pr.LastSynchronizedAt,
+		ID:                 pr.IID,
+		RepoID:             pr.IRepoID,
+		Number:             pr.INumber,
+		Title:              pr.ITitle,
+		Body:               pr.IBody,
+		AuthorUserID:       pr.IAuthorUserID,
+		State:              pr.IState,
+		CreatedAt:          pr.ICreatedAt,
+		UpdatedAt:          pr.IUpdatedAt,
+	}
+}
+
 // pullsList renders /{owner}/{repo}/pulls.
 func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionPullRead)
 	if !ok {
 		return
 	}
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		state = "open"
-	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	parsedQuery, state := repoScopedIssueQuery(query, r.URL.Query().Get("state"), owner.Username, row.Name)
 	stateFilter := pgtype.Text{}
 	if state == "open" || state == "closed" {
 		stateFilter = pgtype.Text{String: state, Valid: true}
@@ -169,16 +197,43 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	}
 	const perPage = 25
 	q := pullsdb.New()
-	rows, err := q.ListPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.ListPullRequestsByRepoParams{
-		RepoID:      row.ID,
-		StateFilter: stateFilter,
-		Limit:       perPage,
-		Offset:      int32((page - 1) * perPage),
-	})
-	if err != nil {
-		h.d.Logger.WarnContext(r.Context(), "pulls: list", "error", err)
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
+	var rows []pullsdb.ListPullRequestsByRepoRow
+	if query != "" {
+		hits, _, err := h.searchRepoIssues(r, parsedQuery, "pr", perPage, (page-1)*perPage)
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "pulls: search list", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		rows = make([]pullsdb.ListPullRequestsByRepoRow, 0, len(hits))
+		for _, hit := range hits {
+			pr, err := q.GetPullRequestByRepoAndNumber(r.Context(), h.d.Pool, pullsdb.GetPullRequestByRepoAndNumberParams{
+				RepoID: row.ID,
+				Number: hit.Number,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				h.d.Logger.WarnContext(r.Context(), "pulls: search hydrate", "error", err, "issue_id", hit.ID)
+				h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+				return
+			}
+			rows = append(rows, pullListRowFromDetail(pr))
+		}
+	} else {
+		var err error
+		rows, err = q.ListPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.ListPullRequestsByRepoParams{
+			RepoID:      row.ID,
+			StateFilter: stateFilter,
+			Limit:       perPage,
+			Offset:      int32((page - 1) * perPage),
+		})
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "pulls: list", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
 	}
 	openCount, _ := q.CountPullRequestsByRepo(r.Context(), h.d.Pool, pullsdb.CountPullRequestsByRepoParams{
 		RepoID: row.ID, StateFilter: pgtype.Text{String: "open", Valid: true},
@@ -214,6 +269,7 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		"Repo":         row,
 		"Items":        items,
 		"State":        state,
+		"Query":        query,
 		"OpenCount":    openCount,
 		"ClosedCount":  closedCount,
 		"Page":         page,

@@ -87,44 +87,56 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	stateFilter := r.URL.Query().Get("state")
-	if stateFilter == "" && query != "" {
-		switch {
-		case strings.Contains(query, "state:closed"):
-			stateFilter = "closed"
-		case strings.Contains(query, "state:open"):
-			stateFilter = "open"
-		}
-	}
-	if stateFilter == "" {
-		stateFilter = "open"
-	}
-	if stateFilter != "open" && stateFilter != "closed" {
-		stateFilter = "open"
-	}
+	parsedQuery, stateFilter := repoScopedIssueQuery(query, r.URL.Query().Get("state"), owner.Username, row.Name)
 	stateNarg := pgtype.Text{String: stateFilter, Valid: true}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
 	const perPage = 25
-	rows, err := h.iq.ListIssues(r.Context(), h.d.Pool, issuesdb.ListIssuesParams{
-		RepoID:      row.ID,
-		StateFilter: stateNarg,
-		Kind:        issuesdb.NullIssueKind{IssueKind: issuesdb.IssueKindIssue, Valid: true},
-		Limit:       perPage,
-		Offset:      int32((page - 1) * perPage),
-	})
-	if err != nil {
-		h.d.Logger.WarnContext(r.Context(), "issues: list", "error", err)
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
+	var rows []issuesdb.Issue
+	var total int64
+	if query != "" {
+		hits, searchTotal, err := h.searchRepoIssues(r, parsedQuery, "issue", perPage, (page-1)*perPage)
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "issues: search list", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		rows = make([]issuesdb.Issue, 0, len(hits))
+		for _, hit := range hits {
+			ir, err := h.iq.GetIssueByID(r.Context(), h.d.Pool, hit.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				h.d.Logger.WarnContext(r.Context(), "issues: search hydrate", "error", err, "issue_id", hit.ID)
+				h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+				return
+			}
+			rows = append(rows, ir)
+		}
+		total = searchTotal
+	} else {
+		var err error
+		rows, err = h.iq.ListIssues(r.Context(), h.d.Pool, issuesdb.ListIssuesParams{
+			RepoID:      row.ID,
+			StateFilter: stateNarg,
+			Kind:        issuesdb.NullIssueKind{IssueKind: issuesdb.IssueKindIssue, Valid: true},
+			Limit:       perPage,
+			Offset:      int32((page - 1) * perPage),
+		})
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "issues: list", "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		total, _ = h.iq.CountIssues(r.Context(), h.d.Pool, issuesdb.CountIssuesParams{
+			RepoID:      row.ID,
+			StateFilter: stateNarg,
+			Kind:        issuesdb.NullIssueKind{IssueKind: issuesdb.IssueKindIssue, Valid: true},
+		})
 	}
-	total, _ := h.iq.CountIssues(r.Context(), h.d.Pool, issuesdb.CountIssuesParams{
-		RepoID:      row.ID,
-		StateFilter: stateNarg,
-		Kind:        issuesdb.NullIssueKind{IssueKind: issuesdb.IssueKindIssue, Valid: true},
-	})
 	openCount, _ := h.iq.CountIssues(r.Context(), h.d.Pool, issuesdb.CountIssuesParams{
 		RepoID:      row.ID,
 		StateFilter: pgtype.Text{String: "open", Valid: true},
