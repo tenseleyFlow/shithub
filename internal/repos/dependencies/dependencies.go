@@ -116,7 +116,7 @@ func Build(ctx context.Context, gitDir string, opts BuildOptions) (Snapshot, err
 		if snap.Dependencies[i].Ecosystem != snap.Dependencies[j].Ecosystem {
 			return snap.Dependencies[i].Ecosystem < snap.Dependencies[j].Ecosystem
 		}
-		if strings.ToLower(snap.Dependencies[i].PackageName) != strings.ToLower(snap.Dependencies[j].PackageName) {
+		if !strings.EqualFold(snap.Dependencies[i].PackageName, snap.Dependencies[j].PackageName) {
 			return strings.ToLower(snap.Dependencies[i].PackageName) < strings.ToLower(snap.Dependencies[j].PackageName)
 		}
 		return snap.Dependencies[i].ManifestPath < snap.Dependencies[j].ManifestPath
@@ -325,7 +325,7 @@ func packageNameFromNodeModulesPath(p string) (string, bool) {
 
 func sortDependencies(deps []Dependency) {
 	sort.Slice(deps, func(i, j int) bool {
-		if strings.ToLower(deps[i].PackageName) != strings.ToLower(deps[j].PackageName) {
+		if !strings.EqualFold(deps[i].PackageName, deps[j].PackageName) {
 			return strings.ToLower(deps[i].PackageName) < strings.ToLower(deps[j].PackageName)
 		}
 		return deps[i].Source < deps[j].Source
