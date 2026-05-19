@@ -20,6 +20,11 @@ type ParsedQuery struct {
 	StateFilter    string // "open" | "closed" | ""
 	AuthorFilter   string // username or empty
 	AssigneeFilter string // username or empty (issue_assignees join)
+	// OwnerFilter matches `user:foo` and `org:foo` qualifiers — the
+	// repo's owning user OR org slug. gh aliases the two; we mirror
+	// that (E-audit E23). Bare form only — negation (`-org:foo`) is
+	// not yet supported.
+	OwnerFilter string
 }
 
 // RepoFilter splits the `repo:owner/name` operator value.
@@ -30,7 +35,8 @@ type RepoFilter struct {
 
 // ParseQuery splits a raw query string into the free-text portion +
 // recognised operators. v1 supports `repo:`, `is:`, `state:`,
-// `author:`, `assignee:`. `is:` and `state:` are aliases.
+// `author:`, `assignee:`, `user:`, `org:`. `is:`/`state:` and
+// `user:`/`org:` are aliased.
 //
 // A quoted run of tokens becomes the Phrase field (one quoted span
 // per query in v1). The Text field excludes quoted phrases and
@@ -92,6 +98,14 @@ func ParseQuery(raw string) ParsedQuery {
 			} else {
 				freeText = append(freeText, tok)
 			}
+		case strings.HasPrefix(tok, "user:"), strings.HasPrefix(tok, "org:"):
+			val := strings.TrimPrefix(tok, "user:")
+			val = strings.TrimPrefix(val, "org:")
+			if val != "" {
+				out.OwnerFilter = val
+			} else {
+				freeText = append(freeText, tok)
+			}
 		default:
 			freeText = append(freeText, tok)
 		}
@@ -104,5 +118,6 @@ func ParseQuery(raw string) ParsedQuery {
 // searchable (free text, phrase, or any operator).
 func (p ParsedQuery) HasContent() bool {
 	return p.Text != "" || p.Phrase != "" || p.RepoFilter != nil ||
-		p.StateFilter != "" || p.AuthorFilter != "" || p.AssigneeFilter != ""
+		p.StateFilter != "" || p.AuthorFilter != "" || p.AssigneeFilter != "" ||
+		p.OwnerFilter != ""
 }
