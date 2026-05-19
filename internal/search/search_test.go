@@ -47,13 +47,16 @@ func TestParseQuery(t *testing.T) {
 		{"author:bob fix", search.ParsedQuery{Text: "fix", AuthorFilter: "bob"}},
 		{"assignee:bob bug", search.ParsedQuery{Text: "bug", AssigneeFilter: "bob"}},
 		{"assignee: bug", search.ParsedQuery{Text: "assignee: bug"}},
+		{"user:alice", search.ParsedQuery{OwnerFilter: "alice"}},
+		{"org:tenseleyflow shithub", search.ParsedQuery{Text: "shithub", OwnerFilter: "tenseleyflow"}},
+		{"user: nothing", search.ParsedQuery{Text: "user: nothing"}},
 		{"language:Go x", search.ParsedQuery{Text: "language:Go x"}},
 	}
 	for _, c := range cases {
 		got := search.ParseQuery(c.in)
 		if got.Text != c.want.Text || got.Phrase != c.want.Phrase ||
 			got.StateFilter != c.want.StateFilter || got.AuthorFilter != c.want.AuthorFilter ||
-			got.AssigneeFilter != c.want.AssigneeFilter {
+			got.AssigneeFilter != c.want.AssigneeFilter || got.OwnerFilter != c.want.OwnerFilter {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
 			continue
 		}
@@ -315,6 +318,64 @@ func TestSearchRepos_AnonymousFindsPublicOrgRepoByOwner(t *testing.T) {
 		}
 	}
 	t.Fatalf("owner query did not return org-owned tenseleyflow/shithub; got %d rows", len(got))
+}
+
+// TestSearchRepos_OwnerFilterUser is the E23 regression: the
+// `user:foo` qualifier must narrow results to repos owned by that
+// user. Pre-fix it fell through as free text, returning zero hits.
+func TestSearchRepos_OwnerFilterUser(t *testing.T) {
+	f := setup(t)
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+	got, total, err := search.SearchRepos(context.Background(), f.deps, alice,
+		search.ParseQuery("user:alice"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos: %v", err)
+	}
+	if total < 2 { // alice owns at least pubRepo + prvRepo in the fixture
+		t.Fatalf("user:alice total = %d, want ≥ 2", total)
+	}
+	for _, r := range got {
+		if r.OwnerUsername != "alice" {
+			t.Errorf("user:alice leaked %s/%s", r.OwnerUsername, r.Name)
+		}
+	}
+}
+
+// TestSearchRepos_OwnerFilterOrg covers the `org:` half of the alias:
+// the same parser slot, matched against orgs.slug.
+func TestSearchRepos_OwnerFilterOrg(t *testing.T) {
+	f := setup(t)
+	got, _, err := search.SearchRepos(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("org:tenseleyflow"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos: %v", err)
+	}
+	for _, r := range got {
+		if r.ID == f.orgRepo.ID {
+			return
+		}
+	}
+	t.Fatalf("org:tenseleyflow did not return the org's repo; got %d rows", len(got))
+}
+
+// TestSearchRepos_OwnerFilterUnknownReturnsEmpty confirms the filter
+// actually narrows — an unknown owner returns zero rows rather than
+// the old "fell through to free text" behavior of all repos.
+func TestSearchRepos_OwnerFilterUnknownReturnsEmpty(t *testing.T) {
+	f := setup(t)
+	got, total, err := search.SearchRepos(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("user:nobody-exists"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos: %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Errorf("user:nobody-exists returned %d rows (total %d), want 0", len(got), total)
+	}
 }
 
 // TestSearchIssues_AnonymousSeesOnlyPublic mirrors the repo test
