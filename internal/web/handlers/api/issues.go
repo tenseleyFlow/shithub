@@ -250,6 +250,18 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, "milestone: "+merr.Error())
 		return
 	}
+	// G5 (F13/F30): pre-fix `?milestone=999` (nonexistent ID) silently
+	// returned the unfiltered empty result; create-side already 422s on
+	// bad milestone. Make the list endpoint match — 422 when the ID
+	// doesn't correspond to a milestone on this repo.
+	if milestoneID != 0 {
+		m, err := q.GetMilestone(r.Context(), h.d.Pool, milestoneID)
+		if err != nil || m.RepoID != repo.ID {
+			writeAPIError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("milestone: %d not found in this repo", milestoneID))
+			return
+		}
+	}
 	if mention := firstQueryParam(r, "mention", "mentioned"); mention != "" {
 		// Mention search needs body-text scanning + an @-mention index
 		// we don't have yet. Reject explicitly rather than silently

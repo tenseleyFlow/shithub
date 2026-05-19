@@ -568,20 +568,25 @@ func TestPulls_ListBaseFilter(t *testing.T) {
 	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
 	openPullFor(t, router, token, "alice", "demo")
 
-	// Default PR is base=trunk; filtering on it should return 1, bogus 0.
+	// Default PR is base=trunk; filtering on it returns 1.
+	// G5 (F15): bogus base ref now 422s (pre-fix silently empty).
 	for _, tc := range []struct {
-		base    string
-		wantLen int
+		base     string
+		wantCode int
+		wantLen  int
 	}{
-		{"trunk", 1},
-		{"BOGUS", 0},
+		{"trunk", 200, 1},
+		{"BOGUS", http.StatusUnprocessableEntity, 0},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?base="+tc.base, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("base=%q: %d", tc.base, rr.Code)
+		if rr.Code != tc.wantCode {
+			t.Errorf("base=%q: code=%d want %d; body=%s", tc.base, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
 			continue
 		}
 		var rows []apiPull
@@ -711,8 +716,10 @@ func TestPulls_ListHeadFilter(t *testing.T) {
 	if code, rows := get("head=feature"); code != 200 || len(rows) != 1 {
 		t.Errorf("head=feature: code=%d rows=%d (want 1)", code, len(rows))
 	}
-	if code, rows := get("head=NOPE"); code != 200 || len(rows) != 0 {
-		t.Errorf("head=NOPE: code=%d rows=%d (want 0)", code, len(rows))
+	// G5 (F2-2): bogus head ref now 422s (pre-fix silently returned the
+	// unfiltered list pre-G1; silent-empty post-G1; both shapes hide typos).
+	if code, _ := get("head=NOPE"); code != http.StatusUnprocessableEntity {
+		t.Errorf("head=NOPE: code=%d, want 422", code)
 	}
 }
 
@@ -882,5 +889,36 @@ func TestPulls_BareIssuesGetStillRejectsPR(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("GET /issues/{PR}: code=%d want 404; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// G5 (F15/F2-2): base/head ref validation now hits git rev-parse so
+// typos surface as a 422 with the bad value echoed back. Pre-fix the
+// listing silently returned empty (base) or unfiltered/empty (head) —
+// both shapes hid typos from CLI scripts. This test pins the wire
+// shape of the new error so the CLI can match against "ref %q not
+// found" if it wants to render a friendly hint.
+func TestPulls_ListRefFilterErrorShape(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct{ param, label string }{
+		{"base=NOPE", "base"},
+		{"head=NOPE", "head"},
+	} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/v1/repos/alice/demo/pulls?"+tc.param, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: code=%d want 422", tc.param, rr.Code)
+		}
+		if !strings.HasPrefix(rr.Body.String(), `{"error":"`+tc.label+`:`) {
+			t.Errorf("%s: body should be prefixed with %q-label: %s", tc.param, tc.label, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), `NOPE`) {
+			t.Errorf("%s: body should echo the bad ref: %s", tc.param, rr.Body.String())
+		}
 	}
 }
