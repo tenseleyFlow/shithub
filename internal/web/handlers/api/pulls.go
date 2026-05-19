@@ -304,6 +304,18 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	}
 	baseRef := firstQueryParam(r, "base")
 	headRef := firstQueryParam(r, "head")
+	// G5 (F15/F2-2): validate base + head against this repo's refs.
+	// Pre-fix `--base BOGUS` silently empty and `--head BOGUS` silently
+	// all/empty depending on G1 ordering — both shapes hide typos.
+	// Now: ref doesn't exist → 422, matching the `?author=ghost` style.
+	if err := h.validateRepoRefExists(r.Context(), ownerLogin, repo.Name, baseRef); err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "base: "+err.Error())
+		return
+	}
+	if err := h.validateRepoRefExists(r.Context(), ownerLogin, repo.Name, headRef); err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "head: "+err.Error())
+		return
+	}
 	wantedLabelIDs, lerr := h.parseAndValidateLabelsFilter(r, repo.ID)
 	if lerr != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, lerr.Error())
