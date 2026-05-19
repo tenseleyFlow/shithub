@@ -62,9 +62,29 @@ func (h *Handlers) mountPulls(r chi.Router) {
 // pulls.PullRequest type maps base/head as `{ref, sha, repo}` so the
 // pre-S60 flat `base_ref`/`base_oid`/... fields rendered as empty
 // strings in `shithub pr view`. We emit both shapes during transition.
+//
+// E-audit E2: added the `repo` envelope (A16 partial regression closeout).
+// gh-compat fork-PR rendering needs the head/base repo nodes — without
+// them the CLI can't tell whether a PR comes from a fork, and
+// `--json baseRepository,headRepository` reads as null.
 type prRefEnvelope struct {
-	Ref string `json:"ref"`
-	SHA string `json:"sha"`
+	Ref  string          `json:"ref"`
+	SHA  string          `json:"sha"`
+	Repo *prRepoEnvelope `json:"repo"`
+}
+
+// prRepoEnvelope is the trimmed repo node that rides on PR base/head.
+// Just enough for the CLI's `--json baseRepository,headRepository` to
+// render owner/login plus the bits gh ships in this slot: id, name,
+// full_name, owner, private, html_url. We avoid the full repoResponse
+// shape so the per-PR lookup stays cheap.
+type prRepoEnvelope struct {
+	ID       int64              `json:"id"`
+	Name     string             `json:"name"`
+	FullName string             `json:"full_name"`
+	Owner    *repoOwnerEnvelope `json:"owner"`
+	Private  bool               `json:"private"`
+	HTMLURL  string             `json:"html_url,omitempty"`
 }
 
 type pullResponse struct {
@@ -100,7 +120,11 @@ type pullResponse struct {
 	ClosedAt  string `json:"closed_at,omitempty"`
 }
 
-func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelope) pullResponse {
+// presentPull is the pure builder; callers pass pre-resolved base+head
+// repo envelopes (E2). For same-repo PRs (the common case) the caller
+// can reuse one envelope for both slots; cross-repo PRs (forks)
+// require a separate head lookup.
+func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelope, baseRepo, headRepo *prRepoEnvelope) pullResponse {
 	out := pullResponse{
 		ID:             issue.ID,
 		Number:         issue.Number,
@@ -112,8 +136,8 @@ func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelop
 		HeadRef:        pr.HeadRef,
 		BaseOID:        pr.BaseOid,
 		HeadOID:        pr.HeadOid,
-		Base:           &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid},
-		Head:           &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid},
+		Base:           &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid, Repo: baseRepo},
+		Head:           &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid, Repo: headRepo},
 		MergeableState: string(pr.MergeableState),
 		Merged:         pr.MergedAt.Valid,
 		User:           user,
@@ -140,6 +164,63 @@ func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelop
 		out.ClosedAt = issue.ClosedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return out
+}
+
+// prRepoEnvelopeFromRow builds the trimmed envelope from an already-
+// fetched repo + its resolved owner login. Used by the same-repo
+// path where the handler already has the row in hand (no extra DB
+// hit needed).
+func (h *Handlers) prRepoEnvelopeFromRow(repo reposdb.Repo, ownerLogin string) *prRepoEnvelope {
+	ref := policy.NewRepoRefFromRepo(repo)
+	ownerType := "user"
+	if repo.OwnerOrgID.Valid {
+		ownerType = "org"
+	}
+	env := &prRepoEnvelope{
+		ID:       repo.ID,
+		Name:     repo.Name,
+		FullName: ownerLogin + "/" + repo.Name,
+		Private:  ref.IsPrivate(),
+		Owner: &repoOwnerEnvelope{
+			Login: ownerLogin,
+			Type:  capitalizeFirst(ownerType),
+		},
+	}
+	if repo.OwnerUserID.Valid {
+		env.Owner.ID = repo.OwnerUserID.Int64
+	} else if repo.OwnerOrgID.Valid {
+		env.Owner.ID = repo.OwnerOrgID.Int64
+	}
+	if h.d.BaseURL != "" {
+		env.HTMLURL = strings.TrimRight(h.d.BaseURL, "/") + "/" + ownerLogin + "/" + repo.Name
+	}
+	return env
+}
+
+// prHeadRepoEnvelope returns the head-side envelope for a PR. Same-repo
+// PRs reuse the base envelope to avoid an extra lookup; cross-repo PRs
+// (forks) get a separate fetch keyed by HeadRepoID. Returns nil
+// silently on lookup failure so the response degrades gracefully —
+// a missing head repo node is preferable to a 500.
+func (h *Handlers) prHeadRepoEnvelope(ctx context.Context, pr pullsdb.PullRequest, baseRepoID int64, baseEnv *prRepoEnvelope) *prRepoEnvelope {
+	if pr.HeadRepoID == 0 || pr.HeadRepoID == baseRepoID {
+		return baseEnv
+	}
+	headRepo, err := reposdb.New().GetRepoByID(ctx, h.d.Pool, pr.HeadRepoID)
+	if err != nil {
+		return nil
+	}
+	ownerRow, err := reposdb.New().GetRepoOwnerUsernameByID(ctx, h.d.Pool, pr.HeadRepoID)
+	if err != nil {
+		return nil
+	}
+	// sqlc types the COALESCE projection as interface{}; pgx unmarshals
+	// it as string at runtime.
+	owner, _ := ownerRow.OwnerUsername.(string)
+	if owner == "" {
+		return nil
+	}
+	return h.prRepoEnvelopeFromRow(headRepo, owner)
 }
 
 // pullHTMLURL composes the user-facing page URL for a PR. Mirrors
@@ -310,23 +391,17 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	users := h.resolveUserEnvelopesBatch(r.Context(), authorIDs)
+	// Build the base-repo envelope once — every row in this list lives
+	// on this repo (the URL-resolved one), so base is shared. Head may
+	// differ (fork PRs) and is resolved per-row via prHeadRepoEnvelope.
+	baseRepoEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
 	out := make([]pullResponse, 0, len(rows))
 	for _, row := range rows {
 		var u *userEnvelope
 		if row.AuthorUserID.Valid {
 			u = users[row.AuthorUserID.Int64]
 		}
-		resp := presentPull(issuesdb.Issue{
-			ID:           row.ID,
-			RepoID:       row.RepoID,
-			Number:       row.Number,
-			Title:        row.Title,
-			Body:         row.Body,
-			AuthorUserID: row.AuthorUserID,
-			State:        issuesdb.IssueState(row.State),
-			CreatedAt:    row.CreatedAt,
-			UpdatedAt:    row.UpdatedAt,
-		}, pullsdb.PullRequest{
+		rowPR := pullsdb.PullRequest{
 			IssueID:        row.IssueID,
 			BaseRef:        row.BaseRef,
 			HeadRef:        row.HeadRef,
@@ -340,7 +415,19 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 			MergedAt:       row.MergedAt,
 			MergedByUserID: row.MergedByUserID,
 			MergeMethod:    row.MergeMethod,
-		}, u)
+		}
+		headRepoEnv := h.prHeadRepoEnvelope(r.Context(), rowPR, repo.ID, baseRepoEnv)
+		resp := presentPull(issuesdb.Issue{
+			ID:           row.ID,
+			RepoID:       row.RepoID,
+			Number:       row.Number,
+			Title:        row.Title,
+			Body:         row.Body,
+			AuthorUserID: row.AuthorUserID,
+			State:        issuesdb.IssueState(row.State),
+			CreatedAt:    row.CreatedAt,
+			UpdatedAt:    row.UpdatedAt,
+		}, rowPR, u, baseRepoEnv, headRepoEnv)
 		resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, row.Number)
 		out = append(out, resp)
 	}
@@ -379,7 +466,9 @@ func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	resp := presentPull(issue, pr, u)
+	baseEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
+	headEnv := h.prHeadRepoEnvelope(r.Context(), pr, repo.ID, baseEnv)
+	resp := presentPull(issue, pr, u, baseEnv, headEnv)
 	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, issue.Number)
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -426,7 +515,9 @@ func (h *Handlers) pullCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := h.resolveUserEnvelope(r.Context(), auth.UserID)
-	resp := presentPull(res.Issue, res.PullRequest, u)
+	baseEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
+	headEnv := h.prHeadRepoEnvelope(r.Context(), res.PullRequest, repo.ID, baseEnv)
+	resp := presentPull(res.Issue, res.PullRequest, u, baseEnv, headEnv)
 	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, res.Issue.Number)
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -535,7 +626,9 @@ func (h *Handlers) pullPatch(w http.ResponseWriter, r *http.Request) {
 	if freshIssue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
 	}
-	resp := presentPull(freshIssue, freshPR, u)
+	baseEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
+	headEnv := h.prHeadRepoEnvelope(r.Context(), freshPR, repo.ID, baseEnv)
+	resp := presentPull(freshIssue, freshPR, u, baseEnv, headEnv)
 	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, freshIssue.Number)
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -667,7 +760,9 @@ func (h *Handlers) pullMerge(w http.ResponseWriter, r *http.Request) {
 	if freshIssue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), freshIssue.AuthorUserID.Int64)
 	}
-	resp := presentPull(freshIssue, freshPR, u)
+	baseEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
+	headEnv := h.prHeadRepoEnvelope(r.Context(), freshPR, repo.ID, baseEnv)
+	resp := presentPull(freshIssue, freshPR, u, baseEnv, headEnv)
 	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, freshIssue.Number)
 	writeJSON(w, http.StatusOK, resp)
 }
