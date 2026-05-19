@@ -103,6 +103,17 @@ UPDATE pull_requests
 SET draft = $2
 WHERE issue_id = $1;
 
+-- name: SetPullRequestBaseRef :exec
+-- G7 (F27): change a PR's base branch. Persists `base_ref` + the
+-- snapshotted `base_oid` so mergeable_state can recompute against the
+-- new base on its next tick. Caller is responsible for resolving the
+-- new ref to an OID and refusing same-branch (base == head) up front.
+UPDATE pull_requests
+SET base_ref = $2,
+    base_oid = $3,
+    last_synchronized_at = now()
+WHERE issue_id = $1;
+
 -- name: LockPullRequestForMerge :one
 -- FOR UPDATE row lock + return current shape so the merge job can
 -- decide whether to proceed (e.g. someone else just merged it).
