@@ -129,6 +129,19 @@ func TestPullViewRequiredChecksSafeLinksAndRerunControls(t *testing.T) {
 	}
 }
 
+func TestPullViewDependencyReviewSummary(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	issue, pr, headSHA := f.insertPullForChecks(t, f.publicRepo)
+	f.insertDependencyReviewForPull(t, pr, f.publicRepo.ID, headSHA)
+
+	body := f.getPullsBody(t, viewerFor(f.owner), "/alice/public-repo/pulls/"+int64String(issue.Number))
+	want := "DEP=failure:Dependency review found vulnerable changes:1:example.test/vulnerable:v1.2.2 -&gt; v1.2.3:high:Fixture advisory|;"
+	if !strings.Contains(body, want) {
+		t.Fatalf("missing dependency review summary %q in %s", want, body)
+	}
+}
+
 func TestPullChecksPrivateRepoNoLeakForUnauthorizedViewer(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixture(t)
@@ -156,7 +169,7 @@ func TestPullChecksPrivateRepoNoLeakForUnauthorizedViewer(t *testing.T) {
 func TestPullProductionTemplateRendersCheckParity(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixtureWithTemplates(t, os.DirFS("../../templates"), render.Options{Octicons: render.BuiltinOcticons()})
-	issue, _, headSHA := f.insertPullForChecks(t, f.publicRepo)
+	issue, pr, headSHA := f.insertPullForChecks(t, f.publicRepo)
 	f.createCheckForPull(t, f.publicRepo.ID, headSHA, checkFixture{
 		Name:       "ci",
 		Status:     "completed",
@@ -164,18 +177,63 @@ func TestPullProductionTemplateRendersCheckParity(t *testing.T) {
 		DetailsURL: "/alice/public-repo/actions/runs/31",
 		AppSlug:    "shithub-actions",
 	})
+	f.insertDependencyReviewForPull(t, pr, f.publicRepo.ID, headSHA)
 
 	body := f.getPullsBody(t, viewerFor(f.owner), "/alice/public-repo/pulls/"+int64String(issue.Number))
 	for _, want := range []string{
 		"1 check successful",
 		"/alice/public-repo/actions/runs/31",
 		"/alice/public-repo/actions/runs/31/rerun",
+		"Dependency review found vulnerable changes",
+		"example.test/vulnerable",
+		"Fixture advisory",
 		`name="csrf_token"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("production template missing %q", want)
 		}
 	}
+}
+
+func (f *repoFixture) insertDependencyReviewForPull(t *testing.T, pr pullsdb.PullRequest, repoID int64, headSHA string) pullsdb.PullDependencyReview {
+	t.Helper()
+	ctx := context.Background()
+	q := pullsdb.New()
+	review, err := q.UpsertPullDependencyReview(ctx, f.pool, pullsdb.UpsertPullDependencyReviewParams{
+		PrID:                  pr.IssueID,
+		RepoID:                repoID,
+		BaseSha:               "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		HeadSha:               headSHA,
+		Conclusion:            "failure",
+		ManifestCount:         1,
+		ChangeCount:           1,
+		ChangedCount:          1,
+		VulnerableChangeCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("UpsertPullDependencyReview: %v", err)
+	}
+	if _, err := q.InsertPullDependencyReviewItem(ctx, f.pool, pullsdb.InsertPullDependencyReviewItemParams{
+		ReviewID:           review.ID,
+		ChangeKind:         "changed",
+		Ecosystem:          "go",
+		PackageName:        "example.test/vulnerable",
+		ManifestPath:       "go.mod",
+		OldVersion:         "v1.2.2",
+		NewVersion:         "v1.2.3",
+		Direct:             true,
+		PackageManager:     "go",
+		Source:             "manifest",
+		Severity:           "high",
+		AdvisorySource:     "local",
+		AdvisoryExternalID: "GHSA-fixture",
+		AdvisorySummary:    "Fixture advisory",
+		PatchedVersions:    "v1.2.4",
+		Recommendation:     "Upgrade to v1.2.4.",
+	}); err != nil {
+		t.Fatalf("InsertPullDependencyReviewItem: %v", err)
+	}
+	return review
 }
 
 type checkFixture struct {
