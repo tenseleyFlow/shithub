@@ -945,7 +945,9 @@ func TestIssues_ListMilestoneFilter(t *testing.T) {
 		wantLen  int
 	}{
 		{fmt.Sprintf("milestone=%d", m.ID), 200, 1},
-		{"milestone=999", 200, 0},
+		// G5 (F13/F30): nonexistent ID now 422s instead of silent-empty
+		// — list-vs-create consistency (create also 422s on bad ID).
+		{"milestone=999", 422, 0},
 		{"milestone=notanumber", 422, 0},
 		{"milestone=0", 422, 0},
 		{"milestone=-1", 422, 0},
