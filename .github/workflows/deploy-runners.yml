@@ -1,0 +1,169 @@
+name: deploy-runners
+on:
+  workflow_run:
+    workflows: [deploy]
+    branches: [trunk]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Deploy even if runner-owned paths are not detected
+        required: true
+        type: boolean
+        default: true
+      expected_commit:
+        description: Commit expected in runner heartbeats; defaults to checked-out commit
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# GH Actions is migrating its built-in Node from 20 to 24 by 2026-09-16.
+# Keep our pinned actions on the newer runtime in this trusted deploy workflow.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+concurrency:
+  group: deploy-runners-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy-runners:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compute rollout metadata
+        id: meta
+        env:
+          INPUT_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -eu
+          commit="$INPUT_EXPECTED_COMMIT"
+          if [ -z "$commit" ]; then
+            commit="$(git rev-parse --short HEAD)"
+          fi
+          printf 'expected_commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Detect runner-owned changes
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_FORCE: ${{ inputs.force }}
+        run: |
+          set -eu
+          needed=false
+          reason="no runner-owned path changes"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_FORCE" = "true" ]; then
+            needed=true
+            reason="manual force"
+          else
+            head="${WORKFLOW_HEAD_SHA:-$(git rev-parse HEAD)}"
+            base="${head}^"
+            if ! git rev-parse --verify "${base}^{commit}" >/dev/null 2>&1; then
+              base="$(git rev-list --max-parents=0 "$head")"
+            fi
+            if [ "$(scripts/runner-rollout-needed.sh "$base" "$head")" = "true" ]; then
+              needed=true
+              reason="runner-owned path changed"
+            fi
+          fi
+          printf 'needed=%s\n' "$needed" >> "$GITHUB_OUTPUT"
+          printf 'reason=%s\n' "$reason" >> "$GITHUB_OUTPUT"
+          printf 'runner rollout needed: %s (%s)\n' "$needed" "$reason"
+
+      - name: Build runner binary
+        if: steps.detect.outputs.needed == 'true'
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+
+      - name: Configure SSH
+        if: steps.detect.outputs.needed == 'true'
+        env:
+          RUNNER_DEPLOY_SSH_KEY: ${{ secrets.RUNNER_DEPLOY_SSH_KEY }}
+          RUNNER_DEPLOY_KNOWN_HOSTS: ${{ secrets.RUNNER_DEPLOY_KNOWN_HOSTS }}
+          RUNNER_DEPLOY_HOSTS: ${{ secrets.RUNNER_DEPLOY_HOSTS }}
+          RUNNER_DEPLOY_USER: ${{ secrets.RUNNER_DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -eu
+          test -n "$RUNNER_DEPLOY_SSH_KEY"
+          test -n "$RUNNER_DEPLOY_KNOWN_HOSTS"
+          test -n "$RUNNER_DEPLOY_HOSTS"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$RUNNER_DEPLOY_SSH_KEY" > ~/.ssh/runner_deploy
+          if [ -n "$DEPLOY_SSH_KEY" ]; then
+            printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/app_deploy
+          else
+            cp ~/.ssh/runner_deploy ~/.ssh/app_deploy
+          fi
+          {
+            printf '%s\n' "$RUNNER_DEPLOY_KNOWN_HOSTS"
+            if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+              printf '%s\n' "$DEPLOY_KNOWN_HOSTS"
+            fi
+          } > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/runner_deploy ~/.ssh/app_deploy ~/.ssh/known_hosts
+
+          normalize_hosts() {
+            printf '%s\n' "$1" | tr ',[:space:]' '\n' | sed '/^$/d'
+          }
+
+          {
+            printf 'Host'
+            normalize_hosts "$RUNNER_DEPLOY_HOSTS" | while IFS= read -r host; do
+              case "$host" in
+                *@*) host="${host#*@}" ;;
+              esac
+              printf ' %s' "$host"
+            done
+            printf '\n'
+            printf '  User %s\n' "${RUNNER_DEPLOY_USER:-root}"
+            printf '  IdentityFile ~/.ssh/runner_deploy\n'
+            printf '  IdentitiesOnly yes\n'
+            printf '  StrictHostKeyChecking yes\n'
+            if [ -n "$DEPLOY_HOST" ]; then
+              printf 'Host %s\n' "$DEPLOY_HOST"
+              printf '  User %s\n' "${DEPLOY_USER:-root}"
+              printf '  IdentityFile ~/.ssh/app_deploy\n'
+              printf '  IdentitiesOnly yes\n'
+              printf '  StrictHostKeyChecking yes\n'
+            fi
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Roll runner fleet
+        if: steps.detect.outputs.needed == 'true'
+        env:
+          RUNNER_DEPLOY_HOSTS: ${{ secrets.RUNNER_DEPLOY_HOSTS }}
+          RUNNER_DEPLOY_USER: ${{ secrets.RUNNER_DEPLOY_USER }}
+          RUNNER_DEPLOY_BIN: bin/shithubd-runner
+          RUNNER_EXPECTED_COMMIT: ${{ steps.meta.outputs.expected_commit }}
+          RUNNER_PREFLIGHT_HOST: ${{ secrets.DEPLOY_HOST }}
+          RUNNER_PREFLIGHT_USER: ${{ secrets.DEPLOY_USER }}
+          RUNNER_PREFLIGHT_LABELS: ubuntu-latest
+          RUNNER_PREFLIGHT_MIN_RUNNERS: 3
+          RUNNER_PREFLIGHT_MAX_HEARTBEAT_AGE: 2m
+        run: scripts/deploy-actions-runners.sh
+
+      - name: Skip summary
+        if: steps.detect.outputs.needed != 'true'
+        run: |
+          printf 'runner rollout skipped: %s\n' "${{ steps.detect.outputs.reason }}"

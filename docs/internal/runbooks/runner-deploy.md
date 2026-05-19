@@ -254,6 +254,46 @@ running on the deployed app host, `--expected-commit` defaults to the commit
 embedded in that `shithubd` binary, which is the desired post-deploy state for
 the shared runner fleet.
 
+### Trusted CI binary rollout
+
+`.github/workflows/deploy-runners.yml` is the trusted binary-only rollout path
+for shared runner droplets. It does not replace Ansible: Ansible remains the
+source of truth for systemd units, network controls, seccomp, image selection,
+tokens, and host provisioning. The workflow only ships a freshly built
+`shithubd-runner` binary to already-provisioned runner hosts.
+
+The workflow runs after the production `deploy` workflow completes successfully
+on `trunk`, then skips itself unless the merge touched the runner binary's Go
+dependency tree or the rollout scripts/workflow. Operators can also trigger it
+manually with `workflow_dispatch`.
+
+Required production environment secrets:
+
+- `RUNNER_DEPLOY_SSH_KEY` - private key allowed to SSH to runner droplets.
+- `RUNNER_DEPLOY_KNOWN_HOSTS` - known-host entries for runner droplets.
+- `RUNNER_DEPLOY_HOSTS` - newline, comma, or space separated runner hosts.
+- `RUNNER_DEPLOY_USER` - optional; defaults to `root`.
+- `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS` -
+  app-host SSH details reused for the post-rollout preflight. If
+  `DEPLOY_SSH_KEY` is absent, the runner deploy key must also be authorized for
+  the app-host preflight.
+
+Rollout behavior:
+
+1. Check out the deployed commit.
+2. Build `bin/shithubd-runner` with the normal Makefile ldflags.
+3. Configure SSH with strict known-host checking.
+4. Stream the binary over SSH to each runner host because SFTP is disabled.
+5. Promote and restart one runner at a time.
+6. Verify local `shithubd-runner version` contains the expected commit.
+7. Poll `shithubd admin runner preflight` on the app host until all expected
+   runner heartbeats report the same commit.
+
+If any host fails to stage, restart, report the expected binary version, or
+heartbeat through preflight, the workflow fails and stops the rollout. S41o-3
+adds drain-aware waiting before restart; until then, use the manual dispatch
+carefully when long user jobs are running.
+
 The role:
 
 - creates the `shithub-runner` system user and joins it to `docker`
