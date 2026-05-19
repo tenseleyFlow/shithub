@@ -727,9 +727,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP26-secret-protection.md", State: "Baseline shipped",
 				},
 				{
-					Name: "Code security", Description: "Import and review code scanning results without AI features.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP27",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP27-code-security.md", State: "Planned",
+					Name: "Code security", Description: "Import SARIF reports, review code scanning alerts, and run security campaigns.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP27",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP27-code-security.md", State: "Baseline shipped",
 				},
 				{
 					Name: "Required 2FA and audit log", Description: "Set stronger organization security posture and review activity.",
