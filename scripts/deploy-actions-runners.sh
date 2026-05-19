@@ -209,7 +209,7 @@ ssh_base=(
 
 expected_lower="$(printf '%s\n' "$RUNNER_EXPECTED_COMMIT" | tr '[:upper:]' '[:lower:]')"
 
-while IFS= read -r host; do
+while IFS= read -r host <&3; do
   [ -n "$host" ] || continue
   case "$host" in
     *@*) target="$host" ;;
@@ -226,7 +226,7 @@ while IFS= read -r host; do
     *"$expected_lower"*) ;;
     *) fail_remote "$target restarted but version output did not contain $RUNNER_EXPECTED_COMMIT" ;;
   esac
-done <"$RELAY_TMP/hosts"
+done 3<"$RELAY_TMP/hosts"
 
 preflight_cmd=(
   /usr/local/bin/shithubd
