@@ -1,0 +1,46 @@
+{{ define "page" -}}
+<section class="shithub-org-invitations">
+  <header class="shithub-org-invitations-header">
+    <h1>Organization invitations</h1>
+    <p>Invitations sent directly to your account or to one of your verified email addresses.</p>
+  </header>
+
+  {{ if .Invitations }}
+  <ul class="shithub-org-invitations-list">
+    {{ range .Invitations }}
+    <li class="shithub-org-invitation-card">
+      <a class="shithub-org-invitation-avatar" href="/{{ .OrgSlug }}">
+        <img src="/avatars/{{ .OrgSlug }}" alt="" width="48" height="48">
+      </a>
+      <div class="shithub-org-invitation-main">
+        <h2>
+          <a href="/{{ .OrgSlug }}">{{ if .OrgDisplayName }}{{ .OrgDisplayName }}{{ else }}{{ .OrgSlug }}{{ end }}</a>
+          <span class="shithub-org-people-username">@{{ .OrgSlug }}</span>
+        </h2>
+        <p>You were invited to join this organization as a <strong>{{ if eq (printf "%s" .Role) "owner" }}owner{{ else }}member{{ end }}</strong>.</p>
+        <p class="shithub-org-people-username">
+          Invited {{ relativeTime .CreatedAt }}{{ if not .ExpiresAt.IsZero }} · Expires {{ relativeTime .ExpiresAt }}{{ end }}
+        </p>
+      </div>
+      <div class="shithub-org-invitation-actions">
+        <form method="POST" action="/invitations/id/{{ .ID }}/accept">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-primary">Accept</button>
+        </form>
+        <form method="POST" action="/invitations/id/{{ .ID }}/decline">
+          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+          <button type="submit" class="shithub-button">Decline</button>
+        </form>
+      </div>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <div class="shithub-org-invitations-empty">
+    {{ octicon "organization" }}
+    <h2>No pending organization invitations</h2>
+    <p>When someone invites you to an organization, it will appear here.</p>
+  </div>
+  {{ end }}
+</section>
+{{- end }}

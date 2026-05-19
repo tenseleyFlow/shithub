@@ -62,7 +62,10 @@ func Invite(ctx context.Context, deps Deps, p InviteParams) (InviteResult, error
 		targetEmail  pgtype.Text
 	)
 	if p.TargetUsername != "" {
-		uname := strings.ToLower(strings.TrimSpace(p.TargetUsername))
+		uname := strings.ToLower(strings.TrimLeft(strings.TrimSpace(p.TargetUsername), "@"))
+		if uname == "" {
+			return InviteResult{}, ErrInvalidInvitationKind
+		}
 		u, err := usersdb.New().GetUserByUsername(ctx, deps.Pool, uname)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

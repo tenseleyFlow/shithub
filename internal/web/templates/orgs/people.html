@@ -34,6 +34,24 @@
         {{ if $.NoticeActionHref }}<a href="{{ $.NoticeActionHref }}">{{ $.NoticeActionText }}</a>{{ end }}
       </p>
       {{ end }}
+      {{ with .ViewerPendingInvite }}
+      <div class="shithub-flash shithub-flash-notice shithub-org-invite-callout" role="status">
+        <div>
+          <strong>You've been invited to join {{ if $.Org.DisplayName }}{{ $.Org.DisplayName }}{{ else }}{{ $.Org.Slug }}{{ end }}.</strong>
+          <span>Accept the invitation to become a {{ if eq (printf "%s" .Role) "owner" }}owner{{ else }}member{{ end }}.</span>
+        </div>
+        <div class="shithub-org-invite-callout-actions">
+          <form method="POST" action="/invitations/id/{{ .ID }}/accept">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button shithub-button-primary">Accept</button>
+          </form>
+          <form method="POST" action="/invitations/id/{{ .ID }}/decline">
+            <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+            <button type="submit" class="shithub-button">Decline</button>
+          </form>
+        </div>
+      </div>
+      {{ end }}
       <div class="shithub-org-people-toolbar">
         <form method="GET" action="/{{ .Org.Slug }}/people" class="shithub-org-people-search" role="search">
           {{ octicon "search" }}
