@@ -934,3 +934,29 @@ func issueIDByNumber(t *testing.T, pool *pgxpool.Pool, repoID, number int64) int
 	}
 	return row.ID
 }
+
+// E25: PATCH /issues/N used to succeed on archived repos because the
+// resolver gated by ActionIssueRead (a read action that bypasses the
+// archive write block). Now the issuePatch handler refuses with 403.
+func TestIssues_PatchOnArchivedRepoIs403(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{"title": "before-archive"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+	archiveRepoViaAPI(t, router, token, "alice", "demo")
+
+	patch, _ := json.Marshal(map[string]any{"title": "after-archive"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/issues/1", bytes.NewReader(patch))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("archived issue patch: got %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+}
