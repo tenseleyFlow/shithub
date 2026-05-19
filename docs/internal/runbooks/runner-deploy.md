@@ -237,6 +237,23 @@ the queue should be empty before the smoke. Trigger at least as many independent
 `ubuntu-latest` jobs as the desired pool capacity and confirm they run
 concurrently. For the first dogfood scale-out, that means three jobs.
 
+For deployment drift checks, use the stricter preflight command. It exits
+nonzero if the matching runner pool is stale, offline, draining, missing version
+metadata, or heartbeating a different commit:
+
+```sh
+shithubd admin runner preflight \
+  --labels ubuntu-latest \
+  --min-runners 3 \
+  --expected-commit "$(git rev-parse --short HEAD)" \
+  --output text
+```
+
+In CI, prefer `--output json` and fail the rollout when `.ok` is false. When
+running on the deployed app host, `--expected-commit` defaults to the commit
+embedded in that `shithubd` binary, which is the desired post-deploy state for
+the shared runner fleet.
+
 The role:
 
 - creates the `shithub-runner` system user and joins it to `docker`

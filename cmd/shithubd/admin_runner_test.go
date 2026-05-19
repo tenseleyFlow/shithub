@@ -179,6 +179,120 @@ func TestWriteRunnerListOutputJSONIncludesOpsFields(t *testing.T) {
 	}
 }
 
+func TestBuildRunnerPreflightReportOK(t *testing.T) {
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	rows := []actionsdb.ListRunnersRow{
+		{
+			ID:              2,
+			Name:            "shared-linux-1",
+			Labels:          []string{"self-hosted", "linux", "ubuntu-latest", "x64"},
+			Capacity:        1,
+			Status:          actionsdb.WorkflowRunnerStatusIdle,
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-15 * time.Second), Valid: true},
+			HostName:        "runner-host-1",
+			Version:         "v0.1.0-1543-gdfb5ff88 (dfb5ff88, built 2026-05-19T09:50:24Z)",
+		},
+		{
+			ID:              99,
+			Name:            "windows-later",
+			Labels:          []string{"windows-latest"},
+			Status:          actionsdb.WorkflowRunnerStatusIdle,
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-15 * time.Second), Valid: true},
+			Version:         "v0.1.0-1543-gdfb5ff88 (dfb5ff88, built 2026-05-19T09:50:24Z)",
+		},
+	}
+	report := buildRunnerPreflightReport(rows, runnerPreflightOptions{
+		ExpectedCommit:  "dfb5ff88f00dbabe",
+		Labels:          []string{"ubuntu-latest"},
+		MinRunners:      1,
+		MaxHeartbeatAge: time.Minute,
+		Now:             now,
+	})
+	if !report.OK {
+		t.Fatalf("report not ok: %+v", report)
+	}
+	if report.CheckedRunnerCount != 1 || report.ReadyRunnerCount != 1 || report.SkippedRunnerCount != 1 {
+		t.Fatalf("unexpected counts: %+v", report)
+	}
+	if report.Runners[0].LastHeartbeatAgeSeconds != 15 {
+		t.Fatalf("heartbeat age = %d", report.Runners[0].LastHeartbeatAgeSeconds)
+	}
+}
+
+func TestBuildRunnerPreflightReportFlagsDrift(t *testing.T) {
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	rows := []actionsdb.ListRunnersRow{
+		{
+			ID:              2,
+			Name:            "stale-runner",
+			Labels:          []string{"ubuntu-latest"},
+			Capacity:        1,
+			Status:          actionsdb.WorkflowRunnerStatusIdle,
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-5 * time.Minute), Valid: true},
+			Version:         "v0.1.0-1537-gf04cb8a3 (f04cb8a3, built 2026-05-19T08:40:54Z)",
+		},
+		{
+			ID:              3,
+			Name:            "missing-version",
+			Labels:          []string{"ubuntu-latest"},
+			Capacity:        1,
+			Status:          actionsdb.WorkflowRunnerStatusIdle,
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-10 * time.Second), Valid: true},
+		},
+		{
+			ID:              4,
+			Name:            "draining-runner",
+			Labels:          []string{"ubuntu-latest"},
+			Capacity:        1,
+			Status:          actionsdb.WorkflowRunnerStatusBusy,
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-10 * time.Second), Valid: true},
+			Version:         "v0.1.0-1543-gdfb5ff88 (dfb5ff88, built 2026-05-19T09:50:24Z)",
+			DrainingAt:      pgtype.Timestamptz{Time: now.Add(-30 * time.Second), Valid: true},
+		},
+		{
+			ID:              5,
+			Name:            "revoked-runner",
+			Labels:          []string{"ubuntu-latest"},
+			Status:          actionsdb.WorkflowRunnerStatusOffline,
+			RevokedAt:       pgtype.Timestamptz{Time: now.Add(-time.Hour), Valid: true},
+			LastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-10 * time.Second), Valid: true},
+		},
+	}
+	report := buildRunnerPreflightReport(rows, runnerPreflightOptions{
+		ExpectedCommit:  "dfb5ff88",
+		Labels:          []string{"ubuntu-latest"},
+		MinRunners:      3,
+		MaxHeartbeatAge: time.Minute,
+		Now:             now,
+	})
+	if report.OK {
+		t.Fatalf("report unexpectedly ok: %+v", report)
+	}
+	if report.CheckedRunnerCount != 3 || report.SkippedRunnerCount != 1 ||
+		report.StaleCount != 1 || report.VersionDriftCount != 1 ||
+		report.MissingVersionCount != 1 || report.DrainingCount != 1 {
+		t.Fatalf("unexpected counts: %+v", report)
+	}
+	if err := runnerPreflightError(report); err == nil ||
+		!strings.Contains(err.Error(), "stale=1") ||
+		!strings.Contains(err.Error(), "version_drift=1") ||
+		!strings.Contains(err.Error(), "missing_version=1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunnerVersionMatchesCommit(t *testing.T) {
+	version := "v0.1.0-1543-gdfb5ff88 (dfb5ff88, built 2026-05-19T09:50:24Z)"
+	for _, expected := range []string{"dfb5ff88", "dfb5ff88f00dbabe"} {
+		if !runnerVersionMatchesCommit(version, expected) {
+			t.Fatalf("expected %q to match %q", version, expected)
+		}
+	}
+	if runnerVersionMatchesCommit(version, "f04cb8a3") {
+		t.Fatalf("stale commit unexpectedly matched")
+	}
+}
+
 func TestWriteRunnerJobsOutputJSON(t *testing.T) {
 	now := time.Date(2026, 5, 12, 16, 30, 0, 0, time.UTC)
 	rows := []actionsdb.ListRunnerRunningJobsForAdminRow{{
