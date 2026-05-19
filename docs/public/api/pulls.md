@@ -271,7 +271,19 @@ DELETE /api/v1/repos/{owner}/{repo}/pulls/{number}/requested_reviewers
 Required scope: `repo:write`. Same body. Returns `204`; `404`
 when there is no active request for that user.
 
+## Update branch from base
+
+```
+PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/update-branch
+```
+
+Required scope: `repo:write`. Merges the current tip of the PR's
+`base_ref` into the head branch (fast-forward when possible; merge
+commit otherwise). Returns `200` with `{ "message": "Updating pull
+request branch.", "url": "<head url>" }`. `422` with sentinel
+`branch_is_up_to_date` when no merge would change `head_oid`. The
+operation is permission-gated identically to body/title edits.
+
 ## Not yet shipped
 
-- `PUT /pulls/{n}/update-branch`
 - `PUT /pulls/{n}/auto-merge`
