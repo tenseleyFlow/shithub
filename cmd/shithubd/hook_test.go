@@ -8,16 +8,20 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
+	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
@@ -104,4 +108,176 @@ func TestEnforcePreReceiveStorageQuotaRejectsOrgRepoOverLimit(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("unlimited quota enforce: %v", err)
 	}
+}
+
+func TestEnforcePreReceiveSecretProtectionRejectsPublicRepoSecret(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+
+	err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}})
+	var secretErr errHookSecretProtection
+	if !errors.As(err, &secretErr) {
+		t.Fatalf("enforcePreReceiveSecretProtection err = %v, want errHookSecretProtection", err)
+	}
+	if len(secretErr.Findings) != 1 {
+		t.Fatalf("findings len = %d, want 1", len(secretErr.Findings))
+	}
+	msg := friendlyHookErr(err)
+	for _, want := range []string{"config/secrets.env:1", "github-token"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("friendly message missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ") {
+		t.Fatalf("friendly message leaked raw secret: %s", msg)
+	}
+}
+
+func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	if _, err := secretscandb.New().InsertSecretScanAllowlist(ctx, pool, secretscandb.InsertSecretScanAllowlistParams{
+		RepoID:    repo.ID,
+		Pattern:   "github-token",
+		Path:      "config/secrets.env",
+		Reason:    "fixture false positive",
+		CreatedBy: pgtype.Int8{Int64: user.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertSecretScanAllowlist: %v", err)
+	}
+	gitDir, commit := danglingSecretCommit(t)
+
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}); err != nil {
+		t.Fatalf("enforcePreReceiveSecretProtection allowlisted err = %v", err)
+	}
+}
+
+func TestEnforcePreReceiveSecretProtectionPrivateOrgRequiresTeam(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo, orgID := createHookOrgRepo(t, pool, reposdb.RepoVisibilityPrivate)
+	gitDir, commit := danglingSecretCommit(t)
+	refs := []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}
+
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, refs); err != nil {
+		t.Fatalf("free private org should skip push protection, got err = %v", err)
+	}
+	if _, err := billing.ApplySubscriptionSnapshot(ctx, billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_hook_sec",
+		StripeSubscriptionItemID: "si_hook_sec",
+		LastWebhookEventID:       "evt_hook_sec",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	var secretErr errHookSecretProtection
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, refs); !errors.As(err, &secretErr) {
+		t.Fatalf("team private org err = %v, want errHookSecretProtection", err)
+	}
+}
+
+func createHookUserRepo(t *testing.T, pool *pgxpool.Pool, visibility reposdb.RepoVisibility) (usersdb.User, reposdb.Repo) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username:     "alice",
+		DisplayName:  "Alice",
+		PasswordHash: "$argon2id$v=19$m=16384,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", // #nosec G101 -- test fixture password hash, not a credential
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerUserID:   pgtype.Int8{Int64: user.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    visibility,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+	return user, repo
+}
+
+func createHookOrgRepo(t *testing.T, pool *pgxpool.Pool, visibility reposdb.RepoVisibility) (usersdb.User, reposdb.Repo, int64) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username:     "org-owner",
+		DisplayName:  "Org Owner",
+		PasswordHash: "$argon2id$v=19$m=16384,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", // #nosec G101 -- test fixture password hash, not a credential
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	org, err := orgs.Create(ctx, orgs.Deps{
+		Pool:   pool,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, orgs.CreateParams{
+		Slug: "hook-acme", DisplayName: "Hook Acme", CreatedByUserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "demo",
+		DefaultBranch: "trunk",
+		Visibility:    visibility,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+	return user, repo, org.ID
+}
+
+func danglingSecretCommit(t *testing.T) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	rfs, err := storage.NewRepoFS(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewRepoFS: %v", err)
+	}
+	gitDir, err := rfs.RepoPath("hook", "demo")
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := rfs.InitBare(ctx, gitDir); err != nil {
+		t.Fatalf("InitBare: %v", err)
+	}
+	commit, err := repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Message:     "Add config",
+		Branch:      "scan-tmp",
+		Files: []repogit.FileEntry{{
+			Path: "config/secrets.env",
+			Body: []byte("GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"),
+		}},
+	}.Build(ctx)
+	if err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", gitDir, "update-ref", "-d", "refs/heads/scan-tmp").CombinedOutput(); err != nil {
+		t.Fatalf("delete temp ref: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return gitDir, commit
 }
