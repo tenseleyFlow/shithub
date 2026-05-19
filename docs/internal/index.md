@@ -61,7 +61,8 @@ site.
   [actions-runner-api.md](./actions-runner-api.md),
   [actions-ga-readiness.md](./actions-ga-readiness.md),
   [actions-ui-parity-audit.md](./actions-ui-parity-audit.md),
-  [actions-ui-parity-closeout.md](./actions-ui-parity-closeout.md)
+  [actions-ui-parity-closeout.md](./actions-ui-parity-closeout.md),
+  [actions-product-polish-closeout.md](./actions-product-polish-closeout.md)
 - [orgs.md](./orgs.md), [teams.md](./teams.md)
 - [billing.md](./billing.md) — paid org product contract,
   entitlements, and Stripe integration guardrails.
