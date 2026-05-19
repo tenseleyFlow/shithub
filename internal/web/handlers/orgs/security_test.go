@@ -18,6 +18,7 @@ import (
 
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	orgsh "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -40,7 +41,8 @@ func TestOrgSecurityOverviewRendersTeamDependencyAlerts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
-	seedOrgDependencyAlert(t, pool, orgID)
+	repoID := seedOrgDependencyAlert(t, pool, orgID)
+	seedOrgSecretFinding(t, pool, repoID)
 
 	mux := newOrgSecurityMux(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"})
 	resp := httptest.NewRecorder()
@@ -52,8 +54,10 @@ func TestOrgSecurityOverviewRendersTeamDependencyAlerts(t *testing.T) {
 	body := resp.Body.String()
 	for _, want := range []string{
 		"SUMMARY=1/1/0;",
+		"SECRETS=1/1;",
 		"ALERT=app:example.test/vulnerable:high;",
 		"REPO=app:1;",
+		"SECRET=app:GitHub token:config/secrets.env;",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q: %s", want, body)
@@ -82,7 +86,8 @@ func TestOrgSecurityOverviewFreeOrgDoesNotRenderAlertDetails(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	ownerID := insertOrgAvatarUser(t, pool, "owner")
 	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
-	seedOrgDependencyAlert(t, pool, orgID)
+	repoID := seedOrgDependencyAlert(t, pool, orgID)
+	seedOrgSecretFinding(t, pool, repoID)
 
 	mux := newOrgSecurityMux(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"})
 	resp := httptest.NewRecorder()
@@ -98,9 +103,12 @@ func TestOrgSecurityOverviewFreeOrgDoesNotRenderAlertDetails(t *testing.T) {
 	if strings.Contains(body, "example.test/vulnerable") {
 		t.Fatalf("locked org leaked alert details: %s", body)
 	}
+	if strings.Contains(body, "GitHub token") {
+		t.Fatalf("locked org leaked secret finding details: %s", body)
+	}
 }
 
-func seedOrgDependencyAlert(t *testing.T, pool *pgxpool.Pool, orgID int64) {
+func seedOrgDependencyAlert(t *testing.T, pool *pgxpool.Pool, orgID int64) int64 {
 	t.Helper()
 	ctx := context.Background()
 	rq := reposdb.New()
@@ -155,13 +163,28 @@ func seedOrgDependencyAlert(t *testing.T, pool *pgxpool.Pool, orgID int64) {
 	if err := rq.RefreshDependencyAlertsForRepo(ctx, pool, repo.ID); err != nil {
 		t.Fatalf("RefreshDependencyAlertsForRepo: %v", err)
 	}
+	return repo.ID
+}
+
+func seedOrgSecretFinding(t *testing.T, pool *pgxpool.Pool, repoID int64) {
+	t.Helper()
+	if _, err := secretscandb.New().UpsertSecretScanFinding(context.Background(), pool, secretscandb.UpsertSecretScanFindingParams{
+		RepoID:       repoID,
+		Pattern:      "GitHub token",
+		Path:         "config/secrets.env",
+		LineNo:       7,
+		Excerpt:      "GITHUB_TOKEN=[REDACTED]",
+		FirstSeenOid: "feedface",
+	}); err != nil {
+		t.Fatalf("UpsertSecretScanFinding: %v", err)
+	}
 }
 
 func newOrgSecurityMux(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser) *chi.Mux {
 	t.Helper()
 	tmplFS := fstest.MapFS{
 		"_layout.html":       {Data: []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)},
-		"orgs/security.html": {Data: []byte(`{{ define "page" }}{{ if .Locked }}LOCK={{ .UpgradeBanner.Message }};{{ else }}SUMMARY={{ .Summary.OpenAlertCount }}/{{ .Summary.DependencyCount }}/{{ .Summary.RepositoryAdvisoryCount }};{{ range .Alerts }}ALERT={{ .RepoName }}:{{ .PackageName }}:{{ .Severity }};{{ end }}{{ range .Repositories }}REPO={{ .RepoName }}:{{ .DependencyCount }};{{ end }}{{ end }}{{ end }}`)},
+		"orgs/security.html": {Data: []byte(`{{ define "page" }}{{ if .Locked }}LOCK={{ .UpgradeBanner.Message }};{{ else }}SUMMARY={{ .Summary.OpenAlertCount }}/{{ .Summary.DependencyCount }}/{{ .Summary.RepositoryAdvisoryCount }};SECRETS={{ .SecretSummary.OpenSecretCount }}/{{ .SecretSummary.AffectedRepoCount }};{{ range .Alerts }}ALERT={{ .RepoName }}:{{ .PackageName }}:{{ .Severity }};{{ end }}{{ range .Repositories }}REPO={{ .RepoName }}:{{ .DependencyCount }};{{ end }}{{ range .SecretFindings }}SECRET={{ .RepoName }}:{{ .Pattern }}:{{ .Path }};{{ end }}{{ end }}{{ end }}`)},
 		"errors/404.html":    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}

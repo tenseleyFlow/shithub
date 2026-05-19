@@ -17,6 +17,9 @@
         <a href="/{{ .Org.Slug }}/security" class="is-selected" aria-current="page">
           <span>{{ octicon "shield-check" }} Overview</span>
         </a>
+        <a href="#secret-scanning">
+          <span>{{ octicon "lock" }} Secret scanning</span>
+        </a>
         <span aria-disabled="true">{{ octicon "package" }} Dependency graph</span>
         <span aria-disabled="true">{{ octicon "shield-check" }} Security advisories</span>
       </nav>
@@ -47,6 +50,10 @@
             <span>Open dependency alerts</span>
           </div>
           <div>
+            <strong>{{ if .SecretScanningAllowed }}{{ .SecretSummary.OpenSecretCount }}{{ else }}-{{ end }}</strong>
+            <span>Open secret findings</span>
+          </div>
+          <div>
             <strong>{{ .Summary.CriticalAlertCount }}</strong>
             <span>Critical alerts</span>
           </div>
@@ -62,6 +69,48 @@
             <strong>{{ .Summary.RepositoryAdvisoryCount }}</strong>
             <span>Repository advisories</span>
           </div>
+        </section>
+
+        <section class="shithub-org-security-card" id="secret-scanning">
+          <div class="shithub-org-security-card-head">
+            <h2>Secret scanning</h2>
+            {{ if .SecretScanningAllowed }}
+            <span>{{ .SecretSummary.AffectedRepoCount }} affected repositories</span>
+            {{ else }}
+            <span>Team required</span>
+            {{ end }}
+          </div>
+          {{ if not .SecretScanningAllowed }}
+            {{ with .SecretUpgradeBanner }}
+            <div class="shithub-org-security-upgrade">
+              <div>
+                <h2>Secret scanning requires Team</h2>
+                <p>{{ .Message }}</p>
+              </div>
+              <a class="shithub-button shithub-button-primary" href="{{ .ActionHref }}">{{ .ActionText }}</a>
+            </div>
+            {{ end }}
+          {{ else if .SecretFindings }}
+          <ul class="shithub-org-security-list">
+            {{ range .SecretFindings }}
+            <li>
+              <div class="shithub-org-security-list-main">
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security/secret-scanning">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+                <strong>{{ .Pattern }}</strong>
+                <span>{{ .Path }}:{{ .LineNo }} · {{ .Excerpt }}</span>
+              </div>
+              <span class="shithub-org-security-severity is-critical">Secret</span>
+              <span class="shithub-org-security-list-meta">{{ relativeTime .LastSeenAt.Time }}</span>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="shithub-org-security-empty">
+            {{ octicon "shield-check" }}
+            <h2>No open secret findings</h2>
+            <p>Scanned repositories have no open supported secret-pattern matches.</p>
+          </div>
+          {{ end }}
         </section>
 
         <section class="shithub-org-security-card">

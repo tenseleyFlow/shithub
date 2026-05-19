@@ -62,6 +62,80 @@ func (q *Queries) GetSecretScanFinding(ctx context.Context, db DBTX, arg GetSecr
 	return i, err
 }
 
+const listOrgSecretScanFindings = `-- name: ListOrgSecretScanFindings :many
+SELECT
+    f.id,
+    f.repo_id,
+    r.name AS repo_name,
+    r.visibility AS repo_visibility,
+    f.pattern,
+    f.path,
+    f.line_no,
+    f.excerpt,
+    f.status,
+    f.first_seen_at,
+    f.last_seen_at
+FROM secret_scan_findings f
+JOIN repos r ON r.id = f.repo_id
+WHERE r.owner_org_id = $1
+  AND r.deleted_at IS NULL
+  AND f.status = 'open'
+ORDER BY f.last_seen_at DESC, lower(r.name), lower(f.path), f.line_no
+LIMIT $2 OFFSET $3
+`
+
+type ListOrgSecretScanFindingsParams struct {
+	OwnerOrgID pgtype.Int8
+	Limit      int32
+	Offset     int32
+}
+
+type ListOrgSecretScanFindingsRow struct {
+	ID             int64
+	RepoID         int64
+	RepoName       string
+	RepoVisibility RepoVisibility
+	Pattern        string
+	Path           string
+	LineNo         int32
+	Excerpt        string
+	Status         SecretScanFindingStatus
+	FirstSeenAt    pgtype.Timestamptz
+	LastSeenAt     pgtype.Timestamptz
+}
+
+func (q *Queries) ListOrgSecretScanFindings(ctx context.Context, db DBTX, arg ListOrgSecretScanFindingsParams) ([]ListOrgSecretScanFindingsRow, error) {
+	rows, err := db.Query(ctx, listOrgSecretScanFindings, arg.OwnerOrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgSecretScanFindingsRow{}
+	for rows.Next() {
+		var i ListOrgSecretScanFindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.RepoName,
+			&i.RepoVisibility,
+			&i.Pattern,
+			&i.Path,
+			&i.LineNo,
+			&i.Excerpt,
+			&i.Status,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretScanFindingsForRepo = `-- name: ListSecretScanFindingsForRepo :many
 SELECT id, repo_id, pattern, path, line_no, excerpt, status, first_seen_oid, last_seen_oid, first_seen_at, last_seen_at, resolved_at, resolution_note
 FROM secret_scan_findings
@@ -139,6 +213,44 @@ type MarkSecretScanFindingsStaleForRepoParams struct {
 func (q *Queries) MarkSecretScanFindingsStaleForRepo(ctx context.Context, db DBTX, arg MarkSecretScanFindingsStaleForRepoParams) error {
 	_, err := db.Exec(ctx, markSecretScanFindingsStaleForRepo, arg.RepoID, arg.LastSeenOid)
 	return err
+}
+
+const orgSecretScanSummary = `-- name: OrgSecretScanSummary :one
+WITH org_repos AS (
+    SELECT id
+    FROM repos
+    WHERE owner_org_id = $1
+      AND deleted_at IS NULL
+)
+SELECT
+    count(*) FILTER (WHERE f.status = 'open')::bigint AS open_secret_count,
+    count(*) FILTER (WHERE f.status = 'allowlisted')::bigint AS allowlisted_secret_count,
+    count(*) FILTER (WHERE f.status = 'stale')::bigint AS stale_secret_count,
+    count(*)::bigint AS total_secret_count,
+    count(DISTINCT f.repo_id)::bigint AS affected_repo_count
+FROM secret_scan_findings f
+JOIN org_repos r ON r.id = f.repo_id
+`
+
+type OrgSecretScanSummaryRow struct {
+	OpenSecretCount        int64
+	AllowlistedSecretCount int64
+	StaleSecretCount       int64
+	TotalSecretCount       int64
+	AffectedRepoCount      int64
+}
+
+func (q *Queries) OrgSecretScanSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecretScanSummaryRow, error) {
+	row := db.QueryRow(ctx, orgSecretScanSummary, ownerOrgID)
+	var i OrgSecretScanSummaryRow
+	err := row.Scan(
+		&i.OpenSecretCount,
+		&i.AllowlistedSecretCount,
+		&i.StaleSecretCount,
+		&i.TotalSecretCount,
+		&i.AffectedRepoCount,
+	)
+	return i, err
 }
 
 const resolveSecretScanFinding = `-- name: ResolveSecretScanFinding :exec

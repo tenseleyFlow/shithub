@@ -174,6 +174,10 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 		entitlements.FeatureDependabotVersionUpdates,
 		entitlements.FeatureDependabotAutoTriage,
 		entitlements.FeatureSecurityAdvisories,
+		entitlements.FeatureSecretScanning,
+		entitlements.FeatureSecretPushProtection,
+		entitlements.FeatureSecretCustomPatterns,
+		entitlements.FeatureSecretBypassControls,
 	} {
 		if decision := set.CanUse(feature); !decision.Allowed {
 			t.Fatalf("feature %s decision=%+v, want allowed", feature, decision)

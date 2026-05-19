@@ -48,10 +48,10 @@ func (h *Handlers) repoSecretScanningRunScan(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	allowed, _ := h.repoSecretScanAllowed(r.Context(), row)
-	if !allowed && h.d.BillingEnforce.UserSecretScanHistory {
+	gate := h.repoSecretScanGate(r.Context(), row, owner.Username)
+	if !gate.Allowed && h.d.BillingEnforce.UserSecretScanHistory {
 		h.renderSecretScanningPage(w, r, row, owner.Username,
-			"Secret scanning is a Pro feature. Upgrade to run on-demand scans.", "")
+			"Secret scanning requires billing for this repository. Upgrade to run on-demand scans.", "")
 		return
 	}
 
@@ -148,45 +148,78 @@ func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Reque
 		Offset:       0,
 	})
 	allowlist, _ := sq.ListSecretScanAllowlistForRepo(r.Context(), h.d.Pool, row.ID)
-	allowed, gateAffordance := h.repoSecretScanAllowed(r.Context(), row)
+	gate := h.repoSecretScanGate(r.Context(), row, ownerSlug)
 	_ = h.d.Render.RenderPage(w, r, "repo/security_secret_scanning", map[string]any{
-		"Title":             "Secret scanning · " + row.Name,
-		"CSRFToken":         middleware.CSRFTokenForRequest(r),
-		"Owner":             ownerSlug,
-		"Repo":              row,
-		"Findings":          findings,
-		"Allowlist":         allowlist,
-		"StatusFilter":      statusFilter,
-		"RunScanAllowed":    allowed,
-		"RunScanFeatureKey": string(entitlements.FeatureSecretScanHistory),
-		"RunScanLockReason": gateAffordance,
-		"RepoActions":       h.repoActions(r, row.ID),
-		"RepoCounts":        h.subnavCounts(r.Context(), row.ID, row.ForkCount),
-		"CanSettings":       h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
-		"ActiveSubnav":      "security",
-		"Error":             errMsg,
-		"Success":           successMsg,
+		"Title":              "Secret scanning · " + row.Name,
+		"CSRFToken":          middleware.CSRFTokenForRequest(r),
+		"Owner":              ownerSlug,
+		"Repo":               row,
+		"Findings":           findings,
+		"Allowlist":          allowlist,
+		"StatusFilter":       statusFilter,
+		"RunScanAllowed":     gate.Allowed,
+		"RunScanFeatureKey":  gate.FeatureKey,
+		"RunScanUpgradeHref": gate.UpgradeHref,
+		"RunScanUpgradeText": gate.UpgradeText,
+		"RepoActions":        h.repoActions(r, row.ID),
+		"RepoCounts":         h.subnavCounts(r.Context(), row.ID, row.ForkCount),
+		"CanSettings":        h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
+		"ActiveSubnav":       "security",
+		"Error":              errMsg,
+		"Success":            successMsg,
 	})
 }
 
-// repoSecretScanAllowed reports whether the repo owner currently
-// holds FeatureSecretScanHistory. Org-owned repos aren't gated by
-// this sprint (10 is user-tier); they return (true, ""). Returns an
-// affordance string the template uses to decide which locked-UI
-// variant to render.
-func (h *Handlers) repoSecretScanAllowed(ctx context.Context, row reposdb.Repo) (bool, string) {
-	if !row.OwnerUserID.Valid {
-		return true, ""
+type repoSecretScanGate struct {
+	Allowed     bool
+	FeatureKey  string
+	UpgradeHref string
+	UpgradeText string
+}
+
+// repoSecretScanGate reports whether on-demand history scanning is
+// available for this repository. Public repositories keep baseline
+// secret scanning, matching GitHub's public-repo availability. Private
+// personal repositories require Pro; private organization repositories
+// require Team via SP26's org Secret Protection entitlement.
+func (h *Handlers) repoSecretScanGate(ctx context.Context, row reposdb.Repo, ownerSlug string) repoSecretScanGate {
+	gate := repoSecretScanGate{
+		Allowed:     true,
+		FeatureKey:  string(entitlements.FeatureSecretScanHistory),
+		UpgradeHref: "/settings/billing",
+		UpgradeText: "Upgrade to Pro",
 	}
+	if row.Visibility != reposdb.RepoVisibilityPrivate {
+		return gate
+	}
+	if row.OwnerOrgID.Valid {
+		gate.FeatureKey = string(entitlements.FeatureSecretScanning)
+		gate.UpgradeHref = "/organizations/" + ownerSlug + "/settings/billing"
+		gate.UpgradeText = "Upgrade to Team"
+		decision, err := entitlements.CheckPrincipalFeature(ctx,
+			entitlements.Deps{Pool: h.d.Pool},
+			billing.PrincipalForOrg(row.OwnerOrgID.Int64),
+			entitlements.FeatureSecretScanning)
+		if err != nil {
+			gate.Allowed = false
+			return gate
+		}
+		gate.Allowed = decision.Allowed
+		return gate
+	}
+	if !row.OwnerUserID.Valid {
+		return gate
+	}
+	gate.Allowed = false
 	decision, err := entitlements.CheckPrincipalFeature(ctx,
 		entitlements.Deps{Pool: h.d.Pool},
 		billing.PrincipalForUser(row.OwnerUserID.Int64),
 		entitlements.FeatureSecretScanHistory)
 	if err != nil {
-		return false, "anonymous"
+		return gate
 	}
 	if decision.Allowed {
-		return true, ""
+		gate.Allowed = true
 	}
-	return false, "upgrade"
+	return gate
 }
