@@ -849,6 +849,14 @@ func (h *Handlers) resolvePRByNumber(w http.ResponseWriter, r *http.Request, rep
 
 // writePullsError maps the orchestrator's typed errors to HTTP codes.
 func writePullsError(w http.ResponseWriter, err error) {
+	// G6 (F46): duplicate-PR is a typed error (carries the existing
+	// number); map it to 422 with the orchestrator's message so the CLI
+	// can surface "#N already exists" without re-fetching.
+	var dup *pulls.DuplicatePRError
+	if errors.As(err, &dup) {
+		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	switch {
 	case errors.Is(err, pulls.ErrSameBranch),
 		errors.Is(err, pulls.ErrBaseNotFound),

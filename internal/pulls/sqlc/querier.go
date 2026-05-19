@@ -44,6 +44,12 @@ type Querier interface {
 	DeletePullDependencyReviewItems(ctx context.Context, db DBTX, reviewID int64) error
 	DismissPRReview(ctx context.Context, db DBTX, arg DismissPRReviewParams) error
 	DismissPRReviewRequest(ctx context.Context, db DBTX, id int64) error
+	// G6 (F46): uniqueness probe for `(repo_id, base_ref, head_ref)` on
+	// OPEN PRs. Used by pulls.Create to refuse a second open PR over the
+	// same head→base pair (matches gh's `422 A pull request already exists`).
+	// Returns (issue_id, number) of the existing row so the error can name
+	// it; pgx.ErrNoRows means "no duplicate, proceed".
+	FindOpenPullRequestByBranches(ctx context.Context, db DBTX, arg FindOpenPullRequestByBranchesParams) (FindOpenPullRequestByBranchesRow, error)
 	GetLatestPullDependencyReview(ctx context.Context, db DBTX, prID int64) (PullDependencyReview, error)
 	GetPRReviewByID(ctx context.Context, db DBTX, id int64) (PrReview, error)
 	GetPRReviewComment(ctx context.Context, db DBTX, id int64) (PrReviewComment, error)

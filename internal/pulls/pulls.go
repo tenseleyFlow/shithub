@@ -68,6 +68,23 @@ var (
 	ErrPRNotFound       = errors.New("pulls: PR not found")
 )
 
+// DuplicatePRError is returned by Create when an OPEN PR for the same
+// `(repo, base, head)` triple already exists. Carries the existing PR's
+// number so the handler can render `422 A pull request already exists
+// for ... (#N)` — matching gh's wire shape (F46).
+type DuplicatePRError struct {
+	ExistingNumber int64
+	BaseRef        string
+	HeadRef        string
+}
+
+// Error renders the gh-compat message form. Handlers translate this to
+// 422 and pass the string straight through.
+func (e *DuplicatePRError) Error() string {
+	return fmt.Sprintf("pulls: an open pull request from %s to %s already exists (#%d)",
+		e.HeadRef, e.BaseRef, e.ExistingNumber)
+}
+
 // CreateParams describes a new-PR request.
 type CreateParams struct {
 	RepoID       int64
@@ -112,6 +129,31 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	}
 	if baseOID == headOID {
 		return CreateResult{}, ErrNoCommitsToMerge
+	}
+
+	// G6 (F46): a single OPEN PR per `(repo, base, head)` triple — gh's
+	// rule. Pre-fix the server happily opened unlimited duplicates; the
+	// list view filled up with three- or four-deep stacks of the same
+	// branch. Probe before inserting; race window narrows to the gap
+	// between this check and the INSERT (acceptable for v1 — a strict
+	// fix would be a partial unique index on `(repo_id, base_ref,
+	// head_ref) WHERE state = 'open'` on the issues+pull_requests join,
+	// future migration).
+	existing, err := pullsdb.New().FindOpenPullRequestByBranches(ctx, deps.Pool,
+		pullsdb.FindOpenPullRequestByBranchesParams{
+			RepoID:  p.RepoID,
+			BaseRef: base,
+			HeadRef: head,
+		})
+	if err == nil {
+		return CreateResult{}, &DuplicatePRError{
+			ExistingNumber: existing.Number,
+			BaseRef:        base,
+			HeadRef:        head,
+		}
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return CreateResult{}, fmt.Errorf("duplicate probe: %w", err)
 	}
 
 	// Open the issues row first via the issues orchestrator so we get

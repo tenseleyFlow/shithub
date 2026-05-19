@@ -18,6 +18,22 @@ RETURNING *;
 -- name: GetPullRequestByIssueID :one
 SELECT * FROM pull_requests WHERE issue_id = $1;
 
+-- name: FindOpenPullRequestByBranches :one
+-- G6 (F46): uniqueness probe for `(repo_id, base_ref, head_ref)` on
+-- OPEN PRs. Used by pulls.Create to refuse a second open PR over the
+-- same head→base pair (matches gh's `422 A pull request already exists`).
+-- Returns (issue_id, number) of the existing row so the error can name
+-- it; pgx.ErrNoRows means "no duplicate, proceed".
+SELECT pr.issue_id, i.number
+FROM pull_requests pr
+JOIN issues i ON i.id = pr.issue_id
+WHERE i.repo_id = $1
+  AND i.kind = 'pr'
+  AND i.state = 'open'
+  AND pr.base_ref = $2
+  AND pr.head_ref = $3
+LIMIT 1;
+
 -- name: GetPullRequestByRepoAndNumber :one
 -- Joins issues + pull_requests so handlers can resolve via the URL
 -- {owner}/{repo}/pulls/{number} in one round-trip.
