@@ -75,7 +75,7 @@ expand_local_path() {
       ;;
     '~/'*)
       [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
-      printf '%s/%s\n' "$HOME" "${value#~/}"
+      printf '%s/%s\n' "$HOME" "${value#\~/}"
       ;;
     '$HOME')
       [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
