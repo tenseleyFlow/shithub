@@ -10,7 +10,7 @@ on:
       tag:
         description: "Destination image tag"
         required: true
-        default: "1.0"
+        default: "1.1"
 
 permissions:
   contents: read
@@ -62,7 +62,7 @@ jobs:
         run: docker load < result
 
       - name: Tag image
-        run: docker tag ghcr.io/tenseleyflow/shithub/runner-nix:1.0 "${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}"
+        run: docker tag ghcr.io/tenseleyflow/shithub/runner-nix:1.1 "${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}"
 
       - name: Login to GHCR
         uses: docker/login-action@v3

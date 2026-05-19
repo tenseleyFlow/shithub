@@ -28,6 +28,9 @@ docker load < result
 
 The committed `deploy/runner-images/flake.lock` pins the nixpkgs input.
 Update it deliberately when changing the default image toolchain.
+The current default image is
+`ghcr.io/tenseleyflow/shithub/runner-nix:1.1`; its hosted-tool contract is
+documented in [actions-runner-image.md](../actions-runner-image.md).
 
 Publishing to GHCR is manual through `.github/workflows/runner-image.yml`
 because forks may not control the upstream `ghcr.io/shithub` namespace.
@@ -167,7 +170,7 @@ shithub_runner_enabled=true
 shithub_runner_token=REPLACE_ME
 shithub_runner_labels=self-hosted,linux,ubuntu-latest,x64
 shithub_runner_capacity=1
-shithub_runner_default_image=ghcr.io/tenseleyflow/shithub/runner-nix:1.0
+shithub_runner_default_image=ghcr.io/tenseleyflow/shithub/runner-nix:1.1
 shithub_runner_seccomp_profile=/etc/shithubd-runner/seccomp.json
 shithub_runner_container_user=auto
 shithub_runner_pids_limit=512

@@ -27,6 +27,9 @@ func TestLoad_DefaultsWithToken(t *testing.T) {
 	if cfg.Engine.Kind != "docker" {
 		t.Fatalf("Engine.Kind: %q", cfg.Engine.Kind)
 	}
+	if cfg.Engine.DefaultImage != "ghcr.io/tenseleyflow/shithub/runner-nix:1.1" {
+		t.Fatalf("Engine.DefaultImage: %q", cfg.Engine.DefaultImage)
+	}
 	if cfg.Engine.Network != "shithub-actions" {
 		t.Fatalf("Engine.Network: %q", cfg.Engine.Network)
 	}

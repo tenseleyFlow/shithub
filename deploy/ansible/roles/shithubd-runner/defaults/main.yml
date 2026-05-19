@@ -23,7 +23,7 @@ shithub_runner_network_allowlist:
   - registry-1.docker.io
   - "*.githubusercontent.com"
 shithub_runner_engine: docker
-shithub_runner_default_image: ghcr.io/tenseleyflow/shithub/runner-nix:1.0
+shithub_runner_default_image: ghcr.io/tenseleyflow/shithub/runner-nix:1.1
 shithub_runner_network: shithub-actions
 shithub_runner_network_bridge: shact0
 shithub_runner_network_subnet: 172.30.0.0/24
