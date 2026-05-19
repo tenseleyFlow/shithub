@@ -10,6 +10,7 @@ package web
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -486,12 +487,19 @@ func buildSessionStore(cfg config.SessionConfig, logger *slog.Logger) (session.S
 // the JSON shape callers expect; non-API paths keep the default
 // behavior (HTML pages have their own 405 rendering through
 // middleware).
+//
+// Method and path are user-controlled but flow through json.Encoder,
+// which escapes quotes / control chars so a crafted request can't
+// break the envelope or inject HTML — the response is also tagged
+// application/json with Cache-Control: no-store.
 func methodNotAllowedHandler(w http.ResponseWriter, req *http.Request) {
 	if strings.HasPrefix(req.URL.Path, "/api/v1/") {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_, _ = w.Write([]byte(`{"error":"method ` + req.Method + ` not allowed on ` + req.URL.Path + `"}` + "\n"))
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "method " + req.Method + " not allowed on " + req.URL.Path,
+		})
 		return
 	}
 	w.WriteHeader(http.StatusMethodNotAllowed)
