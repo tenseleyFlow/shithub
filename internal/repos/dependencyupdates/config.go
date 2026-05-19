@@ -15,6 +15,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -315,7 +316,31 @@ func parseSchedule(n *yaml.Node, basePath string, diags *[]Diagnostic) Schedule 
 	if s.Interval == "cron" && strings.TrimSpace(s.Cronjob) == "" {
 		*diags = append(*diags, errAt(basePath+".cronjob", "is required when interval is cron"))
 	}
+	if s.Interval == "cron" && strings.TrimSpace(s.Cronjob) != "" {
+		if _, err := nextCronRun(s.Cronjob, timeNowUTCForValidation()); err != nil {
+			*diags = append(*diags, errAt(basePath+".cronjob", strings.TrimPrefix(err.Error(), ErrInvalidSchedule.Error()+": ")))
+		}
+	}
+	if s.Interval == "weekly" && strings.TrimSpace(s.Day) != "" {
+		if _, err := parseScheduleWeekday(s.Day); err != nil {
+			*diags = append(*diags, errAt(basePath+".day", strings.TrimPrefix(err.Error(), ErrInvalidSchedule.Error()+": ")))
+		}
+	}
+	if strings.TrimSpace(s.Time) != "" {
+		if _, _, err := parseScheduleClock(s.Time, ""); err != nil {
+			*diags = append(*diags, errAt(basePath+".time", strings.TrimPrefix(err.Error(), ErrInvalidSchedule.Error()+": ")))
+		}
+	}
+	if strings.TrimSpace(s.Timezone) != "" {
+		if _, err := scheduleLocation(s.Timezone); err != nil {
+			*diags = append(*diags, errAt(basePath+".timezone", strings.TrimPrefix(err.Error(), ErrInvalidSchedule.Error()+": ")))
+		}
+	}
 	return s
+}
+
+func timeNowUTCForValidation() time.Time {
+	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 }
 
 func parseAllowRules(n *yaml.Node, basePath string, diags *[]Diagnostic) []AllowRule {

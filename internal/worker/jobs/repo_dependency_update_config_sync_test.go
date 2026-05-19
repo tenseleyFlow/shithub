@@ -61,10 +61,12 @@ updates:
     vendor: true
 `, "Add dependency update config")
 
+	fixedNow := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	handler := jobs.RepoDependencyUpdateConfigSync(jobs.RepoDependencyUpdateConfigSyncDeps{
 		Pool:   pool,
 		RepoFS: rfs,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:    func() time.Time { return fixedNow },
 	})
 	payload, _ := json.Marshal(map[string]any{"repo_id": repo.ID})
 	if err := handler(ctx, payload); err != nil {
@@ -92,12 +94,19 @@ updates:
 	if len(goCfg.RawConfigHash) != 64 || goCfg.LastSyncedSha == "" {
 		t.Fatalf("hash/sha = %q/%q", goCfg.RawConfigHash, goCfg.LastSyncedSha)
 	}
+	wantNext := time.Date(2026, 5, 19, 14, 15, 0, 0, time.UTC)
+	if !goCfg.NextRunAt.Valid || !goCfg.NextRunAt.Time.Equal(wantNext) {
+		t.Fatalf("NextRunAt = %v, want %s", goCfg.NextRunAt, wantNext)
+	}
 	if string(goCfg.Groups) == "{}" {
 		t.Fatalf("expected groups JSON, got %s", goCfg.Groups)
 	}
 	npmCfg := configs[1]
 	if npmCfg.Ecosystem != "npm" || npmCfg.Directory != "/frontend" {
 		t.Fatalf("npm config = %+v", npmCfg)
+	}
+	if !npmCfg.NextRunAt.Valid || !npmCfg.NextRunAt.Time.After(fixedNow) {
+		t.Fatalf("npm NextRunAt = %v, want after %s", npmCfg.NextRunAt, fixedNow)
 	}
 	if len(npmCfg.UnsupportedKeys) != 1 || npmCfg.UnsupportedKeys[0] != "updates[1].vendor" {
 		t.Fatalf("UnsupportedKeys = %#v", npmCfg.UnsupportedKeys)

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/billing"
@@ -26,6 +28,7 @@ type RepoDependencyUpdateConfigSyncDeps struct {
 	Pool   *pgxpool.Pool
 	RepoFS *storage.RepoFS
 	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 type RepoDependencyUpdateConfigSyncPayload struct {
@@ -62,6 +65,10 @@ func RepoDependencyUpdateConfigSync(deps RepoDependencyUpdateConfigSyncDeps) wor
 		logger := deps.Logger
 		if logger == nil {
 			logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		}
+		now := deps.Now
+		if now == nil {
+			now = time.Now
 		}
 
 		var p RepoDependencyUpdateConfigSyncPayload
@@ -206,7 +213,7 @@ func RepoDependencyUpdateConfigSync(deps RepoDependencyUpdateConfigSyncDeps) wor
 				}, msg)
 		}
 
-		activeIDs, err := upsertDependencyUpdateConfigs(ctx, rq, deps.Pool, repo.ID, head, file)
+		activeIDs, err := upsertDependencyUpdateConfigs(ctx, rq, deps.Pool, repo.ID, head, file, now().UTC())
 		if err != nil {
 			return fmt.Errorf("upsert dependency update configs: %w", err)
 		}
@@ -222,7 +229,7 @@ func RepoDependencyUpdateConfigSync(deps RepoDependencyUpdateConfigSyncDeps) wor
 	}
 }
 
-func upsertDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool *pgxpool.Pool, repoID int64, head string, file *dependencyupdates.File) ([]int64, error) {
+func upsertDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool *pgxpool.Pool, repoID int64, head string, file *dependencyupdates.File, from time.Time) ([]int64, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -231,6 +238,10 @@ func upsertDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool
 
 	activeIDs := make([]int64, 0, len(file.Configs))
 	for _, cfg := range file.Configs {
+		nextRun, err := dependencyupdates.NextRunAfter(cfg.Schedule, from, dependencyUpdateScheduleSeed(file, cfg))
+		if err != nil {
+			return nil, err
+		}
 		row, err := q.UpsertDependencyUpdateConfig(ctx, tx, reposdb.UpsertDependencyUpdateConfigParams{
 			RepoID:               repoID,
 			Ecosystem:            cfg.Ecosystem,
@@ -247,6 +258,7 @@ func upsertDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool
 			RawConfigHash:        file.RawConfigHash,
 			RawConfigPath:        cfg.RawConfigPath,
 			LastSyncedSha:        head,
+			NextRunAt:            pgtype.Timestamptz{Time: nextRun.UTC(), Valid: true},
 			AllowRules:           cfg.AllowRulesJSON,
 			IgnoreRules:          cfg.IgnoreRulesJSON,
 			Groups:               cfg.GroupsJSON,
@@ -268,6 +280,10 @@ func upsertDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool
 		return nil, err
 	}
 	return activeIDs, nil
+}
+
+func dependencyUpdateScheduleSeed(file *dependencyupdates.File, cfg dependencyupdates.Config) string {
+	return file.RawConfigHash + "|" + cfg.Ecosystem + "|" + cfg.Directory
 }
 
 func disableDependencyUpdateConfigs(ctx context.Context, q *reposdb.Queries, pool *pgxpool.Pool, repoID int64, keep []int64) error {

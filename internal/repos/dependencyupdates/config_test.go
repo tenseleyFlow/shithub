@@ -193,6 +193,42 @@ updates:
 	}
 }
 
+func TestParseRejectsInvalidScheduleFields(t *testing.T) {
+	t.Parallel()
+	src := []byte(`
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: someday
+      time: "24:99"
+      timezone: Mars/Olympus
+`)
+	file, diags, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse returned Go error: %v", err)
+	}
+	if file != nil {
+		t.Fatalf("file = %+v, want nil", file)
+	}
+	var sawDay bool
+	var sawTime bool
+	var sawTimezone bool
+	for _, d := range diags {
+		if d.Severity != Error {
+			continue
+		}
+		sawDay = sawDay || strings.Contains(d.Path, "day")
+		sawTime = sawTime || strings.Contains(d.Path, "time")
+		sawTimezone = sawTimezone || strings.Contains(d.Path, "timezone")
+	}
+	if !sawDay || !sawTime || !sawTimezone {
+		t.Fatalf("diags = %+v, want day, time, and timezone errors", diags)
+	}
+}
+
 func countSeverity(diags []Diagnostic, severity Severity) int {
 	var count int
 	for _, d := range diags {

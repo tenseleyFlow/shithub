@@ -103,9 +103,14 @@ SP25b starts the dependency update automation foundation. The parser accepts a
 GitHub-compatible `.github/dependabot.yml` subset for `gomod` and `npm` entries,
 normalizes them to shithub ecosystems `go` and `npm`, and stores schedules,
 open PR limits, allow/ignore rules, group rules, registries, unsupported-key
-warnings, and a raw config hash. Supported schedule intervals are `daily`,
-`weekly`, `monthly`, `quarterly`, `semiannually`, `yearly`, and `cron` with a
-`cronjob` value.
+warnings, the next due check time, and a raw config hash. Supported schedule
+intervals are `daily`, `weekly`, `monthly`, `quarterly`, `semiannually`,
+`yearly`, and `cron` with a `cronjob` value. `daily` schedules run on weekdays,
+`weekly` defaults to Monday, monthly and longer intervals run on the first day
+of their cadence month, and cron uses standard five-field crontab syntax in UTC.
+When a config omits `schedule.time`, shithub assigns a deterministic per-entry
+minute of day from the config hash, ecosystem, and directory to avoid a
+thundering herd while keeping repeated syncs stable.
 
 Unsupported ecosystems or invalid required fields are diagnostic errors.
 Unsupported keys are diagnostic warnings and are not silently treated as active
@@ -130,8 +135,8 @@ branch advances. The sync worker:
 3. disables previously parsed configs when the entitlement is denied, the
    default branch is missing, or `.github/dependabot.yml` is absent;
 4. validates file type and size before reading the config blob;
-5. stores supported config entries and disables stale entries in one
-   transaction; and
+5. stores supported config entries with computed `next_run_at` timestamps and
+   disables stale entries in one transaction; and
 6. writes a `dependency_update_jobs` `config_sync` record with diagnostics and
    status for operator inspection.
 
