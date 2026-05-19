@@ -106,6 +106,7 @@ Rules for paid-org copy:
 | Actions minutes | 2,000 min/month | 3,000 min/month | Contact sales |
 | Actions artifacts/storage | Counts against shared storage quota | Counts against shared storage quota | Contact sales |
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
+| Secret scanning and push protection | Public repositories | Supported pattern scanning, repo/org security views, allowlist, and pre-receive push rejection for private org repos | Contact sales |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
 | Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
@@ -564,6 +565,18 @@ PAYMENTS SP20 ships scheduled PR review reminders:
   re-checks recipient repository access, skips suspended users, and
   writes `scheduled_reminder` inbox notifications on the PR thread.
 
+PAYMENTS SP26 ships the first organization Secret Protection baseline:
+
+- Public repositories keep supported-pattern secret scanning and push
+  protection on Free.
+- Private organization repositories require Team for historical scan
+  views, on-demand scans, organization security overview aggregation,
+  and pre-receive push protection.
+- The scanner uses the local curated pattern set documented in
+  [`secret-protection.md`](./secret-protection.md); provider
+  notification, validity checks, custom patterns, and bypass-request
+  workflows are not shipped yet.
+
 ## Entitlement architecture
 
 Paid feature checks must live behind a central entitlement package, not
@@ -595,6 +608,10 @@ Expected org feature keys:
 - `repo_projects`
 - `repo_wikis`
 - `multiple_assignees`
+- `secret_scanning`
+- `secret_push_protection`
+- `secret_custom_patterns`
+- `secret_bypass_controls`
 
 SP21 collaboration gates follow the same public/private split as other
 Team rows. Public repository Projects, Wikis, and multiple assignees are

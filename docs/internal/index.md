@@ -43,6 +43,8 @@ site.
 - [threat-model.md](./threat-model.md) — v1 attacker model.
 - [security-dependencies.md](./security-dependencies.md) — dependency
   inventory, local advisories, and org security overview.
+- [secret-protection.md](./secret-protection.md) — secret scanning,
+  push protection, allowlist, and billing gates.
 - [hooks.md](./hooks.md) — pre/post-receive contracts.
 
 ## Domain features

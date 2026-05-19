@@ -723,8 +723,8 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 				},
 				{
 					Name: "Secret scanning and push protection", Description: "Detect exposed secrets and block risky pushes.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP26",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP26-secret-protection.md", State: "Planned",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP26",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP26-secret-protection.md", State: "Baseline shipped",
 				},
 				{
 					Name: "Code security", Description: "Import and review code scanning results without AI features.",
