@@ -85,8 +85,11 @@ type issueResponse struct {
 	// Populated when ownerLogin is available at the callsite — list/
 	// get/create/patch all have it; legacy paths without it gracefully
 	// omit the key via omitempty.
-	HTMLURL   string          `json:"html_url,omitempty"`
-	Labels    []labelEnvelope `json:"labels,omitempty"`
+	HTMLURL string `json:"html_url,omitempty"`
+	// Labels mirrors Assignees: always present, never nil. gh-compat
+	// clients parse against the key being present (E27); an empty slice
+	// serializes as `[]` rather than disappearing into `omitempty`.
+	Labels    []labelEnvelope `json:"labels"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
 	ClosedAt  string          `json:"closed_at,omitempty"`
@@ -105,6 +108,9 @@ type issueResponse struct {
 func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, assignees []userEnvelope) issueResponse {
 	if assignees == nil {
 		assignees = []userEnvelope{}
+	}
+	if labels == nil {
+		labels = []labelEnvelope{}
 	}
 	out := issueResponse{
 		ID:        i.ID,
