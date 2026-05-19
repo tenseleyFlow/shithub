@@ -727,3 +727,210 @@ func TestIssues_UserEnvelope(t *testing.T) {
 		t.Errorf("comment user envelope: %+v", c.User)
 	}
 }
+
+// E4: issue list previously accepted (and silently dropped) `assignee`,
+// `author`, `milestone`, `mention`. Each should now narrow correctly
+// or 422 on unknown values.
+func TestIssues_ListAssigneeFilter(t *testing.T) {
+	ctx := context.Background()
+	pool, router, aliceID, repoID, aliceToken := seedIssuesEnv(t, "alice")
+	bobID := seedRepoCreatorUser(t, pool, "bob")
+
+	// Two issues; only #1 assigned to bob.
+	for _, title := range []string{"assigned-to-bob", "unassigned"} {
+		body, _ := json.Marshal(map[string]any{"title": title})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+aliceToken)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed %q: %d", title, rr.Code)
+		}
+	}
+	// Assign bob to issue #1 (lowest number).
+	if err := issuesdb.New().AssignUserToIssue(ctx, pool, issuesdb.AssignUserToIssueParams{
+		IssueID: issueIDByNumber(t, pool, repoID, 1), UserID: bobID,
+		AssignedByUserID: pgtype.Int8{Int64: aliceID, Valid: true},
+	}); err != nil {
+		t.Fatalf("AssignUserToIssue: %v", err)
+	}
+	_ = aliceID
+
+	cases := []struct {
+		filter   string
+		wantCode int
+		wantLen  int
+	}{
+		{"assignee=bob", 200, 1},
+		{"assignee=alice", 200, 0},
+		{"assignee=ghost", 422, 0},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?"+tc.filter, nil)
+		req.Header.Set("Authorization", "Bearer "+aliceToken)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("%s: code=%d want %d; body=%s", tc.filter, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiIssue
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("%s: got %d rows, want %d", tc.filter, len(rows), tc.wantLen)
+		}
+	}
+}
+
+func TestIssues_ListAuthorFilter(t *testing.T) {
+	pool, router, _, _, aliceToken := seedIssuesEnv(t, "alice")
+	bobID := seedRepoCreatorUser(t, pool, "bob")
+	bobToken := mintRunnerAPIPAT(t, pool, bobID, string(pat.ScopeRepoWrite))
+
+	// Two issues: alice + bob each create one. Alice owns the repo;
+	// bob authored issue #2.
+	for _, who := range []struct{ token, title string }{
+		{aliceToken, "by-alice"}, {bobToken, "by-bob"},
+	} {
+		body, _ := json.Marshal(map[string]any{"title": who.title})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+who.token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed %q: %d %s", who.title, rr.Code, rr.Body.String())
+		}
+	}
+
+	for _, tc := range []struct {
+		filter   string
+		wantCode int
+		wantLen  int
+	}{
+		{"author=alice", 200, 1},
+		{"author=bob", 200, 1},
+		{"author=ghost", 422, 0},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?"+tc.filter, nil)
+		req.Header.Set("Authorization", "Bearer "+aliceToken)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("%s: code=%d want %d; body=%s", tc.filter, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiIssue
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("%s: got %d rows, want %d", tc.filter, len(rows), tc.wantLen)
+		}
+	}
+}
+
+func TestIssues_ListMilestoneFilter(t *testing.T) {
+	ctx := context.Background()
+	pool, router, _, repoID, token := seedIssuesEnv(t, "alice")
+
+	m, err := issuesdb.New().CreateMilestone(ctx, pool, issuesdb.CreateMilestoneParams{
+		RepoID: repoID, Title: "v1", DueOn: pgtype.Timestamptz{},
+	})
+	if err != nil {
+		t.Fatalf("CreateMilestone: %v", err)
+	}
+	// Two issues; only #1 on the milestone.
+	for _, payload := range []map[string]any{
+		{"title": "on-milestone", "milestone": m.ID},
+		{"title": "off-milestone"},
+	} {
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed: %d %s", rr.Code, rr.Body.String())
+		}
+	}
+
+	for _, tc := range []struct {
+		filter   string
+		wantCode int
+		wantLen  int
+	}{
+		{fmt.Sprintf("milestone=%d", m.ID), 200, 1},
+		{"milestone=999", 200, 0},
+		{"milestone=notanumber", 422, 0},
+		{"milestone=0", 422, 0},
+		{"milestone=-1", 422, 0},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?"+tc.filter, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("%s: code=%d want %d; body=%s", tc.filter, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiIssue
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("%s: got %d rows, want %d", tc.filter, len(rows), tc.wantLen)
+		}
+	}
+}
+
+func TestIssues_ListMentionRejectedExplicitly(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?mention=alice", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("mention filter: code=%d want 422; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestIssues_ListStateStrict(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	for _, tc := range []struct {
+		state    string
+		wantCode int
+	}{
+		{"open", 200},
+		{"closed", 200},
+		{"all", 200},
+		{"", 200},
+		{"nonsense", 422},
+		{"merged", 422}, // PR-only; rejected on issues
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?state="+tc.state, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("state=%q: code=%d want %d; body=%s", tc.state, rr.Code, tc.wantCode, rr.Body.String())
+		}
+	}
+}
+
+// issueIDByNumber resolves the issue.id for (repoID, number) — used by
+// list-filter tests that need to attach assignees by id.
+func issueIDByNumber(t *testing.T, pool *pgxpool.Pool, repoID, number int64) int64 {
+	t.Helper()
+	row, err := issuesdb.New().GetIssueByNumber(context.Background(), pool, issuesdb.GetIssueByNumberParams{
+		RepoID: repoID, Number: number,
+	})
+	if err != nil {
+		t.Fatalf("GetIssueByNumber: %v", err)
+	}
+	return row.ID
+}

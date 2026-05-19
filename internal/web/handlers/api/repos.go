@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -206,6 +207,11 @@ func (h *Handlers) userReposList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
+	visibility, verr := strictVisibility(r.URL.Query().Get("visibility"))
+	if verr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, verr.Error())
+		return
+	}
 	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
 	q := reposdb.New()
 	total, err := q.CountReposForOwnerUser(r.Context(), h.d.Pool, pgtype.Int8{Int64: auth.UserID, Valid: true})
@@ -224,12 +230,48 @@ func (h *Handlers) userReposList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	rows = filterReposByVisibility(rows, visibility)
 	h.writeRepoListPage(w, r, page, perPage, int(total), rows, auth.Username)
+}
+
+// strictVisibility validates the `visibility` query parameter. Empty
+// returns ("", nil) — no filter. Anything outside
+// {public, private, internal} is 422 (E15: pre-fix would silently
+// return all repos for unknown values).
+func strictVisibility(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return "", nil
+	case "public", "private", "internal":
+		return strings.ToLower(strings.TrimSpace(s)), nil
+	default:
+		return "", fmt.Errorf("visibility: must be public, private, or internal (got %q)", s)
+	}
+}
+
+// filterReposByVisibility narrows the row set when a visibility filter
+// is present. Empty filter returns rows unchanged.
+func filterReposByVisibility(rows []reposdb.Repo, visibility string) []reposdb.Repo {
+	if visibility == "" {
+		return rows
+	}
+	filtered := rows[:0]
+	for _, row := range rows {
+		if strings.EqualFold(string(row.Visibility), visibility) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 func (h *Handlers) userPublicReposList(w http.ResponseWriter, r *http.Request) {
 	owner, ok := h.resolveAPIUserOwner(w, r, chi.URLParam(r, "username"))
 	if !ok {
+		return
+	}
+	visibility, verr := strictVisibility(r.URL.Query().Get("visibility"))
+	if verr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, verr.Error())
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
@@ -254,6 +296,7 @@ func (h *Handlers) userPublicReposList(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusInternalServerError, "list failed")
 			return
 		}
+		rows = filterReposByVisibility(rows, visibility)
 		h.writeRepoListPage(w, r, page, perPage, int(total), rows, owner.Username)
 		return
 	}
@@ -274,12 +317,18 @@ func (h *Handlers) userPublicReposList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	rows = filterReposByVisibility(rows, visibility)
 	h.writeRepoListPage(w, r, page, perPage, int(total), rows, owner.Username)
 }
 
 func (h *Handlers) orgReposList(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.resolveAPIOrgOwner(w, r, chi.URLParam(r, "org"))
 	if !ok {
+		return
+	}
+	visibility, verr := strictVisibility(r.URL.Query().Get("visibility"))
+	if verr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, verr.Error())
 		return
 	}
 	auth := middleware.PATAuthFromContext(r.Context())
@@ -314,6 +363,7 @@ func (h *Handlers) orgReposList(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusInternalServerError, "list failed")
 			return
 		}
+		rows = filterReposByVisibility(rows, visibility)
 		h.writeRepoListPage(w, r, page, perPage, int(total), rows, string(org.Slug))
 		return
 	}
@@ -333,6 +383,7 @@ func (h *Handlers) orgReposList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
+	rows = filterReposByVisibility(rows, visibility)
 	h.writeRepoListPage(w, r, page, perPage, int(total), rows, string(org.Slug))
 }
 

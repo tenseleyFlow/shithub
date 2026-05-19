@@ -20,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -172,8 +173,38 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
-	stateFilter := normalizeIssueState(r.URL.Query().Get("state"))
+	stateFilter, serr := strictIssueState(r.URL.Query().Get("state"))
+	if serr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, serr.Error())
+		return
+	}
 	q := issuesdb.New()
+
+	// E-audit E4: filters previously silently dropped — assignee, author,
+	// milestone, mention. Resolve each into a typed predicate now and
+	// 422 on unknown values so callers stop getting unfiltered lists.
+	authorID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("author"))
+	if aerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "author: "+aerr.Error())
+		return
+	}
+	assigneeID, aerr := h.resolveOptionalUserID(r.Context(), r.URL.Query().Get("assignee"))
+	if aerr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "assignee: "+aerr.Error())
+		return
+	}
+	milestoneID, merr := parseOptionalMilestoneID(r.URL.Query().Get("milestone"))
+	if merr != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, "milestone: "+merr.Error())
+		return
+	}
+	if mention := strings.TrimSpace(r.URL.Query().Get("mention")); mention != "" {
+		// Mention search needs body-text scanning + an @-mention index
+		// we don't have yet. Reject explicitly rather than silently
+		// returning unfiltered results (the pre-E4 lie).
+		writeAPIError(w, http.StatusUnprocessableEntity, "mention filter is not yet supported")
+		return
+	}
 
 	// C-audit C8: `labels=foo,bar` query filter. Pre-D fix, this was
 	// silently dropped — the parameter never made it into the query
@@ -217,6 +248,43 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	if len(wantedLabelIDs) > 0 {
 		rows = filterRowsByLabels(r.Context(), h.d.Pool, rows, wantedLabelIDs)
 	}
+	// E4 post-filters. Author + milestone are cheap (row-local).
+	// Assignee requires a per-row lookup; we only pay it when the
+	// filter is set.
+	if authorID != 0 {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.AuthorUserID.Valid && row.AuthorUserID.Int64 == authorID {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if milestoneID != 0 {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.MilestoneID.Valid && row.MilestoneID.Int64 == milestoneID {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if assigneeID != 0 {
+		filtered := rows[:0]
+		for _, row := range rows {
+			as, err := issuesdb.New().ListIssueAssignees(r.Context(), h.d.Pool, row.ID)
+			if err != nil {
+				continue
+			}
+			for _, a := range as {
+				if a.UserID == assigneeID {
+					filtered = append(filtered, row)
+					break
+				}
+			}
+		}
+		rows = filtered
+	}
 
 	link := apipage.Page{Current: page, PerPage: perPage, Total: int(total)}.LinkHeader(h.d.BaseURL, sanitizedURL(r))
 	if link != "" {
@@ -244,20 +312,56 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func normalizeIssueState(s string) pgtype.Text {
+// strictIssueState validates the `state` query parameter against the
+// closed set {open, closed, all, ""} and returns a pgtype.Text encoded
+// for the sqlc filter ("" / "all" become NULL = no filter). Unknown
+// values return an error so the handler can 422 instead of silently
+// returning unfiltered rows (E-audit E5; matches gh's strict semantic).
+func strictIssueState(s string) (pgtype.Text, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "open":
-		return pgtype.Text{String: "open", Valid: true}
+		return pgtype.Text{String: "open", Valid: true}, nil
 	case "closed":
-		return pgtype.Text{String: "closed", Valid: true}
+		return pgtype.Text{String: "closed", Valid: true}, nil
 	case "", "all":
-		// Encoded as NULL in the sqlc query so the WHERE clause is a no-op.
-		return pgtype.Text{}
+		return pgtype.Text{}, nil
 	default:
-		// Unknown values fall back to "all" — gh-style leniency for
-		// list endpoints; tightening would break script ports.
-		return pgtype.Text{}
+		return pgtype.Text{}, fmt.Errorf("state: must be one of open, closed, all (got %q)", s)
 	}
+}
+
+// resolveOptionalUserID resolves a `?author=foo` / `?assignee=foo`
+// username to a user_id. Empty returns (0, nil) — no filter. An
+// unknown username is 422.
+func (h *Handlers) resolveOptionalUserID(ctx context.Context, username string) (int64, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return 0, nil
+	}
+	user, err := usersdb.New().GetUserByUsername(ctx, h.d.Pool, username)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("user %q not found", username)
+		}
+		return 0, fmt.Errorf("lookup failed")
+	}
+	return user.ID, nil
+}
+
+// parseOptionalMilestoneID validates a `?milestone=N` query parameter.
+// Empty returns (0, nil) — no filter. Non-numeric is 422. Server-side
+// we accept only the numeric form; gh's CLI maps title→number client-
+// side. The CLI's --milestone flag already passes the resolved int.
+func parseOptionalMilestoneID(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("milestone must be a positive integer (got %q)", s)
+	}
+	return n, nil
 }
 
 // issueHTMLURL composes the user-facing page URL for an issue. Empty
