@@ -64,13 +64,18 @@ type IssueResult struct {
 	RepoID        int64
 	OwnerUsername string
 	RepoName      string
-	Number        int64
-	Title         string
-	State         string
-	Kind          string // "issue" | "pr"
-	AuthorName    string
-	UpdatedAt     time.Time
-	Rank          float64
+	// G9a (F19): repo visibility surfaces on the search-issue row so
+	// the API layer can fill the gh-compat `repository.private` bool
+	// without a per-result extra lookup. Pre-fix `shithub status
+	// --json` emitted empty repository envelopes.
+	RepoVisibility string
+	Number         int64
+	Title          string
+	State          string
+	Kind           string // "issue" | "pr"
+	AuthorName     string
+	UpdatedAt      time.Time
+	Rank           float64
 }
 
 // UserResult is one row from SearchUsers.
