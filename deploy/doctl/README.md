@@ -79,7 +79,7 @@ Then run:
 ```sh
 make build
 cd deploy/ansible
-ansible-playbook -i inventory/actions-runners site.yml -t shithubd-runner
+ansible-playbook -i inventory/actions-runners actions-runners.yml
 ```
 
 ## Destroy a test pool

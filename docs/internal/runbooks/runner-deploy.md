@@ -203,7 +203,7 @@ For the generated DigitalOcean runner inventory:
 ```sh
 make build
 cd deploy/ansible
-ansible-playbook -i inventory/actions-runners site.yml -t shithubd-runner
+ansible-playbook -i inventory/actions-runners actions-runners.yml
 ```
 
 After scaling a pool, verify aggregate capacity rather than only one host:

@@ -25,6 +25,7 @@ tmp/
 # *.example files are committed.
 deploy/ansible/inventory/production
 deploy/ansible/inventory/staging
+deploy/ansible/inventory/actions-runners
 
 # OS / editor junk
 .DS_Store
