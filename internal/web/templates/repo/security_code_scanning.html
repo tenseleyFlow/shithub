@@ -1,0 +1,158 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <h1>{{ octicon "shield-check" }} Code scanning</h1>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security">Security overview</a>
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ with .Success }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+
+    <p class="shithub-muted">
+      Upload SARIF reports from external scanners to track code scanning alerts
+      across this repository. shithub stores normalized alert metadata and a
+      payload digest, not raw SARIF artifacts.
+    </p>
+
+    <section class="shithub-org-security-metrics" aria-label="Code scanning summary">
+      <div>
+        <strong>{{ .Summary.OpenAlertCount }}</strong>
+        <span>Open alerts</span>
+      </div>
+      <div>
+        <strong>{{ .Summary.CriticalAlertCount }}</strong>
+        <span>Critical</span>
+      </div>
+      <div>
+        <strong>{{ .Summary.HighAlertCount }}</strong>
+        <span>High</span>
+      </div>
+      <div>
+        <strong>{{ .Summary.DismissedAlertCount }}</strong>
+        <span>Dismissed</span>
+      </div>
+      <div>
+        <strong>{{ .Summary.FixedAlertCount }}</strong>
+        <span>Fixed</span>
+      </div>
+      <div>
+        <strong>{{ .Summary.TotalAlertCount }}</strong>
+        <span>Total</span>
+      </div>
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Upload SARIF</h2>
+      {{ if .UploadAllowed }}
+      <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/code-scanning/upload" enctype="multipart/form-data" class="shithub-saved-reply-form">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+        <label>
+          <span>SARIF file</span>
+          <input type="file" name="sarif_file" accept=".sarif,.json,application/sarif+json,application/json" required>
+        </label>
+        <label>
+          <span>Commit SHA</span>
+          <input type="text" name="commit_sha" maxlength="128" placeholder="Commit analyzed by the scanner">
+        </label>
+        <label>
+          <span>Ref</span>
+          <input type="text" name="ref_name" maxlength="255" value="{{ .Repo.DefaultBranch }}">
+        </label>
+        <label>
+          <span>Category</span>
+          <input type="text" name="category" maxlength="160" placeholder="scanner/configuration identifier">
+        </label>
+        <button type="submit" class="shithub-button shithub-button-primary">Upload SARIF</button>
+      </form>
+      {{ else }}
+      <div class="shithub-org-security-upgrade">
+        <div>
+          <h2>Code scanning is a Team feature for private organization repositories.</h2>
+          <p>Public repositories can ingest SARIF at no charge. Upgrade this organization to upload private-repo alerts.</p>
+        </div>
+        <a class="shithub-button shithub-button-primary" href="{{ .UploadUpgradeHref }}" data-pro-feature="{{ .UploadFeatureKey }}">{{ .UploadUpgradeText }}</a>
+      </div>
+      {{ end }}
+    </section>
+
+    <nav class="shithub-issues-filter" aria-label="Code scanning filters">
+      <a href="?status=" class="shithub-issues-tab {{ if eq .StatusFilter "" }}shithub-issues-tab-active{{ end }}">All</a>
+      <a href="?status=open" class="shithub-issues-tab {{ if eq .StatusFilter "open" }}shithub-issues-tab-active{{ end }}">Open</a>
+      <a href="?status=dismissed" class="shithub-issues-tab {{ if eq .StatusFilter "dismissed" }}shithub-issues-tab-active{{ end }}">Dismissed</a>
+      <a href="?status=fixed" class="shithub-issues-tab {{ if eq .StatusFilter "fixed" }}shithub-issues-tab-active{{ end }}">Fixed</a>
+    </nav>
+
+    <section class="shithub-settings-section">
+      <h2>Alerts</h2>
+      {{ if .Alerts }}
+      <table class="shithub-table">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Alert</th>
+            <th>Tool</th>
+            <th>Status</th>
+            <th>Last seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Alerts }}
+          <tr>
+            <td><span class="shithub-org-security-severity is-{{ .Severity }}">{{ .Severity }}</span></td>
+            <td>
+              <strong>{{ if .RuleName }}{{ .RuleName }}{{ else }}{{ .RuleID }}{{ end }}</strong>
+              <div class="shithub-muted">{{ .Message }}</div>
+              <div class="shithub-issues-meta">
+                <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/blob/{{ if .RefName }}{{ .RefName }}{{ else }}{{ $.Repo.DefaultBranch }}{{ end }}/{{ .Path }}">{{ .Path }}:{{ .StartLine }}</a>
+                · <code>{{ .RuleID }}</code>
+              </div>
+            </td>
+            <td>{{ .ToolName }}</td>
+            <td><span class="shithub-pill shithub-pill-status-{{ .Status }}">{{ .Status }}</span></td>
+            <td>{{ relativeTime .LastSeenAt.Time }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No code scanning alerts match this filter.</p>
+      {{ end }}
+    </section>
+
+    <section class="shithub-settings-section">
+      <h2>Security campaigns</h2>
+      {{ if .Campaigns }}
+      <table class="shithub-table">
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>State</th>
+            <th>Open alerts</th>
+            <th>Total alerts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Campaigns }}
+          <tr>
+            <td>
+              <strong>{{ .Title }}</strong>
+              {{ if .Description }}<div class="shithub-muted">{{ .Description }}</div>{{ end }}
+            </td>
+            <td><span class="shithub-pill shithub-pill-status-{{ .State }}">{{ .State }}</span></td>
+            <td>{{ .OpenAlertCount }}</td>
+            <td>{{ .AlertCount }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No security campaigns yet. Campaign grouping will use the alerts stored on this page.</p>
+      {{ end }}
+    </section>
+  </section>
+</section>
+{{- end }}

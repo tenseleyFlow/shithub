@@ -133,6 +133,35 @@ func (h *Handlers) securityOverview(w http.ResponseWriter, r *http.Request) {
 	} else {
 		data["SecretUpgradeBanner"] = secretDecision.UpgradeBanner("Secret scanning", string(org.Slug))
 	}
+	codeDecision, err := entitlements.CheckOrgFeature(r.Context(), entitlements.Deps{Pool: h.d.Pool}, org.ID, entitlements.FeatureCodeScanning)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org security: code scanning entitlement check", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	data["CodeScanningAllowed"] = codeDecision.Allowed
+	if codeDecision.Allowed {
+		codeSummary, err := q.OrgCodeScanningSummary(r.Context(), h.d.Pool, orgID)
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "org security: code scanning summary", "org_id", org.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		codeAlerts, err := q.ListOrgCodeScanningAlerts(r.Context(), h.d.Pool, reposdb.ListOrgCodeScanningAlertsParams{
+			OwnerOrgID: orgID,
+			Limit:      25,
+			Offset:     0,
+		})
+		if err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "org security: code scanning alerts", "org_id", org.ID, "error", err)
+			h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+			return
+		}
+		data["CodeSummary"] = codeSummary
+		data["CodeAlerts"] = codeAlerts
+	} else {
+		data["CodeUpgradeBanner"] = codeDecision.UpgradeBanner("Code scanning", string(org.Slug))
+	}
 
 	data["Summary"] = summary
 	data["Alerts"] = alerts

@@ -43,6 +43,7 @@ func TestOrgSecurityOverviewRendersTeamDependencyAlerts(t *testing.T) {
 	}
 	repoID := seedOrgDependencyAlert(t, pool, orgID)
 	seedOrgSecretFinding(t, pool, repoID)
+	seedOrgCodeScanningAlert(t, pool, repoID)
 
 	mux := newOrgSecurityMux(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"})
 	resp := httptest.NewRecorder()
@@ -55,9 +56,11 @@ func TestOrgSecurityOverviewRendersTeamDependencyAlerts(t *testing.T) {
 	for _, want := range []string{
 		"SUMMARY=1/1/0;",
 		"SECRETS=1/1;",
+		"CODE=1/1;",
 		"ALERT=app:example.test/vulnerable:high;",
 		"REPO=app:1;",
 		"SECRET=app:GitHub token:config/secrets.env;",
+		"CODEALERT=app:G401:internal/app/main.go:high;",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q: %s", want, body)
@@ -88,6 +91,7 @@ func TestOrgSecurityOverviewFreeOrgDoesNotRenderAlertDetails(t *testing.T) {
 	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
 	repoID := seedOrgDependencyAlert(t, pool, orgID)
 	seedOrgSecretFinding(t, pool, repoID)
+	seedOrgCodeScanningAlert(t, pool, repoID)
 
 	mux := newOrgSecurityMux(t, pool, middleware.CurrentUser{ID: ownerID, Username: "owner"})
 	resp := httptest.NewRecorder()
@@ -105,6 +109,9 @@ func TestOrgSecurityOverviewFreeOrgDoesNotRenderAlertDetails(t *testing.T) {
 	}
 	if strings.Contains(body, "GitHub token") {
 		t.Fatalf("locked org leaked secret finding details: %s", body)
+	}
+	if strings.Contains(body, "G401") {
+		t.Fatalf("locked org leaked code scanning details: %s", body)
 	}
 }
 
@@ -180,11 +187,30 @@ func seedOrgSecretFinding(t *testing.T, pool *pgxpool.Pool, repoID int64) {
 	}
 }
 
+func seedOrgCodeScanningAlert(t *testing.T, pool *pgxpool.Pool, repoID int64) {
+	t.Helper()
+	if _, err := reposdb.New().UpsertCodeScanningAlert(context.Background(), pool, reposdb.UpsertCodeScanningAlertParams{
+		RepoID:      repoID,
+		ToolName:    "gosec",
+		RuleID:      "G401",
+		RuleName:    "Weak cryptography",
+		Severity:    "high",
+		Message:     "Use of weak crypto primitive",
+		Path:        "internal/app/main.go",
+		StartLine:   42,
+		Fingerprint: "org-code-fingerprint",
+		CommitSha:   "deadbeef",
+		RefName:     "trunk",
+	}); err != nil {
+		t.Fatalf("UpsertCodeScanningAlert: %v", err)
+	}
+}
+
 func newOrgSecurityMux(t *testing.T, pool *pgxpool.Pool, viewer middleware.CurrentUser) *chi.Mux {
 	t.Helper()
 	tmplFS := fstest.MapFS{
 		"_layout.html":       {Data: []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)},
-		"orgs/security.html": {Data: []byte(`{{ define "page" }}{{ if .Locked }}LOCK={{ .UpgradeBanner.Message }};{{ else }}SUMMARY={{ .Summary.OpenAlertCount }}/{{ .Summary.DependencyCount }}/{{ .Summary.RepositoryAdvisoryCount }};SECRETS={{ .SecretSummary.OpenSecretCount }}/{{ .SecretSummary.AffectedRepoCount }};{{ range .Alerts }}ALERT={{ .RepoName }}:{{ .PackageName }}:{{ .Severity }};{{ end }}{{ range .Repositories }}REPO={{ .RepoName }}:{{ .DependencyCount }};{{ end }}{{ range .SecretFindings }}SECRET={{ .RepoName }}:{{ .Pattern }}:{{ .Path }};{{ end }}{{ end }}{{ end }}`)},
+		"orgs/security.html": {Data: []byte(`{{ define "page" }}{{ if .Locked }}LOCK={{ .UpgradeBanner.Message }};{{ else }}SUMMARY={{ .Summary.OpenAlertCount }}/{{ .Summary.DependencyCount }}/{{ .Summary.RepositoryAdvisoryCount }};SECRETS={{ .SecretSummary.OpenSecretCount }}/{{ .SecretSummary.AffectedRepoCount }};CODE={{ .CodeSummary.OpenCodeAlertCount }}/{{ .CodeSummary.AffectedRepoCount }};{{ range .Alerts }}ALERT={{ .RepoName }}:{{ .PackageName }}:{{ .Severity }};{{ end }}{{ range .Repositories }}REPO={{ .RepoName }}:{{ .DependencyCount }};{{ end }}{{ range .SecretFindings }}SECRET={{ .RepoName }}:{{ .Pattern }}:{{ .Path }};{{ end }}{{ range .CodeAlerts }}CODEALERT={{ .RepoName }}:{{ .RuleID }}:{{ .Path }}:{{ .Severity }};{{ end }}{{ end }}{{ end }}`)},
 		"errors/404.html":    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}

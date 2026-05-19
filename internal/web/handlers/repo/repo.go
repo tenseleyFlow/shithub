@@ -206,6 +206,8 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Get("/{owner}/{repo}/wiki/{slug}", h.repoWikiView)
 	r.Get("/{owner}/{repo}/wiki", h.repoTabWiki)
 	r.Get("/{owner}/{repo}/security", h.repoTabSecurity)
+	r.Get("/{owner}/{repo}/security/code-scanning", h.repoCodeScanning)
+	r.Post("/{owner}/{repo}/security/code-scanning/upload", h.repoCodeScanningUpload)
 	r.Get("/{owner}/{repo}/security/secret-scanning", h.repoSecretScanning)
 	r.Post("/{owner}/{repo}/security/secret-scanning/scan", h.repoSecretScanningRunScan)
 	r.Post("/{owner}/{repo}/security/secret-scanning/allowlist", h.repoSecretScanningAllowlistAdd)

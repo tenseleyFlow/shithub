@@ -17,6 +17,9 @@
         <a href="/{{ .Org.Slug }}/security" class="is-selected" aria-current="page">
           <span>{{ octicon "shield-check" }} Overview</span>
         </a>
+        <a href="#code-scanning">
+          <span>{{ octicon "code-square" }} Code scanning</span>
+        </a>
         <a href="#secret-scanning">
           <span>{{ octicon "lock" }} Secret scanning</span>
         </a>
@@ -54,6 +57,10 @@
             <span>Open secret findings</span>
           </div>
           <div>
+            <strong>{{ if .CodeScanningAllowed }}{{ .CodeSummary.OpenCodeAlertCount }}{{ else }}-{{ end }}</strong>
+            <span>Open code alerts</span>
+          </div>
+          <div>
             <strong>{{ .Summary.CriticalAlertCount }}</strong>
             <span>Critical alerts</span>
           </div>
@@ -69,6 +76,49 @@
             <strong>{{ .Summary.RepositoryAdvisoryCount }}</strong>
             <span>Repository advisories</span>
           </div>
+        </section>
+
+        <section class="shithub-org-security-card" id="code-scanning">
+          <div class="shithub-org-security-card-head">
+            <h2>Code scanning</h2>
+            {{ if .CodeScanningAllowed }}
+            <span>{{ .CodeSummary.AffectedRepoCount }} affected repositories</span>
+            {{ else }}
+            <span>Team required</span>
+            {{ end }}
+          </div>
+          {{ if not .CodeScanningAllowed }}
+            {{ with .CodeUpgradeBanner }}
+            <div class="shithub-org-security-upgrade">
+              <div>
+                <h2>Code scanning requires Team</h2>
+                <p>{{ .Message }}</p>
+              </div>
+              <a class="shithub-button shithub-button-primary" href="{{ .ActionHref }}">{{ .ActionText }}</a>
+            </div>
+            {{ end }}
+          {{ else if .CodeAlerts }}
+          <ul class="shithub-org-security-list">
+            {{ range .CodeAlerts }}
+            <li>
+              <div class="shithub-org-security-list-main">
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security/code-scanning">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+                <strong>{{ if .RuleName }}{{ .RuleName }}{{ else }}{{ .RuleID }}{{ end }}</strong>
+                <span>{{ .Message }}</span>
+                <span>{{ .Path }}:{{ .StartLine }} · {{ .ToolName }} · {{ .RuleID }}</span>
+              </div>
+              <span class="shithub-org-security-severity is-{{ .Severity }}">{{ .Severity }}</span>
+              <span class="shithub-org-security-list-meta">{{ relativeTime .LastSeenAt.Time }}</span>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="shithub-org-security-empty">
+            {{ octicon "shield-check" }}
+            <h2>No open code scanning alerts</h2>
+            <p>SARIF uploads from supported scanners will populate this view.</p>
+          </div>
+          {{ end }}
         </section>
 
         <section class="shithub-org-security-card" id="secret-scanning">
