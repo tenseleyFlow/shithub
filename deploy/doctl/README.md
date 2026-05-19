@@ -18,6 +18,23 @@ SSH_ALLOWED_CIDRS=203.0.113.4/32 \
 ./deploy/doctl/provision-actions-runner-pool.sh
 ```
 
+To converge the controlled-dogfood pool to three one-slot runners:
+
+```sh
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+COUNT=3 \
+./deploy/doctl/provision-actions-runner-pool.sh --dry-run
+
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+COUNT=3 \
+./deploy/doctl/provision-actions-runner-pool.sh
+```
+
+The non-dry-run command creates paid DigitalOcean droplets. Use an explicit
+operator approval checkpoint before running it from an automation session.
+
 Defaults:
 
 - pool: `shared-linux`
@@ -25,6 +42,7 @@ Defaults:
 - region: `sfo3`
 - size: `s-2vcpu-4gb`
 - image: `ubuntu-24-04-x64`
+- count: `1`
 - tag: `shithub-actions-runner`
 - cloud-init: `deploy/doctl/actions-runner-cloud-init.yaml`
 
@@ -61,7 +79,7 @@ Then run:
 ```sh
 make build
 cd deploy/ansible
-ansible-playbook -i inventory/actions-runners site.yml -t shithubd-runner
+ansible-playbook -i inventory/actions-runners actions-runners.yml
 ```
 
 ## Destroy a test pool

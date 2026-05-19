@@ -112,6 +112,36 @@ Capacity limits:
 These are policy controls, not billing meters. They protect the shared pool
 alongside the SP08 Actions minutes quota gate.
 
+## Capacity Posture
+
+The first production pool is intentionally static. Do not treat the first
+`shared-linux` runner as enough capacity for broad public usage: it is only
+enough for controlled dogfood and simple recovery validation.
+
+For the next controlled-dogfood step, prefer three separate runner hosts with
+`capacity=1` each over one larger host with `capacity=3`:
+
+- one host failure only removes one slot;
+- container CPU/memory behavior is easier to reason about;
+- drain and recreate operations map cleanly to one runner slot;
+- per-host registration tokens keep compromise scope small.
+
+Keep the initial label contract stable:
+
+```text
+self-hosted,linux,ubuntu-latest,x64
+```
+
+Capacity expansion does not replace policy and billing gates. Keep
+`max_repo_queued_runs`, `max_repo_concurrent_jobs`,
+`max_owner_concurrent_jobs`, `actor_trigger_limit_per_hour`, and monthly
+Actions minute quotas conservative until production queue and host-cost data
+show a need to raise them.
+
+Beyond three always-on shared runners, require an explicit operator approval
+step and either measured queue pressure or a planned dogfood window. Autoscaling
+belongs in a later sprint after static pool operations are boring.
+
 ## Relationship To S41k
 
 S41k should follow S41j because it is UI parity:

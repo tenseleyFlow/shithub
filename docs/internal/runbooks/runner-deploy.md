@@ -56,6 +56,26 @@ SSH_ALLOWED_CIDRS=203.0.113.4/32 \
 ./deploy/doctl/provision-actions-runner-pool.sh
 ```
 
+Converge a small static dogfood pool by raising `COUNT`. The current
+recommended controlled-dogfood target is three droplets, each running one
+runner with `capacity=1`:
+
+```sh
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+COUNT=3 \
+./deploy/doctl/provision-actions-runner-pool.sh --dry-run
+
+SSH_KEY_NAME=macbook-pro \
+SSH_ALLOWED_CIDRS=203.0.113.4/32 \
+COUNT=3 \
+./deploy/doctl/provision-actions-runner-pool.sh
+```
+
+Do not create paid runner droplets from an automation session without an
+explicit operator approval checkpoint. Dry-runs and inventory generation are
+safe; droplet creation changes monthly spend.
+
 Useful overrides:
 
 ```sh
@@ -88,6 +108,8 @@ Generate an Ansible inventory from the DigitalOcean tag:
 The generated file contains per-host `shithub_runner_token` placeholders.
 Replace them with values from `shithubd admin runner register`, ideally through
 ansible-vault or host_vars rather than committing plaintext inventory.
+Generate one token per runner host; never reuse a registration token across
+multiple droplets.
 
 ## Register
 
@@ -181,8 +203,20 @@ For the generated DigitalOcean runner inventory:
 ```sh
 make build
 cd deploy/ansible
-ansible-playbook -i inventory/actions-runners site.yml -t shithubd-runner
+ansible-playbook -i inventory/actions-runners actions-runners.yml
 ```
+
+After scaling a pool, verify aggregate capacity rather than only one host:
+
+```sh
+shithubd admin runner list --output json
+shithubd admin runner queue --output json
+```
+
+All expected runner hosts should heartbeat with the same current version, and
+the queue should be empty before the smoke. Trigger at least as many independent
+`ubuntu-latest` jobs as the desired pool capacity and confirm they run
+concurrently. For the first dogfood scale-out, that means three jobs.
 
 The role:
 
