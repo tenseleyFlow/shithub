@@ -3129,6 +3129,48 @@ type ProfilePinSet struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+type PullDependencyReview struct {
+	ID                    int64
+	PrID                  int64
+	RepoID                int64
+	BaseSha               string
+	HeadSha               string
+	Conclusion            string
+	ManifestCount         int32
+	ChangeCount           int32
+	AddedCount            int32
+	RemovedCount          int32
+	ChangedCount          int32
+	VulnerableChangeCount int32
+	ReviewedAt            pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type PullDependencyReviewItem struct {
+	ID                 int64
+	ReviewID           int64
+	ChangeKind         string
+	Ecosystem          string
+	PackageName        string
+	ManifestPath       string
+	LockfilePath       string
+	OldVersion         string
+	NewVersion         string
+	Scope              string
+	Direct             bool
+	PackageManager     string
+	Source             string
+	AdvisoryID         pgtype.Int8
+	Severity           string
+	AdvisorySource     string
+	AdvisoryExternalID string
+	AdvisorySummary    string
+	PatchedVersions    string
+	Recommendation     string
+	CreatedAt          pgtype.Timestamptz
+}
+
 type PullRequest struct {
 	IssueID            int64
 	BaseRef            string

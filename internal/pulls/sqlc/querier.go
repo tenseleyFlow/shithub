@@ -41,16 +41,22 @@ type Querier interface {
 	// opened PR `mergeable_state='unknown'` until the mergeability job
 	// ticks.
 	CreatePullRequest(ctx context.Context, db DBTX, arg CreatePullRequestParams) (PullRequest, error)
+	DeletePullDependencyReviewItems(ctx context.Context, db DBTX, reviewID int64) error
 	DismissPRReview(ctx context.Context, db DBTX, arg DismissPRReviewParams) error
 	DismissPRReviewRequest(ctx context.Context, db DBTX, id int64) error
+	GetLatestPullDependencyReview(ctx context.Context, db DBTX, prID int64) (PullDependencyReview, error)
 	GetPRReviewByID(ctx context.Context, db DBTX, id int64) (PrReview, error)
 	GetPRReviewComment(ctx context.Context, db DBTX, id int64) (PrReviewComment, error)
+	GetPullDependencyReviewForHead(ctx context.Context, db DBTX, arg GetPullDependencyReviewForHeadParams) (PullDependencyReview, error)
 	GetPullRequestByIssueID(ctx context.Context, db DBTX, issueID int64) (PullRequest, error)
 	// Joins issues + pull_requests so handlers can resolve via the URL
 	// {owner}/{repo}/pulls/{number} in one round-trip.
 	GetPullRequestByRepoAndNumber(ctx context.Context, db DBTX, arg GetPullRequestByRepoAndNumberParams) (GetPullRequestByRepoAndNumberRow, error)
+	InsertPullDependencyReviewItem(ctx context.Context, db DBTX, arg InsertPullDependencyReviewItemParams) (PullDependencyReviewItem, error)
 	InsertPullRequestCommit(ctx context.Context, db DBTX, arg InsertPullRequestCommitParams) error
 	InsertPullRequestFile(ctx context.Context, db DBTX, arg InsertPullRequestFileParams) error
+	// Baseline matcher inherited from SP25. SP25d owns rich semver/range support.
+	ListMatchingDependencyReviewAdvisories(ctx context.Context, db DBTX, arg ListMatchingDependencyReviewAdvisoriesParams) ([]DependencyAdvisory, error)
 	// Position-mapping reads only submitted comments (drafts re-anchor
 	// when the user resumes the diff view).
 	ListNonDraftCommentsForPositionMap(ctx context.Context, db DBTX, prIssueID int64) ([]ListNonDraftCommentsForPositionMapRow, error)
@@ -75,6 +81,7 @@ type Querier interface {
 	ListPendingDraftCommentsForUser(ctx context.Context, db DBTX, arg ListPendingDraftCommentsForUserParams) ([]PrReviewComment, error)
 	// Reviewer's inbox feed. Excludes dismissed + satisfied requests.
 	ListPendingReviewRequestsForUser(ctx context.Context, db DBTX, requestedUserID pgtype.Int8) ([]PrReviewRequest, error)
+	ListPullDependencyReviewItems(ctx context.Context, db DBTX, reviewID int64) ([]PullDependencyReviewItem, error)
 	ListPullRequestCommits(ctx context.Context, db DBTX, prID int64) ([]PullRequestCommit, error)
 	ListPullRequestFiles(ctx context.Context, db DBTX, prID int64) ([]PullRequestFile, error)
 	// Mirrors the issues list query: state filter via narg, pagination,
@@ -100,6 +107,8 @@ type Querier interface {
 	// synchronize tick.
 	SetPullRequestSnapshot(ctx context.Context, db DBTX, arg SetPullRequestSnapshotParams) error
 	UpdatePRReviewCommentBody(ctx context.Context, db DBTX, arg UpdatePRReviewCommentBodyParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	UpsertPullDependencyReview(ctx context.Context, db DBTX, arg UpsertPullDependencyReviewParams) (PullDependencyReview, error)
 }
 
 var _ Querier = (*Queries)(nil)
