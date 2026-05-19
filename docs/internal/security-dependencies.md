@@ -70,6 +70,14 @@ edit package/severity/description/reference metadata, publish it, withdraw it,
 archive it, or reopen it as a draft. Advisory descriptions render through the
 canonical `internal/markdown` sanitizer before reaching templates.
 
+When a repository advisory has affected ecosystem and package metadata, shithub
+mirrors it into the local `dependency_advisories` catalog under a repo-scoped
+source key. Published advisories have `withdrawn_at = NULL` and immediately
+refresh matching dependency alerts across current repository dependency rows.
+Draft, withdrawn, archived, and reopened advisories are kept withdrawn in the
+catalog so existing dependency-review and dependency-scan queries ignore them,
+and open alerts from a previously published advisory are resolved.
+
 Published advisories are visible to normal repository readers. Draft,
 withdrawn, and archived advisories are visible only to viewers who can manage
 general repository settings. Advisory writes are always policy-gated through

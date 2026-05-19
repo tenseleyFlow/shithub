@@ -256,6 +256,7 @@ type Querier interface {
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
 	RecordDependencyAutoTriageEvent(ctx context.Context, db DBTX, arg RecordDependencyAutoTriageEventParams) (DependencyAutoTriageEvent, error)
+	RefreshDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg RefreshDependencyAlertsForAdvisoryParams) error
 	// Baseline matcher: advisories match exact package/ecosystem plus
 	// affected_range of '', '*', or the dependency's resolved version.
 	// Rich semver range evaluation belongs in a later parser package; this
@@ -278,6 +279,7 @@ type Querier interface {
 	// then replace the existing rows in one tx (DELETE + INSERT). The
 	// caller's tx wraps both calls for atomicity.
 	ReplaceRepoTopics(ctx context.Context, db DBTX, repoID int64) error
+	ResolveStaleDependencyAlertsForAdvisory(ctx context.Context, db DBTX, arg ResolveStaleDependencyAlertsForAdvisoryParams) error
 	ResolveStaleDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
 	// S28 code-search: the worker writes the OID it finished indexing
