@@ -14,11 +14,12 @@ import "strings"
 // to take effect (a bare `repo:foo` without slash is treated as
 // free text).
 type ParsedQuery struct {
-	Text         string // free-text query (what tsvector matches against)
-	Phrase       string // when a quoted phrase was supplied; empty when not
-	RepoFilter   *RepoFilter
-	StateFilter  string // "open" | "closed" | ""
-	AuthorFilter string // username or empty
+	Text           string // free-text query (what tsvector matches against)
+	Phrase         string // when a quoted phrase was supplied; empty when not
+	RepoFilter     *RepoFilter
+	StateFilter    string // "open" | "closed" | ""
+	AuthorFilter   string // username or empty
+	AssigneeFilter string // username or empty (issue_assignees join)
 }
 
 // RepoFilter splits the `repo:owner/name` operator value.
@@ -29,7 +30,7 @@ type RepoFilter struct {
 
 // ParseQuery splits a raw query string into the free-text portion +
 // recognised operators. v1 supports `repo:`, `is:`, `state:`,
-// `author:`. `is:` and `state:` are aliases.
+// `author:`, `assignee:`. `is:` and `state:` are aliases.
 //
 // A quoted run of tokens becomes the Phrase field (one quoted span
 // per query in v1). The Text field excludes quoted phrases and
@@ -84,6 +85,13 @@ func ParseQuery(raw string) ParsedQuery {
 			} else {
 				freeText = append(freeText, tok)
 			}
+		case strings.HasPrefix(tok, "assignee:"):
+			val := strings.TrimPrefix(tok, "assignee:")
+			if val != "" {
+				out.AssigneeFilter = val
+			} else {
+				freeText = append(freeText, tok)
+			}
 		default:
 			freeText = append(freeText, tok)
 		}
@@ -96,5 +104,5 @@ func ParseQuery(raw string) ParsedQuery {
 // searchable (free text, phrase, or any operator).
 func (p ParsedQuery) HasContent() bool {
 	return p.Text != "" || p.Phrase != "" || p.RepoFilter != nil ||
-		p.StateFilter != "" || p.AuthorFilter != ""
+		p.StateFilter != "" || p.AuthorFilter != "" || p.AssigneeFilter != ""
 }
