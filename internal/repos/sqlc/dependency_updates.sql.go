@@ -11,6 +11,74 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimDueDependencyUpdateConfigs = `-- name: ClaimDueDependencyUpdateConfigs :many
+WITH due AS (
+    SELECT id
+    FROM dependency_update_configs
+    WHERE enabled = true
+      AND next_run_at IS NOT NULL
+      AND next_run_at <= $1::timestamptz
+    ORDER BY next_run_at ASC, id ASC
+    LIMIT $2::int
+    FOR UPDATE SKIP LOCKED
+)
+SELECT dependency_update_configs.id, dependency_update_configs.repo_id, dependency_update_configs.ecosystem, dependency_update_configs.package_manager, dependency_update_configs.directory, dependency_update_configs.schedule_interval, dependency_update_configs.schedule_day, dependency_update_configs.schedule_time, dependency_update_configs.schedule_timezone, dependency_update_configs.schedule_cron, dependency_update_configs.open_pull_request_limit, dependency_update_configs.target_branch, dependency_update_configs.allow_rules, dependency_update_configs.ignore_rules, dependency_update_configs.groups, dependency_update_configs.registries, dependency_update_configs.unsupported_keys, dependency_update_configs.enabled, dependency_update_configs.raw_config_hash, dependency_update_configs.raw_config_path, dependency_update_configs.last_synced_sha, dependency_update_configs.last_checked_at, dependency_update_configs.next_run_at, dependency_update_configs.created_at, dependency_update_configs.updated_at
+FROM dependency_update_configs
+JOIN due ON due.id = dependency_update_configs.id
+ORDER BY dependency_update_configs.next_run_at ASC, dependency_update_configs.id ASC
+`
+
+type ClaimDueDependencyUpdateConfigsParams struct {
+	NowAt     pgtype.Timestamptz
+	LimitRows int32
+}
+
+func (q *Queries) ClaimDueDependencyUpdateConfigs(ctx context.Context, db DBTX, arg ClaimDueDependencyUpdateConfigsParams) ([]DependencyUpdateConfig, error) {
+	rows, err := db.Query(ctx, claimDueDependencyUpdateConfigs, arg.NowAt, arg.LimitRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DependencyUpdateConfig{}
+	for rows.Next() {
+		var i DependencyUpdateConfig
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepoID,
+			&i.Ecosystem,
+			&i.PackageManager,
+			&i.Directory,
+			&i.ScheduleInterval,
+			&i.ScheduleDay,
+			&i.ScheduleTime,
+			&i.ScheduleTimezone,
+			&i.ScheduleCron,
+			&i.OpenPullRequestLimit,
+			&i.TargetBranch,
+			&i.AllowRules,
+			&i.IgnoreRules,
+			&i.Groups,
+			&i.Registries,
+			&i.UnsupportedKeys,
+			&i.Enabled,
+			&i.RawConfigHash,
+			&i.RawConfigPath,
+			&i.LastSyncedSha,
+			&i.LastCheckedAt,
+			&i.NextRunAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const completeDependencyUpdateJob = `-- name: CompleteDependencyUpdateJob :one
 UPDATE dependency_update_jobs
 SET status = $1::text,
@@ -116,10 +184,11 @@ func (q *Queries) CreateDependencyAutoTriageRule(ctx context.Context, db DBTX, a
 const createDependencyUpdateJob = `-- name: CreateDependencyUpdateJob :one
 INSERT INTO dependency_update_jobs (
     repo_id, config_id, job_kind, status, trigger_source,
-    scheduled_for, base_sha, head_sha, result_summary
+    scheduled_for, base_sha, head_sha, result_summary, last_error
 ) VALUES (
     $1, $7::bigint, $2, $3, $4,
-    $8::timestamptz, $5, $6, $9::jsonb
+    $8::timestamptz, $5, $6, $9::jsonb,
+    $10::text
 )
 RETURNING id, repo_id, config_id, job_kind, status, trigger_source, scheduled_for, started_at, completed_at, base_sha, head_sha, result_summary, last_error, created_at, updated_at
 `
@@ -134,6 +203,7 @@ type CreateDependencyUpdateJobParams struct {
 	ConfigID      pgtype.Int8
 	ScheduledFor  pgtype.Timestamptz
 	ResultSummary []byte
+	LastError     string
 }
 
 func (q *Queries) CreateDependencyUpdateJob(ctx context.Context, db DBTX, arg CreateDependencyUpdateJobParams) (DependencyUpdateJob, error) {
@@ -147,6 +217,7 @@ func (q *Queries) CreateDependencyUpdateJob(ctx context.Context, db DBTX, arg Cr
 		arg.ConfigID,
 		arg.ScheduledFor,
 		arg.ResultSummary,
+		arg.LastError,
 	)
 	var i DependencyUpdateJob
 	err := row.Scan(

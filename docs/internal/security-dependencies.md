@@ -144,6 +144,14 @@ The sync worker still does not create update branches or PRs. Follow-up SP25b
 slices must add the bounded scheduler and update workers before the plan
 comparison should claim live automated update pull requests.
 
+`repo:dependency_update_sweep` is the periodic scheduler worker. Operators
+should enqueue it on the same kind of timer beat used for other sweep workers.
+The sweep claims due `dependency_update_configs` with row locks, creates
+`dependency_update_jobs` rows with `job_kind = 'version_update'`, advances each
+config's `next_run_at`, and self-enqueues when it fills its batch. Those domain
+jobs are intentionally queued-only until the Go/npm update workers and pull
+request creation path are wired in a later SP25b slice.
+
 ## Privacy and Product Copy
 
 Organization security overview is only visible to organization members and site

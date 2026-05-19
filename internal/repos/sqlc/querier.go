@@ -20,6 +20,7 @@ type Querier interface {
 	AdminForceDeleteRepo(ctx context.Context, db DBTX, id int64) error
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
+	ClaimDueDependencyUpdateConfigs(ctx context.Context, db DBTX, arg ClaimDueDependencyUpdateConfigsParams) ([]DependencyUpdateConfig, error)
 	CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg CompleteDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
 	CountPublicReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)

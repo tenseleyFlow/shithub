@@ -64,6 +64,22 @@ WHERE enabled = true
 ORDER BY next_run_at ASC, id ASC
 LIMIT sqlc.arg(limit_rows)::int;
 
+-- name: ClaimDueDependencyUpdateConfigs :many
+WITH due AS (
+    SELECT id
+    FROM dependency_update_configs
+    WHERE enabled = true
+      AND next_run_at IS NOT NULL
+      AND next_run_at <= sqlc.arg(now_at)::timestamptz
+    ORDER BY next_run_at ASC, id ASC
+    LIMIT sqlc.arg(limit_rows)::int
+    FOR UPDATE SKIP LOCKED
+)
+SELECT dependency_update_configs.*
+FROM dependency_update_configs
+JOIN due ON due.id = dependency_update_configs.id
+ORDER BY dependency_update_configs.next_run_at ASC, dependency_update_configs.id ASC;
+
 -- name: DisableMissingDependencyUpdateConfigs :exec
 UPDATE dependency_update_configs
 SET enabled = false,
@@ -81,10 +97,11 @@ RETURNING *;
 -- name: CreateDependencyUpdateJob :one
 INSERT INTO dependency_update_jobs (
     repo_id, config_id, job_kind, status, trigger_source,
-    scheduled_for, base_sha, head_sha, result_summary
+    scheduled_for, base_sha, head_sha, result_summary, last_error
 ) VALUES (
     $1, sqlc.narg(config_id)::bigint, $2, $3, $4,
-    sqlc.narg(scheduled_for)::timestamptz, $5, $6, sqlc.arg(result_summary)::jsonb
+    sqlc.narg(scheduled_for)::timestamptz, $5, $6, sqlc.arg(result_summary)::jsonb,
+    sqlc.arg(last_error)::text
 )
 RETURNING *;
 
