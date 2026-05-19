@@ -64,6 +64,33 @@
             <strong>{{ .Viewer.Username }}</strong>
             <span>@{{ .Viewer.Username }}</span>
           </div>
+          <details class="shithub-account-switcher">
+            <summary class="shithub-account-switcher-toggle" aria-label="Account switcher" title="Account switcher">{{ octicon "arrow-switch" }}</summary>
+            <div class="shithub-account-switcher-panel" role="menu" aria-label="Switch account">
+              <strong class="shithub-account-switcher-title">Switch account</strong>
+              {{ range .Viewer.SwitchAccounts }}
+              <form method="POST" action="/account/switch" class="shithub-account-switcher-form">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <input type="hidden" name="user_id" value="{{ .UserID }}">
+                <button type="submit" role="menuitem" class="shithub-account-switcher-account">
+                  <img src="/avatars/{{ .Username }}" alt="" width="24" height="24">
+                  <span>
+                    <strong>{{ .Username }}</strong>
+                    {{ if and .DisplayName (ne .DisplayName .Username) }}<small>{{ .DisplayName }}</small>{{ end }}
+                  </span>
+                </button>
+              </form>
+              {{ else }}
+              <p class="shithub-account-switcher-empty">No other active accounts on this device.</p>
+              {{ end }}
+              <div class="shithub-user-menu-divider" role="separator"></div>
+              <a role="menuitem" class="shithub-user-menu-item" href="/login?add_account=1">{{ octicon "person-add" }} <span>Add account</span></a>
+              <form method="POST" action="/logout" class="shithub-user-menu-signout">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" role="menuitem" class="shithub-user-menu-item">{{ octicon "sign-out" }} <span>Sign out...</span></button>
+              </form>
+            </div>
+          </details>
         </div>
         <button type="button" role="menuitem" class="shithub-user-menu-item" disabled>
           {{ octicon "smiley" }} <span>Set status</span>

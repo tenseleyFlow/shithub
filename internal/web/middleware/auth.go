@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/auth/session"
 )
 
 var currentUserKey = ctxKey{name: "current_user"}
@@ -24,6 +25,11 @@ type CurrentUser struct {
 	Username    string
 	IsSuspended bool
 	IsSiteAdmin bool
+	// SwitchAccounts are other accounts that completed authentication in
+	// this browser session and can be selected from the profile menu. They
+	// are UI hints only; /account/switch re-checks the sealed session entry
+	// and the target user's current session_epoch before binding.
+	SwitchAccounts []SwitchAccount
 	// ImpersonatedUserID, when non-zero, identifies the user this admin
 	// is impersonating. ID/Username/IsSuspended above reflect the
 	// IMPERSONATED user (so policy checks behave as that user); the
@@ -31,6 +37,14 @@ type CurrentUser struct {
 	ImpersonatedUserID int64
 	RealActorID        int64
 	ImpersonateWriteOK bool
+}
+
+// SwitchAccount is the small identity projection needed by the global
+// account-switcher menu.
+type SwitchAccount struct {
+	UserID      int64
+	Username    string
+	DisplayName string
 }
 
 // IsAnonymous reports whether this is an unauthenticated request.
@@ -123,6 +137,9 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 						}
 					}
 				}
+				if bind && s.ImpersonatedUserID == 0 {
+					u.SwitchAccounts = switchAccountsFromSession(s, s.UserID)
+				}
 				// Impersonation: when the session carries an
 				// ImpersonatedUserID, swap the bound identity to the
 				// target user (so policy checks render the target's
@@ -145,6 +162,28 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func switchAccountsFromSession(s *session.Session, currentID int64) []SwitchAccount {
+	if s == nil || len(s.Accounts) == 0 {
+		return nil
+	}
+	out := make([]SwitchAccount, 0, len(s.Accounts))
+	for _, acct := range s.Accounts {
+		if acct.UserID == 0 || acct.UserID == currentID || acct.Username == "" {
+			continue
+		}
+		displayName := acct.DisplayName
+		if displayName == "" {
+			displayName = acct.Username
+		}
+		out = append(out, SwitchAccount{
+			UserID:      acct.UserID,
+			Username:    acct.Username,
+			DisplayName: displayName,
+		})
+	}
+	return out
 }
 
 // RequireUser is a stricter wrapper: redirects to /login (preserving the

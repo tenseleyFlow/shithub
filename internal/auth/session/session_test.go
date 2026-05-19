@@ -3,6 +3,7 @@
 package session
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,5 +117,37 @@ func TestCookieStore_ClearDeletesCookie(t *testing.T) {
 	header := rec.Header().Get("Set-Cookie")
 	if !strings.Contains(header, CookieName) {
 		t.Errorf("Set-Cookie missing %s: %q", CookieName, header)
+	}
+}
+
+func TestSession_RememberAccountKeepsRecentCappedList(t *testing.T) {
+	t.Parallel()
+	s := &Session{}
+
+	for i := int64(1); i <= MaxKnownAccounts+2; i++ {
+		s.RememberAccount(KnownAccount{
+			UserID:   i,
+			Username: fmt.Sprintf("user%d", i),
+			Epoch:    int32(i),
+		})
+	}
+	if len(s.Accounts) != MaxKnownAccounts {
+		t.Fatalf("remembered accounts: got %d, want %d", len(s.Accounts), MaxKnownAccounts)
+	}
+	if s.Accounts[0].UserID != MaxKnownAccounts+2 {
+		t.Fatalf("most recent account id: got %d, want %d", s.Accounts[0].UserID, MaxKnownAccounts+2)
+	}
+	if _, ok := s.KnownAccount(1); ok {
+		t.Fatalf("oldest account should have been evicted")
+	}
+
+	s.RememberAccount(KnownAccount{UserID: 4, Username: "user4", Epoch: 44})
+	if s.Accounts[0].UserID != 4 || s.Accounts[0].Epoch != 44 {
+		t.Fatalf("refresh should move account to front with new epoch, got %+v", s.Accounts[0])
+	}
+
+	s.ForgetAccount(4)
+	if _, ok := s.KnownAccount(4); ok {
+		t.Fatalf("forgotten account should not be found")
 	}
 }

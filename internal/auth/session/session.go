@@ -25,6 +25,24 @@ const CookieName = "_shithub_session"
 // DefaultMaxAge is the default cookie lifetime.
 const DefaultMaxAge = 30 * 24 * time.Hour
 
+// MaxKnownAccounts caps the number of browser-local account identities
+// carried in the encrypted session cookie. The data is intentionally small:
+// it exists to drive GitHub-style account switching, not to become a
+// general-purpose client-side account cache.
+const MaxKnownAccounts = 5
+
+// KnownAccount records a user that has completed authentication in this
+// browser session. The cookie is AEAD-sealed, and handlers still re-check the
+// user's current session_epoch before switching to the account.
+type KnownAccount struct {
+	UserID       int64  `json:"uid"`
+	Username     string `json:"u"`
+	DisplayName  string `json:"d,omitempty"`
+	Epoch        int32  `json:"e,omitempty"`
+	Recent2FAAt  int64  `json:"r2,omitempty"`
+	RememberedAt int64  `json:"at,omitempty"`
+}
+
 // Session is the data carried in a cookie. The shape is intentionally
 // small; anything that doesn't fit a few hundred bytes belongs server-side.
 type Session struct {
@@ -41,6 +59,7 @@ type Session struct {
 	Theme     string            `json:"theme,omitempty"`
 	Flashes   []string          `json:"flashes,omitempty"`
 	Extras    map[string]string `json:"extras,omitempty"`
+	Accounts  []KnownAccount    `json:"acct,omitempty"`
 	IssuedAt  int64             `json:"iat,omitempty"`
 	// ImpersonatedUserID — when non-zero, the admin (UserID above) is
 	// currently viewing as this user. ImpersonateWriteOK gates writes
@@ -54,6 +73,60 @@ type Session struct {
 
 // IsAnonymous returns true when no user is bound to the session.
 func (s *Session) IsAnonymous() bool { return s == nil || s.UserID == 0 }
+
+// RememberAccount inserts or refreshes a browser-local account identity and
+// moves it to the front of the recency-ordered list.
+func (s *Session) RememberAccount(acct KnownAccount) {
+	if s == nil || acct.UserID == 0 || acct.Username == "" {
+		return
+	}
+	if acct.DisplayName == "" {
+		acct.DisplayName = acct.Username
+	}
+	if acct.RememberedAt == 0 {
+		acct.RememberedAt = time.Now().Unix()
+	}
+
+	out := make([]KnownAccount, 0, min(MaxKnownAccounts, len(s.Accounts)+1))
+	out = append(out, acct)
+	for _, existing := range s.Accounts {
+		if existing.UserID == acct.UserID || existing.UserID == 0 || existing.Username == "" {
+			continue
+		}
+		out = append(out, existing)
+		if len(out) == MaxKnownAccounts {
+			break
+		}
+	}
+	s.Accounts = out
+}
+
+// KnownAccount returns a remembered account by user_id.
+func (s *Session) KnownAccount(userID int64) (KnownAccount, bool) {
+	if s == nil || userID == 0 {
+		return KnownAccount{}, false
+	}
+	for _, acct := range s.Accounts {
+		if acct.UserID == userID {
+			return acct, true
+		}
+	}
+	return KnownAccount{}, false
+}
+
+// ForgetAccount removes a remembered account from the browser-local list.
+func (s *Session) ForgetAccount(userID int64) {
+	if s == nil || userID == 0 {
+		return
+	}
+	out := s.Accounts[:0]
+	for _, acct := range s.Accounts {
+		if acct.UserID != userID {
+			out = append(out, acct)
+		}
+	}
+	s.Accounts = out
+}
 
 // AddFlash appends a flash message; it'll be rendered + cleared on the next
 // page load.

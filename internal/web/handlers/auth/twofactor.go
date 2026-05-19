@@ -120,16 +120,25 @@ func (h *Handlers) twoFactorChallengeSubmit(w http.ResponseWriter, r *http.Reque
 	// Recent2FAAt timestamps the just-completed challenge so the recent-
 	// auth gate (PAT creation, etc.) can verify a fresh second factor.
 	// Epoch snapshot powers "log out everywhere".
-	epoch, err := h.q.GetUserSessionEpoch(r.Context(), h.d.Pool, userID)
+	user, err := h.q.GetUserByID(r.Context(), h.d.Pool, userID)
 	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "2fa: load epoch", "error", err)
+		h.d.Logger.ErrorContext(r.Context(), "2fa: load user", "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
 	}
+	if user.SuspendedAt.Valid {
+		render("This account has been suspended.")
+		return
+	}
+	recent2FAAt := time.Now().Unix()
 	s.Pre2FAUserID = 0
 	s.UserID = userID
-	s.Epoch = epoch
-	s.Recent2FAAt = time.Now().Unix()
+	s.Epoch = user.SessionEpoch
+	s.Recent2FAAt = recent2FAAt
+	s.ImpersonatedUserID = 0
+	s.ImpersonateWriteOK = false
+	s.ImpersonationStartedAt = 0
+	rememberUserAccount(s, user, recent2FAAt)
 	s.IssuedAt = time.Now().Unix()
 	if err := h.d.SessionStore.Save(w, r, s); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "2fa: save session", "error", err)

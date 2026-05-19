@@ -121,8 +121,27 @@ S02 ships an AEAD-encrypted cookie store; S05 extends it to carry `user_id`. `Se
 Login flow:
 
 1. Verify password.
-2. Mutate the loaded session to set `UserID` and `IssuedAt`.
-3. Call `SessionStore.Save` — re-encrypts the cookie under the new state.
+2. If the browser already has a valid bound user, add that user to the
+   encrypted `Session.Accounts` recency list before replacing the active
+   identity.
+3. Mutate the loaded session to set `UserID`, `Epoch`, `IssuedAt`, and the
+   current user in `Session.Accounts`.
+4. Call `SessionStore.Save` — re-encrypts the cookie under the new state.
+
+Account switching:
+
+1. The navbar switcher lists up to five non-current accounts from the
+   encrypted session cookie.
+2. `POST /account/switch` accepts only a remembered `user_id`.
+3. The handler reloads the target user and verifies it is not suspended and
+   still has the same `users.session_epoch` captured when that account last
+   authenticated. Epoch mismatch removes that remembered account and redirects
+   to `/login?notice=account-expired`.
+4. A successful switch records the previous current account, clears
+   impersonation state, binds the target account, and re-encrypts the cookie.
+
+The remembered account list is only browser-local convenience state. It does
+not bypass password login, TOTP enrollment, suspension, or "log out everywhere."
 
 Logout flow:
 
