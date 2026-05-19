@@ -66,6 +66,31 @@ run_ssh() {
   ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$@"
 }
 
+expand_local_path() {
+  value="$1"
+  case "$value" in
+    '~')
+      [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
+      printf '%s\n' "$HOME"
+      ;;
+    '~/'*)
+      [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
+      printf '%s/%s\n' "$HOME" "${value#~/}"
+      ;;
+    '$HOME')
+      [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
+      printf '%s\n' "$HOME"
+      ;;
+    '$HOME/'*)
+      [ -n "${HOME:-}" ] || fail "HOME is required to expand $value"
+      printf '%s/%s\n' "$HOME" "${value#\$HOME/}"
+      ;;
+    *)
+      printf '%s\n' "$value"
+      ;;
+  esac
+}
+
 relay_cleanup_target=""
 relay_cleanup_dir=""
 
@@ -246,8 +271,8 @@ preflight_attempts="${RUNNER_PREFLIGHT_ATTEMPTS:-18}"
 preflight_sleep="${RUNNER_PREFLIGHT_SLEEP_SECONDS:-5}"
 relay_host="${RUNNER_DEPLOY_RELAY_HOST:-}"
 relay_user="${RUNNER_DEPLOY_RELAY_USER:-root}"
-runner_key_file="${RUNNER_DEPLOY_SSH_KEY_FILE:-${HOME:-}/.ssh/runner_deploy}"
-runner_known_hosts_file="${RUNNER_DEPLOY_KNOWN_HOSTS_FILE:-${HOME:-}/.ssh/known_hosts}"
+runner_key_file="$(expand_local_path "${RUNNER_DEPLOY_SSH_KEY_FILE:-${HOME:-}/.ssh/runner_deploy}")"
+runner_known_hosts_file="$(expand_local_path "${RUNNER_DEPLOY_KNOWN_HOSTS_FILE:-${HOME:-}/.ssh/known_hosts}")"
 dry_run="${RUNNER_DEPLOY_DRY_RUN:-false}"
 
 [ -x "$runner_bin" ] || fail "runner binary is missing or not executable: $runner_bin"
