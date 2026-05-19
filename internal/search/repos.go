@@ -23,8 +23,9 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 
 	tsText, tsCtor, hasFTS := tsQueryBindAndCtor(q)
 
-	// repo:owner/name AND no free-text → list that one repo.
-	if !hasFTS && q.RepoFilter == nil {
+	// At least one signal must drive the query: free-text, a
+	// repo:owner/name pair, or a user:/org: owner filter (E23).
+	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" {
 		return nil, 0, nil
 	}
 
@@ -39,12 +40,22 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 	visClause, visArgs := policy.VisibilityPredicate(actor, "r", len(args)+1)
 	args = append(args, visArgs...)
 
-	repoFilter := ""
+	extraWhere := ""
 	if q.RepoFilter != nil {
 		ownerPos := len(args) + 1
 		namePos := len(args) + 2
 		args = append(args, q.RepoFilter.Owner, q.RepoFilter.Name)
-		repoFilter = repoFilterByOwnerName("r", ownerPos, namePos)
+		extraWhere += repoFilterByOwnerName("r", ownerPos, namePos)
+	}
+	if q.OwnerFilter != "" {
+		// E-audit E23: `user:foo` / `org:foo` match the owning user
+		// OR org slug. gh aliases them; we mirror that here.
+		ownerPos := len(args) + 1
+		args = append(args, q.OwnerFilter)
+		extraWhere += fmt.Sprintf(
+			" AND (u.username = $%d OR o.slug = $%d)",
+			ownerPos, ownerPos,
+		)
 	}
 
 	whereFTS := "TRUE"
@@ -73,7 +84,7 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 		  %[4]s
 		ORDER BY rank DESC, r.updated_at DESC
 		LIMIT $%[5]d OFFSET $%[6]d
-	`, rankExpr, whereFTS, visClause, repoFilter, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
+	`, rankExpr, whereFTS, visClause, extraWhere, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
@@ -94,13 +105,19 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 	}
 
 	// Total count for pagination — re-runs the WHERE without the
-	// LIMIT/OFFSET tail.
+	// LIMIT/OFFSET tail. Count query needs the owner join too when
+	// OwnerFilter is set so the $N for username/slug resolves.
+	ownerJoinForCount := ""
+	if q.OwnerFilter != "" || q.RepoFilter != nil {
+		ownerJoinForCount = repoOwnerJoin("r", "u", "o")
+	}
 	countQuery := fmt.Sprintf(`
 		SELECT count(*)
 		FROM repos_search rs
 		JOIN repos r  ON r.id = rs.repo_id
+		%[4]s
 		WHERE %[1]s AND %[2]s %[3]s
-	`, whereFTS, visClause, repoFilter)
+	`, whereFTS, visClause, extraWhere, ownerJoinForCount)
 	var total int64
 	if err := deps.Pool.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count repos: %w", err)
