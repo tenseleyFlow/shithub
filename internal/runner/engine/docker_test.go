@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,6 +29,29 @@ func (r *recordingRunner) Run(_ context.Context, name string, args []string, env
 	r.args = append([]string{}, args...)
 	r.env = append([]string{}, env...)
 	return r.err
+}
+
+type runnerCall struct {
+	name string
+	args []string
+	env  []string
+}
+
+type sequenceRunner struct {
+	calls []runnerCall
+	errs  map[int]error
+}
+
+func (r *sequenceRunner) Run(_ context.Context, name string, args []string, env []string, _, _ io.Writer) error {
+	r.calls = append(r.calls, runnerCall{
+		name: name,
+		args: append([]string{}, args...),
+		env:  append([]string{}, env...),
+	})
+	if r.errs != nil {
+		return r.errs[len(r.calls)-1]
+	}
+	return nil
 }
 
 type loggingRunner struct{}
@@ -582,6 +607,114 @@ func TestDockerExecute_RejectsUnsupportedUses(t *testing.T) {
 	}
 }
 
+func TestDockerExecute_SetupPythonAddsShimPathForSubsequentSteps(t *testing.T) {
+	t.Parallel()
+	rec := &sequenceRunner{}
+	workspace := t.TempDir()
+	d := NewDocker(DockerConfig{
+		DefaultImage:  "runner-image",
+		Network:       "bridge",
+		Memory:        "2g",
+		CPUs:          "2",
+		LogChunkBytes: 1024,
+		Runner:        rec,
+	})
+	out, err := d.Execute(t.Context(), Job{
+		ID:           44,
+		RunID:        45,
+		WorkspaceDir: workspace,
+		Steps: []Step{
+			{
+				ID:   10,
+				Name: "Setup Python",
+				Uses: "actions/setup-python@v5",
+				With: map[string]string{"python-version": "3.12"},
+			},
+			{
+				ID:  11,
+				Run: "python --version",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.Conclusion != ConclusionSuccess {
+		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+	if len(rec.calls) != 2 {
+		t.Fatalf("runner calls: got %d want 2: %#v", len(rec.calls), rec.calls)
+	}
+	setupCall := rec.calls[0]
+	if setupCall.name != "docker" {
+		t.Fatalf("setup call binary = %q", setupCall.name)
+	}
+	if !containsSubstring(setupCall.args, "--network=none") {
+		t.Fatalf("setup-python did not run without network: %#v", setupCall.args)
+	}
+	if got := setupCall.args[len(setupCall.args)-1]; !strings.Contains(got, "/bin/python3.12") || !strings.Contains(got, "requested Python 3.12") {
+		t.Fatalf("setup probe script = %q", got)
+	}
+	shim := filepath.Join(workspace, ".shithub", "setup-python", "3.12", "bin", "python")
+	target, err := os.Readlink(shim)
+	if err != nil {
+		t.Fatalf("read python shim: %v", err)
+	}
+	if target != "/bin/python3.12" {
+		t.Fatalf("python shim target = %q", target)
+	}
+	runCall := rec.calls[1]
+	wantPathPrefix := "PATH=/workspace/.shithub/setup-python/3.12/bin:"
+	if !containsEnvPrefix(runCall.env, wantPathPrefix) {
+		t.Fatalf("run env missing setup-python PATH prefix %q: %#v", wantPathPrefix, runCall.env)
+	}
+}
+
+func TestDockerExecute_SetupPythonRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+	rec := &sequenceRunner{}
+	d := NewDocker(DockerConfig{DefaultImage: "runner-image", Network: "bridge", Memory: "2g", CPUs: "2", Runner: rec})
+	out, err := d.Execute(t.Context(), Job{
+		ID:           44,
+		WorkspaceDir: t.TempDir(),
+		Steps: []Step{{
+			ID:   10,
+			Uses: "actions/setup-python@v5",
+			With: map[string]string{"python-version": "3.11"},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `python-version "3.11" is not available`) {
+		t.Fatalf("Execute error = %v", err)
+	}
+	if len(rec.calls) != 0 {
+		t.Fatalf("setup-python should fail before invoking docker, calls: %#v", rec.calls)
+	}
+	if out.Conclusion != ConclusionFailure {
+		t.Fatalf("Conclusion: %q", out.Conclusion)
+	}
+}
+
+func TestDockerExecute_SetupPythonRejectsCacheInput(t *testing.T) {
+	t.Parallel()
+	rec := &sequenceRunner{}
+	d := NewDocker(DockerConfig{DefaultImage: "runner-image", Network: "bridge", Memory: "2g", CPUs: "2", Runner: rec})
+	_, err := d.Execute(t.Context(), Job{
+		ID:           44,
+		WorkspaceDir: t.TempDir(),
+		Steps: []Step{{
+			ID:   10,
+			Uses: "actions/setup-python@v5",
+			With: map[string]string{"python-version": "3.12", "cache": "pip"},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `input "cache" is not supported`) {
+		t.Fatalf("Execute error = %v", err)
+	}
+	if len(rec.calls) != 0 {
+		t.Fatalf("setup-python should reject cache before invoking docker, calls: %#v", rec.calls)
+	}
+}
+
 type checkoutRunner struct {
 	calls           []checkoutCall
 	failFetchTarget string
@@ -765,6 +898,15 @@ func containsSubstring(args []string, substr string) bool {
 func containsEnv(env []string, want string) bool {
 	for _, item := range env {
 		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvPrefix(env []string, wantPrefix string) bool {
+	for _, item := range env {
+		if strings.HasPrefix(item, wantPrefix) {
 			return true
 		}
 	}

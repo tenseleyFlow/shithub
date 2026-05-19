@@ -215,9 +215,11 @@ When a runner reports `status:"cancelled"`, any still-open steps in the
 job are marked cancelled too. This keeps a killed job from leaving queued
 step rows that the UI would otherwise treat as live.
 
-Runner execution supports host-side `actions/checkout@v4` followed by
-containerized `run:` steps with per-step log streaming and server-side log
-finalization. Artifact upload/download aliases remain reserved until the
+Runner execution supports host-side `actions/checkout@v4`, first-party
+`actions/setup-python@v5`, and containerized `run:` steps with per-step log
+streaming and server-side log finalization. Setup-python is resolved locally
+from the runner image/toolcache and mutates only the in-memory job environment
+for later steps. Artifact upload/download aliases remain reserved until the
 artifact transfer path lands.
 
 `POST /api/v1/jobs/{id}/artifacts/upload`

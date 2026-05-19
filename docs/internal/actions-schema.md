@@ -68,7 +68,7 @@ later schema diff:
 - **`workflow_steps`** has a CHECK constraint enforcing
   `(run_command IS NOT NULL) <> (uses_alias IS NOT NULL)` — exactly
   one of `run:` or `uses:`. The `uses_alias` column is further
-  CHECK-constrained to the three magic aliases we accept in v1.
+  CHECK-constrained to the first-party aliases we accept in v1.
 - **`workflow_secrets`** owns its value as `bytea` ChaCha20Poly1305-
   sealed via `internal/auth/secretbox`. Key derivation uses
   `cfg.Auth.TOTPKeyB64` (already an operator-managed root) +
@@ -147,7 +147,7 @@ jobs:
         id: ...
         if: ...
         run: echo hi                      # run XOR uses
-        uses: actions/checkout@v4         # exactly one of three aliases
+        uses: actions/checkout@v4         # exactly one first-party alias
         working-directory: ...
         env: { ... }
         continue-on-error: false
@@ -166,11 +166,12 @@ v1 supports four triggers — anything else is a parse error.
 
 ### `uses:` allowlist
 
-Exactly three aliases are reserved at parse time, no exceptions:
+Only these first-party aliases are reserved at parse time, no exceptions:
 
 | Alias                            | Parser status | Runner status                              |
 | -------------------------------- | ------------- | ------------------------------------------ |
 | `actions/checkout@v4`            | accepted      | executable with scoped checkout token      |
+| `actions/setup-python@v5`        | accepted      | executable first-party Python shim         |
 | `shithub/upload-artifact@v1`     | accepted      | rejected until artifact upload lands       |
 | `shithub/download-artifact@v1`   | accepted      | rejected until artifact download lands     |
 
@@ -179,18 +180,28 @@ actions) is an Error-severity diagnostic. The marketplace problem is
 explicitly out of scope for v1; revisit only if a real demand exists
 and we have an answer for supply-chain trust.
 
-The current Docker executor runs `actions/checkout@v4` and `run:` steps.
-Checkout happens on the runner host before a containerized step mounts the
-workspace. The server issues a short-lived checkout-purpose JWT scoped to
-the claimed repository and running job; the smart-HTTP handler accepts it
-only for read-only `git-upload-pack`. Artifact transfer remains explicit
-follow-up work, and the artifact aliases fail deliberately until that path
-exists.
+The current Docker executor runs `actions/checkout@v4`,
+`actions/setup-python@v5`, and `run:` steps. Checkout happens on the runner
+host before a containerized step mounts the workspace. The server issues a
+short-lived checkout-purpose JWT scoped to the claimed repository and running
+job; the smart-HTTP handler accepts it only for read-only `git-upload-pack`.
+Setup-python is a local compatibility shim: it validates `python-version`,
+probes the configured runner image/toolcache, creates a workspace-local
+`python`/`python3` shim directory, and prepends that directory to `PATH` for
+later steps. It does not download Python builds, execute marketplace code, or
+enable cache protocol support. Artifact transfer remains explicit follow-up
+work, and the artifact aliases fail deliberately until that path exists.
 
 Checkout v1 accepts only `with.fetch-depth`. The default is a depth-1 fetch
 of the workflow run's `head_sha`; `fetch-depth: 0` requests full history.
 Submodules, LFS, `path`, persisted credentials, and marketplace actions are
 rejected because they are not part of this dialect yet.
+
+Setup-python v1 accepts only `with.python-version`. On shithub.sh,
+`runner-nix:1.1` currently provides Python 3.12. Requests for other Python
+versions fail at the setup step instead of silently falling back. Inputs such as
+`cache`, `architecture`, and `check-latest` are rejected until those contracts
+exist.
 
 ### File-size + parser caps
 

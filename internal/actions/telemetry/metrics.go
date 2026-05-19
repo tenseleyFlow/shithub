@@ -47,6 +47,8 @@ func stepType(step actionsdb.WorkflowStep) string {
 		switch uses {
 		case "actions/checkout@v4":
 			return "checkout"
+		case "actions/setup-python@v5":
+			return "setup-python"
 		case "shithub/upload-artifact@v1":
 			return "upload-artifact"
 		case "shithub/download-artifact@v1":

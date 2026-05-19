@@ -29,11 +29,12 @@ managers, or marketplace action execution.
 
 ## Setup Actions
 
-GitHub-compatible language setup should be implemented as explicit first-party
-action shims where shithub supports the contract. For example, S41n-2 owns
-`actions/setup-python@v5`. That shim should select from the image/toolcache and
-fail clearly when the requested version is unavailable. The image should not
-silently switch versions or fetch toolchains during arbitrary workflow steps.
+GitHub-compatible language setup is implemented as explicit first-party action
+shims where shithub supports the contract. `actions/setup-python@v5` currently
+selects Python 3.12 from this image/toolcache, creates workspace-local
+`python`/`python3` shims, and fails clearly when another version is requested.
+The image should not silently switch versions or fetch toolchains during
+arbitrary workflow steps.
 
 ## Versioning
 
