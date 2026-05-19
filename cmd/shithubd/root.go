@@ -38,4 +38,5 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(gpgBackfillAllCmd)
 	rootCmd.AddCommand(repoInsightsBackfillAllCmd)
+	rootCmd.AddCommand(repoDependencyScanBackfillAllCmd)
 }

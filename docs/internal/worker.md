@@ -34,6 +34,7 @@ backstop poll (every 5s by default) covers dropped notifications.
 | ---------------------------- | ------------------------------------ | -------------------------------- |
 | `push:process`               | post-receive hook per ref            | `push_events.processed_at`       |
 | `repo:size_recalc`           | enqueued by `push:process`           | overwrite-last-wins              |
+| `repo:dependency_scan`       | default-branch push / backfill       | overwrite-last-wins per dependency key |
 | `org:github_import_discover` | org import request                   | `org_github_imports.status`      |
 | `org:github_import_repo`     | import discovery per GitHub repo     | `org_github_import_repos.status` |
 | `jobs:purge_completed`       | cron / manual ad-hoc                 | always safe to re-run            |

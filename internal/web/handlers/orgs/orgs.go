@@ -708,8 +708,8 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 			Rows: []orgPlanFeatureRow{
 				{
 					Name: "Security overview", Description: "See organization security posture and dependency risk in one place.",
-					Free: "Public repositories", Team: "Planned", Enterprise: "Contact sales", Owner: "SP25",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP25-security-overview-dependency-advisories.md", State: "Planned",
+					Free: "Upgrade", Team: "Included", Enterprise: "Contact sales", Owner: "SP25",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP25-security-overview-dependency-advisories.md", State: "Baseline shipped",
 				},
 				{
 					Name: "Secret scanning and push protection", Description: "Detect exposed secrets and block risky pushes.",
