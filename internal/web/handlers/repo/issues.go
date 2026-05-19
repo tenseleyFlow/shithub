@@ -86,14 +86,23 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	stateFilter := r.URL.Query().Get("state")
+	if stateFilter == "" && query != "" {
+		switch {
+		case strings.Contains(query, "state:closed"):
+			stateFilter = "closed"
+		case strings.Contains(query, "state:open"):
+			stateFilter = "open"
+		}
+	}
 	if stateFilter == "" {
 		stateFilter = "open"
 	}
-	stateNarg := pgtype.Text{}
-	if stateFilter == "open" || stateFilter == "closed" {
-		stateNarg = pgtype.Text{String: stateFilter, Valid: true}
+	if stateFilter != "open" && stateFilter != "closed" {
+		stateFilter = "open"
 	}
+	stateNarg := pgtype.Text{String: stateFilter, Valid: true}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
@@ -146,6 +155,8 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		}
 		it.Labels, _ = h.iq.ListLabelsOnIssue(r.Context(), h.d.Pool, ir.ID)
 		it.Assignees, _ = h.iq.ListIssueAssignees(r.Context(), h.d.Pool, ir.ID)
+		comments, _ := h.iq.ListIssueComments(r.Context(), h.d.Pool, ir.ID)
+		it.CommentCount = int64(len(comments))
 		items = append(items, it)
 	}
 
@@ -156,6 +167,7 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		"Repo":         row,
 		"Items":        items,
 		"State":        stateFilter,
+		"Query":        query,
 		"OpenCount":    openCount,
 		"ClosedCount":  closedCount,
 		"Total":        total,

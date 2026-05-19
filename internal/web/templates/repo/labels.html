@@ -1,50 +1,101 @@
 {{ define "page" -}}
 <section class="shithub-repo-page">
-  {{ template "repo-header" . }}
-  <section class="shithub-labels">
-  <header class="shithub-issues-head">
-    <h1>
-      Labels
-    </h1>
-  </header>
-
-  {{ if .CanManageIssue }}
-  <details class="shithub-label-create">
-    <summary class="shithub-button shithub-button-primary">New label</summary>
-    <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-label-form">
-      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-      <input type="text" name="name" placeholder="name" maxlength="50" required>
-      <input type="text" name="color" placeholder="color (6 hex)" maxlength="7" value="d0d7de">
-      <input type="text" name="description" placeholder="description (optional)">
-      <button type="submit" class="shithub-button">Create</button>
-    </form>
-  </details>
-  {{ end }}
-
-  <ul class="shithub-labels-list">
-    {{ range .Labels }}
-    <li class="shithub-labels-row">
-      <span class="shithub-label" style="background-color: #{{ .Color }}">{{ .Name }}</span>
-      {{ if .Description }}<span class="shithub-muted">{{ .Description }}</span>{{ end }}
-      {{ if $.CanManageIssue }}
-      <details class="shithub-label-edit">
-        <summary class="shithub-button">Edit</summary>
-        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/labels/{{ .ID }}/update" class="shithub-label-form">
-          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-          <input type="text" name="name" value="{{ .Name }}" required>
-          <input type="text" name="color" value="{{ .Color }}" required>
-          <input type="text" name="description" value="{{ .Description }}">
-          <button type="submit" class="shithub-button">Save</button>
-        </form>
-        <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/labels/{{ .ID }}/delete">
-          <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-          <button type="submit" class="shithub-button shithub-button-danger">Delete</button>
+  <section class="shithub-labels shithub-issues-page">
+    <header class="shithub-list-page-heading">
+      <h1>Labels</h1>
+      {{ if .CanManageIssue }}
+      <details class="shithub-label-create shithub-inline-create">
+        <summary class="shithub-button shithub-button-primary">New label</summary>
+        <form method="post" action="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-label-form shithub-create-panel">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Label name</span>
+            <input type="text" name="name" placeholder="Label name" maxlength="50" required>
+          </label>
+          <label>
+            <span>Description</span>
+            <input type="text" name="description" placeholder="Description (optional)">
+          </label>
+          <label>
+            <span>Color</span>
+            <input type="text" name="color" placeholder="6 hex characters" maxlength="7" value="d0d7de">
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Create label</button>
         </form>
       </details>
       {{ end }}
-    </li>
-    {{ end }}
-  </ul>
+    </header>
+
+    <form method="get" action="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-labels-search">
+      <label class="sr-only" for="labels-search">Search all labels</label>
+      <input id="labels-search" type="search" name="q" placeholder="Search all labels" autocomplete="off">
+      <button type="submit" class="shithub-button shithub-button-icon" aria-label="Search labels">{{ octicon "search" }}</button>
+    </form>
+
+    <div class="shithub-labels-box">
+      <div class="shithub-labels-box-head">
+        <strong>{{ len .Labels }} label{{ if ne (len .Labels) 1 }}s{{ end }}</strong>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">{{ octicon "list-unordered" }} Sort {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Sort by</div>
+            <button type="button" class="shithub-menu-item is-selected" role="menuitem">{{ octicon "check" }} Name</button>
+            <button type="button" class="shithub-menu-item" role="menuitem">Newest</button>
+          </div>
+        </details>
+      </div>
+
+      {{ if .Labels }}
+      <ul class="shithub-labels-list">
+        {{ range .Labels }}
+        <li class="shithub-labels-row">
+          <div class="shithub-labels-pill-cell">
+            <a class="shithub-label" style="background-color: #{{ .Color }}" href="/{{ $.Owner }}/{{ $.Repo.Name }}/issues?q=is%3Aissue+state%3Aopen">{{ .Name }}</a>
+          </div>
+          <p class="shithub-labels-description">{{ if .Description }}{{ .Description }}{{ else }}No description{{ end }}</p>
+          <div class="shithub-labels-count" aria-label="Issues using {{ .Name }}">
+            {{ octicon "issue-opened" }}
+          </div>
+          {{ if $.CanManageIssue }}
+          <details class="shithub-label-edit shithub-row-actions-menu">
+            <summary class="shithub-icon-button" aria-label="Label actions">{{ octicon "kebab-horizontal" }}</summary>
+            <div class="shithub-row-actions-popover">
+              <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/labels/{{ .ID }}/update" class="shithub-label-form">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <label>
+                  <span>Name</span>
+                  <input type="text" name="name" value="{{ .Name }}" required>
+                </label>
+                <label>
+                  <span>Description</span>
+                  <input type="text" name="description" value="{{ .Description }}">
+                </label>
+                <label>
+                  <span>Color</span>
+                  <input type="text" name="color" value="{{ .Color }}" required>
+                </label>
+                <button type="submit" class="shithub-button">Save changes</button>
+              </form>
+              <form method="post" action="/{{ $.Owner }}/{{ $.Repo.Name }}/labels/{{ .ID }}/delete">
+                <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                <button type="submit" class="shithub-button shithub-button-danger">Delete label</button>
+              </form>
+            </div>
+          </details>
+          {{ else }}
+          <span class="shithub-labels-kebab" aria-hidden="true">{{ octicon "kebab-horizontal" }}</span>
+          {{ end }}
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <div class="shithub-issue-list-empty">
+        <div class="shithub-empty-state-icon">{{ octicon "tag" }}</div>
+        <h2>There are no labels.</h2>
+        <p>Labels help you organize and prioritize your issues and pull requests.</p>
+      </div>
+      {{ end }}
+    </div>
   </section>
 </section>
 {{- end }}

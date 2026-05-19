@@ -11490,6 +11490,498 @@ button.shithub-repo-action {
 .shithub-error { padding: 0.75rem; background: #ffebe9; border: 1px solid #ffcecb; border-radius: 6px; color: #82061e; margin-bottom: 1rem; }
 .shithub-muted { color: var(--fg-muted); }
 
+/* S42 — GitHub-style issue index surfaces. These intentionally sit after the
+   first S21 pass so older issue-view styles keep working while the repo issue
+   list, labels, and milestones pages get their own panelled layout. */
+.shithub-issues-page {
+  max-width: 1012px;
+  margin: 1.75rem auto 3rem;
+}
+.shithub-issues-head,
+.shithub-list-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.shithub-issues-head h1,
+.shithub-list-page-heading h1 {
+  margin: 0;
+  font-size: 1.625rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+.shithub-issues-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.shithub-issues-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.shithub-issues-search,
+.shithub-labels-search {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.shithub-issues-search input,
+.shithub-labels-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 2.25rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font: inherit;
+}
+.shithub-issues-search .shithub-button,
+.shithub-labels-search .shithub-button {
+  border-radius: 0 6px 6px 0;
+}
+.shithub-issues-box,
+.shithub-labels-box,
+.shithub-milestones-box {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  overflow: visible;
+}
+.shithub-issues-box {
+  overflow: visible;
+}
+.shithub-issues-box-head,
+.shithub-labels-box-head,
+.shithub-milestones-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--canvas-subtle);
+}
+.shithub-issues-state-tabs {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+}
+.shithub-issues-state-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--fg-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.shithub-issues-state-tabs a:hover {
+  color: var(--fg-default);
+  text-decoration: none;
+}
+.shithub-issues-state-tabs a.is-selected {
+  color: var(--fg-default);
+  font-weight: 600;
+}
+.shithub-issues-state-tabs a.is-selected svg {
+  color: var(--success-fg);
+}
+.shithub-issues-select-all {
+  display: inline-flex;
+  align-items: center;
+}
+.shithub-issues-select-all input,
+.shithub-issue-row-checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent-emphasis);
+}
+.shithub-counter-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 0.42rem;
+  border-radius: 999px;
+  background: var(--neutral-muted);
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.shithub-issue-filter-menus {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.shithub-issue-filter-menu {
+  position: relative;
+}
+.shithub-issue-filter-menu > summary,
+.shithub-menu-summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.shithub-issue-filter-menu > summary::-webkit-details-marker,
+.shithub-menu-summary::-webkit-details-marker,
+.shithub-inline-create > summary::-webkit-details-marker,
+.shithub-row-actions-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.shithub-issue-filter-menu[open] > summary,
+.shithub-menu-summary:hover {
+  color: var(--fg-default);
+}
+.shithub-menu-popover,
+.shithub-row-actions-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 30;
+  min-width: 14rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-default);
+  box-shadow: var(--shadow-floating, 0 8px 24px rgba(140, 149, 159, 0.2));
+  overflow: hidden;
+}
+.shithub-row-actions-popover {
+  min-width: 22rem;
+  padding: 0.75rem;
+}
+.shithub-menu-popover-head {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.shithub-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-muted);
+  background: transparent;
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.shithub-menu-item:last-child {
+  border-bottom: 0;
+}
+.shithub-menu-item:hover,
+.shithub-menu-item.is-selected {
+  background: var(--canvas-subtle);
+  text-decoration: none;
+}
+.shithub-issue-list,
+.shithub-labels-list,
+.shithub-milestones-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shithub-issue-list-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) max-content;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-issue-list-row:last-child,
+.shithub-labels-row:last-child,
+.shithub-milestones-row:last-child {
+  border-bottom: 0;
+}
+.shithub-issue-list-row:hover,
+.shithub-labels-row:hover,
+.shithub-milestones-row:hover {
+  background: var(--canvas-subtle);
+}
+.shithub-issue-row-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1.5rem;
+}
+.shithub-issue-row-state svg {
+  width: 16px;
+  height: 16px;
+}
+.shithub-issue-row-state-open {
+  color: var(--success-fg);
+}
+.shithub-issue-row-state-closed {
+  color: #a371f7;
+}
+.shithub-issue-row-main {
+  min-width: 0;
+}
+.shithub-issue-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.shithub-issue-row-title {
+  color: var(--fg-default);
+  font-size: 1rem;
+  line-height: 1.35;
+  font-weight: 600;
+}
+.shithub-issue-row-title:hover {
+  color: var(--accent-emphasis, #0969da);
+  text-decoration: none;
+}
+.shithub-issue-row-meta,
+.shithub-milestones-meta {
+  margin-top: 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-issue-row-extra {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 6rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-issue-row-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.shithub-issue-row-comments:hover {
+  color: var(--accent-emphasis);
+  text-decoration: none;
+}
+.shithub-issue-list-empty,
+.shithub-milestones-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  padding: 3rem 1rem;
+  color: var(--fg-muted);
+  text-align: center;
+}
+.shithub-issue-list-empty h2,
+.shithub-milestones-empty h2 {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: 1.125rem;
+}
+.shithub-issue-list-empty p,
+.shithub-milestones-empty p {
+  margin: 0;
+}
+.shithub-empty-state-icon {
+  color: var(--fg-muted);
+}
+.shithub-empty-state-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.shithub-label {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 1.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 999px;
+  color: #1f2328;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  margin: 0;
+  white-space: nowrap;
+}
+.shithub-label:hover {
+  text-decoration: none;
+  filter: brightness(1.05);
+}
+.shithub-labels-search {
+  margin-bottom: 1rem;
+}
+.shithub-labels-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 15rem) minmax(0, 1fr) 4rem auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-labels-pill-cell {
+  min-width: 0;
+}
+.shithub-labels-description {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+.shithub-labels-count,
+.shithub-labels-kebab {
+  color: var(--fg-muted);
+  justify-self: end;
+}
+.shithub-row-actions-menu {
+  position: relative;
+  justify-self: end;
+}
+.shithub-row-actions-menu > summary {
+  list-style: none;
+}
+.shithub-inline-create {
+  position: relative;
+}
+.shithub-create-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 25;
+  display: grid;
+  width: min(42rem, calc(100vw - 2rem));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--canvas-default);
+  box-shadow: var(--shadow-floating, 0 8px 24px rgba(140, 149, 159, 0.2));
+}
+.shithub-row-actions-popover .shithub-label-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+}
+.shithub-row-actions-popover form + form {
+  margin-top: 0.75rem;
+}
+.shithub-create-panel label,
+.shithub-row-actions-popover label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--fg-default);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shithub-create-panel input,
+.shithub-create-panel textarea,
+.shithub-row-actions-popover input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  font: inherit;
+}
+.shithub-wide-label {
+  grid-column: 1 / -2;
+}
+.shithub-milestones-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  gap: 1rem;
+  align-items: start;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-default);
+}
+.shithub-milestones-icon {
+  color: var(--fg-muted);
+}
+.shithub-milestones-main h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 1rem;
+}
+.shithub-milestones-main p {
+  margin: 0.35rem 0 0;
+  color: var(--fg-muted);
+}
+.shithub-milestone-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+@media (max-width: 900px) {
+  .shithub-issues-page {
+    margin-top: 1rem;
+  }
+  .shithub-issues-head,
+  .shithub-list-page-heading,
+  .shithub-issues-box-head,
+  .shithub-labels-box-head,
+  .shithub-milestones-box-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shithub-issue-filter-menus {
+    justify-content: flex-start;
+  }
+  .shithub-issue-list-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+  .shithub-issue-row-extra {
+    grid-column: 3;
+    justify-content: flex-start;
+  }
+  .shithub-labels-row,
+  .shithub-milestones-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shithub-labels-count,
+  .shithub-labels-kebab,
+  .shithub-row-actions-menu {
+    justify-self: start;
+  }
+  .shithub-create-panel {
+    left: 0;
+    right: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shithub-wide-label {
+    grid-column: auto;
+  }
+}
+
 /* ========== Pull Requests (S22) ========== */
 .shithub-pulls, .shithub-pull-view { margin: 0; padding: 0; }
 .shithub-pull-head { margin: 1.25rem 0 1rem; }

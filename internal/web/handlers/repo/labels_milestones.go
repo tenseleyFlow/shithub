@@ -38,7 +38,7 @@ func (h *Handlers) labelsList(w http.ResponseWriter, r *http.Request) {
 		"RepoActions":    h.repoActions(r, row.ID),
 		"RepoCounts":     h.subnavCounts(r.Context(), row.ID, row.ForkCount),
 		"CanSettings":    h.canViewSettings(viewer),
-		"ActiveSubnav":   "issues",
+		"ActiveSubnav":   "code",
 	})
 }
 
@@ -127,6 +127,26 @@ func (h *Handlers) milestonesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ms, _ := h.iq.ListMilestones(r.Context(), h.d.Pool, row.ID)
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	if state != "closed" {
+		state = "open"
+	}
+	openCount := int64(0)
+	closedCount := int64(0)
+	filtered := ms[:0]
+	for _, m := range ms {
+		if m.State == "closed" {
+			closedCount++
+			if state == "closed" {
+				filtered = append(filtered, m)
+			}
+			continue
+		}
+		openCount++
+		if state == "open" {
+			filtered = append(filtered, m)
+		}
+	}
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	actor := viewer.PolicyActor()
 	canManage := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionIssueLabel, policy.NewRepoRefFromRepo(row)).Allow
@@ -135,13 +155,16 @@ func (h *Handlers) milestonesList(w http.ResponseWriter, r *http.Request) {
 		"Title":          "Milestones · " + row.Name,
 		"Owner":          owner.Username,
 		"Repo":           row,
-		"Milestones":     ms,
+		"Milestones":     filtered,
+		"State":          state,
+		"OpenCount":      openCount,
+		"ClosedCount":    closedCount,
 		"CanManageIssue": canManage,
 		"CSRFToken":      middleware.CSRFTokenForRequest(r),
 		"RepoActions":    h.repoActions(r, row.ID),
 		"RepoCounts":     h.subnavCounts(r.Context(), row.ID, row.ForkCount),
 		"CanSettings":    h.canViewSettings(viewer),
-		"ActiveSubnav":   "issues",
+		"ActiveSubnav":   "code",
 	})
 }
 
