@@ -179,6 +179,60 @@ func TestWriteRunnerListOutputJSONIncludesOpsFields(t *testing.T) {
 	}
 }
 
+func TestWriteRunnerJobsOutputJSON(t *testing.T) {
+	now := time.Date(2026, 5, 12, 16, 30, 0, 0, time.UTC)
+	rows := []actionsdb.ListRunnerRunningJobsForAdminRow{{
+		ID:                    101,
+		RunID:                 55,
+		JobKey:                "build",
+		JobName:               "Build",
+		RunsOn:                "ubuntu-latest",
+		RunnerID:              pgtype.Int8{Int64: 7, Valid: true},
+		Status:                actionsdb.WorkflowJobStatusRunning,
+		CancelRequested:       true,
+		StartedAt:             pgtype.Timestamptz{Time: now.Add(-2 * time.Minute), Valid: true},
+		RepoID:                9,
+		RunIndex:              12,
+		WorkflowFile:          ".shithub/workflows/ci.yml",
+		WorkflowName:          "CI",
+		HeadRef:               "refs/heads/trunk",
+		HeadSha:               "abc1234",
+		RepoName:              "scratch",
+		OwnerLogin:            "mfwolffe",
+		RunnerName:            pgtype.Text{String: "runner-7", Valid: true},
+		RunnerStatus:          actionsdb.NullWorkflowRunnerStatus{WorkflowRunnerStatus: actionsdb.WorkflowRunnerStatusBusy, Valid: true},
+		RunnerLastHeartbeatAt: pgtype.Timestamptz{Time: now.Add(-10 * time.Second), Valid: true},
+	}}
+	var buf bytes.Buffer
+	if err := writeRunnerJobsOutput(&buf, "json", rows, now); err != nil {
+		t.Fatalf("writeRunnerJobsOutput: %v", err)
+	}
+	var got []runnerJobOutputRow
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rows=%d body=%s", len(got), buf.String())
+	}
+	row := got[0]
+	if row.ID != 101 || row.Repository != "mfwolffe/scratch" || row.RunnerName != "runner-7" ||
+		row.StartedAgeSeconds != 120 || row.RunnerLastHeartbeatAgeSeconds != 10 || !row.CancelRequested {
+		t.Fatalf("unexpected row: %+v", row)
+	}
+}
+
+func TestFilterRunnerJobCandidatesHonorsActiveSet(t *testing.T) {
+	now := time.Date(2026, 5, 12, 16, 30, 0, 0, time.UTC)
+	rows := []actionsdb.ListRunnerRunningJobsForAdminRow{
+		{ID: 101, RunID: 1, JobKey: "keep", Status: actionsdb.WorkflowJobStatusRunning, RepoID: 1, RepoName: "repo", OwnerLogin: "owner"},
+		{ID: 102, RunID: 1, JobKey: "cancel", Status: actionsdb.WorkflowJobStatusRunning, RepoID: 1, RepoName: "repo", OwnerLogin: "owner"},
+	}
+	got := filterRunnerJobCandidates(rows, []int64{101}, now)
+	if len(got) != 1 || got[0].ID != 102 {
+		t.Fatalf("candidates = %+v, want only job 102", got)
+	}
+}
+
 func TestWriteRunnerStateOutputText(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeRunnerStateOutput(&buf, "text", "runner draining", runnerStateOutput{

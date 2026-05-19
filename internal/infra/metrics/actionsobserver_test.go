@@ -115,16 +115,23 @@ func TestRefreshActionsPublishesQueueRunnerAndStorageGauges(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_runners SET status = 'busy', last_heartbeat_at = now() - interval '75 seconds', draining_at = now(), drain_reason = 'maintenance' WHERE id = $1`, runner.ID); err != nil {
 		t.Fatalf("touch runner heartbeat: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE workflow_runs SET status = 'running', started_at = now() - interval '30 seconds' WHERE id = $1`, run.ID); err != nil {
+		t.Fatalf("mark run running: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE workflow_jobs SET status = 'running', runner_id = $1, started_at = now() - interval '30 seconds' WHERE id = $2`, runner.ID, job.ID); err != nil {
+		t.Fatalf("mark job running: %v", err)
+	}
 
 	resetActionsObserverGauges()
 	refreshActions(ctx, pool)
 
-	assertGauge(t, ActionsQueueDepth, []string{"runs"}, 1)
-	assertGauge(t, ActionsQueueDepth, []string{"jobs"}, 1)
-	assertGauge(t, ActionsQueueDepthByLabels, []string{`["ubuntu-latest"]`}, 1)
-	assertGauge(t, ActionsActive, []string{"runs"}, 0)
-	assertGauge(t, ActionsActive, []string{"jobs"}, 0)
+	assertGauge(t, ActionsQueueDepth, []string{"runs"}, 0)
+	assertGauge(t, ActionsQueueDepth, []string{"jobs"}, 0)
+	assertGauge(t, ActionsQueueDepthByLabels, []string{`["ubuntu-latest"]`}, 0)
+	assertGauge(t, ActionsActive, []string{"runs"}, 1)
+	assertGauge(t, ActionsActive, []string{"jobs"}, 1)
 	assertGauge(t, ActionsRunnerCapacity, []string{"runner-a", "busy"}, 3)
+	assertGauge(t, ActionsRunnerActiveJobs, []string{"runner-a", "busy"}, 1)
 	assertGauge(t, ActionsRunnerOnline, []string{"runner-a"}, 0)
 	assertGauge(t, ActionsRunnerDraining, []string{"runner-a"}, 1)
 	assertPlainGauge(t, ActionsRunnerStaleTotal, 1)
@@ -152,6 +159,7 @@ func resetActionsObserverGauges() {
 	ActionsRunnerDraining.Reset()
 	ActionsRunnerStaleTotal.Set(0)
 	ActionsRunnerCapacity.Reset()
+	ActionsRunnerActiveJobs.Reset()
 	ActionsStorageObjects.Reset()
 	ActionsStorageBytes.Reset()
 }

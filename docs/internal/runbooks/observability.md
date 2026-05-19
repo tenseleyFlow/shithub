@@ -38,6 +38,7 @@ push-only. No Prometheus or Grafana running locally.
 | `shithub_actions_queue_depth` | gauge | Queued Actions runs/jobs. Sustained job depth means runners cannot keep up. |
 | `shithub_actions_active` | gauge | Running Actions runs/jobs. Use with capacity to distinguish slow jobs from lack of runners. |
 | `shithub_actions_runner_heartbeat_age_seconds` | gauge | Seconds since each runner heartbeat. >60s sustained means the runner is stale. |
+| `shithub_actions_runner_active_jobs` | gauge | Running jobs assigned to each runner. Nonzero on an idle runner indicates a stale assignment wedge. |
 | `shithub_actions_run_duration_seconds` | histogram | Terminal Actions run duration by event and conclusion. |
 | `shithub_actions_log_chunk_bytes_total` | counter | Accepted Actions log bytes, used for throughput and scrubber health alerts. |
 

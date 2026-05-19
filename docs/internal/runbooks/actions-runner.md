@@ -69,6 +69,27 @@ host name, runner version, drain state, and revoke state. `queue`
 groups queued jobs by requested `runs-on` label so unsupported labels
 are visible without querying Postgres.
 
+Inspect running jobs assigned to runners:
+
+```sh
+shithubd admin runner jobs
+shithubd admin runner jobs --id 7 --output json
+```
+
+If a runner is dead, old, or otherwise unable to report
+`active_job_ids`, recover stale assigned jobs without hand-editing SQL:
+
+```sh
+shithubd admin runner recover-stale-jobs --id 7 --dry-run
+shithubd admin runner recover-stale-jobs --id 7 --confirm
+```
+
+`recover-stale-jobs` treats omitted `--active-job-id` flags as an empty
+active set and cancels every currently running job assigned to that
+runner. If you know some jobs are still active locally, pass each live
+job id with `--active-job-id` so only missing assignments are cancelled.
+Always run the dry-run first.
+
 Drain a runner before host maintenance:
 
 ```sh
@@ -396,7 +417,7 @@ Expected results:
 - `/metrics` includes runner registration, heartbeat, JWT, job
   cancellation, log-scrub, step-timeout, retention, queue-depth by label,
   claim-latency, runner-online, runner-stale, runner-draining, and
-  runner-revocation metrics.
+  runner-active-jobs, and runner-revocation metrics.
 
 ## Retention Sweep
 

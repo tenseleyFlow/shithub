@@ -89,6 +89,29 @@ registered.
 5. Record whether the stale heartbeat happened during a deploy, network
    partition, token rotation, or runner engine failure.
 
+## actions-runner-idle-with-assigned-jobs
+
+**Symptom:** `shithub_actions_runner_active_jobs{status="idle"} > 0` while the
+same runner has a fresh heartbeat. The runner is reporting idle, but Postgres
+still has one or more `workflow_jobs.status='running'` rows assigned to it.
+
+1. Identify the runner from the alert label, then find its id:
+   `shithubd admin runner list --output json`.
+2. Inspect assigned running jobs:
+   `shithubd admin runner jobs --id <runner-id>`.
+3. If the runner host is reachable, check
+   `journalctl -u shithubd-runner -n 200 --no-pager` first. Current runners
+   send `active_job_ids` on heartbeat and should self-reconcile stale
+   assignments after the next idle heartbeat.
+4. If the host is dead, old, or definitely idle, run the SQL-free recovery path:
+   `shithubd admin runner recover-stale-jobs --id <runner-id> --dry-run`.
+   Re-run with `--confirm` only after confirming the candidate jobs are not
+   actually running.
+5. If some jobs are still active locally, pass each known live job with
+   `--active-job-id <job-id>` so only missing assignments are cancelled.
+6. After recovery, confirm the queue drains and
+   `shithub_actions_runner_active_jobs{runner="<name>"}` returns to zero.
+
 ## actions-queue-depth-high
 
 **Symptom:** `shithub_actions_queue_depth{resource="jobs"} > 100` for 10m.
@@ -99,12 +122,14 @@ registered.
    `runs-on` value will sit queued until a compatible runner exists.
 3. Check for a stale running job assigned to a runner that is otherwise
    heartbeating idle:
-   `SELECT id, run_id, runner_id, status, started_at FROM workflow_jobs WHERE status='running' ORDER BY started_at;`.
+   `shithubd admin runner jobs`.
    Modern runners report `active_job_ids` on heartbeat; if a runner is idle,
    the next heartbeat should cancel any running jobs missing from that set and
    increment `shithub_actions_jobs_cancelled_total{reason="runner_lost"}`.
    If the runner binary is older than that protocol, deploy the current web
-   build first and then redeploy the runner role.
+   build first and then redeploy the runner role, or use
+   `shithubd admin runner recover-stale-jobs --id <runner-id> --dry-run` as
+   the dead-host fallback.
 4. Inspect web and worker logs for trigger storms, claim errors, and DB pool
    saturation.
 5. If legitimate load exceeds capacity, add runners or raise capacity on idle

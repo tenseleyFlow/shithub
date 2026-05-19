@@ -98,6 +98,22 @@ The provisioner:
 - installs a no-secret cloud-init baseline that enables Docker;
 - prints machine-readable JSON for operator records.
 
+Audit runner SSH ingress after every pool resize:
+
+```sh
+doctl compute droplet list --tag-name shithub-actions-runner \
+  --format ID,Name,PublicIPv4,PrivateIPv4,Status,Region,Tags
+doctl compute firewall get <runner-firewall-id> \
+  --format ID,Name,InboundRules,OutboundRules,DropletIDs,Tags
+ssh shithub-runner-shared-linux-1 hostname
+```
+
+The firewall should allow TCP/22 only from operator or VPN `/32`/small CIDRs,
+never `0.0.0.0/0`. Operators may keep local SSH aliases for pool hosts, but the
+app/database host does not need SSH access into runner droplets during normal
+operation. Treat app-host-to-runner SSH as a deliberate break-glass expansion
+because runner hosts execute arbitrary repository code.
+
 Generate an Ansible inventory from the DigitalOcean tag:
 
 ```sh

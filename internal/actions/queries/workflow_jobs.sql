@@ -103,6 +103,42 @@ SELECT COUNT(*)::integer
 FROM workflow_jobs
 WHERE runner_id = sqlc.arg(runner_id)::bigint AND status = 'running';
 
+-- name: ListRunnerRunningJobsForAdmin :many
+SELECT j.id,
+       j.run_id,
+       j.job_key,
+       j.job_name,
+       j.runs_on,
+       j.runner_id,
+       j.status,
+       j.conclusion,
+       j.cancel_requested,
+       j.started_at,
+       j.completed_at,
+       j.created_at,
+       run.repo_id,
+       run.run_index,
+       run.workflow_file,
+       run.workflow_name,
+       run.head_ref,
+       run.head_sha,
+       repo.name AS repo_name,
+       COALESCE(owner_user.username, owner_org.slug, '')::text AS owner_login,
+       runner.name AS runner_name,
+       runner.status AS runner_status,
+       runner.last_heartbeat_at AS runner_last_heartbeat_at
+FROM workflow_jobs j
+JOIN workflow_runs run ON run.id = j.run_id
+JOIN repos repo ON repo.id = run.repo_id
+LEFT JOIN users owner_user ON owner_user.id = repo.owner_user_id
+LEFT JOIN orgs owner_org ON owner_org.id = repo.owner_org_id
+LEFT JOIN workflow_runners runner ON runner.id = j.runner_id
+WHERE j.status = 'running'
+  AND j.runner_id IS NOT NULL
+  AND (sqlc.arg(runner_id)::bigint = 0 OR j.runner_id = sqlc.arg(runner_id)::bigint)
+ORDER BY j.started_at ASC NULLS FIRST, j.id ASC
+LIMIT sqlc.arg(limit_count)::integer;
+
 -- name: CancelRunnerJobsMissingFromActiveSet :many
 UPDATE workflow_jobs
 SET cancel_requested = true,

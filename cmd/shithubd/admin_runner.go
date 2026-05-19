@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	actionslifecycle "github.com/tenseleyFlow/shithub/internal/actions/lifecycle"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnerlabels"
 	"github.com/tenseleyFlow/shithub/internal/actions/runnertoken"
 	actionsdb "github.com/tenseleyFlow/shithub/internal/actions/sqlc"
@@ -34,6 +35,8 @@ func newAdminRunnerCmd() *cobra.Command {
 	cmd.AddCommand(newAdminRunnerRegisterCmd())
 	cmd.AddCommand(newAdminRunnerListCmd())
 	cmd.AddCommand(newAdminRunnerQueueCmd())
+	cmd.AddCommand(newAdminRunnerJobsCmd())
+	cmd.AddCommand(newAdminRunnerRecoverStaleJobsCmd())
 	cmd.AddCommand(newAdminRunnerDrainCmd())
 	cmd.AddCommand(newAdminRunnerUndrainCmd())
 	cmd.AddCommand(newAdminRunnerRotateTokenCmd())
@@ -369,6 +372,298 @@ func writeRunnerQueueOutput(w io.Writer, format string, rows []actionsdb.ListQue
 		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n", row.RunsOn, row.QueuedJobs, row.MatchingRunnerCount, oldest)
 	}
 	return tw.Flush()
+}
+
+func newAdminRunnerJobsCmd() *cobra.Command {
+	var idRaw string
+	var output string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "jobs [--id <runner-id>]",
+		Short: "List running Actions jobs assigned to runners",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			output, err := normalizeRunnerOutput("admin runner jobs", output)
+			if err != nil {
+				return err
+			}
+			runnerID := int64(0)
+			if strings.TrimSpace(idRaw) != "" {
+				runnerID, err = parseRunnerID("admin runner jobs", idRaw)
+				if err != nil {
+					return err
+				}
+			}
+			if limit < 1 || limit > 5000 {
+				return errors.New("admin runner jobs: --limit must be between 1 and 5000")
+			}
+			cfg, err := config.Load(nil)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			pool, err := openAdminRunnerPool(ctx, cfg, "jobs")
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			rows, err := actionsdb.New().ListRunnerRunningJobsForAdmin(ctx, pool, actionsdb.ListRunnerRunningJobsForAdminParams{
+				RunnerID:   runnerID,
+				LimitCount: int32(limit),
+			})
+			if err != nil {
+				return fmt.Errorf("admin runner jobs: %w", err)
+			}
+			return writeRunnerJobsOutput(cmd.OutOrStdout(), output, rows, time.Now().UTC())
+		},
+	}
+	cmd.Flags().StringVar(&idRaw, "id", "", "Runner id; omit to list running jobs for all runners")
+	cmd.Flags().StringVar(&output, "output", "text", "Output format: text or json")
+	cmd.Flags().IntVar(&limit, "limit", 500, "Maximum running jobs to list")
+	return cmd
+}
+
+type runnerJobOutputRow struct {
+	ID                            int64  `json:"id"`
+	RunID                         int64  `json:"run_id"`
+	RepoID                        int64  `json:"repo_id"`
+	Repository                    string `json:"repository"`
+	RunIndex                      int64  `json:"run_index"`
+	WorkflowFile                  string `json:"workflow_file"`
+	WorkflowName                  string `json:"workflow_name,omitempty"`
+	JobKey                        string `json:"job_key"`
+	JobName                       string `json:"job_name,omitempty"`
+	RunsOn                        string `json:"runs_on"`
+	Status                        string `json:"status"`
+	Conclusion                    string `json:"conclusion,omitempty"`
+	CancelRequested               bool   `json:"cancel_requested"`
+	RunnerID                      int64  `json:"runner_id,omitempty"`
+	RunnerName                    string `json:"runner_name,omitempty"`
+	RunnerStatus                  string `json:"runner_status,omitempty"`
+	RunnerLastHeartbeatAt         string `json:"runner_last_heartbeat_at,omitempty"`
+	RunnerLastHeartbeatAgeSeconds int64  `json:"runner_last_heartbeat_age_seconds,omitempty"`
+	StartedAt                     string `json:"started_at,omitempty"`
+	StartedAgeSeconds             int64  `json:"started_age_seconds,omitempty"`
+	HeadRef                       string `json:"head_ref,omitempty"`
+	HeadSHA                       string `json:"head_sha,omitempty"`
+}
+
+func writeRunnerJobsOutput(w io.Writer, format string, rows []actionsdb.ListRunnerRunningJobsForAdminRow, now time.Time) error {
+	out := runnerJobsOutputRows(rows, now)
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "JOB_ID\tRUN_ID\tREPOSITORY\tWORKFLOW\tJOB\tSTATUS\tRUNNER\tSTARTED\tRUNNER_HEARTBEAT")
+	for _, row := range out {
+		_, _ = fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.ID, row.RunID, row.Repository, row.WorkflowFile, row.JobKey, row.Status,
+			emptyDash(row.RunnerName), emptyDash(row.StartedAt), emptyDash(row.RunnerLastHeartbeatAt))
+	}
+	return tw.Flush()
+}
+
+func runnerJobsOutputRows(rows []actionsdb.ListRunnerRunningJobsForAdminRow, now time.Time) []runnerJobOutputRow {
+	out := make([]runnerJobOutputRow, 0, len(rows))
+	for _, row := range rows {
+		item := runnerJobOutputRow{
+			ID:              row.ID,
+			RunID:           row.RunID,
+			RepoID:          row.RepoID,
+			Repository:      row.OwnerLogin + "/" + row.RepoName,
+			RunIndex:        row.RunIndex,
+			WorkflowFile:    row.WorkflowFile,
+			WorkflowName:    row.WorkflowName,
+			JobKey:          row.JobKey,
+			JobName:         row.JobName,
+			RunsOn:          row.RunsOn,
+			Status:          string(row.Status),
+			CancelRequested: row.CancelRequested,
+			StartedAt:       formatOptionalTime(row.StartedAt),
+			HeadRef:         row.HeadRef,
+			HeadSHA:         row.HeadSha,
+		}
+		if row.Conclusion.Valid {
+			item.Conclusion = string(row.Conclusion.CheckConclusion)
+		}
+		if row.RunnerID.Valid {
+			item.RunnerID = row.RunnerID.Int64
+		}
+		if row.RunnerName.Valid {
+			item.RunnerName = row.RunnerName.String
+		}
+		if row.RunnerStatus.Valid {
+			item.RunnerStatus = string(row.RunnerStatus.WorkflowRunnerStatus)
+		}
+		if row.RunnerLastHeartbeatAt.Valid {
+			item.RunnerLastHeartbeatAt = row.RunnerLastHeartbeatAt.Time.UTC().Format(time.RFC3339)
+			if d := now.Sub(row.RunnerLastHeartbeatAt.Time); d > 0 {
+				item.RunnerLastHeartbeatAgeSeconds = int64(d.Seconds())
+			}
+		}
+		if row.StartedAt.Valid {
+			if d := now.Sub(row.StartedAt.Time); d > 0 {
+				item.StartedAgeSeconds = int64(d.Seconds())
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func newAdminRunnerRecoverStaleJobsCmd() *cobra.Command {
+	var idRaw string
+	var activeJobIDs []int64
+	var output string
+	var dryRun bool
+	var confirm bool
+	cmd := &cobra.Command{
+		Use:   "recover-stale-jobs --id <runner-id>",
+		Short: "Cancel stale running jobs assigned to a runner",
+		Long: `Cancels running jobs assigned to a runner when that runner is dead, old,
+or otherwise unable to report active_job_ids through heartbeat reconciliation.
+
+By default the active job set is empty, so --confirm cancels every running job
+assigned to the runner. Pass --active-job-id for any job known to still be
+running locally on the runner. Always run --dry-run first.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			id, err := parseRunnerID("admin runner recover-stale-jobs", idRaw)
+			if err != nil {
+				return err
+			}
+			output, err = normalizeRunnerOutput("admin runner recover-stale-jobs", output)
+			if err != nil {
+				return err
+			}
+			if !dryRun && !confirm {
+				return errors.New("admin runner recover-stale-jobs: refusing to mutate without --confirm; use --dry-run to inspect")
+			}
+			cfg, err := config.Load(nil)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+			defer cancel()
+			pool, err := openAdminRunnerPool(ctx, cfg, "recover-stale-jobs")
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			q := actionsdb.New()
+			runner, err := q.GetRunnerByID(ctx, pool, id)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return fmt.Errorf("admin runner recover-stale-jobs: runner %d not found", id)
+				}
+				return fmt.Errorf("admin runner recover-stale-jobs: load runner: %w", err)
+			}
+			rows, err := q.ListRunnerRunningJobsForAdmin(ctx, pool, actionsdb.ListRunnerRunningJobsForAdminParams{
+				RunnerID:   id,
+				LimitCount: 5000,
+			})
+			if err != nil {
+				return fmt.Errorf("admin runner recover-stale-jobs: list runner jobs: %w", err)
+			}
+			if dryRun {
+				return writeRunnerRecoverOutput(cmd.OutOrStdout(), output, runner.ID, runner.Name, rows, activeJobIDs, nil, nil, true, time.Now().UTC())
+			}
+
+			result, err := actionslifecycle.ReconcileRunnerActiveJobs(ctx, actionslifecycle.Deps{Pool: pool}, id, activeJobIDs)
+			if err != nil {
+				return fmt.Errorf("admin runner recover-stale-jobs: reconcile runner jobs: %w", err)
+			}
+			return writeRunnerRecoverOutput(cmd.OutOrStdout(), output, runner.ID, runner.Name, rows, activeJobIDs, result.ChangedJobs, result.CompletedRuns, false, time.Now().UTC())
+		},
+	}
+	cmd.Flags().StringVar(&idRaw, "id", "", "Runner id")
+	cmd.Flags().Int64SliceVar(&activeJobIDs, "active-job-id", nil, "Job id known to still be active on the runner; repeat to keep multiple jobs")
+	cmd.Flags().StringVar(&output, "output", "text", "Output format: text or json")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print jobs that would be cancelled without mutating state")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm cancellation of stale assigned jobs")
+	return cmd
+}
+
+type runnerRecoverOutput struct {
+	RunnerID          int64                `json:"runner_id"`
+	RunnerName        string               `json:"runner_name"`
+	DryRun            bool                 `json:"dry_run"`
+	ActiveJobIDs      []int64              `json:"active_job_ids"`
+	ScannedJobs       int                  `json:"scanned_jobs"`
+	CandidateJobs     []runnerJobOutputRow `json:"candidate_jobs"`
+	CancelledJobIDs   []int64              `json:"cancelled_job_ids,omitempty"`
+	CompletedRunIDs   []int64              `json:"completed_run_ids,omitempty"`
+	CancelledJobCount int                  `json:"cancelled_job_count"`
+	CompletedRunCount int                  `json:"completed_run_count"`
+}
+
+func writeRunnerRecoverOutput(w io.Writer, format string, runnerID int64, runnerName string, rows []actionsdb.ListRunnerRunningJobsForAdminRow, activeJobIDs []int64, changed []actionsdb.WorkflowJob, completed []actionsdb.WorkflowRun, dryRun bool, now time.Time) error {
+	candidates := filterRunnerJobCandidates(rows, activeJobIDs, now)
+	out := runnerRecoverOutput{
+		RunnerID:          runnerID,
+		RunnerName:        runnerName,
+		DryRun:            dryRun,
+		ActiveJobIDs:      append([]int64{}, activeJobIDs...),
+		ScannedJobs:       len(rows),
+		CandidateJobs:     candidates,
+		CancelledJobCount: len(changed),
+		CompletedRunCount: len(completed),
+	}
+	for _, job := range changed {
+		out.CancelledJobIDs = append(out.CancelledJobIDs, job.ID)
+	}
+	for _, run := range completed {
+		out.CompletedRunIDs = append(out.CompletedRunIDs, run.ID)
+	}
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	action := "would cancel"
+	if !dryRun {
+		action = "cancelled"
+	}
+	_, _ = fmt.Fprintf(w, "runner: %d %s\n", out.RunnerID, out.RunnerName)
+	_, _ = fmt.Fprintf(w, "active_job_ids: %s\n", formatInt64List(out.ActiveJobIDs))
+	for _, row := range candidates {
+		_, _ = fmt.Fprintf(w, "%s: job_id=%d run_id=%d repo=%s workflow=%s job=%s runner=%s started=%s\n",
+			action, row.ID, row.RunID, row.Repository, row.WorkflowFile, row.JobKey, emptyDash(row.RunnerName), emptyDash(row.StartedAt))
+	}
+	_, _ = fmt.Fprintf(w, "recover-stale-jobs: dry_run=%t scanned_jobs=%d candidate_jobs=%d cancelled_jobs=%d completed_runs=%d\n",
+		dryRun, out.ScannedJobs, len(candidates), out.CancelledJobCount, out.CompletedRunCount)
+	return nil
+}
+
+func filterRunnerJobCandidates(rows []actionsdb.ListRunnerRunningJobsForAdminRow, activeJobIDs []int64, now time.Time) []runnerJobOutputRow {
+	active := make(map[int64]struct{}, len(activeJobIDs))
+	for _, id := range activeJobIDs {
+		active[id] = struct{}{}
+	}
+	candidates := make([]actionsdb.ListRunnerRunningJobsForAdminRow, 0, len(rows))
+	for _, row := range rows {
+		if _, keep := active[row.ID]; keep {
+			continue
+		}
+		candidates = append(candidates, row)
+	}
+	return runnerJobsOutputRows(candidates, now)
+}
+
+func formatInt64List(values []int64) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, len(values))
+	for _, v := range values {
+		parts = append(parts, strconv.FormatInt(v, 10))
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 func newAdminRunnerDrainCmd() *cobra.Command {
