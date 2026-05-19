@@ -96,6 +96,12 @@ func TestOrgPagesRenderSingleSharedOrgNav(t *testing.T) {
 		"PageCount":     1,
 		"MemberCount":   1,
 		"IsOwner":       true,
+		"Locked":        true,
+		"UpgradeBanner": map[string]any{
+			"Message":    "Security overview features require Team billing.",
+			"ActionText": "Manage billing and plans",
+			"ActionHref": "/organizations/gardesk/settings/billing",
+		},
 		"Form": map[string]any{
 			"DisplayName":           "gardesk",
 			"Description":           "",
@@ -106,7 +112,7 @@ func TestOrgPagesRenderSingleSharedOrgNav(t *testing.T) {
 		},
 	}
 	req := httptest.NewRequest("GET", "/", nil)
-	for _, page := range []string{"orgs/repositories", "orgs/settings_profile"} {
+	for _, page := range []string{"orgs/repositories", "orgs/security", "orgs/settings_profile"} {
 		t.Run(page, func(t *testing.T) {
 			t.Parallel()
 			rw := httptest.NewRecorder()

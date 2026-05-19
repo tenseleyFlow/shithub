@@ -98,6 +98,13 @@ const (
 	KindRepoInsightsRecalc Kind = "repo:insights_recalc"
 )
 
+// SP25 dependency security. dependency_scan parses supported
+// dependency manifests at the default branch, updates the repo
+// inventory, and matches rows against the local advisory catalog.
+const (
+	KindRepoDependencyScan Kind = "repo:dependency_scan"
+)
+
 // S29 notification kinds. notify:fanout drains the domain_events
 // table past the persisted cursor and materializes inbox rows +
 // (optional) emails. Self-throttling per FanoutBatch; loop-friendly

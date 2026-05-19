@@ -48,6 +48,7 @@ type Querier interface {
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── repo projects ─────────────────────────────────────────────────
 	CreateRepoProject(ctx context.Context, db DBTX, arg CreateRepoProjectParams) (RepoProject, error)
+	CreateRepoSecurityAdvisory(ctx context.Context, db DBTX, arg CreateRepoSecurityAdvisoryParams) (RepoSecurityAdvisory, error)
 	// ─── repo wiki pages ───────────────────────────────────────────────
 	CreateRepoWikiPage(ctx context.Context, db DBTX, arg CreateRepoWikiPageParams) (RepoWikiPage, error)
 	DeclineTransferRequest(ctx context.Context, db DBTX, id int64) error
@@ -68,6 +69,7 @@ type Querier interface {
 	DeleteRepoProject(ctx context.Context, db DBTX, arg DeleteRepoProjectParams) error
 	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
 	DeleteRepoWikiPage(ctx context.Context, db DBTX, arg DeleteRepoWikiPageParams) error
+	DismissDependencyAlert(ctx context.Context, db DBTX, arg DismissDependencyAlertParams) error
 	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
 	// Called by the periodic worker (transfers:expire) — flips pending
@@ -91,6 +93,7 @@ type Querier interface {
 	// O(1) cost the user-side path enjoys.
 	GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerOrgAndNameParams) (Repo, error)
 	GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg GetRepoByOwnerUserAndNameParams) (Repo, error)
+	GetRepoDependencySnapshot(ctx context.Context, db DBTX, repoID int64) (RepoDependencySnapshot, error)
 	// Lookup the per-repo backfill metadata. Mirrors the row shape of
 	// ListAllActiveReposWithOwner so the per-repo job handler can run
 	// the same code path the bulk handler uses.
@@ -144,6 +147,10 @@ type Querier interface {
 	// it has its own copy of the objects. Returns just enough to locate
 	// the bare repo on disk.
 	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
+	ListOpenDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListOpenDependencyAlertsForRepoRow, error)
+	ListOrgDependencyAlerts(ctx context.Context, db DBTX, arg ListOrgDependencyAlertsParams) ([]ListOrgDependencyAlertsRow, error)
+	ListOrgSecurityAdvisories(ctx context.Context, db DBTX, arg ListOrgSecurityAdvisoriesParams) ([]ListOrgSecurityAdvisoriesRow, error)
+	ListOrgSecurityRepoSummaries(ctx context.Context, db DBTX, arg ListOrgSecurityRepoSummariesParams) ([]ListOrgSecurityRepoSummariesRow, error)
 	// Inbox view: pending offers a user can act on.
 	ListPendingTransfersForUser(ctx context.Context, db DBTX, toPrincipalID int64) ([]RepoTransferRequest, error)
 	ListProfilePinCandidateReposForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) ([]ListProfilePinCandidateReposForUserRow, error)
@@ -155,6 +162,7 @@ type Querier interface {
 	// Public-only view of a user's repos for the "list another user's repos"
 	// REST endpoint. Hidden behind the same updated_at ordering.
 	ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg ListPublicReposForOwnerUserParams) ([]Repo, error)
+	ListRepoDependenciesForRepo(ctx context.Context, db DBTX, arg ListRepoDependenciesForRepoParams) ([]RepoDependency, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
 	// The repo:hard_delete enqueuer queries this to find rows ready for
 	// destruction. The 7-day grace is hard-coded here; if we add a config
@@ -163,6 +171,7 @@ type Querier interface {
 	ListRepoProjectItems(ctx context.Context, db DBTX, projectID int64) ([]ListRepoProjectItemsRow, error)
 	ListRepoProjects(ctx context.Context, db DBTX, repoID int64) ([]RepoProject, error)
 	ListRepoProjectsForIssue(ctx context.Context, db DBTX, issueID int64) ([]RepoProject, error)
+	ListRepoSecurityAdvisories(ctx context.Context, db DBTX, repoID int64) ([]RepoSecurityAdvisory, error)
 	// ─── repo_topics (S32) ─────────────────────────────────────────────
 	ListRepoTopics(ctx context.Context, db DBTX, repoID int64) ([]string, error)
 	ListRepoTrafficDaily(ctx context.Context, db DBTX, arg ListRepoTrafficDailyParams) ([]RepoTrafficDaily, error)
@@ -196,8 +205,10 @@ type Querier interface {
 	// Returns the current repo_id when (old_owner_user_id, old_name) hits
 	// a redirect row.
 	LookupRedirectByUserOwner(ctx context.Context, db DBTX, arg LookupRedirectByUserOwnerParams) (int64, error)
+	MarkRepoDependenciesStale(ctx context.Context, db DBTX, arg MarkRepoDependenciesStaleParams) error
 	MarkRepoSourceRemoteFetchError(ctx context.Context, db DBTX, arg MarkRepoSourceRemoteFetchErrorParams) error
 	MarkRepoSourceRemoteFetched(ctx context.Context, db DBTX, repoID int64) error
+	OrgSecurityOverviewSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecurityOverviewSummaryRow, error)
 	// ─── fork-anchor cleanup on hard delete ────────────────────────────────
 	// Children pointing at this repo lose their fork-of pointer. Mirrors
 	// GitHub's behavior when an upstream is deleted.
@@ -207,6 +218,11 @@ type Querier interface {
 	// handler guarantees we don't pause an already-archived repo, but
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
+	// Baseline matcher: advisories match exact package/ecosystem plus
+	// affected_range of '', '*', or the dependency's resolved version.
+	// Rich semver range evaluation belongs in a later parser package; this
+	// keeps SP25 honest about what it can safely claim.
+	RefreshDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	RemoveIssueFromRepoProject(ctx context.Context, db DBTX, arg RemoveIssueFromRepoProjectParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
@@ -220,6 +236,7 @@ type Querier interface {
 	// then replace the existing rows in one tx (DELETE + INSERT). The
 	// caller's tx wraps both calls for atomicity.
 	ReplaceRepoTopics(ctx context.Context, db DBTX, repoID int64) error
+	ResolveStaleDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) error
 	RestoreRepo(ctx context.Context, db DBTX, id int64) error
 	// S28 code-search: the worker writes the OID it finished indexing
 	// so the reconciler can detect drift (default_branch_oid moved but
@@ -276,8 +293,15 @@ type Querier interface {
 	// against the same (repo_id, commit_oid) without losing data thanks
 	// to the (repo_id, commit_oid) primary key + ON CONFLICT clause.
 	UpsertCommitVerification(ctx context.Context, db DBTX, arg UpsertCommitVerificationParams) error
+	UpsertDependencyAdvisory(ctx context.Context, db DBTX, arg UpsertDependencyAdvisoryParams) (DependencyAdvisory, error)
 	UpsertProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	UpsertProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	UpsertRepoDependency(ctx context.Context, db DBTX, arg UpsertRepoDependencyParams) (RepoDependency, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP25 repository dependency inventory, dependency alerts, and
+	// repository security advisories.
+	UpsertRepoDependencySnapshot(ctx context.Context, db DBTX, arg UpsertRepoDependencySnapshotParams) (RepoDependencySnapshot, error)
 	UpsertRepoInsightSnapshot(ctx context.Context, db DBTX, arg UpsertRepoInsightSnapshotParams) (RepoInsightSnapshot, error)
 	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
 	UpsertRepoTrafficDailyClone(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyCloneParams) error

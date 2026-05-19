@@ -1,0 +1,156 @@
+{{ define "page" -}}
+<section class="shithub-org-security">
+  <header class="shithub-org-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="{{ .AvatarURL }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-security-layout">
+    <aside class="shithub-org-security-sidebar" aria-label="Security navigation">
+      <h1>Security</h1>
+      <nav class="shithub-org-security-menu" aria-labelledby="organization-security-label">
+        <h2 id="organization-security-label">Security and quality</h2>
+        <a href="/{{ .Org.Slug }}/security" class="is-selected" aria-current="page">
+          <span>{{ octicon "shield-check" }} Overview</span>
+        </a>
+        <span aria-disabled="true">{{ octicon "package" }} Dependency graph</span>
+        <span aria-disabled="true">{{ octicon "shield-check" }} Security advisories</span>
+      </nav>
+    </aside>
+
+    <main class="shithub-org-security-main">
+      <header class="shithub-org-security-head">
+        <div>
+          <h1>Security overview</h1>
+          <p>Review dependency alerts, repository advisory coverage, and scanned manifests across this organization.</p>
+        </div>
+      </header>
+
+      {{ if .Locked }}
+        {{ with .UpgradeBanner }}
+        <section class="shithub-org-security-upgrade" aria-label="Upgrade required">
+          <div>
+            <h2>Team security features are required</h2>
+            <p>{{ .Message }}</p>
+          </div>
+          <a class="shithub-button shithub-button-primary" href="{{ .ActionHref }}">{{ .ActionText }}</a>
+        </section>
+        {{ end }}
+      {{ else }}
+        <section class="shithub-org-security-metrics" aria-label="Security metrics">
+          <div>
+            <strong>{{ .Summary.OpenAlertCount }}</strong>
+            <span>Open dependency alerts</span>
+          </div>
+          <div>
+            <strong>{{ .Summary.CriticalAlertCount }}</strong>
+            <span>Critical alerts</span>
+          </div>
+          <div>
+            <strong>{{ .Summary.HighAlertCount }}</strong>
+            <span>High alerts</span>
+          </div>
+          <div>
+            <strong>{{ .Summary.DependencyCount }}</strong>
+            <span>Tracked dependencies</span>
+          </div>
+          <div>
+            <strong>{{ .Summary.RepositoryAdvisoryCount }}</strong>
+            <span>Repository advisories</span>
+          </div>
+        </section>
+
+        <section class="shithub-org-security-card">
+          <div class="shithub-org-security-card-head">
+            <h2>Dependency alerts</h2>
+            <span>{{ .Summary.ManifestCount }} scanned manifests</span>
+          </div>
+          {{ if .Alerts }}
+          <ul class="shithub-org-security-list">
+            {{ range .Alerts }}
+            <li>
+              <div class="shithub-org-security-list-main">
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+                <strong>{{ .PackageName }} {{ .PackageVersion }}</strong>
+                <span>{{ .Summary }}</span>
+                <span>{{ .Ecosystem }} · {{ .ManifestPath }} · {{ .ExternalID }}</span>
+              </div>
+              <span class="shithub-org-security-severity is-{{ .Severity }}">{{ .Severity }}</span>
+              <span class="shithub-org-security-list-meta">{{ relativeTime .LastSeenAt.Time }}</span>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="shithub-org-security-empty">
+            {{ octicon "shield-check" }}
+            <h2>No open dependency alerts</h2>
+            <p>Supported Go and npm manifests have no open local advisory matches.</p>
+          </div>
+          {{ end }}
+        </section>
+
+        <section class="shithub-org-security-card">
+          <div class="shithub-org-security-card-head">
+            <h2>Repositories</h2>
+            <span>{{ .Summary.RepoCount }} repositories</span>
+          </div>
+          {{ if .Repositories }}
+          <ul class="shithub-org-security-list shithub-org-security-repo-list">
+            {{ range .Repositories }}
+            <li>
+              <div class="shithub-org-security-list-main">
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}">{{ $.Org.Slug }}/{{ .RepoName }}</a>
+                <span>{{ .DependencyCount }} dependencies · {{ .ManifestCount }} manifests</span>
+              </div>
+              <span class="shithub-org-security-list-meta">{{ .OpenAlertCount }} alerts</span>
+              <span class="shithub-org-security-list-meta">
+                {{ if .LastScannedAt.Valid }}Scanned {{ relativeTime .LastScannedAt.Time }}{{ else }}Not scanned{{ end }}
+              </span>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="shithub-org-security-empty">
+            {{ octicon "repo" }}
+            <h2>No repositories scanned yet</h2>
+            <p>Push to a default branch or run the dependency backfill to populate this view.</p>
+          </div>
+          {{ end }}
+        </section>
+
+        <section class="shithub-org-security-card">
+          <div class="shithub-org-security-card-head">
+            <h2>Repository security advisories</h2>
+            <span>{{ .Summary.RepositoryAdvisoryCount }} active advisories</span>
+          </div>
+          {{ if .Advisories }}
+          <ul class="shithub-org-security-list">
+            {{ range .Advisories }}
+            <li>
+              <div class="shithub-org-security-list-main">
+                <a href="/{{ $.Org.Slug }}/{{ .RepoName }}/security">{{ .Identifier }}</a>
+                <strong>{{ .Summary }}</strong>
+                <span>{{ .AffectedEcosystem }} · {{ .AffectedPackage }} · {{ .VulnerableVersions }}</span>
+              </div>
+              <span class="shithub-org-security-severity is-{{ .Severity }}">{{ .Severity }}</span>
+              <span class="shithub-org-security-list-meta">{{ .State }}</span>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <div class="shithub-org-security-empty">
+            {{ octicon "shield-check" }}
+            <h2>No repository advisories</h2>
+            <p>Repository-maintained advisories will appear here after they are drafted or published.</p>
+          </div>
+          {{ end }}
+        </section>
+      {{ end }}
+    </main>
+  </div>
+</section>
+{{- end }}

@@ -41,6 +41,8 @@ site.
 - [security-checklist.md](./security-checklist.md) — controls + the
   tests proving them.
 - [threat-model.md](./threat-model.md) — v1 attacker model.
+- [security-dependencies.md](./security-dependencies.md) — dependency
+  inventory, local advisories, and org security overview.
 - [hooks.md](./hooks.md) — pre/post-receive contracts.
 
 ## Domain features

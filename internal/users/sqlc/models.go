@@ -2647,6 +2647,24 @@ type CommitVerificationCache struct {
 	InvalidatedAt    pgtype.Timestamptz
 }
 
+type DependencyAdvisory struct {
+	ID              int64
+	Source          string
+	ExternalID      string
+	Ecosystem       string
+	PackageName     string
+	AffectedRange   string
+	PatchedVersions string
+	Severity        string
+	Summary         string
+	Description     string
+	ReferenceUrls   []byte
+	PublishedAt     pgtype.Timestamptz
+	WithdrawnAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 type DeviceAuthorization struct {
 	ID              int64
 	DeviceCodeHash  []byte
@@ -3217,6 +3235,48 @@ type RepoCollaborator struct {
 	AddedByUserID pgtype.Int8
 }
 
+type RepoDependency struct {
+	ID             int64
+	RepoID         int64
+	Ecosystem      string
+	PackageName    string
+	PackageVersion string
+	ManifestPath   string
+	LockfilePath   string
+	Scope          string
+	Direct         bool
+	PackageManager string
+	Source         string
+	LastSeenSha    string
+	FirstSeenAt    pgtype.Timestamptz
+	LastSeenAt     pgtype.Timestamptz
+	StaleAt        pgtype.Timestamptz
+}
+
+type RepoDependencyAlert struct {
+	ID            int64
+	RepoID        int64
+	DependencyID  int64
+	AdvisoryID    int64
+	Status        string
+	DismissalNote string
+	DismissedBy   pgtype.Int8
+	DismissedAt   pgtype.Timestamptz
+	ResolvedAt    pgtype.Timestamptz
+	FirstSeenAt   pgtype.Timestamptz
+	LastSeenAt    pgtype.Timestamptz
+}
+
+type RepoDependencySnapshot struct {
+	RepoID          int64
+	DefaultBranch   string
+	HeadSha         string
+	ManifestCount   int32
+	DependencyCount int32
+	GeneratedAt     pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 type RepoEnvironment struct {
 	ID                       int64
 	RepoID                   int64
@@ -3315,6 +3375,25 @@ type RepoRedirect struct {
 	OldName        string
 	RepoID         int64
 	RedirectedAt   pgtype.Timestamptz
+}
+
+type RepoSecurityAdvisory struct {
+	ID                 int64
+	RepoID             int64
+	Identifier         string
+	State              string
+	Severity           string
+	Summary            string
+	Description        string
+	AffectedEcosystem  string
+	AffectedPackage    string
+	VulnerableVersions string
+	PatchedVersions    string
+	CreatedBy          pgtype.Int8
+	PublishedAt        pgtype.Timestamptz
+	ClosedAt           pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
 }
 
 type RepoSourceRemote struct {
