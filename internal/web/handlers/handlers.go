@@ -311,6 +311,7 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		marketing := marketingHandler{render: rr, baseURL: deps.BaseURL, logger: deps.Logger}
 		r.Get("/", helloHandler{render: rr, logoSVG: deps.LogoSVG, baseURL: deps.BaseURL, logger: deps.Logger}.ServeHTTP)
 		r.Get("/about", marketing.serveAbout)
+		r.Get("/codespaces", marketing.serveCodespaces)
 		exploreH := exploreHandler{render: rr, logger: deps.Logger, pool: deps.Pool}
 		r.Get("/explore", exploreH.ServeExplore)
 		r.Group(func(r chi.Router) {

@@ -59,10 +59,11 @@ Rules for paid-org copy:
 - Do not advertise product surfaces until they exist. Generic
   repository Packages, Wikis, and repository Projects have shipped
   baseline surfaces; Pages and additional package ecosystems remain
-  deferred. Storage and Actions quota copy may appear on owner-only
-  billing settings once usage accounting exists, but public pricing
-  pages must not present them as broadly enforced until the matching
-  hard-deny gates have shipped.
+  deferred. Codespaces must be shown as unavailable until the core
+  hosted development environment product ships. Storage and Actions
+  quota copy may appear on owner-only billing settings once usage
+  accounting exists, but public pricing pages must not present them as
+  broadly enforced until the matching hard-deny gates have shipped.
 - Use upgrade language for unavailable Team features instead of hiding
   existing data. Downgrades preserve configuration and make gated
   settings read-only where possible.
@@ -105,6 +106,7 @@ Rules for paid-org copy:
 | Environment protection rules and deployment branches | Upgrade on private org repos | Branch policy, wait timers, reviewer approval, and prevent-self-review configurable and enforced | Contact sales |
 | Actions minutes | 2,000 min/month | 3,000 min/month | Contact sales |
 | Actions artifacts/storage | Counts against shared storage quota | Counts against shared storage quota | Contact sales |
+| Codespaces | Not available | Not available; launch blocker until hosted development environments ship | Contact sales |
 | Packages storage | 500 MiB shared org storage quota | 2 GiB shared org storage quota | Contact sales |
 | Secret scanning and push protection | Public repositories | Supported pattern scanning, repo/org security views, allowlist, and pre-receive push rejection for private org repos | Contact sales |
 | Code scanning and security campaigns | Public repositories | SARIF ingestion, repo/org code scanning views, and campaign grouping for private org repos | Contact sales |
@@ -195,6 +197,10 @@ Present but still moving toward full enforcement:
 - Packages storage is active for generic repository package uploads.
   Additional GitHub Packages ecosystems are deferred until follow-up
   package protocol sprints.
+- Codespaces are not implemented. S41 Actions runner workspaces are
+  ephemeral CI execution directories and must not be represented as
+  hosted development environments. PAYMENTS SP28 marks this as a
+  launch blocker and S50 owns the real Codespaces campaign.
 
 Deferred:
 

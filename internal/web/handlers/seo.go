@@ -55,6 +55,26 @@ func (h marketingHandler) serveAbout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h marketingHandler) serveCodespaces(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{
+		"Title":             "Codespaces unavailable",
+		"MetaDescription":   "Codespaces are not implemented in shithub yet. The product remains a paid-organization launch blocker until a real hosted development environment ships.",
+		"CanonicalURL":      canonicalURL(h.baseURL, r, "/codespaces"),
+		"OGTitle":           "shithub Codespaces status",
+		"OGDescription":     "shithub does not currently offer hosted development environments. Actions runners are not Codespaces.",
+		"StructuredData":    organizationStructuredData(publicBaseURL(h.baseURL, r)),
+		"GlobalSearchQuery": "",
+		"Viewer":            middleware.CurrentUserFromContext(r.Context()),
+		"CSRFToken":         middleware.CSRFTokenForRequest(r),
+		"Repo":              nil,
+		"Org":               nil,
+	}
+	if err := h.render.RenderPage(w, r, "codespaces", data); err != nil {
+		h.logger.Error("render codespaces", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
 func (h crawlerHandler) serveRobots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
