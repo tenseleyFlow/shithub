@@ -405,3 +405,145 @@ func openPullFor(t *testing.T, router http.Handler, token, owner, repo string) a
 	_ = json.Unmarshal(rr.Body.Bytes(), &out)
 	return out
 }
+
+// E5 regression seatbelts. Pre-fix, pulls list silently dropped all
+// filters except `state` (and accepted any string for that).
+func TestPulls_ListStateStrict(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct {
+		state    string
+		wantCode int
+	}{
+		{"open", 200},
+		{"closed", 200},
+		{"merged", 200},
+		{"all", 200},
+		{"", 200},
+		{"nonsense", 422},
+		{"draft", 422},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?state="+tc.state, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("state=%q: code=%d want %d; body=%s", tc.state, rr.Code, tc.wantCode, rr.Body.String())
+		}
+	}
+}
+
+func TestPulls_ListDraftStrict(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct {
+		draft    string
+		wantCode int
+	}{
+		{"true", 200},
+		{"false", 200},
+		{"", 200},
+		{"yes", 422},
+		{"1", 422},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?draft="+tc.draft, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("draft=%q: code=%d want %d; body=%s", tc.draft, rr.Code, tc.wantCode, rr.Body.String())
+		}
+	}
+}
+
+func TestPulls_ListAuthorFilter(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct {
+		author   string
+		wantCode int
+		wantLen  int
+	}{
+		{"alice", 200, 1},
+		{"ghost", 422, 0}, // unknown user → 422 (not silent unfiltered)
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?author="+tc.author, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("author=%q: code=%d want %d; body=%s", tc.author, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiPull
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("author=%q: got %d rows, want %d", tc.author, len(rows), tc.wantLen)
+		}
+	}
+}
+
+func TestPulls_ListBaseFilter(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	// Default PR is base=trunk; filtering on it should return 1, bogus 0.
+	for _, tc := range []struct {
+		base    string
+		wantLen int
+	}{
+		{"trunk", 1},
+		{"BOGUS", 0},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?base="+tc.base, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("base=%q: %d", tc.base, rr.Code)
+			continue
+		}
+		var rows []apiPull
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("base=%q: got %d rows, want %d", tc.base, len(rows), tc.wantLen)
+		}
+	}
+}
+
+func TestPulls_ListLabelFilter(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct {
+		labels   string
+		wantCode int
+		wantLen  int
+	}{
+		{"bug", 200, 0},  // default labels are seeded; no PRs have them
+		{"NOPE", 422, 0}, // unknown label name -> 422 (matches C8 issue side)
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?labels="+tc.labels, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("labels=%q: code=%d want %d; body=%s", tc.labels, rr.Code, tc.wantCode, rr.Body.String())
+			continue
+		}
+		if tc.wantCode != 200 {
+			continue
+		}
+		var rows []apiPull
+		_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		if len(rows) != tc.wantLen {
+			t.Errorf("labels=%q: got %d rows, want %d", tc.labels, len(rows), tc.wantLen)
+		}
+	}
+}
