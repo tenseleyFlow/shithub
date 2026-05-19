@@ -98,6 +98,58 @@ func TestSearch_IssuesByTitle(t *testing.T) {
 	}
 }
 
+// G9a (F19): /search/issues result items must carry `html_url` and a
+// nested `repository` envelope with at minimum `full_name`. Pre-fix
+// `shithub status --json assigned_issues` rendered every row's
+// repository and url as empty strings. This test pins the wire shape
+// the top-level status dashboard depends on.
+func TestSearch_IssuesIncludeRepositoryEnvelopeAndHTMLURL(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	body, _ := json.Marshal(map[string]any{"title": "lighthouse needle", "body": "x"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/search/issues?q=lighthouse", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("search: %d %s", rr.Code, rr.Body.String())
+	}
+	// Decode the items as a loose map so we can probe the new keys
+	// without coupling the test to handler-internal types.
+	var generic struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &generic); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(generic.Items) == 0 {
+		t.Fatalf("no items; body=%s", rr.Body.String())
+	}
+	row := generic.Items[0]
+	if row["html_url"] == "" || row["html_url"] == nil {
+		t.Errorf("html_url should be populated; row=%+v", row)
+	}
+	repo, _ := row["repository"].(map[string]any)
+	if repo == nil {
+		t.Fatalf("repository envelope missing; row=%+v", row)
+	}
+	if repo["full_name"] != "alice/demo" {
+		t.Errorf("repository.full_name: got %v, want alice/demo", repo["full_name"])
+	}
+	// `private` is bool false for the public demo repo — must be the
+	// key present (not omitempty) so gh-compat decoders find it.
+	if _, ok := repo["private"]; !ok {
+		t.Errorf("repository.private key missing; repo=%+v", repo)
+	}
+}
+
 func TestSearch_IssuesTypeFilterValidates(t *testing.T) {
 	_, router, _, _, token := seedIssuesEnv(t, "alice")
 
