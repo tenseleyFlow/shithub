@@ -19,6 +19,9 @@
 //	GET  /invitations/{token}                               accept/decline view
 //	POST /invitations/{token}/accept                        accept
 //	POST /invitations/{token}/decline                       decline
+//	GET  /invitations                                       logged-in invite inbox
+//	POST /invitations/id/{invitationID}/accept              accept from inbox
+//	POST /invitations/id/{invitationID}/decline             decline from inbox
 //
 // Profile rendering for /{org} is dispatched from the existing
 // /{username} catch-all in internal/web/handlers/profile via the
@@ -27,16 +30,20 @@
 package orgs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/audit"
@@ -48,6 +55,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -164,10 +172,12 @@ func (h *Handlers) MountOrgRoutes(r chi.Router) {
 	h.MountTeams(r)
 }
 
-// MountInvitations registers /invitations/{token}* — accept/decline.
-// Authed-only; the page also shows a hint when the viewer's logged-in
-// user doesn't match the invite's target email.
+// MountInvitations registers the logged-in invitation inbox plus
+// token-backed email invite accept/decline routes.
 func (h *Handlers) MountInvitations(r chi.Router) {
+	r.Get("/invitations", h.invitationsInbox)
+	r.Post("/invitations/id/{invitationID}/accept", h.invitationAcceptByID)
+	r.Post("/invitations/id/{invitationID}/decline", h.invitationDeclineByID)
 	r.Get("/invitations/{token}", h.invitationView)
 	r.Post("/invitations/{token}/accept", h.invitationAccept)
 	r.Post("/invitations/{token}/decline", h.invitationDecline)
@@ -767,11 +777,22 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	filteredMembers := filterOrgMembers(members, query)
 	var pending []orgsdb.ListPendingInvitationsForOrgRow
+	var viewerPendingInvite *orgInvitationInboxRow
 	isOwner := false
 	if !viewer.IsAnonymous() {
 		isOwner, _ = orgs.IsOwner(r.Context(), h.deps(), org.ID, viewer.ID)
 		if isOwner {
 			pending, _ = q.ListPendingInvitationsForOrg(r.Context(), h.d.Pool, org.ID)
+		}
+		viewerInvites, err := h.listViewerPendingInvitations(r.Context(), viewer.ID)
+		if err != nil {
+			h.d.Logger.WarnContext(r.Context(), "orgs: list viewer invitations", "user_id", viewer.ID, "error", err)
+		}
+		for i := range viewerInvites {
+			if viewerInvites[i].OrgID == org.ID {
+				viewerPendingInvite = &viewerInvites[i]
+				break
+			}
 		}
 	}
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
@@ -784,25 +805,26 @@ func (h *Handlers) peoplePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.d.Render.RenderPage(w, r, "orgs/people", map[string]any{
-		"Title":            org.Slug + " · people",
-		"CSRFToken":        middleware.CSRFTokenForRequest(r),
-		"Org":              org,
-		"AvatarURL":        "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav":     "people",
-		"RepoCount":        navCounts.RepoCount,
-		"Members":          filteredMembers,
-		"ProUsernames":     proUsernames,
-		"MemberCount":      navCounts.MemberCount,
-		"TeamCount":        navCounts.TeamCount,
-		"Pending":          pending,
-		"PendingCount":     len(pending),
-		"Query":            query,
-		"HasQuery":         query != "",
-		"IsOwner":          isOwner,
-		"CanManagePeople":  isOwner,
-		"Notice":           notice.Message,
-		"NoticeActionText": notice.ActionText,
-		"NoticeActionHref": notice.ActionHref,
+		"Title":               org.Slug + " · people",
+		"CSRFToken":           middleware.CSRFTokenForRequest(r),
+		"Org":                 org,
+		"AvatarURL":           "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":        "people",
+		"RepoCount":           navCounts.RepoCount,
+		"Members":             filteredMembers,
+		"ProUsernames":        proUsernames,
+		"MemberCount":         navCounts.MemberCount,
+		"TeamCount":           navCounts.TeamCount,
+		"Pending":             pending,
+		"ViewerPendingInvite": viewerPendingInvite,
+		"PendingCount":        len(pending),
+		"Query":               query,
+		"HasQuery":            query != "",
+		"IsOwner":             isOwner,
+		"CanManagePeople":     isOwner,
+		"Notice":              notice.Message,
+		"NoticeActionText":    notice.ActionText,
+		"NoticeActionHref":    notice.ActionHref,
 	}); err != nil {
 		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/people", "error", err)
 	}
@@ -826,6 +848,18 @@ func peopleNoticeMessage(code, orgSlug string, billingConfigured bool) peopleNot
 	default:
 		return peopleNotice{}
 	}
+}
+
+func splitInviteTarget(raw string) (username, email string) {
+	target := strings.TrimSpace(raw)
+	trimmedUser := strings.TrimLeft(target, "@")
+	if strings.HasPrefix(target, "@") && !strings.Contains(trimmedUser, "@") {
+		return trimmedUser, ""
+	}
+	if strings.Contains(target, "@") {
+		return "", target
+	}
+	return target, ""
 }
 
 func filterOrgMembers(members []orgsdb.ListOrgMembersRow, query string) []orgsdb.ListOrgMembersRow {
@@ -890,11 +924,7 @@ func (h *Handlers) invite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if strings.Contains(target, "@") {
-		p.TargetEmail = target
-	} else {
-		p.TargetUsername = target
-	}
+	p.TargetUsername, p.TargetEmail = splitInviteTarget(target)
 	if _, err := orgs.Invite(r.Context(), h.deps(), p); err != nil {
 		h.d.Logger.WarnContext(r.Context(), "orgs: invite failed",
 			"org", org.Slug, "target", target, "error", err)
@@ -964,6 +994,105 @@ func (h *Handlers) memberMutate(w http.ResponseWriter, r *http.Request, action f
 
 // ─── invitations ───────────────────────────────────────────────────
 
+type orgInvitationInboxRow struct {
+	ID             int64
+	OrgID          int64
+	OrgSlug        string
+	OrgDisplayName string
+	Role           orgsdb.OrgRole
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+}
+
+func (h *Handlers) invitationsInbox(w http.ResponseWriter, r *http.Request) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return
+	}
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+	invites, err := h.listViewerPendingInvitations(r.Context(), viewer.ID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: list invitations inbox", "user_id", viewer.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	if err := h.d.Render.RenderPage(w, r, "orgs/invitations", map[string]any{
+		"Title":       "Organization invitations",
+		"CSRFToken":   middleware.CSRFTokenForRequest(r),
+		"Invitations": invites,
+	}); err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "orgs: render", "tpl", "orgs/invitations", "error", err)
+	}
+}
+
+func (h *Handlers) listViewerPendingInvitations(ctx context.Context, userID int64) ([]orgInvitationInboxRow, error) {
+	q := orgsdb.New()
+	seen := map[int64]bool{}
+	invites := []orgInvitationInboxRow{}
+	userRows, err := q.ListPendingInvitationsForUser(ctx, h.d.Pool, pgtype.Int8{Int64: userID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range userRows {
+		if seen[row.ID] {
+			continue
+		}
+		seen[row.ID] = true
+		invites = append(invites, orgInvitationInboxRow{
+			ID:             row.ID,
+			OrgID:          row.OrgID,
+			OrgSlug:        row.OrgSlug,
+			OrgDisplayName: row.OrgDisplayName,
+			Role:           row.Role,
+			CreatedAt:      pgTime(row.CreatedAt),
+			ExpiresAt:      pgTime(row.ExpiresAt),
+		})
+	}
+	emails, err := usersdb.New().ListUserEmailsForUser(ctx, h.d.Pool, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, email := range emails {
+		if !email.Verified {
+			continue
+		}
+		emailRows, err := q.ListPendingInvitationsForEmail(ctx, h.d.Pool, pgtype.Text{String: strings.ToLower(email.Email), Valid: true})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range emailRows {
+			if seen[row.ID] {
+				continue
+			}
+			seen[row.ID] = true
+			invites = append(invites, orgInvitationInboxRow{
+				ID:             row.ID,
+				OrgID:          row.OrgID,
+				OrgSlug:        row.OrgSlug,
+				OrgDisplayName: row.OrgDisplayName,
+				Role:           row.Role,
+				CreatedAt:      pgTime(row.CreatedAt),
+				ExpiresAt:      pgTime(row.ExpiresAt),
+			})
+		}
+	}
+	sort.SliceStable(invites, func(i, j int) bool {
+		return invites[i].CreatedAt.After(invites[j].CreatedAt)
+	})
+	return invites, nil
+}
+
+func pgTime(ts pgtype.Timestamptz) time.Time {
+	if !ts.Valid {
+		return time.Time{}
+	}
+	return ts.Time
+}
+
 func (h *Handlers) invitationView(w http.ResponseWriter, r *http.Request) {
 	tok := chi.URLParam(r, "token")
 	inv, err := orgs.LookupInvitationByToken(r.Context(), h.deps(), tok)
@@ -995,6 +1124,42 @@ func (h *Handlers) invitationDecline(w http.ResponseWriter, r *http.Request) {
 	h.invitationAction(w, r, false)
 }
 
+func (h *Handlers) invitationAcceptByID(w http.ResponseWriter, r *http.Request) {
+	h.invitationActionByID(w, r, true)
+}
+
+func (h *Handlers) invitationDeclineByID(w http.ResponseWriter, r *http.Request) {
+	h.invitationActionByID(w, r, false)
+}
+
+func (h *Handlers) invitationActionByID(w http.ResponseWriter, r *http.Request, accept bool) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return
+	}
+	if viewer.IsSuspended {
+		h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
+		return
+	}
+	invitationID, err := strconv.ParseInt(chi.URLParam(r, "invitationID"), 10, 64)
+	if err != nil || invitationID <= 0 {
+		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+		return
+	}
+	inv, err := orgsdb.New().GetOrgInvitationByID(r.Context(), h.d.Pool, invitationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+			return
+		}
+		h.d.Logger.ErrorContext(r.Context(), "orgs: lookup invitation by id", "id", invitationID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	h.performInvitationAction(w, r, inv, accept, "/invitations")
+}
+
 func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, accept bool) {
 	viewer := middleware.CurrentUserFromContext(r.Context())
 	if viewer.IsAnonymous() {
@@ -1015,12 +1180,23 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 		return
 	}
+	h.performInvitationAction(w, r, inv, accept, "")
+}
+
+func (h *Handlers) performInvitationAction(w http.ResponseWriter, r *http.Request, inv orgsdb.OrgInvitation, accept bool, declineRedirect string) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
 	if accept {
 		if err := orgs.AcceptInvitation(r.Context(), h.deps(), inv, viewer.ID); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "orgs: accept invitation",
 				"id", inv.ID, "error", err)
 			if errors.Is(err, entitlements.ErrPrivateCollaborationLimitExceeded) {
 				h.d.Render.HTTPError(w, r, http.StatusPaymentRequired, "")
+				return
+			}
+			if errors.Is(err, orgs.ErrUnauthorizedAcceptor) ||
+				errors.Is(err, orgs.ErrInvitationExpired) ||
+				errors.Is(err, orgs.ErrInvitationConsumed) {
+				h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
 				return
 			}
 			h.d.Render.HTTPError(w, r, http.StatusForbidden, "")
@@ -1030,6 +1206,16 @@ func (h *Handlers) invitationAction(w http.ResponseWriter, r *http.Request, acce
 		if err := orgs.DeclineInvitation(r.Context(), h.deps(), inv, viewer.ID); err != nil {
 			h.d.Logger.WarnContext(r.Context(), "orgs: decline invitation",
 				"id", inv.ID, "error", err)
+			if errors.Is(err, orgs.ErrUnauthorizedAcceptor) ||
+				errors.Is(err, orgs.ErrInvitationExpired) ||
+				errors.Is(err, orgs.ErrInvitationConsumed) {
+				h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+				return
+			}
+		}
+		if declineRedirect != "" {
+			http.Redirect(w, r, declineRedirect, http.StatusSeeOther)
+			return
 		}
 	}
 	org, _ := orgsdb.New().GetOrgByID(r.Context(), h.d.Pool, inv.OrgID)

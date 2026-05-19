@@ -29,9 +29,11 @@ A user can be both an owner and a team member.
 
 ## Inviting members
 
-Org → People → "Invite member". Type an existing username or
-email. The invitee gets a notification + email; they accept on a
-landing page and become a member immediately.
+Org → People → "Invite member". Type an existing username, with or
+without a leading `@`, or an email address. The invitee can accept from
+the user menu's "Organization invitations" item or `/invitations`; if
+the server can deliver email, they also receive a landing-page link.
+Accepting makes them a member immediately.
 
 Invitations expire after 7 days; resend or revoke from the same
 page.

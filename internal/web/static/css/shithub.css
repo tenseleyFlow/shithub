@@ -5224,6 +5224,26 @@ button.shithub-contrib-setting-item:hover {
   min-width: 104px;
   background: var(--canvas-subtle);
 }
+.shithub-org-invite-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.shithub-org-invite-callout strong,
+.shithub-org-invite-callout span {
+  display: block;
+}
+.shithub-org-invite-callout-actions,
+.shithub-org-invitation-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.shithub-org-invite-callout-actions form,
+.shithub-org-invitation-actions form {
+  margin: 0;
+}
 .shithub-org-people-empty {
   display: grid;
   place-items: center;
@@ -5267,6 +5287,82 @@ button.shithub-contrib-setting-item:hover {
 }
 .shithub-org-pending-list li:first-child {
   border-top: 0;
+}
+.shithub-org-invitations {
+  width: min(920px, calc(100% - 2rem));
+  margin: 2rem auto;
+}
+.shithub-org-invitations-header {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-muted);
+}
+.shithub-org-invitations-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+.shithub-org-invitations-header p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.shithub-org-invitations-list {
+  overflow: hidden;
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+}
+.shithub-org-invitation-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border-top: 1px solid var(--border-default);
+}
+.shithub-org-invitation-card:first-child {
+  border-top: 0;
+}
+.shithub-org-invitation-avatar img {
+  display: block;
+  border-radius: 6px;
+}
+.shithub-org-invitation-main h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+.shithub-org-invitation-main p {
+  margin: 0.15rem 0 0;
+  color: var(--fg-muted);
+}
+.shithub-org-invitations-empty {
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  min-height: 220px;
+  margin-top: 1rem;
+  padding: 2rem;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+.shithub-org-invitations-empty svg {
+  width: 32px;
+  height: 32px;
+}
+.shithub-org-invitations-empty h2,
+.shithub-org-invitations-empty p {
+  margin: 0;
+}
+.shithub-org-invitations-empty h2 {
+  color: var(--fg-default);
+  font-size: 1.1rem;
 }
 .shithub-org-profile-head {
   max-width: 1280px;

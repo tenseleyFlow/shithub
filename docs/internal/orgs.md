@@ -54,6 +54,9 @@ POST /organizations/{org}/billing/checkout
 POST /organizations/{org}/billing/portal
 GET  /organizations/{org}/billing/success
 GET  /organizations/{org}/billing/cancel
+GET  /invitations                  logged-in pending org invitation inbox
+POST /invitations/id/{id}/accept   accept from the inbox / org people callout
+POST /invitations/id/{id}/decline  decline from the inbox / org people callout
 GET  /invitations/{token}          accept/decline view (auth required)
 POST /invitations/{token}/accept
 POST /invitations/{token}/decline
@@ -188,15 +191,19 @@ canonical enforcer.
 
 ## Invitation flow
 
-* By **username**: orchestrator resolves the username → user_id and
-  checks for existing membership before issuing the invite.
+* By **username**: orchestrator normalizes an optional leading `@`,
+  resolves the username → user_id, and checks for existing membership
+  before issuing the invite.
 * By **email**: stores the email; recipient claims by signing in with
   any account that owns the verified email (or by signing up later
   with that email — pending invites surface in the inbox via
   `ListPendingInvitationsForEmail`).
 
 Both paths use a 7-day expiry. Tokens are sha256-hashed at rest;
-`token_hash` is the column we look up by.
+`token_hash` is the column we look up by for emailed links. Logged-in
+users can also accept or decline any pending invitation addressed to
+their user id or verified email from `GET /invitations`, and matching
+org people pages render the same action callout.
 
 ## Principals trigger
 
