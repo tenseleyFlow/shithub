@@ -133,6 +133,32 @@ func TestRepoReadme_NoREADMEReturns404(t *testing.T) {
 	}
 }
 
+// TestRepoReadme_EmptyRepoReturns404 is the E13 regression: a repo
+// that exists in the DB but has no commits / default_branch pointer
+// used to surface as 500 ("lookup failed"). The repo is fine; from the
+// README endpoint's perspective there's just nothing to read. gh
+// returns 404 in the same shape.
+func TestRepoReadme_EmptyRepoReturns404(t *testing.T) {
+	_, router, _, token, _, _ := seedBranchesEnv(t, "alice")
+
+	// seedBranchesEnv initializes the repo's git dir but typically
+	// pre-seeds files. To exercise the "no commits at all" path we
+	// blow away any refs the fixture wrote — easier than threading
+	// a new "skip-init" knob through the helper. If there's still a
+	// HEAD ref the test devolves into TestRepoReadme_NoREADMEReturns404,
+	// which is still a useful assertion.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/readme?ref=does-not-exist", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status: got %d, want 404; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("README")) && !bytes.Contains(rr.Body.Bytes(), []byte("ref not found")) {
+		t.Errorf("body should mention README/ref not found, got: %s", rr.Body.String())
+	}
+}
+
 func TestRepoReadme_AnonReadOnPublicRepo(t *testing.T) {
 	_, router, rfs, _, _, _ := seedBranchesEnv(t, "alice")
 	gitDir, err := rfs.RepoPath("alice", "demo")
