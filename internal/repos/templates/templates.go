@@ -67,6 +67,41 @@ func listKeys(efs embed.FS, dir, suffix string) []string {
 // HasLicense reports whether key is on the curated list.
 func HasLicense(key LicenseKey) bool { return contains(Licenses(), key) }
 
+// LicenseName returns the human-readable name for a curated SPDX key.
+// G13 (F8): the repo response envelope's `license.name` was emitted
+// as an empty string when the key was set, breaking gh-compat clients
+// that displayed `license.name` in their UI. Names use the canonical
+// SPDX titles (https://spdx.org/licenses/) so consumers can render or
+// match against the same strings GitHub uses. Returns "" for keys not
+// in the curated list — `repo create` validates against HasLicense
+// first, so an empty Name here means the user picked something
+// off-catalog through a path that bypassed the picker.
+func LicenseName(key LicenseKey) string {
+	switch key {
+	case "AGPL-3.0":
+		return "GNU Affero General Public License v3.0"
+	case "Apache-2.0":
+		return "Apache License 2.0"
+	case "BSD-2-Clause":
+		return `BSD 2-Clause "Simplified" License`
+	case "BSD-3-Clause":
+		return `BSD 3-Clause "New" or "Revised" License`
+	case "CC0-1.0":
+		return "Creative Commons Zero v1.0 Universal"
+	case "GPL-3.0":
+		return "GNU General Public License v3.0"
+	case "ISC":
+		return "ISC License"
+	case "MIT":
+		return "MIT License"
+	case "MPL-2.0":
+		return "Mozilla Public License 2.0"
+	case "Unlicense":
+		return "The Unlicense"
+	}
+	return ""
+}
+
 // HasGitignore reports whether key is on the curated list.
 func HasGitignore(key GitignoreKey) bool { return contains(Gitignores(), key) }
 
