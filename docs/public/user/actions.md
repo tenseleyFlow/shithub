@@ -71,6 +71,7 @@ the small sidebar controls can move pinned workflows up or down.
 
 - `push`, `pull_request`, `schedule`, and `workflow_dispatch` triggers
 - `actions/checkout@v4` for repository checkout
+- `actions/setup-python@v5` for the first-party Python 3.12 shim
 - `run:` steps executed in the operator-configured runner image
 - `runs-on:` label matching against registered runners
 - workflow, job, and step `env:`
@@ -97,9 +98,9 @@ registered runner can claim the job.
 
 ## Current limit
 
-The runner executes `actions/checkout@v4` and `run:` steps. Checkout accepts
-the default shallow fetch and `with.fetch-depth`; use `fetch-depth: 0` when a
-workflow needs full history:
+The runner executes `actions/checkout@v4`, `actions/setup-python@v5`, and
+`run:` steps. Checkout accepts the default shallow fetch and `with.fetch-depth`;
+use `fetch-depth: 0` when a workflow needs full history:
 
 ```yaml
 steps:
@@ -108,6 +109,24 @@ steps:
       fetch-depth: "0"
   - run: git describe --tags --always
 ```
+
+Setup-python is a shithub first-party compatibility shim, not marketplace
+action execution. It accepts `with.python-version` and exposes an already
+installed interpreter from the runner image/toolcache to later steps:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-python@v5
+    with:
+      python-version: "3.12"
+  - run: python -m venv .venv
+```
+
+On shithub.sh's shared Linux pool, Python 3.12 is available. Other versions
+fail at the setup step with a clear error until the hosted image/toolcache
+contract adds them. Inputs such as `cache`, `architecture`, and `check-latest`
+are not implemented yet.
 
 The parser also accepts these artifact aliases:
 

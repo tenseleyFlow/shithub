@@ -23,6 +23,7 @@ runner. The current project CI uses:
 shithub Actions v1 intentionally accepts only:
 
 - `actions/checkout@v4`
+- `actions/setup-python@v5`
 - `shithub/upload-artifact@v1`
 - `shithub/download-artifact@v1`
 - ordinary `run:` steps
@@ -40,8 +41,9 @@ true:
 
 1. The default runner image or a first-party setup step provides Go, git, bash,
    `golangci-lint`, and any build tools required by `make ci`.
-2. The workflow can be expressed with `actions/checkout@v4` plus `run:` steps,
-   or shithub grows first-party equivalents for the missing setup/cache steps.
+2. The workflow can be expressed with `actions/checkout@v4`,
+   `actions/setup-python@v5`, and `run:` steps, or shithub grows first-party
+   equivalents for the missing setup/cache steps.
 3. Required status checks on protected branches point at shithub check runs and
    preserve the same merge gate strength as the current GitHub-hosted CI.
 4. Production deploy remains gated separately from untrusted pull-request code.

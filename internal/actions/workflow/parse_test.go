@@ -71,6 +71,27 @@ func TestParse_CheckoutOnly(t *testing.T) {
 	}
 }
 
+func TestParse_SetupPython(t *testing.T) {
+	t.Parallel()
+	w, diags, err := workflow.Parse(readFixture(t, "setup-python"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+	steps := w.Jobs[0].Steps
+	if len(steps) != 3 {
+		t.Fatalf("steps = %+v", steps)
+	}
+	if steps[1].Uses != "actions/setup-python@v5" {
+		t.Fatalf("setup-python step = %+v", steps[1])
+	}
+	if got := steps[1].With["python-version"].Raw; got != "3.12" {
+		t.Fatalf("python-version = %q, want 3.12", got)
+	}
+}
+
 func TestParse_ArbitraryRepoSmoke(t *testing.T) {
 	t.Parallel()
 	w, diags, err := workflow.Parse(readFixture(t, "arbitrary-repo-smoke"))

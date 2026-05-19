@@ -154,7 +154,7 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 	}
 	for _, step := range job.Steps {
 		stepStarted := time.Now().UTC()
-		if err := d.executeStep(ctx, job, step); err != nil {
+		if err := d.executeStep(ctx, &job, step); err != nil {
 			stepCompleted := time.Now().UTC()
 			stepOutcome := StepOutcome{
 				StepID:      step.ID,
@@ -194,11 +194,13 @@ func (d *Docker) Execute(ctx context.Context, job Job) (Outcome, error) {
 	return outcome, nil
 }
 
-func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
+func (d *Docker) executeStep(ctx context.Context, job *Job, step Step) error {
 	if uses := strings.TrimSpace(step.Uses); uses != "" {
 		switch uses {
 		case "actions/checkout@v4":
-			return d.executeCheckout(ctx, job, step)
+			return d.executeCheckout(ctx, *job, step)
+		case "actions/setup-python@v5":
+			return d.executeSetupPython(ctx, job, step)
 		default:
 			return fmt.Errorf("%w: %s is not executable until that alias lands", ErrUnsupportedUses, uses)
 		}
@@ -206,13 +208,13 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 	if strings.TrimSpace(step.Run) == "" {
 		return nil
 	}
-	invocation, err := d.dockerInvocation(job, step)
+	invocation, err := d.dockerInvocation(*job, step)
 	if err != nil {
 		return err
 	}
 	d.setActiveContainer(job.ID, invocation.containerName)
 	defer d.clearActiveContainer(job.ID, invocation.containerName)
-	d.logStep(ctx, "runner step starting", job, step, invocation, "")
+	d.logStep(ctx, "runner step starting", *job, step, invocation, "")
 	writer := d.newStepLogWriter(ctx, job.ID, step.ID, job.MaskValues)
 	out := io.MultiWriter(d.cfg.Stdout, writer)
 	errOut := io.MultiWriter(d.cfg.Stderr, writer)
@@ -226,13 +228,13 @@ func (d *Docker) executeStep(ctx context.Context, job Job, step Step) error {
 			}
 			err = fmt.Errorf("%w: %w", ErrJobTimedOut, err)
 		}
-		d.logStep(ctx, "runner step completed", job, step, invocation, conclusionForError(err))
+		d.logStep(ctx, "runner step completed", *job, step, invocation, conclusionForError(err))
 		if closeErr := writer.Close(); closeErr != nil {
 			return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), errors.Join(err, closeErr))
 		}
 		return fmt.Errorf("runner engine: step %q failed: %w", stepLabel(step), err)
 	}
-	d.logStep(ctx, "runner step completed", job, step, invocation, ConclusionSuccess)
+	d.logStep(ctx, "runner step completed", *job, step, invocation, ConclusionSuccess)
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("runner engine: flush step %q logs: %w", stepLabel(step), err)
 	}

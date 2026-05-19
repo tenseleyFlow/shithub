@@ -61,6 +61,11 @@ func TestRecordStepTerminalUsesBoundedStepTypes(t *testing.T) {
 		Conclusion: actionsdb.NullCheckConclusion{CheckConclusion: actionsdb.CheckConclusionSuccess, Valid: true},
 	})
 	RecordStepTerminal(actionsdb.WorkflowStep{
+		UsesAlias:  "actions/setup-python@v5",
+		Status:     actionsdb.WorkflowStepStatusCompleted,
+		Conclusion: actionsdb.NullCheckConclusion{CheckConclusion: actionsdb.CheckConclusionSuccess, Valid: true},
+	})
+	RecordStepTerminal(actionsdb.WorkflowStep{
 		StepName:   "user controlled label with high cardinality potential",
 		UsesAlias:  "owner/custom-action@v1",
 		Status:     actionsdb.WorkflowStepStatusCompleted,
@@ -73,6 +78,7 @@ func TestRecordStepTerminalUsesBoundedStepTypes(t *testing.T) {
 	})
 
 	assertStepCounter(t, "checkout", "success", 1)
+	assertStepCounter(t, "setup-python", "success", 1)
 	assertStepCounter(t, "uses", "failure", 1)
 	assertStepCounter(t, "run", "success", 1)
 }

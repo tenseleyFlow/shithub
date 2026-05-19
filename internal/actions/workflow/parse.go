@@ -655,7 +655,8 @@ func parseStep(idx int, n *yaml.Node, jobPath string) (Step, []Diagnostic) {
 	if s.Uses != "" && !IsAllowedUses(s.Uses) {
 		diags = append(diags, errAt(stepPath+".uses",
 			"unsupported `uses:` reference; v1 supports only "+
-				"actions/checkout@v4, shithub/upload-artifact@v1, shithub/download-artifact@v1"))
+				"actions/checkout@v4, actions/setup-python@v5, "+
+				"shithub/upload-artifact@v1, shithub/download-artifact@v1"))
 	}
 	return s, diags
 }

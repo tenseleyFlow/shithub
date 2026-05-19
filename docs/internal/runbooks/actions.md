@@ -19,15 +19,18 @@ workflow_runs + workflow_jobs + workflow_steps + check_runs
 registered runner heartbeat claims a matching queued job
         |
         v
-actions/checkout@v4 -> containerized run: steps
+actions/checkout@v4 -> actions/setup-python@v5 -> containerized run: steps
         |
         v
 log chunks -> step/job status -> run rollup
 ```
 
-The v1 executor supports host-side `actions/checkout@v4` plus containerized
-`run:` steps. The checkout token is short-lived, repository-scoped, tied to a
-running job, and accepted only for read-only smart-HTTP fetches.
+The v1 executor supports host-side `actions/checkout@v4`, a first-party
+`actions/setup-python@v5` compatibility shim, and containerized `run:` steps.
+The checkout token is short-lived, repository-scoped, tied to a running job,
+and accepted only for read-only smart-HTTP fetches. Setup-python only exposes
+Python versions already present in the runner image/toolcache; it does not
+fetch marketplace code or download Python builds during a job.
 `shithub/upload-artifact@v1` and `shithub/download-artifact@v1` are still
 reserved aliases and fail until artifact transfer is wired end to end.
 
