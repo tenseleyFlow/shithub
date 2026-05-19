@@ -25,6 +25,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/db"
 	"github.com/tenseleyFlow/shithub/internal/infra/metrics"
+	"github.com/tenseleyFlow/shithub/internal/version"
 )
 
 func newAdminRunnerCmd() *cobra.Command {
@@ -34,6 +35,7 @@ func newAdminRunnerCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAdminRunnerRegisterCmd())
 	cmd.AddCommand(newAdminRunnerListCmd())
+	cmd.AddCommand(newAdminRunnerPreflightCmd())
 	cmd.AddCommand(newAdminRunnerQueueCmd())
 	cmd.AddCommand(newAdminRunnerJobsCmd())
 	cmd.AddCommand(newAdminRunnerRecoverStaleJobsCmd())
@@ -43,6 +45,324 @@ func newAdminRunnerCmd() *cobra.Command {
 	cmd.AddCommand(newAdminRunnerRevokeCmd())
 	cmd.AddCommand(newAdminRunnerCleanupStaleCmd())
 	return cmd
+}
+
+func newAdminRunnerPreflightCmd() *cobra.Command {
+	var output string
+	var expectedCommit string
+	var labelsRaw string
+	var minRunners int
+	var maxHeartbeatAge time.Duration
+	cmd := &cobra.Command{
+		Use:   "preflight",
+		Short: "Check Actions runner fleet health and version drift",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var err error
+			output, err = normalizeRunnerOutput("admin runner preflight", output)
+			if err != nil {
+				return err
+			}
+			labels, err := parseRunnerPreflightLabels(labelsRaw)
+			if err != nil {
+				return err
+			}
+			if minRunners < 1 {
+				return errors.New("admin runner preflight: --min-runners must be positive")
+			}
+			if maxHeartbeatAge <= 0 {
+				return errors.New("admin runner preflight: --max-heartbeat-age must be positive")
+			}
+			expectedCommit = normalizeExpectedRunnerCommit(expectedCommit)
+			cfg, err := config.Load(nil)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			pool, err := openAdminRunnerPool(ctx, cfg, "preflight")
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			rows, err := actionsdb.New().ListRunners(ctx, pool)
+			if err != nil {
+				return fmt.Errorf("admin runner preflight: %w", err)
+			}
+			report := buildRunnerPreflightReport(rows, runnerPreflightOptions{
+				ExpectedCommit:  expectedCommit,
+				Labels:          labels,
+				MinRunners:      minRunners,
+				MaxHeartbeatAge: maxHeartbeatAge,
+				Now:             time.Now().UTC(),
+			})
+			if err := writeRunnerPreflightOutput(cmd.OutOrStdout(), output, report); err != nil {
+				return err
+			}
+			if !report.OK {
+				return runnerPreflightError(report)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&output, "output", "text", "Output format: text or json")
+	cmd.Flags().StringVar(&expectedCommit, "expected-commit", version.Commit, "Commit expected in runner heartbeat version (empty disables commit check)")
+	cmd.Flags().StringVar(&labelsRaw, "labels", "ubuntu-latest", "Comma-separated labels the runner pool must advertise")
+	cmd.Flags().IntVar(&minRunners, "min-runners", 1, "Minimum matching non-revoked runners required")
+	cmd.Flags().DurationVar(&maxHeartbeatAge, "max-heartbeat-age", 2*time.Minute, "Maximum acceptable heartbeat age")
+	return cmd
+}
+
+type runnerPreflightOptions struct {
+	ExpectedCommit  string
+	Labels          []string
+	MinRunners      int
+	MaxHeartbeatAge time.Duration
+	Now             time.Time
+}
+
+type runnerPreflightReport struct {
+	OK                     bool                       `json:"ok"`
+	ExpectedCommit         string                     `json:"expected_commit,omitempty"`
+	RequiredLabels         []string                   `json:"required_labels,omitempty"`
+	MinRunners             int                        `json:"min_runners"`
+	MaxHeartbeatAgeSeconds int64                      `json:"max_heartbeat_age_seconds"`
+	CheckedRunnerCount     int                        `json:"checked_runner_count"`
+	ReadyRunnerCount       int                        `json:"ready_runner_count"`
+	StaleCount             int                        `json:"stale_count"`
+	OfflineCount           int                        `json:"offline_count"`
+	DrainingCount          int                        `json:"draining_count"`
+	MissingVersionCount    int                        `json:"missing_version_count"`
+	VersionDriftCount      int                        `json:"version_drift_count"`
+	SkippedRunnerCount     int                        `json:"skipped_runner_count"`
+	Runners                []runnerPreflightRunnerRow `json:"runners"`
+	SkippedRunners         []runnerPreflightSkipRow   `json:"skipped_runners,omitempty"`
+}
+
+type runnerPreflightRunnerRow struct {
+	ID                      int64    `json:"id"`
+	Name                    string   `json:"name"`
+	Status                  string   `json:"status"`
+	Capacity                int32    `json:"capacity"`
+	ActiveJobCount          int32    `json:"active_job_count"`
+	Labels                  []string `json:"labels"`
+	HostName                string   `json:"host_name,omitempty"`
+	Version                 string   `json:"version,omitempty"`
+	LastHeartbeatAt         string   `json:"last_heartbeat_at,omitempty"`
+	LastHeartbeatAgeSeconds int64    `json:"last_heartbeat_age_seconds,omitempty"`
+	DrainingAt              string   `json:"draining_at,omitempty"`
+	Drift                   bool     `json:"drift"`
+	Reasons                 []string `json:"reasons,omitempty"`
+}
+
+type runnerPreflightSkipRow struct {
+	ID      int64    `json:"id"`
+	Name    string   `json:"name"`
+	Labels  []string `json:"labels"`
+	Reason  string   `json:"reason"`
+	Revoked bool     `json:"revoked,omitempty"`
+}
+
+func parseRunnerPreflightLabels(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	labels, err := parseRunnerLabels(raw)
+	if err != nil {
+		return nil, fmt.Errorf("admin runner preflight: --labels: %w", err)
+	}
+	return labels, nil
+}
+
+func normalizeExpectedRunnerCommit(commit string) string {
+	commit = strings.TrimSpace(commit)
+	if commit == "unknown" {
+		return ""
+	}
+	return commit
+}
+
+func buildRunnerPreflightReport(rows []actionsdb.ListRunnersRow, opts runnerPreflightOptions) runnerPreflightReport {
+	now := opts.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	report := runnerPreflightReport{
+		OK:                     true,
+		ExpectedCommit:         opts.ExpectedCommit,
+		RequiredLabels:         append([]string{}, opts.Labels...),
+		MinRunners:             opts.MinRunners,
+		MaxHeartbeatAgeSeconds: int64(opts.MaxHeartbeatAge.Seconds()),
+	}
+	for _, row := range rows {
+		if row.RevokedAt.Valid {
+			report.SkippedRunnerCount++
+			report.SkippedRunners = append(report.SkippedRunners, runnerPreflightSkipRow{
+				ID:      row.ID,
+				Name:    row.Name,
+				Labels:  append([]string{}, row.Labels...),
+				Reason:  "revoked",
+				Revoked: true,
+			})
+			continue
+		}
+		if !runnerHasLabels(row.Labels, opts.Labels) {
+			report.SkippedRunnerCount++
+			report.SkippedRunners = append(report.SkippedRunners, runnerPreflightSkipRow{
+				ID:     row.ID,
+				Name:   row.Name,
+				Labels: append([]string{}, row.Labels...),
+				Reason: "labels do not match",
+			})
+			continue
+		}
+
+		item := runnerPreflightRunnerRow{
+			ID:             row.ID,
+			Name:           row.Name,
+			Status:         string(row.Status),
+			Capacity:       row.Capacity,
+			ActiveJobCount: row.ActiveJobCount,
+			Labels:         append([]string{}, row.Labels...),
+			HostName:       row.HostName,
+			Version:        row.Version,
+			DrainingAt:     formatOptionalTime(row.DrainingAt),
+		}
+		if row.LastHeartbeatAt.Valid {
+			item.LastHeartbeatAt = row.LastHeartbeatAt.Time.UTC().Format(time.RFC3339)
+			if d := now.Sub(row.LastHeartbeatAt.Time); d > 0 {
+				item.LastHeartbeatAgeSeconds = int64(d.Seconds())
+			}
+		}
+		if row.Status == actionsdb.WorkflowRunnerStatusOffline {
+			item.Reasons = append(item.Reasons, "offline")
+			report.OfflineCount++
+		}
+		if !row.LastHeartbeatAt.Valid {
+			item.Reasons = append(item.Reasons, "missing heartbeat")
+			report.StaleCount++
+		} else if age := now.Sub(row.LastHeartbeatAt.Time); age > opts.MaxHeartbeatAge {
+			item.Reasons = append(item.Reasons, "stale heartbeat")
+			report.StaleCount++
+		}
+		if row.DrainingAt.Valid {
+			item.Reasons = append(item.Reasons, "draining")
+			report.DrainingCount++
+		}
+		if opts.ExpectedCommit != "" {
+			if strings.TrimSpace(row.Version) == "" {
+				item.Reasons = append(item.Reasons, "missing version")
+				report.MissingVersionCount++
+			} else if !runnerVersionMatchesCommit(row.Version, opts.ExpectedCommit) {
+				item.Reasons = append(item.Reasons, "version drift")
+				report.VersionDriftCount++
+			}
+		}
+		item.Drift = len(item.Reasons) > 0
+		if !item.Drift {
+			report.ReadyRunnerCount++
+		}
+		report.CheckedRunnerCount++
+		report.Runners = append(report.Runners, item)
+	}
+	if report.CheckedRunnerCount < opts.MinRunners {
+		report.OK = false
+	}
+	for _, row := range report.Runners {
+		if row.Drift {
+			report.OK = false
+			break
+		}
+	}
+	return report
+}
+
+func runnerHasLabels(runnerLabels, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	have := make(map[string]struct{}, len(runnerLabels))
+	for _, label := range runnerLabels {
+		have[label] = struct{}{}
+	}
+	for _, label := range required {
+		if _, ok := have[label]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func runnerVersionMatchesCommit(runnerVersion, expectedCommit string) bool {
+	runnerVersion = strings.ToLower(strings.TrimSpace(runnerVersion))
+	expectedCommit = strings.ToLower(strings.TrimSpace(expectedCommit))
+	if expectedCommit == "" {
+		return true
+	}
+	if len(expectedCommit) > 8 {
+		expectedCommit = expectedCommit[:8]
+	}
+	return strings.Contains(runnerVersion, expectedCommit)
+}
+
+func writeRunnerPreflightOutput(w io.Writer, format string, report runnerPreflightReport) error {
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(report)
+	}
+	status := "ok"
+	if !report.OK {
+		status = "failed"
+	}
+	_, _ = fmt.Fprintf(w, "runner preflight: %s\n", status)
+	_, _ = fmt.Fprintf(w, "expected_commit: %s\n", emptyDash(report.ExpectedCommit))
+	_, _ = fmt.Fprintf(w, "required_labels: %s\n", formatStringList(report.RequiredLabels))
+	_, _ = fmt.Fprintf(w, "checked_runners: %d ready_runners: %d min_runners: %d\n",
+		report.CheckedRunnerCount, report.ReadyRunnerCount, report.MinRunners)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tACTIVE\tHOST\tVERSION\tHEARTBEAT_AGE\tRESULT\tREASONS")
+	for _, row := range report.Runners {
+		result := "ok"
+		if row.Drift {
+			result = "drift"
+		}
+		age := "-"
+		if row.LastHeartbeatAt != "" {
+			age = fmt.Sprintf("%ds", row.LastHeartbeatAgeSeconds)
+		}
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			row.ID, row.Name, row.Status, row.ActiveJobCount, emptyDash(row.HostName),
+			emptyDash(row.Version), age, result, emptyDash(strings.Join(row.Reasons, ",")))
+	}
+	return tw.Flush()
+}
+
+func runnerPreflightError(report runnerPreflightReport) error {
+	var reasons []string
+	if report.CheckedRunnerCount < report.MinRunners {
+		reasons = append(reasons, fmt.Sprintf("matching runners %d < required %d", report.CheckedRunnerCount, report.MinRunners))
+	}
+	if report.StaleCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("stale=%d", report.StaleCount))
+	}
+	if report.OfflineCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("offline=%d", report.OfflineCount))
+	}
+	if report.DrainingCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("draining=%d", report.DrainingCount))
+	}
+	if report.MissingVersionCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("missing_version=%d", report.MissingVersionCount))
+	}
+	if report.VersionDriftCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("version_drift=%d", report.VersionDriftCount))
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "not ready")
+	}
+	return fmt.Errorf("admin runner preflight failed: %s", strings.Join(reasons, ", "))
 }
 
 func newAdminRunnerRegisterCmd() *cobra.Command {
@@ -664,6 +984,13 @@ func formatInt64List(values []int64) string {
 		parts = append(parts, strconv.FormatInt(v, 10))
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func formatStringList(values []string) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(values, ",") + "]"
 }
 
 func newAdminRunnerDrainCmd() *cobra.Command {
