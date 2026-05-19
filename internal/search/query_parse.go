@@ -2,7 +2,10 @@
 
 package search
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // ParsedQuery is the result of running a raw user-typed query
 // through ParseQuery. The free-text portion is what flows into
@@ -14,17 +17,31 @@ import "strings"
 // to take effect (a bare `repo:foo` without slash is treated as
 // free text).
 type ParsedQuery struct {
-	Text           string // free-text query (what tsvector matches against)
-	Phrase         string // when a quoted phrase was supplied; empty when not
-	RepoFilter     *RepoFilter
-	StateFilter    string // "open" | "closed" | ""
-	AuthorFilter   string // username or empty
-	AssigneeFilter string // username or empty (issue_assignees join)
+	Text            string // free-text query (what tsvector matches against)
+	Phrase          string // when a quoted phrase was supplied; empty when not
+	Terms           []TextTerm
+	ExcludedTerms   []TextTerm
+	Qualifiers      []Qualifier
+	RepoFilter      *RepoFilter
+	StateFilter     string // "open" | "closed" | ""
+	KindFilter      string // "issue" | "pr" | ""
+	AuthorFilter    string // username or empty
+	AssigneeFilter  string // username or empty (issue_assignees join)
+	CommenterFilter string // username or empty (issue_comments join)
 	// OwnerFilter matches `user:foo` and `org:foo` qualifiers — the
-	// repo's owning user OR org slug. gh aliases the two; we mirror
-	// that (E-audit E23). Bare form only — negation (`-org:foo`) is
-	// not yet supported.
-	OwnerFilter string
+	// repo's owning user OR org slug. gh aliases them for search; we
+	// keep the positive fast path here and retain negated forms in
+	// Qualifiers for callers that can enforce exclusions.
+	OwnerFilter     string
+	LabelFilters    []string
+	MilestoneFilter string
+	LanguageFilter  string
+	PathFilter      string
+	ExtensionFilter string
+	CreatedFilter   *DateRange
+	UpdatedFilter   *DateRange
+	ClosedFilter    *DateRange
+	MergedFilter    *DateRange
 }
 
 // RepoFilter splits the `repo:owner/name` operator value.
@@ -33,19 +50,40 @@ type RepoFilter struct {
 	Name  string
 }
 
-// ParseQuery splits a raw query string into the free-text portion +
-// recognised operators. v1 supports `repo:`, `is:`, `state:`,
-// `author:`, `assignee:`, `user:`, `org:`. `is:`/`state:` and
-// `user:`/`org:` are aliased.
-//
-// A quoted run of tokens becomes the Phrase field (one quoted span
-// per query in v1). The Text field excludes quoted phrases and
-// operator tokens.
-//
-// Operators and free-text tokens are space-delimited; the parser is
-// intentionally tolerant — unknown prefixes (e.g. `language:Go`)
-// fall through as free text so future operator additions don't
-// break old queries.
+// TextTerm is a free-text term from a parsed query. Quoted terms keep
+// Phrase=true so SQL callers can choose phrase matching where the
+// backing index supports it. Negated terms are retained for callers
+// that can enforce exclusions; legacy FTS callers ignore them instead
+// of accidentally broadening the query.
+type TextTerm struct {
+	Value   string
+	Phrase  bool
+	Negated bool
+}
+
+// Qualifier is the normalized form of a recognized `key:value`
+// operator. Specific high-traffic qualifiers are also projected onto
+// ParsedQuery fields for the existing search execution paths.
+type Qualifier struct {
+	Key     string
+	Value   string
+	Negated bool
+}
+
+// DateRange is a normalized ISO-date/date-range qualifier. Bounds are
+// half-open: From is inclusive, To is exclusive. An exact date such as
+// `created:2026-05-19` becomes [2026-05-19T00:00Z, 2026-05-20T00:00Z).
+type DateRange struct {
+	From    time.Time
+	To      time.Time
+	HasFrom bool
+	HasTo   bool
+}
+
+// ParseQuery splits a raw query string into free-text terms plus
+// recognized GitHub-style qualifiers. It is intentionally tolerant:
+// malformed or unknown operators fall back to free text so old queries
+// keep working while the grammar grows.
 func ParseQuery(raw string) ParsedQuery {
 	out := ParsedQuery{}
 	if raw == "" {
@@ -55,69 +93,254 @@ func ParseQuery(raw string) ParsedQuery {
 		raw = raw[:MaxQueryBytes]
 	}
 
-	// Pull quoted phrases out first. Single-pass: find the first
-	// pair of "..." and treat that as the phrase. Anything else
-	// quoted is treated as free text.
-	if start := strings.IndexByte(raw, '"'); start >= 0 {
-		end := strings.IndexByte(raw[start+1:], '"')
-		if end > 0 {
-			out.Phrase = strings.TrimSpace(raw[start+1 : start+1+end])
-			raw = raw[:start] + " " + raw[start+1+end+1:]
-		}
-	}
-
 	var freeText []string
-	for _, tok := range strings.Fields(raw) {
-		switch {
-		case strings.HasPrefix(tok, "repo:"):
-			val := strings.TrimPrefix(tok, "repo:")
-			if i := strings.IndexByte(val, '/'); i > 0 && i < len(val)-1 {
-				out.RepoFilter = &RepoFilter{Owner: val[:i], Name: val[i+1:]}
-			} else {
-				freeText = append(freeText, tok) // not owner/name shape — fall through
+	for _, tok := range scanQueryTokens(raw) {
+		if tok.Value == "" {
+			continue
+		}
+		key, val, ok := splitQualifier(tok.Value)
+		if ok {
+			if applyQualifier(&out, key, val, tok.Negated) {
+				continue
 			}
-		case strings.HasPrefix(tok, "is:"), strings.HasPrefix(tok, "state:"):
-			val := strings.TrimPrefix(tok, "is:")
-			val = strings.TrimPrefix(val, "state:")
-			if val == "open" || val == "closed" {
-				out.StateFilter = val
-			} else {
-				freeText = append(freeText, tok)
-			}
-		case strings.HasPrefix(tok, "author:"):
-			val := strings.TrimPrefix(tok, "author:")
-			if val != "" {
-				out.AuthorFilter = val
-			} else {
-				freeText = append(freeText, tok)
-			}
-		case strings.HasPrefix(tok, "assignee:"):
-			val := strings.TrimPrefix(tok, "assignee:")
-			if val != "" {
-				out.AssigneeFilter = val
-			} else {
-				freeText = append(freeText, tok)
-			}
-		case strings.HasPrefix(tok, "user:"), strings.HasPrefix(tok, "org:"):
-			val := strings.TrimPrefix(tok, "user:")
-			val = strings.TrimPrefix(val, "org:")
-			if val != "" {
-				out.OwnerFilter = val
-			} else {
-				freeText = append(freeText, tok)
-			}
-		default:
-			freeText = append(freeText, tok)
+		}
+
+		term := TextTerm{Value: tok.Value, Phrase: tok.Quoted, Negated: tok.Negated}
+		if tok.Negated {
+			out.ExcludedTerms = append(out.ExcludedTerms, term)
+			continue
+		}
+		out.Terms = append(out.Terms, term)
+		if tok.Quoted && out.Phrase == "" {
+			out.Phrase = tok.Value
+		} else {
+			freeText = append(freeText, tok.Value)
 		}
 	}
 	out.Text = strings.TrimSpace(strings.Join(freeText, " "))
 	return out
 }
 
+type queryToken struct {
+	Value   string
+	Quoted  bool
+	Negated bool
+}
+
+func scanQueryTokens(raw string) []queryToken {
+	tokens := []queryToken{}
+	for i := 0; i < len(raw); {
+		for i < len(raw) && isSearchSpace(raw[i]) {
+			i++
+		}
+		if i >= len(raw) {
+			break
+		}
+
+		negated := false
+		if raw[i] == '-' {
+			negated = true
+			i++
+		}
+
+		var b strings.Builder
+		quoted := false
+		inQuote := false
+		for i < len(raw) {
+			ch := raw[i]
+			if ch == '"' {
+				quoted = true
+				inQuote = !inQuote
+				i++
+				continue
+			}
+			if !inQuote && isSearchSpace(ch) {
+				break
+			}
+			if inQuote && ch == '\\' && i+1 < len(raw) {
+				i++
+				b.WriteByte(raw[i])
+				i++
+				continue
+			}
+			b.WriteByte(ch)
+			i++
+		}
+		if value := strings.TrimSpace(b.String()); value != "" {
+			tokens = append(tokens, queryToken{Value: value, Quoted: quoted, Negated: negated})
+		}
+	}
+	return tokens
+}
+
+func isSearchSpace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+func splitQualifier(value string) (key, val string, ok bool) {
+	i := strings.IndexByte(value, ':')
+	if i <= 0 || i == len(value)-1 {
+		return "", "", false
+	}
+	key = strings.ToLower(strings.TrimSpace(value[:i]))
+	val = strings.TrimSpace(value[i+1:])
+	return key, val, key != "" && val != ""
+}
+
+func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
+	switch key {
+	case "repo", "is", "state", "author", "assignee", "commenter",
+		"user", "org", "label", "milestone", "language", "path",
+		"extension", "created", "updated", "closed", "merged":
+	default:
+		return false
+	}
+
+	if negated {
+		out.Qualifiers = append(out.Qualifiers, Qualifier{Key: key, Value: val, Negated: true})
+		return true
+	}
+
+	switch {
+	case key == "repo":
+		if i := strings.IndexByte(val, '/'); i > 0 && i < len(val)-1 {
+			out.RepoFilter = &RepoFilter{Owner: val[:i], Name: val[i+1:]}
+		} else {
+			return false
+		}
+	case key == "is":
+		switch strings.ToLower(val) {
+		case "open", "closed":
+			out.StateFilter = strings.ToLower(val)
+		case "issue":
+			out.KindFilter = "issue"
+		case "pr", "pull-request", "pull_request":
+			out.KindFilter = "pr"
+		default:
+			return false
+		}
+	case key == "state":
+		switch strings.ToLower(val) {
+		case "open", "closed":
+			out.StateFilter = strings.ToLower(val)
+		default:
+			return false
+		}
+	case key == "author":
+		out.AuthorFilter = val
+	case key == "assignee":
+		out.AssigneeFilter = val
+	case key == "commenter":
+		out.CommenterFilter = val
+	case key == "user", key == "org":
+		out.OwnerFilter = val
+	case key == "label":
+		out.LabelFilters = append(out.LabelFilters, val)
+	case key == "milestone":
+		out.MilestoneFilter = val
+	case key == "language":
+		out.LanguageFilter = val
+	case key == "path":
+		out.PathFilter = val
+	case key == "extension":
+		out.ExtensionFilter = strings.TrimPrefix(val, ".")
+	case key == "created", key == "updated", key == "closed", key == "merged":
+		dr, ok := parseDateRange(val)
+		if !ok {
+			return false
+		}
+		switch key {
+		case "created":
+			out.CreatedFilter = &dr
+		case "updated":
+			out.UpdatedFilter = &dr
+		case "closed":
+			out.ClosedFilter = &dr
+		case "merged":
+			out.MergedFilter = &dr
+		}
+	}
+	out.Qualifiers = append(out.Qualifiers, Qualifier{Key: key, Value: val})
+	return true
+}
+
+func parseDateRange(raw string) (DateRange, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return DateRange{}, false
+	}
+	var out DateRange
+	switch {
+	case strings.HasPrefix(value, ">="):
+		t, ok := parseISODate(value[2:])
+		if !ok {
+			return DateRange{}, false
+		}
+		out.From, out.HasFrom = t, true
+	case strings.HasPrefix(value, ">"):
+		t, ok := parseISODate(value[1:])
+		if !ok {
+			return DateRange{}, false
+		}
+		out.From, out.HasFrom = t.AddDate(0, 0, 1), true
+	case strings.HasPrefix(value, "<="):
+		t, ok := parseISODate(value[2:])
+		if !ok {
+			return DateRange{}, false
+		}
+		out.To, out.HasTo = t.AddDate(0, 0, 1), true
+	case strings.HasPrefix(value, "<"):
+		t, ok := parseISODate(value[1:])
+		if !ok {
+			return DateRange{}, false
+		}
+		out.To, out.HasTo = t, true
+	case strings.Contains(value, ".."):
+		parts := strings.SplitN(value, "..", 2)
+		if parts[0] != "" {
+			t, ok := parseISODate(parts[0])
+			if !ok {
+				return DateRange{}, false
+			}
+			out.From, out.HasFrom = t, true
+		}
+		if parts[1] != "" {
+			t, ok := parseISODate(parts[1])
+			if !ok {
+				return DateRange{}, false
+			}
+			out.To, out.HasTo = t.AddDate(0, 0, 1), true
+		}
+		if !out.HasFrom && !out.HasTo {
+			return DateRange{}, false
+		}
+	default:
+		t, ok := parseISODate(value)
+		if !ok {
+			return DateRange{}, false
+		}
+		out.From, out.HasFrom = t, true
+		out.To, out.HasTo = t.AddDate(0, 0, 1), true
+	}
+	return out, true
+}
+
+func parseISODate(raw string) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // HasContent reports whether the parsed query contains anything
 // searchable (free text, phrase, or any operator).
 func (p ParsedQuery) HasContent() bool {
 	return p.Text != "" || p.Phrase != "" || p.RepoFilter != nil ||
-		p.StateFilter != "" || p.AuthorFilter != "" || p.AssigneeFilter != "" ||
-		p.OwnerFilter != ""
+		p.StateFilter != "" || p.KindFilter != "" || p.AuthorFilter != "" ||
+		p.AssigneeFilter != "" || p.CommenterFilter != "" || p.OwnerFilter != "" ||
+		len(p.LabelFilters) > 0 || p.MilestoneFilter != "" ||
+		p.LanguageFilter != "" || p.PathFilter != "" || p.ExtensionFilter != "" ||
+		p.CreatedFilter != nil || p.UpdatedFilter != nil || p.ClosedFilter != nil ||
+		p.MergedFilter != nil || len(p.ExcludedTerms) > 0 || len(p.Qualifiers) > 0
 }

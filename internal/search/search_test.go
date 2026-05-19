@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -50,13 +52,17 @@ func TestParseQuery(t *testing.T) {
 		{"user:alice", search.ParsedQuery{OwnerFilter: "alice"}},
 		{"org:tenseleyflow shithub", search.ParsedQuery{Text: "shithub", OwnerFilter: "tenseleyflow"}},
 		{"user: nothing", search.ParsedQuery{Text: "user: nothing"}},
-		{"language:Go x", search.ParsedQuery{Text: "language:Go x"}},
+		{"language:Go x", search.ParsedQuery{Text: "x", LanguageFilter: "Go"}},
 	}
 	for _, c := range cases {
 		got := search.ParseQuery(c.in)
 		if got.Text != c.want.Text || got.Phrase != c.want.Phrase ||
-			got.StateFilter != c.want.StateFilter || got.AuthorFilter != c.want.AuthorFilter ||
-			got.AssigneeFilter != c.want.AssigneeFilter || got.OwnerFilter != c.want.OwnerFilter {
+			got.StateFilter != c.want.StateFilter || got.KindFilter != c.want.KindFilter ||
+			got.AuthorFilter != c.want.AuthorFilter || got.AssigneeFilter != c.want.AssigneeFilter ||
+			got.CommenterFilter != c.want.CommenterFilter || got.OwnerFilter != c.want.OwnerFilter ||
+			got.MilestoneFilter != c.want.MilestoneFilter || got.LanguageFilter != c.want.LanguageFilter ||
+			got.PathFilter != c.want.PathFilter || got.ExtensionFilter != c.want.ExtensionFilter ||
+			!reflect.DeepEqual(got.LabelFilters, c.want.LabelFilters) {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
 			continue
 		}
@@ -69,6 +75,62 @@ func TestParseQuery(t *testing.T) {
 				c.in, *got.RepoFilter, *c.want.RepoFilter)
 		}
 	}
+}
+
+func TestParseQuery_AdvancedQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery(`repo:tenseleyFlow/shithub is:pr label:"good first issue" ` +
+		`milestone:v1 author:esp path:internal/web extension:.go language:Go ` +
+		`commenter:mfwolffe created:2026-05-01..2026-05-19 updated:>=2026-05-10 ` +
+		`-draft -"old phrase"`)
+
+	if got.RepoFilter == nil || got.RepoFilter.Owner != "tenseleyFlow" || got.RepoFilter.Name != "shithub" {
+		t.Fatalf("RepoFilter = %+v", got.RepoFilter)
+	}
+	if got.KindFilter != "pr" || got.AuthorFilter != "esp" || got.CommenterFilter != "mfwolffe" {
+		t.Fatalf("kind/author/commenter = %q/%q/%q", got.KindFilter, got.AuthorFilter, got.CommenterFilter)
+	}
+	if !reflect.DeepEqual(got.LabelFilters, []string{"good first issue"}) || got.MilestoneFilter != "v1" {
+		t.Fatalf("labels/milestone = %#v/%q", got.LabelFilters, got.MilestoneFilter)
+	}
+	if got.PathFilter != "internal/web" || got.ExtensionFilter != "go" || got.LanguageFilter != "Go" {
+		t.Fatalf("path/extension/language = %q/%q/%q", got.PathFilter, got.ExtensionFilter, got.LanguageFilter)
+	}
+	assertDateRange(t, got.CreatedFilter, dateUTC(2026, 5, 1), dateUTC(2026, 5, 20))
+	assertDateRange(t, got.UpdatedFilter, dateUTC(2026, 5, 10), time.Time{})
+	if len(got.ExcludedTerms) != 2 || got.ExcludedTerms[1].Value != "old phrase" || !got.ExcludedTerms[1].Phrase {
+		t.Fatalf("ExcludedTerms = %#v", got.ExcludedTerms)
+	}
+	if len(got.Qualifiers) != 11 {
+		t.Fatalf("Qualifiers len = %d, want 11 (%#v)", len(got.Qualifiers), got.Qualifiers)
+	}
+}
+
+func assertDateRange(t *testing.T, got *search.DateRange, from, to time.Time) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("DateRange is nil")
+	}
+	if !from.IsZero() {
+		if !got.HasFrom || !got.From.Equal(from) {
+			t.Fatalf("from = %v/%v, want %v", got.From, got.HasFrom, from)
+		}
+	}
+	if from.IsZero() && got.HasFrom {
+		t.Fatalf("unexpected from = %v", got.From)
+	}
+	if !to.IsZero() {
+		if !got.HasTo || !got.To.Equal(to) {
+			t.Fatalf("to = %v/%v, want %v", got.To, got.HasTo, to)
+		}
+	}
+	if to.IsZero() && got.HasTo {
+		t.Fatalf("unexpected to = %v", got.To)
+	}
+}
+
+func dateUTC(year int, month time.Month, day int) time.Time {
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
 // TestParseQuery_TruncatesOverlong ensures the input cap fires.
