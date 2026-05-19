@@ -178,6 +178,8 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 		entitlements.FeatureSecretPushProtection,
 		entitlements.FeatureSecretCustomPatterns,
 		entitlements.FeatureSecretBypassControls,
+		entitlements.FeatureCodeScanning,
+		entitlements.FeatureSecurityCampaigns,
 	} {
 		if decision := set.CanUse(feature); !decision.Allowed {
 			t.Fatalf("feature %s decision=%+v, want allowed", feature, decision)

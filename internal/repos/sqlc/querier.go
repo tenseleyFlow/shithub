@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	AcceptTransferRequest(ctx context.Context, db DBTX, id int64) error
+	AddCodeSecurityCampaignAlert(ctx context.Context, db DBTX, arg AddCodeSecurityCampaignAlertParams) error
 	AddIssueToRepoProject(ctx context.Context, db DBTX, arg AddIssueToRepoProjectParams) (RepoProjectItem, error)
 	// Bypasses the soft-delete grace window (admin only — S34): set
 	// deleted_at to a year ago so the next lifecycle sweep hard-deletes
@@ -21,6 +22,7 @@ type Querier interface {
 	ArchiveRepo(ctx context.Context, db DBTX, id int64) error
 	CancelTransferRequest(ctx context.Context, db DBTX, id int64) error
 	ClaimDueDependencyUpdateConfigs(ctx context.Context, db DBTX, arg ClaimDueDependencyUpdateConfigsParams) ([]DependencyUpdateConfig, error)
+	CodeScanningSummaryForRepo(ctx context.Context, db DBTX, repoID int64) (CodeScanningSummaryForRepoRow, error)
 	CompleteDependencyUpdateJob(ctx context.Context, db DBTX, arg CompleteDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	CountActiveDependencyUpdateJobsForConfigKind(ctx context.Context, db DBTX, arg CountActiveDependencyUpdateJobsForConfigKindParams) (int64, error)
 	CountForksOfRepo(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) (int64, error)
@@ -34,6 +36,11 @@ type Querier interface {
 	CountRepoWikiPages(ctx context.Context, db DBTX, repoID int64) (int64, error)
 	CountReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	CountReposForOwnerUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP27 code scanning / SARIF upload queries.
+	CreateCodeScanningUpload(ctx context.Context, db DBTX, arg CreateCodeScanningUploadParams) (CodeScanningUpload, error)
+	CreateCodeSecurityCampaign(ctx context.Context, db DBTX, arg CreateCodeSecurityCampaignParams) (CodeSecurityCampaign, error)
 	CreateDependencyAutoTriageRule(ctx context.Context, db DBTX, arg CreateDependencyAutoTriageRuleParams) (DependencyAutoTriageRule, error)
 	CreateDependencyUpdateJob(ctx context.Context, db DBTX, arg CreateDependencyUpdateJobParams) (DependencyUpdateJob, error)
 	// ─── S27 forks ─────────────────────────────────────────────────────
@@ -75,6 +82,7 @@ type Querier interface {
 	DeleteRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) error
 	DeleteRepoWikiPage(ctx context.Context, db DBTX, arg DeleteRepoWikiPageParams) error
 	DisableMissingDependencyUpdateConfigs(ctx context.Context, db DBTX, arg DisableMissingDependencyUpdateConfigsParams) error
+	DismissCodeScanningAlert(ctx context.Context, db DBTX, arg DismissCodeScanningAlertParams) error
 	DismissDependencyAlert(ctx context.Context, db DBTX, arg DismissDependencyAlertParams) error
 	ExistsRepoForOwnerOrg(ctx context.Context, db DBTX, arg ExistsRepoForOwnerOrgParams) (bool, error)
 	ExistsRepoForOwnerUser(ctx context.Context, db DBTX, arg ExistsRepoForOwnerUserParams) (bool, error)
@@ -82,6 +90,7 @@ type Querier interface {
 	// offers past their expires_at to the expired terminal state.
 	ExpirePendingTransfers(ctx context.Context, db DBTX) (int64, error)
 	GetBranchProtectionRule(ctx context.Context, db DBTX, id int64) (BranchProtectionRule, error)
+	GetCodeScanningAlert(ctx context.Context, db DBTX, arg GetCodeScanningAlertParams) (CodeScanningAlert, error)
 	// Single-commit read. Used by the single-commit page renderer and the
 	// REST commits/{sha} response. Returns no row when the commit hasn't
 	// been verified yet; caller treats that as "compute on demand".
@@ -147,6 +156,8 @@ type Querier interface {
 	ListAllRepoFullNames(ctx context.Context, db DBTX) ([]ListAllRepoFullNamesRow, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	ListBranchProtectionRules(ctx context.Context, db DBTX, repoID int64) ([]BranchProtectionRule, error)
+	ListCodeScanningAlertsForRepo(ctx context.Context, db DBTX, arg ListCodeScanningAlertsForRepoParams) ([]CodeScanningAlert, error)
+	ListCodeSecurityCampaignsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListCodeSecurityCampaignsForRepoRow, error)
 	ListDependencyAutoTriageEventsForAlert(ctx context.Context, db DBTX, alertID int64) ([]DependencyAutoTriageEvent, error)
 	ListDependencyAutoTriageRulesForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyAutoTriageRule, error)
 	ListDependencyUpdateConfigsForRepo(ctx context.Context, db DBTX, repoID int64) ([]DependencyUpdateConfig, error)
@@ -163,6 +174,7 @@ type Querier interface {
 	// the bare repo on disk.
 	ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfRepoID pgtype.Int8) ([]ListForksOfRepoForRepackRow, error)
 	ListOpenDependencyAlertsForRepo(ctx context.Context, db DBTX, repoID int64) ([]ListOpenDependencyAlertsForRepoRow, error)
+	ListOrgCodeScanningAlerts(ctx context.Context, db DBTX, arg ListOrgCodeScanningAlertsParams) ([]ListOrgCodeScanningAlertsRow, error)
 	ListOrgDependencyAlerts(ctx context.Context, db DBTX, arg ListOrgDependencyAlertsParams) ([]ListOrgDependencyAlertsRow, error)
 	ListOrgSecurityAdvisories(ctx context.Context, db DBTX, arg ListOrgSecurityAdvisoriesParams) ([]ListOrgSecurityAdvisoriesRow, error)
 	ListOrgSecurityRepoSummaries(ctx context.Context, db DBTX, arg ListOrgSecurityRepoSummariesParams) ([]ListOrgSecurityRepoSummariesRow, error)
@@ -225,6 +237,7 @@ type Querier interface {
 	MarkRepoDependenciesStale(ctx context.Context, db DBTX, arg MarkRepoDependenciesStaleParams) error
 	MarkRepoSourceRemoteFetchError(ctx context.Context, db DBTX, arg MarkRepoSourceRemoteFetchErrorParams) error
 	MarkRepoSourceRemoteFetched(ctx context.Context, db DBTX, repoID int64) error
+	OrgCodeScanningSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgCodeScanningSummaryRow, error)
 	OrgSecurityOverviewSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecurityOverviewSummaryRow, error)
 	// ─── fork-anchor cleanup on hard delete ────────────────────────────────
 	// Children pointing at this repo lose their fork-of pointer. Mirrors
@@ -250,6 +263,7 @@ type Querier interface {
 	// Same-owner rename. The handler validates the new name shape and the
 	// redirect row is INSERTed in the same tx.
 	RenameRepo(ctx context.Context, db DBTX, arg RenameRepoParams) error
+	ReopenCodeScanningAlert(ctx context.Context, db DBTX, arg ReopenCodeScanningAlertParams) error
 	// Atomic full-replace: callers compose the new topic set in Go,
 	// then replace the existing rows in one tx (DELETE + INSERT). The
 	// caller's tx wraps both calls for atomicity.
@@ -307,6 +321,7 @@ type Querier interface {
 	UpdateRepoProject(ctx context.Context, db DBTX, arg UpdateRepoProjectParams) (RepoProject, error)
 	UpdateRepoWikiPage(ctx context.Context, db DBTX, arg UpdateRepoWikiPageParams) (RepoWikiPage, error)
 	UpsertBranchProtectionRule(ctx context.Context, db DBTX, arg UpsertBranchProtectionRuleParams) (int64, error)
+	UpsertCodeScanningAlert(ctx context.Context, db DBTX, arg UpsertCodeScanningAlertParams) (CodeScanningAlert, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// Idempotent upsert. The verification orchestrator + backfill worker
 	// both write through this query; both can safely run concurrently

@@ -59,6 +59,11 @@ const (
 	FeatureSecretPushProtection Feature = "secret_push_protection"
 	FeatureSecretCustomPatterns Feature = "secret_custom_patterns"
 	FeatureSecretBypassControls Feature = "secret_bypass_controls"
+	// SP27 Code Security surfaces. Public repositories keep baseline
+	// SARIF/code scanning visibility; private organization repositories
+	// require Team.
+	FeatureCodeScanning      Feature = "code_scanning"
+	FeatureSecurityCampaigns Feature = "security_campaigns"
 	// PRO07 additions.
 	//
 	// FeatureProfilePinsBeyondFree gates raising the personal profile
@@ -332,6 +337,8 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureSecretPushProtection:      {billing.SubjectKindOrg},
 	FeatureSecretCustomPatterns:      {billing.SubjectKindOrg},
 	FeatureSecretBypassControls:      {billing.SubjectKindOrg},
+	FeatureCodeScanning:              {billing.SubjectKindOrg},
+	FeatureSecurityCampaigns:         {billing.SubjectKindOrg},
 	FeatureProfilePinsBeyondFree:     {billing.SubjectKindUser},
 	FeatureCodeOwnersReview:          {billing.SubjectKindUser, billing.SubjectKindOrg},
 	FeatureProfileVanity:             {billing.SubjectKindUser},
