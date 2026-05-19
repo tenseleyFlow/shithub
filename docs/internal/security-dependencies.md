@@ -7,8 +7,11 @@ security overview. The owning code lives in `internal/repos/dependencies`,
 `internal/worker/jobs/pr_dependency_review.go`,
 `internal/worker/jobs/repo_dependency_update_config_sync.go`, and the update
 workers at `internal/worker/jobs/repo_dependency_update_sweep.go` and
-`internal/worker/jobs/repo_dependency_update_run.go`. Web surfaces live in the
-handlers at `internal/web/handlers/orgs/security.go` and
+`internal/worker/jobs/repo_dependency_update_run.go`. Advisory import code
+lives in `internal/repos/advisoryimport`,
+`internal/worker/jobs/dependency_advisory_osv_import.go`, and
+`cmd/shithubd/dependency_advisory_import.go`. Web surfaces live in the handlers
+at `internal/web/handlers/orgs/security.go` and
 `internal/web/handlers/repo/pulls.go`, with repository security advisory
 workflows in `internal/web/handlers/repo/security_advisories.go`.
 
@@ -20,11 +23,13 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
   `package-lock.json`.
 - Advisory matching is local-only. Workers do not call GitHub, npm, Go proxy, or
   external vulnerability services on the push or pull-request path.
+- Operators can import reviewed OSV JSON files into the local advisory catalog
+  through `dependency_advisory:osv_import`; the importer reads local files only.
 - Advisory matching compares ecosystem, package name, and the local advisory
-  `affected_range` through `internal/repos/advisorymatch`. Supported ecosystems
-  for range evaluation are Go modules and npm. Advisories with
-  `affected_range = ''` or `'*'` match all versions, and unsupported ecosystems
-  retain exact-version matching only.
+  affected ranges through `internal/repos/advisorymatch`. Supported ecosystems
+  for range evaluation are Go modules and npm. Advisories with empty or `*`
+  ranges match all versions, and unsupported ecosystems retain exact-version
+  matching only.
 - Supported range syntax includes exact versions, comparison ranges such as
   `>= v1.0.0, < v1.2.4`, whitespace-separated comparator sets,
   hyphen ranges, npm caret/tilde ranges, wildcard ranges such as `1.2.x`, and
@@ -49,8 +54,9 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
   sources.
 - `dependency_advisory_aliases` stores GHSA/CVE/OSV aliases for catalog rows.
 - `dependency_advisory_affected_ranges` stores normalized imported affected
-  package/range details alongside the legacy single `affected_range` column used
-  by current alert matching.
+  package/range details. Alert and pull-request review queries prefer these
+  structured rows and fall back to the legacy single `affected_range` column
+  only when an advisory has no structured ranges.
 - `dependency_advisory_sync_runs` records import audit history, counts, and
   failures without logging private repository package data.
 - `repo_dependency_alerts` joins current dependencies to local advisories and
@@ -141,6 +147,34 @@ shithubd repo-dependencies-backfill-all
 
 The command enqueues one `repo:dependency_scan` job per active repository and
 returns immediately.
+
+## Advisory Imports
+
+Operators can import OSV-formatted advisory data from a reviewed local file:
+
+```sh
+shithubd dependency-advisories-import-osv \
+  --file /srv/shithub/advisories/osv-go-npm.json \
+  --source-name osv \
+  --source-url https://osv.dev \
+  --license CC-BY-4.0 \
+  --attribution "Open Source Vulnerabilities"
+```
+
+The command validates the local file path and enqueues
+`dependency_advisory:osv_import`; the worker reads the file, records a
+`dependency_advisory_sync_runs` row, and transactionally upserts
+`dependency_advisories`, aliases, CVSS/CWE metadata, and structured affected
+ranges. The importer accepts one OSV object or an array of OSV objects. Current
+normalization stores Go module and npm affected packages; unsupported
+ecosystems are skipped rather than treated as matched.
+
+Import failures update both the sync run and source row with a bounded error
+message. Retry by fixing the operator-controlled file and enqueueing the
+command again. After importing new advisories, run
+`shithubd repo-dependencies-backfill-all` if existing repository inventories
+need alert recomputation. Push and pull-request paths continue to read only the
+local catalog.
 
 ## Pull Request Dependency Review
 
@@ -241,9 +275,10 @@ Manifest edits are limited to supported direct dependencies in `go.mod` and
 until a package-manager adapter can update them safely.
 
 Still-planned SP25b/SP25 follow-up work includes auto-triage rule UI and worker
-application, repo/org settings surfaces for update diagnostics, external
-advisory imports, richer lockfile adapters, and a dedicated bot identity for
-automated commits. Do not describe those as shipped behavior.
+application, repo/org settings surfaces for update diagnostics, live/network
+advisory sync, additional advisory source formats, richer lockfile adapters,
+and a dedicated bot identity for automated commits. Do not describe those as
+shipped behavior.
 
 ## Privacy and Product Copy
 
@@ -253,9 +288,10 @@ execute the alert-detail queries, so private package names and advisory
 summaries are not exposed behind the paywall. Free organization pull requests do
 not execute or persist dependency review item details either.
 
-Do not advertise unsupported ecosystems, advisory import automation,
+Do not advertise unsupported ecosystems, live advisory sync automation,
 auto-triage application, lockfile-only remediation, or AI remediation until
-those subsystems exist. User-facing copy should say "supported Go and npm
-manifests", "local advisory matches", "Go/npm advisory ranges", or "dependency
-update pull requests for supported direct dependencies" rather than claiming
-complete package-manager parity.
+those subsystems exist. User-facing copy can mention operator-controlled local
+OSV imports when the audience is administrative. Product copy should say
+"supported Go and npm manifests", "local advisory matches", "Go/npm advisory
+ranges", or "dependency update pull requests for supported direct dependencies"
+rather than claiming complete package-manager parity.

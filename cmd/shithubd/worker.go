@@ -149,6 +149,9 @@ var workerCmd = &cobra.Command{
 		p.Register(worker.KindRepoDependencyUpdateRun, jobs.RepoDependencyUpdateRun(jobs.RepoDependencyUpdateRunDeps{
 			Pool: pool, RepoFS: rfs, Logger: logger,
 		}))
+		p.Register(worker.KindDependencyAdvisoryOSVImport, jobs.DependencyAdvisoryOSVImport(jobs.DependencyAdvisoryOSVImportDeps{
+			Pool: pool, Logger: logger,
+		}))
 		p.Register(worker.KindJobsPurge, jobs.JobsPurge(jobs.JobsPurgeDeps{
 			Pool: pool, Logger: logger,
 		}))
