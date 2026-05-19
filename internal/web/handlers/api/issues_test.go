@@ -980,6 +980,69 @@ func TestIssues_ListMentionRejectedExplicitly(t *testing.T) {
 	}
 }
 
+// G1: gh-canonical query aliases must land on the same validation path
+// as the shithub-native spellings. Pre-fix the CLI sent `creator=`,
+// `mentioned=`, and `label=` and the server silently dropped them —
+// passing tests, broken filters. This pins the alias contract:
+//   - author=  ↔ creator=
+//   - mention= ↔ mentioned=
+//   - labels=  ↔ label=
+//
+// Each pair must produce identical responses; an unknown user/label
+// under either spelling must still 422.
+func TestIssues_ListAcceptsGhCanonicalAliases(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	// Seed one issue so the author filter has a row to match.
+	body, _ := json.Marshal(map[string]any{"title": "alice-issue"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed issue: %d %s", rr.Code, rr.Body.String())
+	}
+
+	get := func(query string) (int, []apiIssue) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		var rows []apiIssue
+		if rr.Code == http.StatusOK {
+			_ = json.Unmarshal(rr.Body.Bytes(), &rows)
+		}
+		return rr.Code, rows
+	}
+
+	// author / creator — happy path matches; unknown 422s under either.
+	if code, rows := get("author=alice"); code != 200 || len(rows) != 1 {
+		t.Errorf("author=alice: code=%d rows=%d", code, len(rows))
+	}
+	if code, rows := get("creator=alice"); code != 200 || len(rows) != 1 {
+		t.Errorf("creator=alice (alias): code=%d rows=%d", code, len(rows))
+	}
+	if code, _ := get("creator=ghost"); code != http.StatusUnprocessableEntity {
+		t.Errorf("creator=ghost (alias unknown user): code=%d, want 422", code)
+	}
+
+	// mention / mentioned — both rejected with the same 422 (no support yet).
+	if code, _ := get("mention=alice"); code != http.StatusUnprocessableEntity {
+		t.Errorf("mention=alice: code=%d, want 422", code)
+	}
+	if code, _ := get("mentioned=alice"); code != http.StatusUnprocessableEntity {
+		t.Errorf("mentioned=alice (alias): code=%d, want 422", code)
+	}
+
+	// labels / label — unknown label 422s under either spelling.
+	if code, _ := get("labels=totally-fake"); code != http.StatusUnprocessableEntity {
+		t.Errorf("labels=totally-fake: code=%d, want 422", code)
+	}
+	if code, _ := get("label=totally-fake"); code != http.StatusUnprocessableEntity {
+		t.Errorf("label=totally-fake (alias): code=%d, want 422", code)
+	}
+}
+
 func TestIssues_ListStateStrict(t *testing.T) {
 	_, router, _, _, token := seedIssuesEnv(t, "alice")
 	for _, tc := range []struct {
