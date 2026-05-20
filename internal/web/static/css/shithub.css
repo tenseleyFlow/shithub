@@ -2843,6 +2843,9 @@ button.shithub-contrib-setting-item:hover {
 .shithub-pill-template { background: rgba(165, 78, 232, 0.15); border-color: rgba(165, 78, 232, 0.4); color: #a54ee8; }
 .shithub-pill-verified { background: rgba(63, 185, 80, 0.15); border-color: rgba(63, 185, 80, 0.4); }
 .shithub-pill-unverified { background: rgba(187, 128, 9, 0.15); border-color: rgba(187, 128, 9, 0.4); }
+.shithub-pill-status-pending { background: rgba(187, 128, 9, 0.15); border-color: rgba(187, 128, 9, 0.4); }
+.shithub-pill-status-approved { background: rgba(63, 185, 80, 0.15); border-color: rgba(63, 185, 80, 0.4); }
+.shithub-pill-status-denied { background: rgba(248, 81, 73, 0.15); border-color: rgba(248, 81, 73, 0.4); }
 
 /* ----- notifications (S10) ----- */
 .shithub-notif-form { display: grid; gap: 0.75rem; max-width: 36rem; }
@@ -11449,6 +11452,29 @@ button.shithub-repo-action {
   color: var(--fg-default);
 }
 .shithub-inline-form { display: inline; }
+.shithub-secret-bypass-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.shithub-secret-bypass-actions .shithub-inline-form {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+.shithub-inline-label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.shithub-inline-label input {
+  max-width: 14rem;
+}
+.shithub-inline-label input[type=number] {
+  max-width: 5rem;
+}
 .shithub-link-button {
   border: 0;
   padding: 0;

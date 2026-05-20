@@ -30,6 +30,7 @@ type Querier interface {
 	// Returns the row or pgx.ErrNoRows; the handler treats absence as "no
 	// alerts configured" so the absence is the off state.
 	GetSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) (SecretScanAlertPref, error)
+	GetSecretScanBypassRequest(ctx context.Context, db DBTX, arg GetSecretScanBypassRequestParams) (SecretScanBypassRequest, error)
 	GetSecretScanCustomPattern(ctx context.Context, db DBTX, arg GetSecretScanCustomPatternParams) (SecretScanCustomPattern, error)
 	GetSecretScanFinding(ctx context.Context, db DBTX, arg GetSecretScanFindingParams) (SecretScanFinding, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -39,9 +40,11 @@ type Querier interface {
 	// allowlisted finding just updates the reason via the UPSERT.
 	InsertSecretScanAllowlist(ctx context.Context, db DBTX, arg InsertSecretScanAllowlistParams) (SecretScanAllowlist, error)
 	IsSecretScanAllowlisted(ctx context.Context, db DBTX, arg IsSecretScanAllowlistedParams) (bool, error)
+	ListApprovedSecretScanBypassesForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanBypassRequest, error)
 	ListEnabledSecretScanCustomPatternsForOrg(ctx context.Context, db DBTX, orgID int64) ([]SecretScanCustomPattern, error)
 	ListOrgSecretScanFindings(ctx context.Context, db DBTX, arg ListOrgSecretScanFindingsParams) ([]ListOrgSecretScanFindingsRow, error)
 	ListSecretScanAllowlistForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanAllowlist, error)
+	ListSecretScanBypassRequestsForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanBypassRequest, error)
 	ListSecretScanCustomPatternsForOrg(ctx context.Context, db DBTX, orgID int64) ([]SecretScanCustomPattern, error)
 	// Status-filterable list for the UI in 10c. Filter is optional;
 	// empty string lists everything.
@@ -52,6 +55,7 @@ type Querier interface {
 	MarkSecretScanFindingsStaleForRepo(ctx context.Context, db DBTX, arg MarkSecretScanFindingsStaleForRepoParams) error
 	OrgSecretScanSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecretScanSummaryRow, error)
 	ResolveSecretScanFinding(ctx context.Context, db DBTX, arg ResolveSecretScanFindingParams) error
+	ReviewSecretScanBypassRequest(ctx context.Context, db DBTX, arg ReviewSecretScanBypassRequestParams) (SecretScanBypassRequest, error)
 	SetSecretScanCustomPatternEnabled(ctx context.Context, db DBTX, arg SetSecretScanCustomPatternEnabledParams) (SecretScanCustomPattern, error)
 	// Recorded after a successful send so the worker can dedupe re-scans
 	// that re-surface a known finding (status=open → stale → open again).
@@ -61,6 +65,13 @@ type Querier interface {
 	// malformed configurations (webhook url without secret, no enabled
 	// channel) so the handler doesn't have to repeat that validation.
 	UpsertSecretScanAlertPrefs(ctx context.Context, db DBTX, arg UpsertSecretScanAlertPrefsParams) (SecretScanAlertPref, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP26b: push-protection bypass request queries.
+	// Hook-side idempotency: repeated rejected pushes for the same exact
+	// finding refresh last_seen_at without creating duplicates. Expired
+	// approvals revert to pending so the next push requires a fresh review.
+	UpsertSecretScanBypassRequest(ctx context.Context, db DBTX, arg UpsertSecretScanBypassRequestParams) (SecretScanBypassRequest, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// PRO-EXT01-10b: secret-scan findings storage.

@@ -19,8 +19,7 @@ organization Secret Protection baseline. The owning code lives in
 - The Team feature keys are `secret_scanning`,
   `secret_push_protection`, `secret_custom_patterns`, and
   `secret_bypass_controls`. Custom patterns are implemented by SP26a;
-  bypass controls remain a registry key until their implementation
-  sprint ships.
+  bounded push-protection bypass controls are implemented by SP26b.
 - Enterprise remains contact-sales only.
 
 ## Pattern Engine
@@ -59,9 +58,10 @@ secret values. `secret_scan_allowlist` stores `(repo_id, pattern, path)`
 rows; adding an allowlist entry also sweeps matching open findings to
 `allowlisted`.
 
-The repository security page lists findings and allowlist entries. Free
-private org repositories see an upgrade affordance rather than private
-finding details. The organization security overview loads secret
+The repository security page lists findings, allowlist entries, and
+push-protection bypass requests. Free private org repositories see an
+upgrade affordance rather than private finding details or exact bypass
+request paths. The organization security overview loads secret
 summary/finding queries only after the Team `secret_scanning`
 entitlement passes. Custom pattern rows are not loaded unless
 `secret_custom_patterns` is allowed.
@@ -86,16 +86,28 @@ pattern, and short commit SHA; it never includes the redacted excerpt or
 raw secret bytes.
 
 Allowlist rows suppress push rejection for the exact `(pattern, path)`
-tuple. There is no bypass request queue yet, so a false positive must be
-allowlisted from the repository security page before pushing again.
+tuple. When push protection blocks a finding, the hook records a
+bounded pending bypass request keyed to `(repo, pattern, path, commit,
+line)` and prints the repository security-page review URL. Approved,
+unexpired bypasses suppress only that exact tuple. Denied and expired
+bypasses do not suppress future rejections; expired approvals are
+refreshed back to pending on the next matching push. Bypass rows store
+only metadata and never raw match bytes or redacted excerpts.
+
+Public repositories and personal private repositories can review
+bypasses as a baseline owner-control surface. Private organization
+repositories require the Team `secret_bypass_controls` entitlement
+before exact bypass rows or approval controls are loaded. Approve/deny
+events write structured audit rows (`secret_bypass_requested`,
+`secret_bypass_approved`, `secret_bypass_denied`) with request id,
+pattern, path, line, commit oid, and expiry only.
+
 Team org custom patterns participate in the same push-time scan path
 when `secret_custom_patterns` is allowed; invalid legacy rows are skipped
 so broken configuration cannot deny all pushes.
 
 ## Known Gaps
 
-- Push-protection bypass requests, approvals, and audit events are not
-  implemented yet.
 - Scan history API endpoints are not implemented yet.
 - Provider notification and provider-side validity checks are not
   implemented yet.
