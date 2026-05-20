@@ -18,8 +18,9 @@ organization Secret Protection baseline. The owning code lives in
   and pre-receive push protection.
 - The Team feature keys are `secret_scanning`,
   `secret_push_protection`, `secret_custom_patterns`, and
-  `secret_bypass_controls`. The latter two are registry keys only until
-  their implementation sprints ship.
+  `secret_bypass_controls`. Custom patterns are implemented by SP26a;
+  bypass controls remain a registry key until their implementation
+  sprint ships.
 - Enterprise remains contact-sales only.
 
 ## Pattern Engine
@@ -32,6 +33,22 @@ The scanner returns pattern name, line number, and a redacted excerpt.
 Raw matched secret bytes must not be stored, logged, or printed. New
 patterns are append-only unless a migration updates stored allowlist
 rows keyed by pattern name.
+
+Team organization owners can define organization-scoped custom patterns
+from `/organizations/{org}/settings/security/secret-patterns`. Custom
+pattern rows store only detector metadata: name, description,
+RE2-compatible regular expression, minimum match length, enabled state,
+and actor timestamps. The persisted raw expression is configuration, not
+a secret; matched bytes are still redacted by the scanner. Findings use
+stable `custom/<name>` labels so repository allowlists can suppress a
+custom false positive by `(pattern, path)`.
+
+Custom pattern writes validate the name shape, expression length,
+regular-expression syntax, empty-string matches, and minimum match
+length before persistence. Enabled patterns are loaded for org-owned
+repository scans only when the org has the Team
+`secret_custom_patterns` entitlement. Free orgs do not run or list
+stored custom patterns, including rows left behind after a downgrade.
 
 ## Historical Scanning
 
@@ -46,7 +63,8 @@ The repository security page lists findings and allowlist entries. Free
 private org repositories see an upgrade affordance rather than private
 finding details. The organization security overview loads secret
 summary/finding queries only after the Team `secret_scanning`
-entitlement passes.
+entitlement passes. Custom pattern rows are not loaded unless
+`secret_custom_patterns` is allowed.
 
 ## Push Protection
 
@@ -70,10 +88,12 @@ raw secret bytes.
 Allowlist rows suppress push rejection for the exact `(pattern, path)`
 tuple. There is no bypass request queue yet, so a false positive must be
 allowlisted from the repository security page before pushing again.
+Team org custom patterns participate in the same push-time scan path
+when `secret_custom_patterns` is allowed; invalid legacy rows are skipped
+so broken configuration cannot deny all pushes.
 
 ## Known Gaps
 
-- Custom pattern CRUD and enforcement are not implemented yet.
 - Push-protection bypass requests, approvals, and audit events are not
   implemented yet.
 - Scan history API endpoints are not implemented yet.

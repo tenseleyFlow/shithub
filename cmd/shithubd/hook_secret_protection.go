@@ -60,7 +60,7 @@ func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, repo rep
 	if !enabled {
 		return nil
 	}
-	findings, err := scanPreReceiveSecrets(ctx, h.pool, repo.ID, gitDir, refs)
+	findings, err := scanPreReceiveSecrets(ctx, h.pool, repo, gitDir, refs)
 	if err != nil {
 		return fmt.Errorf("secret push protection: %w", err)
 	}
@@ -86,8 +86,12 @@ func preReceiveSecretProtectionEnabled(ctx context.Context, h *hookCtx, repo rep
 	return true, nil
 }
 
-func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repoID int64, gitDir string, refs []refUpdate) ([]secretPushFinding, error) {
-	allowSet, err := loadPreReceiveSecretAllowlist(ctx, pool, repoID)
+func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo, gitDir string, refs []refUpdate) ([]secretPushFinding, error) {
+	allowSet, err := loadPreReceiveSecretAllowlist(ctx, pool, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	scanPatterns, err := loadPreReceiveSecretPatterns(ctx, pool, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +113,7 @@ func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repoID int64
 			if err != nil || len(blob) > preReceiveSecretScanMaxFileBytes || !isTextForPreReceiveSecretScan(blob) {
 				continue
 			}
-			for _, finding := range secretscan.Scan(blob, secretscan.ScanOptions{MaxBytes: preReceiveSecretScanMaxFileBytes}) {
+			for _, finding := range secretscan.Scan(blob, secretscan.ScanOptions{Patterns: scanPatterns, MaxBytes: preReceiveSecretScanMaxFileBytes}) {
 				if _, ok := allowSet[preReceiveAllowlistKey{Pattern: finding.Pattern, Path: path}]; ok {
 					continue
 				}
@@ -126,6 +130,37 @@ func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repoID int64
 		}
 	}
 	return out, nil
+}
+
+func loadPreReceiveSecretPatterns(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo) ([]secretscan.Pattern, error) {
+	if !repo.OwnerOrgID.Valid {
+		return secretscan.Patterns, nil
+	}
+	decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: pool}, repo.OwnerOrgID.Int64, entitlements.FeatureSecretCustomPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("custom pattern entitlement: %w", err)
+	}
+	if !decision.Allowed {
+		return secretscan.Patterns, nil
+	}
+	rows, err := secretscandb.New().ListEnabledSecretScanCustomPatternsForOrg(ctx, pool, repo.OwnerOrgID.Int64)
+	if err != nil {
+		return nil, fmt.Errorf("load custom patterns: %w", err)
+	}
+	custom := make([]secretscan.Pattern, 0, len(rows))
+	for _, row := range rows {
+		p, err := secretscan.CompileCustomPattern(secretscan.CustomPatternSpec{
+			Name:        row.Name,
+			Description: row.Description,
+			Pattern:     row.Pattern,
+			MinMatchLen: int(row.MinMatchLen),
+		})
+		if err != nil {
+			continue
+		}
+		custom = append(custom, p)
+	}
+	return secretscan.PatternsWithCustom(custom), nil
 }
 
 func preReceiveNewCommits(ctx context.Context, gitDir string, refs []refUpdate) ([]string, error) {

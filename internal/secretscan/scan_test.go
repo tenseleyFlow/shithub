@@ -3,6 +3,7 @@
 package secretscan_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -198,5 +199,76 @@ func TestScan_MultipleFindingsInOneFile(t *testing.T) {
 	findings := secretscan.Scan(content, secretscan.ScanOptions{})
 	if len(findings) != 2 {
 		t.Errorf("expected 2 findings, got %d", len(findings))
+	}
+}
+
+func TestCompileCustomPatternScansAndRedacts(t *testing.T) {
+	t.Parallel()
+	pattern, err := secretscan.CompileCustomPattern(secretscan.CustomPatternSpec{
+		Name:        "internal-token",
+		Description: "Internal service token.",
+		Pattern:     `shithub_custom_[A-Za-z0-9]{12,}`,
+		MinMatchLen: 16,
+	})
+	if err != nil {
+		t.Fatalf("CompileCustomPattern: %v", err)
+	}
+	findings := secretscan.Scan(
+		[]byte("token=shithub_custom_ABCDEF123456\n"),
+		secretscan.ScanOptions{Patterns: secretscan.PatternsWithCustom([]secretscan.Pattern{pattern})},
+	)
+	if len(findings) != 1 {
+		t.Fatalf("findings len = %d, want 1: %+v", len(findings), findings)
+	}
+	if findings[0].Pattern != "custom/internal-token" {
+		t.Fatalf("Pattern = %q, want custom/internal-token", findings[0].Pattern)
+	}
+	if strings.Contains(findings[0].Excerpt, "shithub_custom_ABCDEF123456") {
+		t.Fatalf("excerpt leaked raw custom match: %q", findings[0].Excerpt)
+	}
+	if !strings.Contains(findings[0].Excerpt, "[REDACTED]") {
+		t.Fatalf("excerpt missing redaction marker: %q", findings[0].Excerpt)
+	}
+}
+
+func TestCompileCustomPatternRejectsBadDefinitions(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		spec secretscan.CustomPatternSpec
+		want error
+	}{
+		{
+			name: "reserved built-in name",
+			spec: secretscan.CustomPatternSpec{Name: "github-token", Pattern: `shithub_custom_[A-Za-z0-9]{12,}`, MinMatchLen: 16},
+			want: secretscan.ErrCustomPatternNameReserved,
+		},
+		{
+			name: "invalid name",
+			spec: secretscan.CustomPatternSpec{Name: "bad name", Pattern: `shithub_custom_[A-Za-z0-9]{12,}`, MinMatchLen: 16},
+			want: secretscan.ErrCustomPatternNameInvalid,
+		},
+		{
+			name: "bad regex",
+			spec: secretscan.CustomPatternSpec{Name: "bad-regex", Pattern: `(`, MinMatchLen: 16},
+			want: secretscan.ErrCustomPatternExpressionInvalid,
+		},
+		{
+			name: "empty match",
+			spec: secretscan.CustomPatternSpec{Name: "empty-match", Pattern: `.*`, MinMatchLen: 16},
+			want: secretscan.ErrCustomPatternMatchesEmpty,
+		},
+		{
+			name: "too short minimum",
+			spec: secretscan.CustomPatternSpec{Name: "short-min", Pattern: `shithub_custom_[A-Za-z0-9]{12,}`, MinMatchLen: 4},
+			want: secretscan.ErrCustomPatternMinMatchInvalid,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := secretscan.CompileCustomPattern(tc.spec); !errors.Is(err, tc.want) {
+				t.Fatalf("CompileCustomPattern err = %v, want %v", err, tc.want)
+			}
+		})
 	}
 }

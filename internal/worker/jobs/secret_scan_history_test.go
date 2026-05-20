@@ -16,11 +16,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	"github.com/tenseleyFlow/shithub/internal/orgs"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker/jobs"
@@ -159,10 +162,33 @@ func TestSecretScanHistory_RedactedExcerptStored(t *testing.T) {
 	}
 }
 
+func TestSecretScanHistory_CustomPatternRequiresTeamOrg(t *testing.T) {
+	t.Parallel()
+	env := setupOrgSecretScanEnv(t, false /* keep free */)
+	seedRepoFile(t, env.gitDir, "config/internal.env", "TOKEN=shithub_custom_ABCDEF123456\n", "Initial commit")
+	createCustomSecretPattern(t, env.pool, env.orgID, "internal-token")
+
+	if err := env.run(); err != nil {
+		t.Fatalf("free org worker: %v", err)
+	}
+	if count := countFindings(t, env.pool, env.repoID, ""); count != 0 {
+		t.Fatalf("free org custom pattern should not run, got %d findings", count)
+	}
+
+	upgradeSecretScanOrgToTeam(t, env.pool, env.orgID)
+	if err := env.run(); err != nil {
+		t.Fatalf("team org worker: %v", err)
+	}
+	if pattern := firstFindingPattern(t, env.pool, env.repoID); pattern != "custom/internal-token" {
+		t.Fatalf("pattern: got %q, want custom/internal-token", pattern)
+	}
+}
+
 // secretScanEnv bundles the per-test pool + RepoFS + repo id + a
 // closure to invoke the worker. Each test gets its own.
 type secretScanEnv struct {
 	pool   *pgxpool.Pool
+	orgID  int64
 	repoID int64
 	gitDir string
 	run    func() error
@@ -231,6 +257,81 @@ func setupSecretScanEnv(t *testing.T, enforce bool, upgradeOwner bool) *secretSc
 	return &secretScanEnv{pool: pool, repoID: repo.ID, gitDir: gitDir, run: run}
 }
 
+func setupOrgSecretScanEnv(t *testing.T, team bool) *secretScanEnv {
+	t.Helper()
+	pool := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	root := t.TempDir()
+	rfs, err := storage.NewRepoFS(root)
+	if err != nil {
+		t.Fatalf("NewRepoFS: %v", err)
+	}
+
+	owner, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "orgscanowner", DisplayName: "Org Scan Owner", PasswordHash: secretScanFixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	org, err := orgs.Create(ctx, orgs.Deps{
+		Pool:   pool,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, orgs.CreateParams{
+		Slug: "scan-acme", DisplayName: "Scan Acme", CreatedByUserID: owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("orgs.Create: %v", err)
+	}
+	if team {
+		upgradeSecretScanOrgToTeam(t, pool, org.ID)
+	}
+
+	repo, err := reposdb.New().CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "scanme",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("CreateRepo: %v", err)
+	}
+
+	gitDir, err := rfs.RepoPath(org.Slug, repo.Name)
+	if err != nil {
+		t.Fatalf("RepoPath: %v", err)
+	}
+	if err := initBareRepo(gitDir); err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+
+	run := func() error {
+		handler := jobs.SecretScanHistory(jobs.SecretScanHistoryDeps{
+			Pool:   pool,
+			RepoFS: rfs,
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+		payload, _ := json.Marshal(map[string]any{"repo_id": repo.ID})
+		return handler(ctx, payload)
+	}
+
+	return &secretScanEnv{pool: pool, orgID: org.ID, repoID: repo.ID, gitDir: gitDir, run: run}
+}
+
+func createCustomSecretPattern(t *testing.T, pool *pgxpool.Pool, orgID int64, name string) {
+	t.Helper()
+	if _, err := secretscandb.New().CreateSecretScanCustomPattern(context.Background(), pool, secretscandb.CreateSecretScanCustomPatternParams{
+		OrgID:       orgID,
+		Name:        name,
+		Description: "Internal token fixture.",
+		Pattern:     `shithub_custom_[A-Za-z0-9]{12,}`,
+		MinMatchLen: 16,
+		CreatedBy:   pgtype.Int8{},
+	}); err != nil {
+		t.Fatalf("CreateSecretScanCustomPattern: %v", err)
+	}
+}
+
 func upgradeSecretScanOwnerToPro(t *testing.T, pool *pgxpool.Pool, userID int64) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -245,6 +346,20 @@ func upgradeSecretScanOwnerToPro(t *testing.T, pool *pgxpool.Pool, userID int64)
 	})
 	if err != nil {
 		t.Fatalf("upgrade owner to Pro: %v", err)
+	}
+}
+
+func upgradeSecretScanOrgToTeam(t *testing.T, pool *pgxpool.Pool, orgID int64) {
+	t.Helper()
+	if _, err := orgbilling.ApplySubscriptionSnapshot(context.Background(), orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_secscan_team",
+		StripeSubscriptionItemID: "si_secscan_team",
+		LastWebhookEventID:       "evt_secscan_team",
+	}); err != nil {
+		t.Fatalf("upgrade org to Team: %v", err)
 	}
 }
 

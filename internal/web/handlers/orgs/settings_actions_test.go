@@ -128,15 +128,118 @@ func TestOrgActionsSettingsBlocksWritesWithoutTeamEntitlement(t *testing.T) {
 	}
 }
 
+func TestOrgSecretPatternsTeamCRUD(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := orgbilling.ApplySubscriptionSnapshot(context.Background(), orgbilling.Deps{Pool: pool}, orgbilling.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     orgbilling.PlanTeam,
+		Status:                   orgbilling.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_secret_patterns",
+		StripeSubscriptionItemID: "si_secret_patterns",
+		LastWebhookEventID:       "evt_secret_patterns",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/security/secret-patterns", url.Values{
+		"name":          {"internal-token"},
+		"description":   {"Internal token"},
+		"pattern":       {`shithub_custom_[A-Za-z0-9]{12,}`},
+		"min_match_len": {"16"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST custom pattern status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/security/secret-patterns", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET custom pattern status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "PATTERN=internal-token:true;") {
+		t.Fatalf("custom pattern missing from list: %s", got)
+	}
+}
+
+func TestOrgSecretPatternsBlocksAndHidesRowsWithoutTeamEntitlement(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO secret_scan_custom_patterns (org_id, name, description, pattern, min_match_len)
+		VALUES ($1, 'internal-token', 'Internal token', 'shithub_custom_[A-Za-z0-9]{12,}', 16)`,
+		orgID,
+	); err != nil {
+		t.Fatalf("seed custom pattern: %v", err)
+	}
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/security/secret-patterns", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET free custom patterns status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); strings.Contains(got, "internal-token") {
+		t.Fatalf("free custom patterns page revealed stored pattern: %s", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/security/secret-patterns", url.Values{
+		"name":          {"second-token"},
+		"pattern":       {`shithub_custom_[A-Za-z0-9]{12,}`},
+		"min_match_len": {"16"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusPaymentRequired {
+		t.Fatalf("POST free custom pattern status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM secret_scan_custom_patterns WHERE org_id = $1`,
+		orgID,
+	).Scan(&count); err != nil {
+		t.Fatalf("query custom pattern count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("custom pattern count=%d, want only seeded row", count)
+	}
+}
+
 func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 	t.Helper()
 	tmplFS := fstest.MapFS{
-		"_layout.html":               {Data: []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)},
-		"orgs/settings_profile.html": {Data: []byte(`{{ define "page" }}profile{{ end }}`)},
-		"orgs/settings_secrets.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
-		"errors/403.html":            {Data: []byte(`{{ define "page" }}403{{ end }}`)},
-		"errors/404.html":            {Data: []byte(`{{ define "page" }}404{{ end }}`)},
-		"errors/500.html":            {Data: []byte(`{{ define "page" }}500{{ end }}`)},
+		"_layout.html":                       {Data: []byte(`{{ define "layout" }}{{ template "page" . }}{{ end }}`)},
+		"orgs/settings_profile.html":         {Data: []byte(`{{ define "page" }}profile{{ end }}`)},
+		"orgs/settings_secrets.html":         {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
+		"orgs/settings_secret_patterns.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Patterns }}PATTERN={{ .Name }}:{{ .Enabled }};{{ end }}{{ end }}`)},
+		"errors/403.html":                    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
+		"errors/404.html":                    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
+		"errors/500.html":                    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
 	}
 	rr, err := render.New(tmplFS, render.Options{})
 	if err != nil {
