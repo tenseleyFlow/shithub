@@ -17,6 +17,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/secretscan"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/worker"
@@ -253,7 +254,7 @@ func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Reque
 		"CSRFToken":          middleware.CSRFTokenForRequest(r),
 		"Owner":              ownerSlug,
 		"Repo":               row,
-		"Findings":           findings,
+		"Findings":           presentSecretFindingViews(findings),
 		"Allowlist":          allowlist,
 		"StatusFilter":       statusFilter,
 		"RunScanAllowed":     gate.Allowed,
@@ -272,6 +273,49 @@ func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Reque
 		"Error":              errMsg,
 		"Success":            successMsg,
 	})
+}
+
+type secretFindingView struct {
+	ID                              int64
+	Pattern                         string
+	SecretTypeDisplayName           string
+	ProviderSlug                    string
+	PatternCategory                 string
+	Path                            string
+	LineNo                          int32
+	Excerpt                         string
+	Status                          string
+	Validity                        string
+	ValidityDescription             string
+	ProviderNotification            string
+	ProviderNotificationDescription string
+	FirstSeenAt                     pgtype.Timestamptz
+	LastSeenAt                      pgtype.Timestamptz
+}
+
+func presentSecretFindingViews(rows []secretscandb.SecretScanFinding) []secretFindingView {
+	out := make([]secretFindingView, 0, len(rows))
+	for _, row := range rows {
+		capability := secretscan.CapabilityForPattern(row.Pattern)
+		out = append(out, secretFindingView{
+			ID:                              row.ID,
+			Pattern:                         row.Pattern,
+			SecretTypeDisplayName:           capability.DisplayName,
+			ProviderSlug:                    capability.ProviderSlug,
+			PatternCategory:                 capability.Category,
+			Path:                            row.Path,
+			LineNo:                          row.LineNo,
+			Excerpt:                         row.Excerpt,
+			Status:                          string(row.Status),
+			Validity:                        string(capability.ValidityState()),
+			ValidityDescription:             capability.ValidityDescription(),
+			ProviderNotification:            string(capability.ProviderNotificationState()),
+			ProviderNotificationDescription: capability.ProviderNotificationDescription(),
+			FirstSeenAt:                     row.FirstSeenAt,
+			LastSeenAt:                      row.LastSeenAt,
+		})
+	}
+	return out
 }
 
 type repoSecretScanGate struct {

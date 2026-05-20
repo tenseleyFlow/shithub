@@ -14,6 +14,11 @@ bypass request metadata additionally requires `secret_bypass_controls`.
 Unauthorized or unentitled private organization requests return `402` without
 paths, pattern rows, or finding locations.
 
+Provider notification and provider-side validity checks are reported
+truthfully. Until an operator-configured provider integration ships, alert
+responses mark those surfaces as `unsupported`; no API response implies that
+shithub has contacted a third-party provider.
+
 ## Routes
 
 GET /api/v1/repos/{owner}/{repo}/secret-scanning/status
@@ -43,7 +48,9 @@ bypass requests:
   "bypass_request_count": 1,
   "latest_finding_observed_at": "2026-05-20T12:30:00Z",
   "scan_history_backing": "findings",
-  "raw_secret_material_included": false
+  "raw_secret_material_included": false,
+  "validity_checks_available": false,
+  "provider_notifications_available": false
 }
 ```
 
@@ -62,8 +69,24 @@ array. `status` may be `open`, `resolved`, `allowlisted`, or `stale`.
     "number": 42,
     "state": "open",
     "status": "open",
-    "secret_type": "GitHub token",
+    "secret_type": "github_token",
     "secret_type_display_name": "GitHub token",
+    "provider_slug": "github",
+    "pattern_category": "provider",
+    "validity": "unsupported",
+    "validity_check": {
+      "supported_by_github": true,
+      "supported_by_instance": false,
+      "status": "unsupported",
+      "description": "GitHub supports validity checks for this provider pattern, but this shithub instance has no configured provider validator."
+    },
+    "provider_notification": "unsupported",
+    "provider_notification_capability": {
+      "supported_by_github": true,
+      "supported_by_instance": false,
+      "status": "unsupported",
+      "description": "GitHub supports partner/provider notification for this pattern, but this shithub instance has no configured provider notifier."
+    },
     "path": "config/secrets.env",
     "line": 7,
     "commit_sha": "8c4e3f2a1b...",
@@ -76,6 +99,10 @@ array. `status` may be `open`, `resolved`, `allowlisted`, or `stale`.
 ```
 
 The response does not include `secret`, `excerpt`, or redacted excerpt fields.
+`validity` may be `unsupported`, `unknown`, `active`, or `inactive`.
+`provider_notification` may be `unsupported`, `disabled`, `pending`, `sent`,
+or `failed`. The current built-in provider registry reports `unsupported` for
+provider egress until a real integration is configured.
 
 ## Allowlist
 

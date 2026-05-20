@@ -43,14 +43,29 @@ func TestSecretScanningAPIListsMetadataWithoutSecretMaterial(t *testing.T) {
 		}
 	}
 	var alerts []struct {
-		ID         int64  `json:"id"`
-		State      string `json:"state"`
-		Status     string `json:"status"`
-		SecretType string `json:"secret_type"`
-		Path       string `json:"path"`
-		Line       int32  `json:"line"`
-		CommitSHA  string `json:"commit_sha"`
-		HTMLURL    string `json:"html_url"`
+		ID                    int64  `json:"id"`
+		State                 string `json:"state"`
+		Status                string `json:"status"`
+		SecretType            string `json:"secret_type"`
+		SecretTypeDisplayName string `json:"secret_type_display_name"`
+		ProviderSlug          string `json:"provider_slug"`
+		PatternCategory       string `json:"pattern_category"`
+		Validity              string `json:"validity"`
+		ValidityCheck         struct {
+			SupportedByGitHub   bool   `json:"supported_by_github"`
+			SupportedByInstance bool   `json:"supported_by_instance"`
+			Status              string `json:"status"`
+		} `json:"validity_check"`
+		ProviderNotification           string `json:"provider_notification"`
+		ProviderNotificationCapability struct {
+			SupportedByGitHub   bool   `json:"supported_by_github"`
+			SupportedByInstance bool   `json:"supported_by_instance"`
+			Status              string `json:"status"`
+		} `json:"provider_notification_capability"`
+		Path      string `json:"path"`
+		Line      int32  `json:"line"`
+		CommitSHA string `json:"commit_sha"`
+		HTMLURL   string `json:"html_url"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &alerts); err != nil {
 		t.Fatalf("decode alerts: %v; body=%s", err, body)
@@ -58,8 +73,20 @@ func TestSecretScanningAPIListsMetadataWithoutSecretMaterial(t *testing.T) {
 	if len(alerts) != 1 {
 		t.Fatalf("alerts len=%d want 1: %+v", len(alerts), alerts)
 	}
-	if alerts[0].State != "open" || alerts[0].Status != "open" || alerts[0].SecretType != "GitHub token" {
+	if alerts[0].State != "open" || alerts[0].Status != "open" || alerts[0].SecretType != "github_token" || alerts[0].SecretTypeDisplayName != "GitHub token" {
 		t.Fatalf("unexpected alert: %+v", alerts[0])
+	}
+	if alerts[0].ProviderSlug != "github" || alerts[0].PatternCategory != "provider" {
+		t.Fatalf("unexpected provider capability: %+v", alerts[0])
+	}
+	if !alerts[0].ValidityCheck.SupportedByGitHub || !alerts[0].ProviderNotificationCapability.SupportedByGitHub {
+		t.Fatalf("expected GitHub reference support flags on github-token: %+v", alerts[0])
+	}
+	if alerts[0].Validity != "unsupported" || alerts[0].ValidityCheck.Status != "unsupported" || alerts[0].ValidityCheck.SupportedByInstance {
+		t.Fatalf("validity must be truthfully unsupported: %+v", alerts[0])
+	}
+	if alerts[0].ProviderNotification != "unsupported" || alerts[0].ProviderNotificationCapability.Status != "unsupported" || alerts[0].ProviderNotificationCapability.SupportedByInstance {
+		t.Fatalf("provider notification must be truthfully unsupported: %+v", alerts[0])
 	}
 	if alerts[0].Path != "config/secrets.env" || alerts[0].Line != 7 {
 		t.Fatalf("unexpected alert location: %+v", alerts[0])
@@ -129,13 +156,15 @@ func TestSecretScanningAPIListsMetadataWithoutSecretMaterial(t *testing.T) {
 		t.Fatalf("status status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	var status struct {
-		Enabled                   bool  `json:"enabled"`
-		TotalAlertCount           int64 `json:"total_alert_count"`
-		OpenAlertCount            int64 `json:"open_alert_count"`
-		AllowlistCount            int   `json:"allowlist_count"`
-		BypassControlsAvailable   bool  `json:"bypass_controls_available"`
-		BypassRequestCount        int   `json:"bypass_request_count"`
-		RawSecretMaterialIncluded bool  `json:"raw_secret_material_included"`
+		Enabled                        bool  `json:"enabled"`
+		TotalAlertCount                int64 `json:"total_alert_count"`
+		OpenAlertCount                 int64 `json:"open_alert_count"`
+		AllowlistCount                 int   `json:"allowlist_count"`
+		BypassControlsAvailable        bool  `json:"bypass_controls_available"`
+		BypassRequestCount             int   `json:"bypass_request_count"`
+		RawSecretMaterialIncluded      bool  `json:"raw_secret_material_included"`
+		ValidityChecksAvailable        bool  `json:"validity_checks_available"`
+		ProviderNotificationsAvailable bool  `json:"provider_notifications_available"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
 		t.Fatalf("decode status: %v; body=%s", err, rr.Body.String())
@@ -145,6 +174,9 @@ func TestSecretScanningAPIListsMetadataWithoutSecretMaterial(t *testing.T) {
 	}
 	if !status.BypassControlsAvailable || status.RawSecretMaterialIncluded {
 		t.Fatalf("status security flags mismatch: %+v", status)
+	}
+	if status.ValidityChecksAvailable || status.ProviderNotificationsAvailable {
+		t.Fatalf("provider egress flags must stay disabled until a real integration ships: %+v", status)
 	}
 }
 
@@ -252,7 +284,7 @@ func seedSecretScanningAPIRows(t *testing.T, pool *pgxpool.Pool, repoID, actorID
 	q := secretscandb.New()
 	if _, err := q.UpsertSecretScanFinding(context.Background(), pool, secretscandb.UpsertSecretScanFindingParams{
 		RepoID:       repoID,
-		Pattern:      "GitHub token",
+		Pattern:      "github-token",
 		Path:         "config/secrets.env",
 		LineNo:       7,
 		Excerpt:      "ghp_SECRET_SHOULD_NOT_LEAK",
