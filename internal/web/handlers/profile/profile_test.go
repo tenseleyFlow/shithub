@@ -936,7 +936,7 @@ func TestProfile_OrgRepositoriesPageFilters(t *testing.T) {
 	env.insertOrgRepo(t, orgID, "loader", "local agent loop", "public", "Python", 9, 0, "agents")
 	env.insertOrgRepo(t, orgID, "sway", "adapter research", "public", "Python", 1, 0, "llm")
 
-	body := env.getAs(t, "/orgs/tenseleyflow/repositories?q=agent&type=public&language=Python&sort=stars", usersdb.User{})
+	body := env.getAs(t, "/orgs/tenseleyflow/repositories?q=topic:agents%20is:public%20agent&type=public&language=Python&sort=stars", usersdb.User{})
 	for _, want := range []string{
 		"FILTERED=1",
 		"TYPE=public",
@@ -961,7 +961,7 @@ func TestProfile_UserRepositoriesTabUsesProfileLayoutFilters(t *testing.T) {
 	env.insertUserRepo(t, alice.ID, "loader", "local assistant", "public", "Python", 9, 0)
 	env.insertUserRepo(t, alice.ID, "private-roadmap", "hidden", "private", "Rust", 12, 0)
 
-	body := env.getAs(t, "/alice?tab=repositories&q=git&type=public&language=Go&sort=stars", usersdb.User{})
+	body := env.getAs(t, "/alice?tab=repositories&q=language:Go%20is:public%20git&type=public&language=Go&sort=stars", usersdb.User{})
 	for _, want := range []string{
 		"REPOSTAB=repositories",
 		"DISPLAY=Alice Anderson",

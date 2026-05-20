@@ -12,7 +12,7 @@ same rule the rest of the runtime uses.
 ```
 internal/search/
     search.go        — Deps + Result types + page-size constants
-    query_parse.go   — operator parser (repo:, is:, state:, author:)
+    query_parse.go   — GitHub-style operator parser
     repos.go         — SearchRepos
     issues.go        — SearchIssues
     users.go         — SearchUsers
@@ -23,6 +23,9 @@ internal/auth/policy/
 
 internal/web/handlers/search/
     search.go        — /search and /search/quick handlers
+
+internal/web/handlers/repo/
+    search_query.go  — repo-local issue/PR query scoping helpers
 
 internal/worker/jobs/
     repo_index_code.go        — re-indexes a repo's default branch
@@ -88,18 +91,57 @@ The boundary is exercised by the search test suite at
 
 * `Text` — free-text portion (drives `plainto_tsquery`).
 * `Phrase` — when a quoted span is present (drives `phraseto_tsquery`).
+* `Terms` / `ExcludedTerms` — positive and negated text terms. Negated
+  terms are retained for callers that can enforce them; FTS callers do not
+  broaden the query by treating them as positives.
 * `RepoFilter` — `repo:owner/name` becomes `{Owner, Name}`.
 * `StateFilter` — `is:open` / `is:closed` / `state:open` /
   `state:closed`. Aliases.
-* `AuthorFilter` — `author:username`.
+* `KindFilter` — `is:issue` / `is:pr` for issue-vs-PR scoping.
+* `AuthorFilter`, `AssigneeFilter`, `CommenterFilter` — username-backed
+  issue/PR filters.
+* `OwnerFilter` — `user:handle` and `org:handle` for owner scoping.
+* `LabelFilters`, `MilestoneFilter` — repeated labels are ANDed.
+* `LanguageFilter`, `VisibilityFilter`, `ForkFilter`, `ArchivedFilter`,
+  `TopicFilters` — repository metadata filters.
+* `PathFilter`, `ExtensionFilter` — code path filters.
+* `CreatedFilter`, `UpdatedFilter`, `ClosedFilter`, `MergedFilter` —
+  exact dates, ranges, and comparison operators.
 
-Unknown operator-shape tokens (e.g. `language:Go`) fall through as
-free text. This keeps future operator additions backwards-
-compatible and lets users naturally type ":"-containing strings
-without surprises.
+Unknown operator-shape tokens still fall through as free text. This keeps
+future operator additions backwards-compatible and lets users naturally type
+":"-containing strings without surprises.
 
 The parser caps input at `MaxQueryBytes` (256) to defend against
 pathological-length queries; longer inputs are silently truncated.
+
+## GitHub-style qualifiers
+
+Global result pages currently execute these recognized qualifiers:
+
+* repositories: `repo:`, `user:`, `org:`, `language:`, `is:public`,
+  `is:private`, `is:fork`, `is:archived`, `visibility:`, `fork:`,
+  `archived:`, `topic:`, `created:`, `updated:`.
+* issues and pull requests: `repo:`, `user:`, `org:`, `is:issue`,
+  `is:pr`, `is:open`, `is:closed`, `state:`, `author:`, `assignee:`,
+  `commenter:`, `label:`, `milestone:`, repository metadata filters,
+  `created:`, `updated:`, `closed:`, `merged:`.
+* code: `repo:`, `user:`, `org:`, `language:`, repository metadata
+  filters, `path:`, `extension:`, plus free text against indexed paths
+  and small-file content.
+
+Repo-local `/issues` and `/pulls` pages reuse `SearchIssues` instead of
+maintaining a second SQL dialect. The web helper injects the currently
+browsed `repo:owner/name` scope and ignores any typed `repo:` qualifier so
+searches on those pages cannot escape the repository. The same parser powers
+the search boxes, so examples such as `author:esp label:bug`, `commenter:mf`,
+`milestone:"v1.0"`, and `created:2026-05-01..2026-05-19` work from the repo
+lists as well as the global search page.
+
+Profile and organization repository tabs also parse the same repository
+qualifier subset, so `language:Go`, `topic:forge`, `is:public`,
+`fork:false`, and `repo:owner/name` behave like GitHub's repository list
+filters instead of becoming literal substring searches.
 
 ## Ranking
 
@@ -131,9 +173,9 @@ pathological-length queries; longer inputs are silently truncated.
   * Indexed content truncated to 64 KiB so the trigram column
     doesn't bloat for huge text files.
 * **Path skiplist**: `vendor/`, `node_modules/`, `dist/`, anything
-  under `.git*` is skipped by default. The `path:` operator is
-  post-MVP — when it ships it will let users opt into these
-  directories.
+  under `.git*` is skipped by default. `path:` and `extension:` filter the
+  indexed path/content rows that are present; skipped directories remain
+  absent until indexing policy changes.
 * **Reconciler**: `repo:index_reconcile` enqueues a `repo:index_code`
   job for each repo where `default_branch_oid <> last_indexed_oid`.
   Self-throttling (100 repos per tick). Designed to run from cron
@@ -167,9 +209,6 @@ still accepting the legacy `type=repos` and `type=pulls` aliases.
   S33 webhooks sprint pulls in the rest of the API surface so we
   do them together (consistency on auth + body cap + scope shapes).
   **Forward-deferred to S33 / S34 API consolidation.**
-* **`path:` operator**: parser falls through; querying `path:foo`
-  treats it as free text today. Documented above.
-
 These are all noted in the S28 status block as well.
 
 ## Pitfalls noted in code

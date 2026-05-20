@@ -24,11 +24,24 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		return nil, 0, ErrEmptyQuery
 	}
 	tsText, tsCtor, hasFTS := tsQueryBindAndCtor(q)
+	effectiveKind := kindFilter
+	if q.KindFilter != "" {
+		if effectiveKind != "" && effectiveKind != q.KindFilter {
+			return nil, 0, nil
+		}
+		effectiveKind = q.KindFilter
+	}
 
 	// At least one signal must drive the query: the FTS payload, a
-	// repo: filter, an author: filter, an assignee: filter, or a
-	// state: filter.
-	if !hasFTS && q.RepoFilter == nil && q.AuthorFilter == "" && q.AssigneeFilter == "" && q.StateFilter == "" && kindFilter == "" {
+	// repo:/owner filter, an actor filter, label/milestone, date
+	// filters, or a state/kind filter.
+	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" &&
+		q.AuthorFilter == "" && q.AssigneeFilter == "" && q.CommenterFilter == "" &&
+		q.StateFilter == "" && effectiveKind == "" && len(q.LabelFilters) == 0 &&
+		q.MilestoneFilter == "" && q.VisibilityFilter == "" && q.ForkFilter == nil &&
+		q.ArchivedFilter == nil && len(q.TopicFilters) == 0 &&
+		q.CreatedFilter == nil && q.UpdatedFilter == nil &&
+		q.ClosedFilter == nil && q.MergedFilter == nil {
 		return nil, 0, nil
 	}
 
@@ -58,14 +71,22 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		args = append(args, q.RepoFilter.Owner, q.RepoFilter.Name)
 		whereExtras += repoFilterByOwnerName("r", ownerPos, namePos)
 	}
+	if q.OwnerFilter != "" {
+		ownerPos := len(args) + 1
+		args = append(args, q.OwnerFilter)
+		whereExtras += fmt.Sprintf(
+			" AND (u.username = $%d OR o.slug = $%d)",
+			ownerPos, ownerPos,
+		)
+	}
 	if q.StateFilter != "" {
 		statePos := len(args) + 1
 		args = append(args, q.StateFilter)
 		whereExtras += fmt.Sprintf(" AND s.state::text = $%d", statePos)
 	}
-	if kindFilter != "" {
+	if effectiveKind != "" {
 		kindPos := len(args) + 1
-		args = append(args, kindFilter)
+		args = append(args, effectiveKind)
 		whereExtras += fmt.Sprintf(" AND s.kind::text = $%d", kindPos)
 	}
 	if q.AuthorFilter != "" {
@@ -85,6 +106,45 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 				" WHERE ia.issue_id = s.issue_id AND au2.username = $%d)",
 			assigneePos,
 		)
+	}
+	if q.CommenterFilter != "" {
+		commenterPos := len(args) + 1
+		args = append(args, q.CommenterFilter)
+		whereExtras += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM issue_comments ic"+
+				" JOIN users cu ON cu.id = ic.author_user_id"+
+				" WHERE ic.issue_id = s.issue_id AND cu.username = $%d)",
+			commenterPos,
+		)
+	}
+	for _, label := range q.LabelFilters {
+		labelPos := len(args) + 1
+		args = append(args, label)
+		whereExtras += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM issue_labels il"+
+				" JOIN labels l ON l.id = il.label_id"+
+				" WHERE il.issue_id = s.issue_id AND l.name = $%d)",
+			labelPos,
+		)
+	}
+	if q.MilestoneFilter != "" {
+		milestonePos := len(args) + 1
+		args = append(args, q.MilestoneFilter)
+		whereExtras += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM milestones m"+
+				" WHERE m.id = i.milestone_id AND m.title = $%d)",
+			milestonePos,
+		)
+	}
+	whereExtras += appendRepoQualifierFilters(&args, "r", q)
+	whereExtras += appendDateRangeFilter(&args, "i.created_at", q.CreatedFilter)
+	whereExtras += appendDateRangeFilter(&args, "i.updated_at", q.UpdatedFilter)
+	whereExtras += appendDateRangeFilter(&args, "i.closed_at", q.ClosedFilter)
+	whereExtras += appendDateRangeFilter(&args, "pr.merged_at", q.MergedFilter)
+
+	pullJoin := ""
+	if q.MergedFilter != nil {
+		pullJoin = "LEFT JOIN pull_requests pr ON pr.issue_id = i.id"
 	}
 
 	whereFTS := "TRUE"
@@ -108,13 +168,14 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		JOIN issues i  ON i.id = s.issue_id
 		JOIN repos r   ON r.id = s.repo_id
 		%[8]s
+		%[9]s
 		LEFT JOIN users au ON au.id = s.author_user_id
 		WHERE %[2]s
 		  AND %[3]s
 		  %[4]s
 		ORDER BY rank DESC, i.updated_at DESC
 		LIMIT $%[5]d OFFSET $%[6]d
-	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"))
+	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"), pullJoin)
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
@@ -140,8 +201,10 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		FROM issues_search s
 		JOIN issues i  ON i.id = s.issue_id
 		JOIN repos r   ON r.id = s.repo_id
+		%[4]s
+		%[5]s
 		WHERE %[1]s AND %[2]s %[3]s
-	`, whereFTS, visClause, whereExtras)
+	`, whereFTS, visClause, whereExtras, repoOwnerJoin("r", "u", "o"), pullJoin)
 	var total int64
 	if err := deps.Pool.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count issues: %w", err)

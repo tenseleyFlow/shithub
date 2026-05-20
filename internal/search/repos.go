@@ -24,8 +24,12 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 	tsText, tsCtor, hasFTS := tsQueryBindAndCtor(q)
 
 	// At least one signal must drive the query: free-text, a
-	// repo:owner/name pair, or a user:/org: owner filter (E23).
-	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" {
+	// repo:owner/name pair, an owner filter, or a structured repo
+	// qualifier such as language:/created:/updated:.
+	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" &&
+		q.LanguageFilter == "" && q.VisibilityFilter == "" && q.ForkFilter == nil &&
+		q.ArchivedFilter == nil && len(q.TopicFilters) == 0 &&
+		q.CreatedFilter == nil && q.UpdatedFilter == nil {
 		return nil, 0, nil
 	}
 
@@ -69,6 +73,10 @@ func SearchRepos(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQue
 			ownerPos, ownerPos,
 		)
 	}
+	extraWhere += appendCITextFilter(&args, "coalesce(r.primary_language, '')", q.LanguageFilter)
+	extraWhere += appendRepoQualifierFilters(&args, "r", q)
+	extraWhere += appendDateRangeFilter(&args, "r.created_at", q.CreatedFilter)
+	extraWhere += appendDateRangeFilter(&args, "r.updated_at", q.UpdatedFilter)
 
 	whereFTS := "TRUE"
 	rankExpr := "1.0"

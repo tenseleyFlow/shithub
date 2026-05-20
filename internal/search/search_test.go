@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -50,13 +52,23 @@ func TestParseQuery(t *testing.T) {
 		{"user:alice", search.ParsedQuery{OwnerFilter: "alice"}},
 		{"org:tenseleyflow shithub", search.ParsedQuery{Text: "shithub", OwnerFilter: "tenseleyflow"}},
 		{"user: nothing", search.ParsedQuery{Text: "user: nothing"}},
-		{"language:Go x", search.ParsedQuery{Text: "language:Go x"}},
+		{"language:Go x", search.ParsedQuery{Text: "x", LanguageFilter: "Go"}},
+		{"is:public topic:forge", search.ParsedQuery{
+			VisibilityFilter: "public",
+			TopicFilters:     []string{"forge"},
+		}},
 	}
 	for _, c := range cases {
 		got := search.ParseQuery(c.in)
 		if got.Text != c.want.Text || got.Phrase != c.want.Phrase ||
-			got.StateFilter != c.want.StateFilter || got.AuthorFilter != c.want.AuthorFilter ||
-			got.AssigneeFilter != c.want.AssigneeFilter || got.OwnerFilter != c.want.OwnerFilter {
+			got.StateFilter != c.want.StateFilter || got.KindFilter != c.want.KindFilter ||
+			got.AuthorFilter != c.want.AuthorFilter || got.AssigneeFilter != c.want.AssigneeFilter ||
+			got.CommenterFilter != c.want.CommenterFilter || got.OwnerFilter != c.want.OwnerFilter ||
+			got.MilestoneFilter != c.want.MilestoneFilter || got.LanguageFilter != c.want.LanguageFilter ||
+			got.VisibilityFilter != c.want.VisibilityFilter ||
+			got.PathFilter != c.want.PathFilter || got.ExtensionFilter != c.want.ExtensionFilter ||
+			!reflect.DeepEqual(got.LabelFilters, c.want.LabelFilters) ||
+			!reflect.DeepEqual(got.TopicFilters, c.want.TopicFilters) {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
 			continue
 		}
@@ -69,6 +81,90 @@ func TestParseQuery(t *testing.T) {
 				c.in, *got.RepoFilter, *c.want.RepoFilter)
 		}
 	}
+}
+
+func TestParseQuery_RepositoryQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery("is:private fork:false archived:false topic:cli")
+	if got.VisibilityFilter != "private" {
+		t.Fatalf("VisibilityFilter = %q", got.VisibilityFilter)
+	}
+	if got.ForkFilter == nil || *got.ForkFilter {
+		t.Fatalf("ForkFilter = %+v, want false", got.ForkFilter)
+	}
+	if got.ArchivedFilter == nil || *got.ArchivedFilter {
+		t.Fatalf("ArchivedFilter = %+v, want false", got.ArchivedFilter)
+	}
+	if !reflect.DeepEqual(got.TopicFilters, []string{"cli"}) {
+		t.Fatalf("TopicFilters = %#v", got.TopicFilters)
+	}
+
+	got = search.ParseQuery("is:fork is:archived visibility:public fork:only")
+	if got.VisibilityFilter != "public" {
+		t.Fatalf("VisibilityFilter = %q", got.VisibilityFilter)
+	}
+	if got.ForkFilter == nil || !*got.ForkFilter {
+		t.Fatalf("ForkFilter = %+v, want true", got.ForkFilter)
+	}
+	if got.ArchivedFilter == nil || !*got.ArchivedFilter {
+		t.Fatalf("ArchivedFilter = %+v, want true", got.ArchivedFilter)
+	}
+}
+
+func TestParseQuery_AdvancedQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery(`repo:tenseleyFlow/shithub is:pr label:"good first issue" ` +
+		`milestone:v1 author:esp path:internal/web extension:.go language:Go ` +
+		`commenter:mfwolffe created:2026-05-01..2026-05-19 updated:>=2026-05-10 ` +
+		`-draft -"old phrase"`)
+
+	if got.RepoFilter == nil || got.RepoFilter.Owner != "tenseleyFlow" || got.RepoFilter.Name != "shithub" {
+		t.Fatalf("RepoFilter = %+v", got.RepoFilter)
+	}
+	if got.KindFilter != "pr" || got.AuthorFilter != "esp" || got.CommenterFilter != "mfwolffe" {
+		t.Fatalf("kind/author/commenter = %q/%q/%q", got.KindFilter, got.AuthorFilter, got.CommenterFilter)
+	}
+	if !reflect.DeepEqual(got.LabelFilters, []string{"good first issue"}) || got.MilestoneFilter != "v1" {
+		t.Fatalf("labels/milestone = %#v/%q", got.LabelFilters, got.MilestoneFilter)
+	}
+	if got.PathFilter != "internal/web" || got.ExtensionFilter != "go" || got.LanguageFilter != "Go" {
+		t.Fatalf("path/extension/language = %q/%q/%q", got.PathFilter, got.ExtensionFilter, got.LanguageFilter)
+	}
+	assertDateRange(t, got.CreatedFilter, dateUTC(2026, 5, 1), dateUTC(2026, 5, 20))
+	assertDateRange(t, got.UpdatedFilter, dateUTC(2026, 5, 10), time.Time{})
+	if len(got.ExcludedTerms) != 2 || got.ExcludedTerms[1].Value != "old phrase" || !got.ExcludedTerms[1].Phrase {
+		t.Fatalf("ExcludedTerms = %#v", got.ExcludedTerms)
+	}
+	if len(got.Qualifiers) != 11 {
+		t.Fatalf("Qualifiers len = %d, want 11 (%#v)", len(got.Qualifiers), got.Qualifiers)
+	}
+}
+
+func assertDateRange(t *testing.T, got *search.DateRange, from, to time.Time) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("DateRange is nil")
+	}
+	if !from.IsZero() {
+		if !got.HasFrom || !got.From.Equal(from) {
+			t.Fatalf("from = %v/%v, want %v", got.From, got.HasFrom, from)
+		}
+	}
+	if from.IsZero() && got.HasFrom {
+		t.Fatalf("unexpected from = %v", got.From)
+	}
+	if !to.IsZero() {
+		if !got.HasTo || !got.To.Equal(to) {
+			t.Fatalf("to = %v/%v, want %v", got.To, got.HasTo, to)
+		}
+	}
+	if to.IsZero() && got.HasTo {
+		t.Fatalf("unexpected to = %v", got.To)
+	}
+}
+
+func dateUTC(year int, month time.Month, day int) time.Time {
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
 // TestParseQuery_TruncatesOverlong ensures the input cap fires.
@@ -378,6 +474,95 @@ func TestSearchRepos_OwnerFilterUnknownReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestSearchRepos_LanguageAndDateFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos SET primary_language = 'Go', created_at = '2026-05-12T00:00:00Z'
+		WHERE id = $1
+	`, f.orgRepo.ID); err != nil {
+		t.Fatalf("seed org repo language/date: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos SET primary_language = 'Python', created_at = '2026-05-12T00:00:00Z'
+		WHERE id = $1
+	`, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed pub repo language/date: %v", err)
+	}
+
+	got, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("language:Go created:2026-05-12"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos language/date: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("language/date returned zero hits")
+	}
+	for _, r := range got {
+		if r.ID != f.orgRepo.ID {
+			t.Errorf("language/date filter leaked %s/%s", r.OwnerUsername, r.Name)
+		}
+	}
+}
+
+func TestSearchRepos_RepositoryQualifiers(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos
+		   SET fork_of_repo_id = $1,
+		       is_archived = true,
+		       archived_at = '2026-05-12T00:00:00Z'
+		 WHERE id = $2
+	`, f.orgRepo.ID, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed fork/archive: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO repo_topics (repo_id, topic) VALUES ($1, 'forge')
+	`, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed topic: %v", err)
+	}
+
+	got, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("is:fork archived:true topic:forge"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos repository qualifiers: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != f.pubRepo.ID {
+		t.Fatalf("repository qualifiers got %d rows total=%d, want pubRepo: %+v", len(got), total, got)
+	}
+
+	anonPrivate, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("is:private"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos is:private anonymous: %v", err)
+	}
+	if total != 0 || len(anonPrivate) != 0 {
+		t.Fatalf("anonymous is:private returned %d rows total=%d", len(anonPrivate), total)
+	}
+
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+	ownerPrivate, total, err := search.SearchRepos(ctx, f.deps, alice,
+		search.ParseQuery("is:private"), 20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos is:private owner: %v", err)
+	}
+	if total == 0 || len(ownerPrivate) == 0 {
+		t.Fatalf("owner is:private returned zero hits")
+	}
+	for _, repo := range ownerPrivate {
+		if repo.Visibility != "private" {
+			t.Fatalf("is:private leaked non-private repo %+v", repo)
+		}
+	}
+}
+
 // TestSearchIssues_AnonymousSeesOnlyPublic mirrors the repo test
 // for the issue surface — issues inherit visibility from their repo.
 func TestSearchIssues_AnonymousSeesOnlyPublic(t *testing.T) {
@@ -488,6 +673,62 @@ func TestSearchIssues_AssigneeFilter(t *testing.T) {
 	}
 }
 
+func TestSearchIssues_LabelMilestoneCommenterAndOwnerFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	var targetID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'org public bug report'
+	`, f.orgRepo.ID).Scan(&targetID); err != nil {
+		t.Fatalf("lookup org issue: %v", err)
+	}
+	var labelID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO labels (repo_id, name, color, description)
+		VALUES ($1, 'parity', '0969da', 'Parity work')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&labelID); err != nil {
+		t.Fatalf("seed label: %v", err)
+	}
+	var milestoneID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO milestones (repo_id, title, description)
+		VALUES ($1, 'v1', 'Version one')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&milestoneID); err != nil {
+		t.Fatalf("seed milestone: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_labels (issue_id, label_id, applied_by_user_id)
+		VALUES ($1, $2, $3)
+	`, targetID, labelID, f.alice.ID); err != nil {
+		t.Fatalf("seed issue label: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE issues SET milestone_id = $1 WHERE id = $2
+	`, milestoneID, targetID); err != nil {
+		t.Fatalf("attach milestone: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_comments (issue_id, author_user_id, body)
+		VALUES ($1, $2, 'I can reproduce this')
+	`, targetID, f.bob.ID); err != nil {
+		t.Fatalf("seed comment: %v", err)
+	}
+
+	got, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("org:tenseleyflow label:parity milestone:v1 commenter:bob is:issue"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues structured filters: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != targetID {
+		t.Fatalf("structured filters got %d rows total=%d, want issue %d: %+v", len(got), total, targetID, got)
+	}
+}
+
 func TestSearchIssues_RepoFilter(t *testing.T) {
 	f := setup(t)
 	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
@@ -538,6 +779,23 @@ func TestSearchCode_RepoFilterMatchesOrgOwner(t *testing.T) {
 		}
 	}
 	t.Fatalf("org-owned code hit missing from %d results", len(got))
+}
+
+func TestSearchCode_PathAndExtensionQualifiers(t *testing.T) {
+	f := setup(t)
+	got, total, err := search.SearchCode(context.Background(), f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("repo:tenseleyFlow/shithub path:readme extension:md"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchCode path/extension: %v", err)
+	}
+	if total != 1 || len(got) != 1 {
+		t.Fatalf("path/extension got %d rows total=%d, want one README hit", len(got), total)
+	}
+	if got[0].Path != "README.md" || got[0].OwnerUsername != "tenseleyflow" || got[0].RepoName != "shithub" {
+		t.Fatalf("path/extension hit = %+v", got[0])
+	}
 }
 
 func TestSearchUsers_ExcludesSuspended(t *testing.T) {

@@ -1,57 +1,138 @@
 {{ define "page" -}}
 <section class="shithub-repo-page">
   {{ template "repo-header" . }}
-<section class="shithub-pulls">
+<section class="shithub-issues shithub-issues-page shithub-pulls">
   <header class="shithub-issues-head">
     <h1>Pull requests</h1>
     <div class="shithub-issues-actions">
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/labels" class="shithub-button">{{ octicon "tag" }} Labels</a>
+      <a href="/{{ .Owner }}/{{ .Repo.Name }}/milestones" class="shithub-button">{{ octicon "milestone" }} Milestones</a>
       <a href="/{{ .Owner }}/{{ .Repo.Name }}/compare" class="shithub-button shithub-button-primary">New pull request</a>
     </div>
   </header>
 
-  <nav class="shithub-issues-filter">
-    <a href="?state=open" class="shithub-issues-tab {{ if eq .State "open" }}shithub-issues-tab-active{{ end }}">
-      <span class="shithub-issues-dot shithub-issues-dot-open"></span>
-      {{ .OpenCount }} Open
-    </a>
-    <a href="?state=closed" class="shithub-issues-tab {{ if eq .State "closed" }}shithub-issues-tab-active{{ end }}">
-      <span class="shithub-issues-dot shithub-issues-dot-closed"></span>
-      {{ .ClosedCount }} Closed
-    </a>
-  </nav>
+  <div class="shithub-issues-toolbar" role="search">
+    <form method="get" action="/{{ .Owner }}/{{ .Repo.Name }}/pulls" class="shithub-issues-search">
+      <label class="sr-only" for="pulls-search">Search pull requests</label>
+      <input id="pulls-search" type="search" name="q" value="{{ if .Query }}{{ .Query }}{{ else }}is:pr state:{{ .State }}{{ end }}" autocomplete="off" spellcheck="false" aria-label="Search all pull requests">
+      <button type="submit" class="shithub-button shithub-button-icon" aria-label="Search">{{ octicon "search" }}</button>
+    </form>
+  </div>
 
-  {{ if .Items }}
-  <ul class="shithub-issues-list">
-    {{ range .Items }}
-    <li class="shithub-issues-row">
-      <span class="shithub-issues-state shithub-issues-state-{{ printf "%s" .Row.State }}">
-        {{ if .Row.MergedAt.Valid }}⏵{{ else if eq (printf "%s" .Row.State) "open" }}{{ if .Row.Draft }}◔{{ else }}●{{ end }}{{ else }}✗{{ end }}
-      </span>
-      <div class="shithub-issues-body">
-        <a class="shithub-issues-title" href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .Row.Number }}">
-          {{ .Row.Title }}
+  <div class="shithub-issues-box">
+    <div class="shithub-issues-box-head">
+      <div class="shithub-issues-state-tabs" aria-label="Pull request states">
+        <label class="shithub-issues-select-all">
+          <input type="checkbox" aria-label="Select all pull requests">
+        </label>
+        <a href="?state=open" class="{{ if eq .State "open" }}is-selected{{ end }}">
+          {{ octicon "git-pull-request" }}
+          <span>Open</span>
+          <span class="shithub-counter-label">{{ .OpenCount }}</span>
         </a>
-        {{ if .Row.Draft }}<span class="shithub-pill">Draft</span>{{ end }}
-        <div class="shithub-issues-meta">
-          #{{ .Row.Number }}
-          <code>{{ .Row.HeadRef }}</code> → <code>{{ .Row.BaseRef }}</code>
-          opened
-          <time datetime="{{ .Row.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Row.CreatedAt.Time }}</time>
-          {{ if .AuthorName }}by <a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
-        </div>
+        <a href="?state=closed" class="{{ if eq .State "closed" }}is-selected{{ end }}">
+          {{ octicon "git-merge" }}
+          <span>Closed</span>
+          <span class="shithub-counter-label">{{ .ClosedCount }}</span>
+        </a>
       </div>
-      {{ if .Checks.Show }}
-      <a class="shithub-pr-list-check shithub-actions-state-{{ .Checks.StateClass }}" href="{{ .Checks.Href }}" aria-label="{{ .Checks.Label }}" title="{{ .Checks.Label }}">
-        {{ octicon .Checks.StateIcon }}
-        <span>{{ .Checks.Label }}</span>
-      </a>
+
+      <div class="shithub-issue-filter-menus" aria-label="Pull request filters">
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Author {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by author</div>
+            <button type="button" class="shithub-menu-item" role="menuitem">No author filter yet</button>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Label {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by label</div>
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/labels" class="shithub-menu-item" role="menuitem">Manage labels</a>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Projects {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by project</div>
+            <button type="button" class="shithub-menu-item" role="menuitem">No projects yet</button>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Milestones {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by milestone</div>
+            <a href="/{{ $.Owner }}/{{ $.Repo.Name }}/milestones" class="shithub-menu-item" role="menuitem">Manage milestones</a>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Reviews {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by review status</div>
+            <button type="button" class="shithub-menu-item" role="menuitem">No review filter yet</button>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Assignee {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Filter by assignee</div>
+            <button type="button" class="shithub-menu-item" role="menuitem">No assignee filter yet</button>
+          </div>
+        </details>
+        <details class="shithub-issue-filter-menu">
+          <summary class="shithub-menu-summary">Sort {{ octicon "triangle-down" }}</summary>
+          <div class="shithub-menu-popover" role="menu">
+            <div class="shithub-menu-popover-head">Sort by</div>
+            <button type="button" class="shithub-menu-item is-selected" role="menuitem">{{ octicon "check" }} Newest</button>
+            <button type="button" class="shithub-menu-item" role="menuitem">Oldest</button>
+            <button type="button" class="shithub-menu-item" role="menuitem">Recently updated</button>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    {{ if .Items }}
+    <ul class="shithub-issue-list">
+      {{ range .Items }}
+      <li class="shithub-issue-list-row">
+        <input type="checkbox" class="shithub-issue-row-checkbox" aria-label="Select pull request #{{ .Row.Number }}">
+        <span class="shithub-issue-row-state shithub-issue-row-state-{{ printf "%s" .Row.State }}" aria-hidden="true">
+          {{ if .Row.MergedAt.Valid }}{{ octicon "git-merge" }}{{ else if eq (printf "%s" .Row.State) "open" }}{{ octicon "git-pull-request" }}{{ else }}{{ octicon "issue-closed" }}{{ end }}
+        </span>
+        <div class="shithub-issue-row-main">
+          <div class="shithub-issue-row-title-line">
+            <a class="shithub-issue-row-title" href="/{{ $.Owner }}/{{ $.Repo.Name }}/pulls/{{ .Row.Number }}">
+              {{ .Row.Title }}
+            </a>
+            {{ if .Row.Draft }}<span class="shithub-pill">Draft</span>{{ end }}
+          </div>
+          <div class="shithub-issue-row-meta">
+            #{{ .Row.Number }} opened
+            <time datetime="{{ .Row.CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .Row.CreatedAt.Time }}</time>
+            {{ if .AuthorName }}by <a href="/{{ .AuthorName }}">{{ .AuthorName }}</a>{{ end }}
+          </div>
+        </div>
+        <div class="shithub-issue-row-extra">
+          <span class="shithub-pull-branch-meta"><code>{{ .Row.HeadRef }}</code> → <code>{{ .Row.BaseRef }}</code></span>
+          {{ if .Checks.Show }}
+          <a class="shithub-pr-list-check shithub-actions-state-{{ .Checks.StateClass }}" href="{{ .Checks.Href }}" aria-label="{{ .Checks.Label }}" title="{{ .Checks.Label }}">
+            {{ octicon .Checks.StateIcon }}
+            <span>{{ .Checks.Label }}</span>
+          </a>
+          {{ end }}
+        </div>
+      </li>
       {{ end }}
-    </li>
+    </ul>
+    {{ else }}
+    <div class="shithub-issue-list-empty">
+      <div class="shithub-empty-state-icon">{{ if eq .State "closed" }}{{ octicon "git-merge" }}{{ else }}{{ octicon "git-pull-request" }}{{ end }}</div>
+      <h2>No results matched your search.</h2>
+      <p>You could search all of shithub or try an advanced search.</p>
+    </div>
     {{ end }}
-  </ul>
-  {{ else }}
-  <p class="shithub-issues-empty">No {{ .State }} pull requests.</p>
-  {{ end }}
+  </div>
 </section>
 </section>
 {{- end }}
