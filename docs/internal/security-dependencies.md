@@ -19,17 +19,17 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
 
 - `repo:dependency_scan` parses supported manifests from the repository default
   branch and stores one current snapshot per repository.
-- Supported manifests today are `go.mod`, `package.json`, and
-  `package-lock.json`.
-- Advisory matching is local-only. Workers do not call GitHub, npm, Go proxy, or
-  external vulnerability services on the push or pull-request path.
+- Supported manifests today are `go.mod`, `package.json`, `package-lock.json`,
+  `Cargo.toml`, and `Cargo.lock`.
+- Advisory matching is local-only. Workers do not call GitHub, npm, crates.io,
+  Go proxy, or external vulnerability services on the push or pull-request path.
 - Operators can import reviewed OSV JSON files into the local advisory catalog
   through `dependency_advisory:osv_import`; the importer reads local files only.
 - Advisory matching compares ecosystem, package name, and the local advisory
   affected ranges through `internal/repos/advisorymatch`. Supported ecosystems
-  for range evaluation are Go modules and npm. Advisories with empty or `*`
-  ranges match all versions, and unsupported ecosystems retain exact-version
-  matching only.
+  for range evaluation are Go modules, npm, and Rust crates. Advisories with
+  empty or `*` ranges match all versions, and unsupported ecosystems retain
+  exact-version matching only.
 - Supported range syntax includes exact versions, comparison ranges such as
   `>= v1.0.0, < v1.2.4`, whitespace-separated comparator sets,
   hyphen ranges, npm caret/tilde ranges, wildcard ranges such as `1.2.x`, and
@@ -134,7 +134,7 @@ branch advances. The worker:
 3. upserts the snapshot and dependency rows;
 4. marks dependencies stale when they no longer appear at the current head;
 5. opens, reopens, or resolves dependency alerts against the local advisory
-   catalog with Go/npm range matching; and
+   catalog with Go/npm/Rust range matching; and
 6. for Team organization repositories with enabled dependency update configs,
    enqueues bounded security-update jobs when matching open alerts exist and no
    security update PR/job is already active.
@@ -154,7 +154,7 @@ Operators can import OSV-formatted advisory data from a reviewed local file:
 
 ```sh
 shithubd dependency-advisories-import-osv \
-  --file /srv/shithub/advisories/osv-go-npm.json \
+  --file /srv/shithub/advisories/osv-go-npm-rust.json \
   --source-name osv \
   --source-url https://osv.dev \
   --license CC-BY-4.0 \
@@ -166,8 +166,8 @@ The command validates the local file path and enqueues
 `dependency_advisory_sync_runs` row, and transactionally upserts
 `dependency_advisories`, aliases, CVSS/CWE metadata, and structured affected
 ranges. The importer accepts one OSV object or an array of OSV objects. Current
-normalization stores Go module and npm affected packages; unsupported
-ecosystems are skipped rather than treated as matched.
+normalization stores Go module, npm, and crates.io affected packages;
+unsupported ecosystems are skipped rather than treated as matched.
 
 Import failures update both the sync run and source row with a bounded error
 message. Retry by fixing the operator-controlled file and enqueueing the
@@ -187,7 +187,7 @@ worker:
 3. parses supported manifests at the base and head SHAs without mutating repo
    state;
 4. stores the dependency diff and local advisory matches using the same
-   Go/npm range matcher as repository alerts; and
+   Go/npm/Rust range matcher as repository alerts; and
 5. publishes a completed check run named `Dependency review`.
 
 The check concludes `success` when changed dependencies have no local advisory
@@ -292,6 +292,7 @@ Do not advertise unsupported ecosystems, live advisory sync automation,
 auto-triage application, lockfile-only remediation, or AI remediation until
 those subsystems exist. User-facing copy can mention operator-controlled local
 OSV imports when the audience is administrative. Product copy should say
-"supported Go and npm manifests", "local advisory matches", "Go/npm advisory
-ranges", or "dependency update pull requests for supported direct dependencies"
-rather than claiming complete package-manager parity.
+"supported Go, npm, and Rust manifests", "local advisory matches",
+"Go/npm/Rust advisory ranges", or "dependency update pull requests for
+supported direct Go and npm dependencies" rather than claiming complete
+package-manager parity.

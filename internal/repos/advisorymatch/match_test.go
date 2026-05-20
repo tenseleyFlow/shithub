@@ -132,6 +132,20 @@ func TestMatchVersion(t *testing.T) {
 			expr:      "<1.2.3",
 			want:      true,
 		},
+		{
+			name:      "rust comparison range matches crates.io version",
+			ecosystem: "rust",
+			version:   "0.8.5",
+			expr:      ">= 0.8.0, < 0.8.6",
+			want:      true,
+		},
+		{
+			name:      "crates.io alias supports semver range",
+			ecosystem: "crates.io",
+			version:   "1.0.114",
+			expr:      "< 1.0.100",
+			want:      false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

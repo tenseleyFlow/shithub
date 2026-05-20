@@ -10,6 +10,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
+	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -49,16 +50,17 @@ func (h *Handlers) securityOverview(w http.ResponseWriter, r *http.Request) {
 
 	navCounts := h.orgNavCounts(r.Context(), org.ID, -1)
 	data := map[string]any{
-		"Title":        org.Slug + " · Security and quality",
-		"Org":          org,
-		"AvatarURL":    "/avatars/" + url.PathEscape(org.Slug),
-		"ActiveOrgNav": "security",
-		"RepoCount":    navCounts.RepoCount,
-		"MemberCount":  navCounts.MemberCount,
-		"TeamCount":    navCounts.TeamCount,
-		"IsOwner":      isOwner,
-		"IsMember":     true,
-		"Locked":       !decision.Allowed,
+		"Title":                     org.Slug + " · Security and quality",
+		"Org":                       org,
+		"AvatarURL":                 "/avatars/" + url.PathEscape(org.Slug),
+		"ActiveOrgNav":              "security",
+		"RepoCount":                 navCounts.RepoCount,
+		"MemberCount":               navCounts.MemberCount,
+		"TeamCount":                 navCounts.TeamCount,
+		"IsOwner":                   isOwner,
+		"IsMember":                  true,
+		"Locked":                    !decision.Allowed,
+		"DependencyManifestSummary": dependencies.SupportedReviewManifestSummary(),
 	}
 	if !decision.Allowed {
 		w.WriteHeader(decision.HTTPStatus())

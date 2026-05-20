@@ -46,7 +46,7 @@ func MatchVersion(ecosystem, version, rangeExpr string) bool {
 
 func supportedEcosystem(ecosystem string) bool {
 	switch strings.ToLower(strings.TrimSpace(ecosystem)) {
-	case "go", "gomod", "npm":
+	case "go", "gomod", "npm", "rust", "cargo", "crates.io":
 		return true
 	default:
 		return false

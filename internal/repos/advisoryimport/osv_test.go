@@ -39,6 +39,13 @@ func TestImportOSVStoresAdvisoryIntelligence(t *testing.T) {
 						{"introduced": "0"},
 						{"fixed": "1.2.3"}
 					]}]
+				},
+				{
+					"package": {"ecosystem": "crates.io", "name": "serde"},
+					"ranges": [{"type": "SEMVER", "events": [
+						{"introduced": "1.0.0"},
+						{"fixed": "1.0.197"}
+					]}]
 				}
 			],
 			"references": [
@@ -113,14 +120,17 @@ func TestImportOSVStoresAdvisoryIntelligence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDependencyAdvisoryAffectedRanges: %v", err)
 	}
-	if len(ranges) != 2 {
-		t.Fatalf("expected 2 affected ranges, got %d: %+v", len(ranges), ranges)
+	if len(ranges) != 3 {
+		t.Fatalf("expected 3 affected ranges, got %d: %+v", len(ranges), ranges)
 	}
 	if ranges[0].Ecosystem != "go" || ranges[0].PackageName != "example.com/app" || ranges[0].RangeExpression != "< 1.2.3" {
 		t.Fatalf("unexpected Go range: %+v", ranges[0])
 	}
 	if ranges[1].Ecosystem != "npm" || ranges[1].PackageName != "@scope/pkg" || ranges[1].RangeExpression != ">= 2.0.0, < 2.0.5" {
 		t.Fatalf("unexpected npm range: %+v", ranges[1])
+	}
+	if ranges[2].Ecosystem != "rust" || ranges[2].PackageName != "serde" || ranges[2].RangeExpression != ">= 1.0.0, < 1.0.197" {
+		t.Fatalf("unexpected Rust range: %+v", ranges[2])
 	}
 }
 
