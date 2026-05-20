@@ -15,16 +15,22 @@ type Querier interface {
 	// is added: any matching (pattern, path) flips to status='allowlisted'.
 	ApplyAllowlistToFindings(ctx context.Context, db DBTX, arg ApplyAllowlistToFindingsParams) error
 	CountSecretScanFindingsForRepo(ctx context.Context, db DBTX, arg CountSecretScanFindingsForRepoParams) (int64, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP26a: organization custom secret patterns.
+	CreateSecretScanCustomPattern(ctx context.Context, db DBTX, arg CreateSecretScanCustomPatternParams) (SecretScanCustomPattern, error)
 	// The all-channels-off case maps to row deletion rather than
 	// preserving an empty row (the at_least_one check would reject it).
 	DeleteSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) error
 	DeleteSecretScanAllowlist(ctx context.Context, db DBTX, arg DeleteSecretScanAllowlistParams) error
+	DeleteSecretScanCustomPattern(ctx context.Context, db DBTX, arg DeleteSecretScanCustomPatternParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// PRO-EXT01-10d: per-user alert preference CRUD.
 	// Returns the row or pgx.ErrNoRows; the handler treats absence as "no
 	// alerts configured" so the absence is the off state.
 	GetSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) (SecretScanAlertPref, error)
+	GetSecretScanCustomPattern(ctx context.Context, db DBTX, arg GetSecretScanCustomPatternParams) (SecretScanCustomPattern, error)
 	GetSecretScanFinding(ctx context.Context, db DBTX, arg GetSecretScanFindingParams) (SecretScanFinding, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
@@ -33,8 +39,10 @@ type Querier interface {
 	// allowlisted finding just updates the reason via the UPSERT.
 	InsertSecretScanAllowlist(ctx context.Context, db DBTX, arg InsertSecretScanAllowlistParams) (SecretScanAllowlist, error)
 	IsSecretScanAllowlisted(ctx context.Context, db DBTX, arg IsSecretScanAllowlistedParams) (bool, error)
+	ListEnabledSecretScanCustomPatternsForOrg(ctx context.Context, db DBTX, orgID int64) ([]SecretScanCustomPattern, error)
 	ListOrgSecretScanFindings(ctx context.Context, db DBTX, arg ListOrgSecretScanFindingsParams) ([]ListOrgSecretScanFindingsRow, error)
 	ListSecretScanAllowlistForRepo(ctx context.Context, db DBTX, repoID int64) ([]SecretScanAllowlist, error)
+	ListSecretScanCustomPatternsForOrg(ctx context.Context, db DBTX, orgID int64) ([]SecretScanCustomPattern, error)
 	// Status-filterable list for the UI in 10c. Filter is optional;
 	// empty string lists everything.
 	ListSecretScanFindingsForRepo(ctx context.Context, db DBTX, arg ListSecretScanFindingsForRepoParams) ([]SecretScanFinding, error)
@@ -44,9 +52,11 @@ type Querier interface {
 	MarkSecretScanFindingsStaleForRepo(ctx context.Context, db DBTX, arg MarkSecretScanFindingsStaleForRepoParams) error
 	OrgSecretScanSummary(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (OrgSecretScanSummaryRow, error)
 	ResolveSecretScanFinding(ctx context.Context, db DBTX, arg ResolveSecretScanFindingParams) error
+	SetSecretScanCustomPatternEnabled(ctx context.Context, db DBTX, arg SetSecretScanCustomPatternEnabledParams) (SecretScanCustomPattern, error)
 	// Recorded after a successful send so the worker can dedupe re-scans
 	// that re-surface a known finding (status=open → stale → open again).
 	TouchSecretScanAlertPrefsAlertedAt(ctx context.Context, db DBTX, userID int64) error
+	UpdateSecretScanCustomPattern(ctx context.Context, db DBTX, arg UpdateSecretScanCustomPatternParams) (SecretScanCustomPattern, error)
 	// Settings handler calls this. The DB CHECK constraints reject the
 	// malformed configurations (webhook url without secret, no enabled
 	// channel) so the handler doesn't have to repeat that validation.

@@ -139,6 +139,10 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 		// round-trip. Allowlist sizes are bounded by user intent;
 		// loading the whole repo's list at scan start is fine.
 		allowSet := loadAllowlistSet(ctx, sq, deps.Pool, repo.ID, deps.Logger)
+		scanPatterns, err := loadSecretScanPatternsForRepo(ctx, sq, deps.Pool, repo, deps.Logger)
+		if err != nil {
+			return err
+		}
 
 		totalFindings := 0
 		for _, path := range paths {
@@ -150,6 +154,7 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 				continue
 			}
 			findings := secretscan.Scan(blob, secretscan.ScanOptions{
+				Patterns: scanPatterns,
 				MaxBytes: secretScanMaxFileBytes,
 			})
 			for _, f := range findings {
@@ -218,6 +223,39 @@ func SecretScanHistory(deps SecretScanHistoryDeps) worker.Handler {
 			"repo_id", repo.ID, "findings", totalFindings, "oid", oid)
 		return nil
 	}
+}
+
+func loadSecretScanPatternsForRepo(ctx context.Context, sq *secretscandb.Queries, pool *pgxpool.Pool, repo reposdb.Repo, logger *slog.Logger) ([]secretscan.Pattern, error) {
+	if !repo.OwnerOrgID.Valid {
+		return secretscan.Patterns, nil
+	}
+	decision, err := entitlements.CheckOrgFeature(ctx, entitlements.Deps{Pool: pool}, repo.OwnerOrgID.Int64, entitlements.FeatureSecretCustomPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("secret-scan: custom pattern entitlement: %w", err)
+	}
+	if !decision.Allowed {
+		return secretscan.Patterns, nil
+	}
+	rows, err := sq.ListEnabledSecretScanCustomPatternsForOrg(ctx, pool, repo.OwnerOrgID.Int64)
+	if err != nil {
+		return nil, fmt.Errorf("secret-scan: load custom patterns: %w", err)
+	}
+	custom := make([]secretscan.Pattern, 0, len(rows))
+	for _, row := range rows {
+		p, err := secretscan.CompileCustomPattern(secretscan.CustomPatternSpec{
+			Name:        row.Name,
+			Description: row.Description,
+			Pattern:     row.Pattern,
+			MinMatchLen: int(row.MinMatchLen),
+		})
+		if err != nil {
+			logger.WarnContext(ctx, "secret-scan: skip invalid custom pattern",
+				"org_id", repo.OwnerOrgID.Int64, "pattern_id", row.ID, "error", err)
+			continue
+		}
+		custom = append(custom, p)
+	}
+	return secretscan.PatternsWithCustom(custom), nil
 }
 
 // allowlistKey is the (pattern, path) tuple that the per-repo

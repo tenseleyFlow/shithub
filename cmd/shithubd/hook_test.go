@@ -193,6 +193,55 @@ func TestEnforcePreReceiveSecretProtectionPrivateOrgRequiresTeam(t *testing.T) {
 	}
 }
 
+func TestEnforcePreReceiveSecretProtectionPrivateTeamOrgCustomPattern(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo, orgID := createHookOrgRepo(t, pool, reposdb.RepoVisibilityPrivate)
+	if _, err := secretscandb.New().CreateSecretScanCustomPattern(ctx, pool, secretscandb.CreateSecretScanCustomPatternParams{
+		OrgID:       orgID,
+		Name:        "internal-token",
+		Description: "Internal token fixture.",
+		Pattern:     `shithub_custom_[A-Za-z0-9]{12,}`,
+		MinMatchLen: 16,
+		CreatedBy:   pgtype.Int8{Int64: user.ID, Valid: true},
+	}); err != nil {
+		t.Fatalf("CreateSecretScanCustomPattern: %v", err)
+	}
+	gitDir, commit := danglingCustomSecretCommit(t)
+	refs := []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}
+
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, refs); err != nil {
+		t.Fatalf("free private org should skip custom push protection, got err = %v", err)
+	}
+	if _, err := billing.ApplySubscriptionSnapshot(ctx, billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
+		OrgID:                    orgID,
+		Plan:                     billing.PlanTeam,
+		Status:                   billing.SubscriptionStatusActive,
+		StripeSubscriptionID:     "sub_hook_custom_sec",
+		StripeSubscriptionItemID: "si_hook_custom_sec",
+		LastWebhookEventID:       "evt_hook_custom_sec",
+	}); err != nil {
+		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
+	}
+	var secretErr errHookSecretProtection
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, refs); !errors.As(err, &secretErr) {
+		t.Fatalf("team private org custom err = %v, want errHookSecretProtection", err)
+	}
+	if len(secretErr.Findings) != 1 {
+		t.Fatalf("findings len = %d, want 1", len(secretErr.Findings))
+	}
+	if secretErr.Findings[0].Pattern != "custom/internal-token" {
+		t.Fatalf("Pattern = %q, want custom/internal-token", secretErr.Findings[0].Pattern)
+	}
+	if msg := friendlyHookErr(secretErr); strings.Contains(msg, "shithub_custom_ABCDEF123456") {
+		t.Fatalf("friendly message leaked raw custom secret: %s", msg)
+	}
+}
+
 func createHookUserRepo(t *testing.T, pool *pgxpool.Pool, visibility reposdb.RepoVisibility) (usersdb.User, reposdb.Repo) {
 	t.Helper()
 	ctx := context.Background()
@@ -249,6 +298,14 @@ func createHookOrgRepo(t *testing.T, pool *pgxpool.Pool, visibility reposdb.Repo
 }
 
 func danglingSecretCommit(t *testing.T) (string, string) {
+	return danglingCommitWithBody(t, "config/secrets.env", "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n")
+}
+
+func danglingCustomSecretCommit(t *testing.T) (string, string) {
+	return danglingCommitWithBody(t, "config/internal.env", "TOKEN=shithub_custom_ABCDEF123456\n")
+}
+
+func danglingCommitWithBody(t *testing.T, path, body string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 	rfs, err := storage.NewRepoFS(t.TempDir())
@@ -269,8 +326,8 @@ func danglingSecretCommit(t *testing.T) (string, string) {
 		Message:     "Add config",
 		Branch:      "scan-tmp",
 		Files: []repogit.FileEntry{{
-			Path: "config/secrets.env",
-			Body: []byte("GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"),
+			Path: path,
+			Body: []byte(body),
 		}},
 	}.Build(ctx)
 	if err != nil {

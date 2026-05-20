@@ -3793,6 +3793,20 @@ type SecretScanAllowlist struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type SecretScanCustomPattern struct {
+	ID          int64
+	OrgID       int64
+	Name        string
+	Description string
+	Pattern     string
+	MinMatchLen int32
+	Enabled     bool
+	CreatedBy   pgtype.Int8
+	UpdatedBy   pgtype.Int8
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type SecretScanFinding struct {
 	ID             int64
 	RepoID         int64
