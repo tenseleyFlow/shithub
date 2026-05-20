@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BurntSushi/toml"
+
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 )
 
@@ -124,15 +126,6 @@ func Build(ctx context.Context, gitDir string, opts BuildOptions) (Snapshot, err
 	return snap, nil
 }
 
-func SupportedManifestPath(p string) bool {
-	switch path.Base(p) {
-	case "go.mod", "package.json", "package-lock.json":
-		return true
-	default:
-		return false
-	}
-}
-
 func ParseManifest(p string, body []byte) (Manifest, []Dependency, error) {
 	switch path.Base(p) {
 	case "go.mod":
@@ -141,13 +134,17 @@ func ParseManifest(p string, body []byte) (Manifest, []Dependency, error) {
 		return parsePackageJSON(p, body)
 	case "package-lock.json":
 		return parsePackageLock(p, body)
+	case "Cargo.toml":
+		return parseCargoToml(p, body)
+	case "Cargo.lock":
+		return parseCargoLock(p, body)
 	default:
 		return Manifest{}, nil, fmt.Errorf("unsupported manifest %q", p)
 	}
 }
 
 func parseGoMod(p string, body []byte) (Manifest, []Dependency, error) {
-	manifest := Manifest{Path: p, Ecosystem: "go", PackageManager: "gomod"}
+	manifest := Manifest{Path: p, Ecosystem: EcosystemGo, PackageManager: PackageManagerGoMod}
 	var deps []Dependency
 	inRequireBlock := false
 	sc := bufio.NewScanner(bytes.NewReader(body))
@@ -192,13 +189,13 @@ func parseGoRequireLine(manifestPath, line string) (Dependency, bool) {
 		return Dependency{}, false
 	}
 	return Dependency{
-		Ecosystem:      "go",
+		Ecosystem:      EcosystemGo,
 		PackageName:    fields[0],
 		PackageVersion: fields[1],
 		ManifestPath:   manifestPath,
 		Scope:          goScope(indirect),
 		Direct:         !indirect,
-		PackageManager: "gomod",
+		PackageManager: PackageManagerGoMod,
 		Source:         "go.mod",
 	}, true
 }
@@ -218,7 +215,7 @@ type packageJSON struct {
 }
 
 func parsePackageJSON(p string, body []byte) (Manifest, []Dependency, error) {
-	manifest := Manifest{Path: p, Ecosystem: "npm", PackageManager: "npm"}
+	manifest := Manifest{Path: p, Ecosystem: EcosystemNPM, PackageManager: PackageManagerNPM}
 	var doc packageJSON
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return Manifest{}, nil, err
@@ -244,13 +241,13 @@ func appendNPMManifestDeps(out []Dependency, manifestPath string, deps map[strin
 			continue
 		}
 		out = append(out, Dependency{
-			Ecosystem:      "npm",
+			Ecosystem:      EcosystemNPM,
 			PackageName:    name,
 			PackageVersion: strings.TrimSpace(deps[name]),
 			ManifestPath:   manifestPath,
 			Scope:          scope,
 			Direct:         direct,
-			PackageManager: "npm",
+			PackageManager: PackageManagerNPM,
 			Source:         source,
 		})
 	}
@@ -268,7 +265,7 @@ type packageLockPackage struct {
 }
 
 func parsePackageLock(p string, body []byte) (Manifest, []Dependency, error) {
-	manifest := Manifest{Path: p, Ecosystem: "npm", PackageManager: "npm"}
+	manifest := Manifest{Path: p, Ecosystem: EcosystemNPM, PackageManager: PackageManagerNPM}
 	var doc packageLock
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return Manifest{}, nil, err
@@ -290,15 +287,139 @@ func parsePackageLock(p string, body []byte) (Manifest, []Dependency, error) {
 			scope = "optional"
 		}
 		deps = append(deps, Dependency{
-			Ecosystem:      "npm",
+			Ecosystem:      EcosystemNPM,
 			PackageName:    name,
 			PackageVersion: strings.TrimSpace(pkg.Version),
 			ManifestPath:   p,
 			LockfilePath:   p,
 			Scope:          scope,
 			Direct:         false,
-			PackageManager: "npm",
+			PackageManager: PackageManagerNPM,
 			Source:         "package-lock.json",
+		})
+	}
+	sortDependencies(deps)
+	return manifest, deps, nil
+}
+
+type cargoManifest struct {
+	Dependencies      map[string]cargoDependencySpec `toml:"dependencies"`
+	DevDependencies   map[string]cargoDependencySpec `toml:"dev-dependencies"`
+	BuildDependencies map[string]cargoDependencySpec `toml:"build-dependencies"`
+}
+
+type cargoDependencySpec struct {
+	Version  string
+	Package  string
+	Optional bool
+}
+
+func (s *cargoDependencySpec) UnmarshalTOML(value any) error {
+	switch value := value.(type) {
+	case string:
+		s.Version = strings.TrimSpace(value)
+	case map[string]any:
+		for key, raw := range value {
+			switch key {
+			case "version":
+				if version, ok := raw.(string); ok {
+					s.Version = strings.TrimSpace(version)
+				}
+			case "package":
+				if packageName, ok := raw.(string); ok {
+					s.Package = strings.TrimSpace(packageName)
+				}
+			case "optional":
+				if optional, ok := raw.(bool); ok {
+					s.Optional = optional
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func parseCargoToml(p string, body []byte) (Manifest, []Dependency, error) {
+	manifest := Manifest{Path: p, Ecosystem: EcosystemRust, PackageManager: PackageManagerCargo}
+	var doc cargoManifest
+	if _, err := toml.Decode(string(body), &doc); err != nil {
+		return Manifest{}, nil, err
+	}
+	var deps []Dependency
+	deps = appendCargoManifestDeps(deps, p, doc.Dependencies, "runtime")
+	deps = appendCargoManifestDeps(deps, p, doc.DevDependencies, "development")
+	deps = appendCargoManifestDeps(deps, p, doc.BuildDependencies, "build")
+	sortDependencies(deps)
+	return manifest, deps, nil
+}
+
+func appendCargoManifestDeps(out []Dependency, manifestPath string, deps map[string]cargoDependencySpec, scope string) []Dependency {
+	names := make([]string, 0, len(deps))
+	for name := range deps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, alias := range names {
+		spec := deps[alias]
+		name := strings.TrimSpace(alias)
+		if spec.Package != "" {
+			name = spec.Package
+		}
+		version := strings.TrimSpace(spec.Version)
+		if name == "" || version == "" {
+			continue
+		}
+		depScope := scope
+		if depScope == "runtime" && spec.Optional {
+			depScope = "optional"
+		}
+		out = append(out, Dependency{
+			Ecosystem:      EcosystemRust,
+			PackageName:    name,
+			PackageVersion: version,
+			ManifestPath:   manifestPath,
+			Scope:          depScope,
+			Direct:         true,
+			PackageManager: PackageManagerCargo,
+			Source:         "Cargo.toml",
+		})
+	}
+	return out
+}
+
+type cargoLock struct {
+	Packages []cargoLockPackage `toml:"package"`
+}
+
+type cargoLockPackage struct {
+	Name    string `toml:"name"`
+	Version string `toml:"version"`
+	Source  string `toml:"source"`
+}
+
+func parseCargoLock(p string, body []byte) (Manifest, []Dependency, error) {
+	manifest := Manifest{Path: p, Ecosystem: EcosystemRust, PackageManager: PackageManagerCargo}
+	var doc cargoLock
+	if _, err := toml.Decode(string(body), &doc); err != nil {
+		return Manifest{}, nil, err
+	}
+	deps := make([]Dependency, 0, len(doc.Packages))
+	for _, pkg := range doc.Packages {
+		name := strings.TrimSpace(pkg.Name)
+		version := strings.TrimSpace(pkg.Version)
+		if name == "" || version == "" {
+			continue
+		}
+		deps = append(deps, Dependency{
+			Ecosystem:      EcosystemRust,
+			PackageName:    name,
+			PackageVersion: version,
+			ManifestPath:   p,
+			LockfilePath:   p,
+			Scope:          "transitive",
+			Direct:         false,
+			PackageManager: PackageManagerCargo,
+			Source:         "Cargo.lock",
 		})
 	}
 	sortDependencies(deps)

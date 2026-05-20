@@ -420,6 +420,8 @@ func normalizeEcosystem(value string) (string, bool) {
 		return "go", true
 	case "npm":
 		return "npm", true
+	case "crates.io", "cargo", "rust":
+		return "rust", true
 	default:
 		return "", false
 	}

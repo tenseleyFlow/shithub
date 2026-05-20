@@ -339,24 +339,25 @@ func dependencyReviewConclusion(vulnerableChanges, changes int) string {
 }
 
 func dependencyReviewOutput(conclusion string, counts dependencyReviewCounts) checks.Output {
+	manifestSummary := dependencies.SupportedReviewManifestSummary()
 	switch conclusion {
 	case "failure":
 		return checks.Output{
 			Title:   "Vulnerable dependency changes detected",
 			Summary: fmt.Sprintf("%d vulnerable dependency change(s) found across %d total dependency change(s).", counts.Vulnerable, counts.Changes),
-			Text:    "Review the dependency review panel on this pull request before merging. shithub matched these results against the local advisory catalog for supported Go and npm manifests.",
+			Text:    "Review the dependency review panel on this pull request before merging. shithub matched these results against the local advisory catalog for supported " + manifestSummary + ".",
 		}
 	case "neutral":
 		return checks.Output{
 			Title:   "No dependency changes detected",
 			Summary: "No supported dependency manifests changed in this pull request.",
-			Text:    "Dependency review currently covers supported Go and npm manifests only.",
+			Text:    "Dependency review currently covers supported " + manifestSummary + ".",
 		}
 	default:
 		return checks.Output{
 			Title:   "Dependency review passed",
 			Summary: fmt.Sprintf("%d dependency change(s) reviewed with no local advisory matches.", counts.Changes),
-			Text:    "Dependency review currently covers supported Go and npm manifests only.",
+			Text:    "Dependency review currently covers supported " + manifestSummary + ".",
 		}
 	}
 }

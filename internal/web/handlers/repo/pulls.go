@@ -26,6 +26,7 @@ import (
 	mdrender "github.com/tenseleyFlow/shithub/internal/markdown"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/repos/dependencies"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	"github.com/tenseleyFlow/shithub/internal/repos/protection"
@@ -793,7 +794,7 @@ func dependencyReviewFromCheck(run checksdb.CheckRun) pullDependencyReviewView {
 		StateClass: pullCheckRunStateClass(run),
 		Icon:       pullCheckRunStateIcon(run),
 		Title:      "Dependency review is queued",
-		Summary:    "Dependency changes will be checked for supported Go and npm manifests.",
+		Summary:    "Dependency changes will be checked for supported " + dependencies.SupportedReviewManifestSummary() + ".",
 	}
 	if run.Status != checksdb.CheckStatusCompleted || !run.Conclusion.Valid {
 		view.StateClass = "pending"
