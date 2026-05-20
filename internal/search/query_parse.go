@@ -206,14 +206,14 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 		return true
 	}
 
-	switch {
-	case key == "repo":
+	switch key {
+	case "repo":
 		if i := strings.IndexByte(val, '/'); i > 0 && i < len(val)-1 {
 			out.RepoFilter = &RepoFilter{Owner: val[:i], Name: val[i+1:]}
 		} else {
 			return false
 		}
-	case key == "is":
+	case "is":
 		switch strings.ToLower(val) {
 		case "open", "closed":
 			out.StateFilter = strings.ToLower(val)
@@ -230,53 +230,53 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 		default:
 			return false
 		}
-	case key == "state":
+	case "state":
 		switch strings.ToLower(val) {
 		case "open", "closed":
 			out.StateFilter = strings.ToLower(val)
 		default:
 			return false
 		}
-	case key == "author":
+	case "author":
 		out.AuthorFilter = val
-	case key == "assignee":
+	case "assignee":
 		out.AssigneeFilter = val
-	case key == "commenter":
+	case "commenter":
 		out.CommenterFilter = val
-	case key == "user", key == "org":
+	case "user", "org":
 		out.OwnerFilter = val
-	case key == "label":
+	case "label":
 		out.LabelFilters = append(out.LabelFilters, val)
-	case key == "milestone":
+	case "milestone":
 		out.MilestoneFilter = val
-	case key == "language":
+	case "language":
 		out.LanguageFilter = val
-	case key == "visibility":
+	case "visibility":
 		switch strings.ToLower(val) {
 		case "public", "private":
 			out.VisibilityFilter = strings.ToLower(val)
 		default:
 			return false
 		}
-	case key == "fork":
+	case "fork":
 		v, ok := parseBoolSearchQualifier(val)
 		if !ok {
 			return false
 		}
 		out.ForkFilter = boolSearchPtr(v)
-	case key == "archived":
+	case "archived":
 		v, ok := parseBoolSearchQualifier(val)
 		if !ok {
 			return false
 		}
 		out.ArchivedFilter = boolSearchPtr(v)
-	case key == "topic":
+	case "topic":
 		out.TopicFilters = append(out.TopicFilters, val)
-	case key == "path":
+	case "path":
 		out.PathFilter = val
-	case key == "extension":
+	case "extension":
 		out.ExtensionFilter = strings.TrimPrefix(val, ".")
-	case key == "created", key == "updated", key == "closed", key == "merged":
+	case "created", "updated", "closed", "merged":
 		dr, ok := parseDateRange(val)
 		if !ok {
 			return false
