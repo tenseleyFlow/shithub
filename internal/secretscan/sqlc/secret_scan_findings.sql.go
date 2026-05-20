@@ -30,6 +30,19 @@ func (q *Queries) CountSecretScanFindingsForRepo(ctx context.Context, db DBTX, a
 	return count, err
 }
 
+const getLatestSecretScanFindingObservedAt = `-- name: GetLatestSecretScanFindingObservedAt :one
+SELECT max(last_seen_at)::timestamptz AS latest_observed_at
+FROM secret_scan_findings
+WHERE repo_id = $1
+`
+
+func (q *Queries) GetLatestSecretScanFindingObservedAt(ctx context.Context, db DBTX, repoID int64) (pgtype.Timestamptz, error) {
+	row := db.QueryRow(ctx, getLatestSecretScanFindingObservedAt, repoID)
+	var latest_observed_at pgtype.Timestamptz
+	err := row.Scan(&latest_observed_at)
+	return latest_observed_at, err
+}
+
 const getSecretScanFinding = `-- name: GetSecretScanFinding :one
 SELECT id, repo_id, pattern, path, line_no, excerpt, status, first_seen_oid, last_seen_oid, first_seen_at, last_seen_at, resolved_at, resolution_note
 FROM secret_scan_findings
