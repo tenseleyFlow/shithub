@@ -102,7 +102,9 @@ The boundary is exercised by the search test suite at
   issue/PR filters.
 * `OwnerFilter` — `user:handle` and `org:handle` for owner scoping.
 * `LabelFilters`, `MilestoneFilter` — repeated labels are ANDed.
-* `LanguageFilter`, `PathFilter`, `ExtensionFilter` — repo/code filters.
+* `LanguageFilter`, `VisibilityFilter`, `ForkFilter`, `ArchivedFilter`,
+  `TopicFilters` — repository metadata filters.
+* `PathFilter`, `ExtensionFilter` — code path filters.
 * `CreatedFilter`, `UpdatedFilter`, `ClosedFilter`, `MergedFilter` —
   exact dates, ranges, and comparison operators.
 
@@ -117,14 +119,16 @@ pathological-length queries; longer inputs are silently truncated.
 
 Global result pages currently execute these recognized qualifiers:
 
-* repositories: `repo:`, `user:`, `org:`, `language:`, `created:`,
-  `updated:`.
+* repositories: `repo:`, `user:`, `org:`, `language:`, `is:public`,
+  `is:private`, `is:fork`, `is:archived`, `visibility:`, `fork:`,
+  `archived:`, `topic:`, `created:`, `updated:`.
 * issues and pull requests: `repo:`, `user:`, `org:`, `is:issue`,
   `is:pr`, `is:open`, `is:closed`, `state:`, `author:`, `assignee:`,
-  `commenter:`, `label:`, `milestone:`, `created:`, `updated:`,
-  `closed:`, `merged:`.
-* code: `repo:`, `user:`, `org:`, `language:`, `path:`, `extension:`,
-  plus free text against indexed paths and small-file content.
+  `commenter:`, `label:`, `milestone:`, repository metadata filters,
+  `created:`, `updated:`, `closed:`, `merged:`.
+* code: `repo:`, `user:`, `org:`, `language:`, repository metadata
+  filters, `path:`, `extension:`, plus free text against indexed paths
+  and small-file content.
 
 Repo-local `/issues` and `/pulls` pages reuse `SearchIssues` instead of
 maintaining a second SQL dialect. The web helper injects the currently
@@ -133,6 +137,11 @@ searches on those pages cannot escape the repository. The same parser powers
 the search boxes, so examples such as `author:esp label:bug`, `commenter:mf`,
 `milestone:"v1.0"`, and `created:2026-05-01..2026-05-19` work from the repo
 lists as well as the global search page.
+
+Profile and organization repository tabs also parse the same repository
+qualifier subset, so `language:Go`, `topic:forge`, `is:public`,
+`fork:false`, and `repo:owner/name` behave like GitHub's repository list
+filters instead of becoming literal substring searches.
 
 ## Ranking
 

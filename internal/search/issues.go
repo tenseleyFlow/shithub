@@ -38,7 +38,9 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" &&
 		q.AuthorFilter == "" && q.AssigneeFilter == "" && q.CommenterFilter == "" &&
 		q.StateFilter == "" && effectiveKind == "" && len(q.LabelFilters) == 0 &&
-		q.MilestoneFilter == "" && q.CreatedFilter == nil && q.UpdatedFilter == nil &&
+		q.MilestoneFilter == "" && q.VisibilityFilter == "" && q.ForkFilter == nil &&
+		q.ArchivedFilter == nil && len(q.TopicFilters) == 0 &&
+		q.CreatedFilter == nil && q.UpdatedFilter == nil &&
 		q.ClosedFilter == nil && q.MergedFilter == nil {
 		return nil, 0, nil
 	}
@@ -134,6 +136,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 			milestonePos,
 		)
 	}
+	whereExtras += appendRepoQualifierFilters(&args, "r", q)
 	whereExtras += appendDateRangeFilter(&args, "i.created_at", q.CreatedFilter)
 	whereExtras += appendDateRangeFilter(&args, "i.updated_at", q.UpdatedFilter)
 	whereExtras += appendDateRangeFilter(&args, "i.closed_at", q.ClosedFilter)

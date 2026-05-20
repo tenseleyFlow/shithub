@@ -18,6 +18,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	repogit "github.com/tenseleyFlow/shithub/internal/repos/git"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/search"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -48,6 +49,7 @@ type userRepositoryItem struct {
 	StarCount            int64
 	ForkCount            int64
 	UpdatedAt            time.Time
+	Topics               []string
 	DefaultBranch        string
 	ActivitySparkline    template.HTML
 }
@@ -104,13 +106,14 @@ func (h *Handlers) serveRepositoriesTab(w http.ResponseWriter, r *http.Request, 
 			StarCount:       repo.StarCount,
 			ForkCount:       repo.ForkCount,
 			UpdatedAt:       repo.UpdatedAt.Time,
+			Topics:          h.orgRepoTopics(ctx, repo.ID),
 			DefaultBranch:   repo.DefaultBranch,
 		}
 		item.PrimaryLanguageColor = template.CSS(orgLanguageColor(language)) //nolint:gosec // CSS value comes from server-side constants.
 		rows = append(rows, item)
 	}
 
-	filtered := filterUserRepositories(rows, filters)
+	filtered := filterUserRepositories(rows, user.Username, filters)
 	sortUserRepositories(filtered, filters.Sort)
 	pageRepos, currentPage, pageCount := paginateUserRepositories(filtered, page)
 	pageRepos = h.withUserRepoActivity(ctx, user.Username, pageRepos)
@@ -173,8 +176,8 @@ func (h *Handlers) serveRepositoriesTab(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func filterUserRepositories(repos []userRepositoryItem, filters userRepositoryFilters) []userRepositoryItem {
-	query := strings.ToLower(strings.TrimSpace(filters.Query))
+func filterUserRepositories(repos []userRepositoryItem, owner string, filters userRepositoryFilters) []userRepositoryItem {
+	parsed := search.ParseQuery(filters.Query)
 	languageFilter := strings.TrimSpace(filters.Language)
 	out := make([]userRepositoryItem, 0, len(repos))
 	for _, repo := range repos {
@@ -184,7 +187,7 @@ func filterUserRepositories(repos []userRepositoryItem, filters userRepositoryFi
 		if languageFilter != "" && !strings.EqualFold(repo.PrimaryLanguage, languageFilter) {
 			continue
 		}
-		if query != "" && !userRepositoryMatchesQuery(repo, query) {
+		if strings.TrimSpace(filters.Query) != "" && !userRepositoryMatchesParsedQuery(owner, repo, parsed) {
 			continue
 		}
 		out = append(out, repo)
@@ -207,13 +210,6 @@ func userRepositoryMatchesType(repo userRepositoryItem, typeFilter string) bool 
 	default:
 		return true
 	}
-}
-
-func userRepositoryMatchesQuery(repo userRepositoryItem, query string) bool {
-	return strings.Contains(strings.ToLower(repo.Name), query) ||
-		strings.Contains(strings.ToLower(repo.Description), query) ||
-		strings.Contains(strings.ToLower(repo.PrimaryLanguage), query) ||
-		strings.Contains(strings.ToLower(repo.LicenseKey), query)
 }
 
 func sortUserRepositories(repos []userRepositoryItem, sortKey string) {

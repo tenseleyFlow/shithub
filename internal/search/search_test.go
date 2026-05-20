@@ -53,6 +53,10 @@ func TestParseQuery(t *testing.T) {
 		{"org:tenseleyflow shithub", search.ParsedQuery{Text: "shithub", OwnerFilter: "tenseleyflow"}},
 		{"user: nothing", search.ParsedQuery{Text: "user: nothing"}},
 		{"language:Go x", search.ParsedQuery{Text: "x", LanguageFilter: "Go"}},
+		{"is:public topic:forge", search.ParsedQuery{
+			VisibilityFilter: "public",
+			TopicFilters:     []string{"forge"},
+		}},
 	}
 	for _, c := range cases {
 		got := search.ParseQuery(c.in)
@@ -61,8 +65,10 @@ func TestParseQuery(t *testing.T) {
 			got.AuthorFilter != c.want.AuthorFilter || got.AssigneeFilter != c.want.AssigneeFilter ||
 			got.CommenterFilter != c.want.CommenterFilter || got.OwnerFilter != c.want.OwnerFilter ||
 			got.MilestoneFilter != c.want.MilestoneFilter || got.LanguageFilter != c.want.LanguageFilter ||
+			got.VisibilityFilter != c.want.VisibilityFilter ||
 			got.PathFilter != c.want.PathFilter || got.ExtensionFilter != c.want.ExtensionFilter ||
-			!reflect.DeepEqual(got.LabelFilters, c.want.LabelFilters) {
+			!reflect.DeepEqual(got.LabelFilters, c.want.LabelFilters) ||
+			!reflect.DeepEqual(got.TopicFilters, c.want.TopicFilters) {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
 			continue
 		}
@@ -74,6 +80,34 @@ func TestParseQuery(t *testing.T) {
 			t.Errorf("ParseQuery(%q): repo-filter %+v, want %+v",
 				c.in, *got.RepoFilter, *c.want.RepoFilter)
 		}
+	}
+}
+
+func TestParseQuery_RepositoryQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery("is:private fork:false archived:false topic:cli")
+	if got.VisibilityFilter != "private" {
+		t.Fatalf("VisibilityFilter = %q", got.VisibilityFilter)
+	}
+	if got.ForkFilter == nil || *got.ForkFilter {
+		t.Fatalf("ForkFilter = %+v, want false", got.ForkFilter)
+	}
+	if got.ArchivedFilter == nil || *got.ArchivedFilter {
+		t.Fatalf("ArchivedFilter = %+v, want false", got.ArchivedFilter)
+	}
+	if !reflect.DeepEqual(got.TopicFilters, []string{"cli"}) {
+		t.Fatalf("TopicFilters = %#v", got.TopicFilters)
+	}
+
+	got = search.ParseQuery("is:fork is:archived visibility:public fork:only")
+	if got.VisibilityFilter != "public" {
+		t.Fatalf("VisibilityFilter = %q", got.VisibilityFilter)
+	}
+	if got.ForkFilter == nil || !*got.ForkFilter {
+		t.Fatalf("ForkFilter = %+v, want true", got.ForkFilter)
+	}
+	if got.ArchivedFilter == nil || !*got.ArchivedFilter {
+		t.Fatalf("ArchivedFilter = %+v, want true", got.ArchivedFilter)
 	}
 }
 
@@ -469,6 +503,62 @@ func TestSearchRepos_LanguageAndDateFilters(t *testing.T) {
 	for _, r := range got {
 		if r.ID != f.orgRepo.ID {
 			t.Errorf("language/date filter leaked %s/%s", r.OwnerUsername, r.Name)
+		}
+	}
+}
+
+func TestSearchRepos_RepositoryQualifiers(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE repos
+		   SET fork_of_repo_id = $1,
+		       is_archived = true,
+		       archived_at = '2026-05-12T00:00:00Z'
+		 WHERE id = $2
+	`, f.orgRepo.ID, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed fork/archive: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO repo_topics (repo_id, topic) VALUES ($1, 'forge')
+	`, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed topic: %v", err)
+	}
+
+	got, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("is:fork archived:true topic:forge"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos repository qualifiers: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != f.pubRepo.ID {
+		t.Fatalf("repository qualifiers got %d rows total=%d, want pubRepo: %+v", len(got), total, got)
+	}
+
+	anonPrivate, total, err := search.SearchRepos(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("is:private"),
+		20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos is:private anonymous: %v", err)
+	}
+	if total != 0 || len(anonPrivate) != 0 {
+		t.Fatalf("anonymous is:private returned %d rows total=%d", len(anonPrivate), total)
+	}
+
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+	ownerPrivate, total, err := search.SearchRepos(ctx, f.deps, alice,
+		search.ParseQuery("is:private"), 20, 0)
+	if err != nil {
+		t.Fatalf("SearchRepos is:private owner: %v", err)
+	}
+	if total == 0 || len(ownerPrivate) == 0 {
+		t.Fatalf("owner is:private returned zero hits")
+	}
+	for _, repo := range ownerPrivate {
+		if repo.Visibility != "private" {
+			t.Fatalf("is:private leaked non-private repo %+v", repo)
 		}
 	}
 }

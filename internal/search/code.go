@@ -65,6 +65,7 @@ func SearchCode(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQuer
 		)
 	}
 	scopeFilter += appendCITextFilter(&args, "coalesce(r.primary_language, '')", q.LanguageFilter)
+	scopeFilter += appendRepoQualifierFilters(&args, "r", q)
 
 	pathFilter := scopeFilter
 	pathFilter += appendCILikeFilter(&args, "csp.path", q.PathFilter)

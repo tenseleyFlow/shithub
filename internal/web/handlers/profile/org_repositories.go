@@ -14,6 +14,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/orgs"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -62,7 +63,7 @@ func (h *Handlers) serveOrgRepositories(w http.ResponseWriter, r *http.Request) 
 	languageFilter := strings.TrimSpace(r.URL.Query().Get("language"))
 	sortKey := normalizeOrgRepositorySort(r.URL.Query().Get("sort"))
 
-	filtered := filterOrgRepositories(repos, query, typeFilter, languageFilter)
+	filtered := filterOrgRepositories(repos, string(org.Slug), query, typeFilter, languageFilter)
 	sortOrgRepositories(filtered, sortKey)
 	page := parseOrgRepositoryPage(r.URL.Query().Get("page"))
 	pageRepos, currentPage, pageCount := paginateOrgRepositories(filtered, page)
@@ -149,8 +150,8 @@ func (h *Handlers) orgViewerState(ctx context.Context, orgID int64, viewer middl
 	return isOwner, isMember, viewAs
 }
 
-func filterOrgRepositories(repos []orgProfileRepo, query, typeFilter, languageFilter string) []orgProfileRepo {
-	query = strings.ToLower(strings.TrimSpace(query))
+func filterOrgRepositories(repos []orgProfileRepo, owner, query, typeFilter, languageFilter string) []orgProfileRepo {
+	parsed := search.ParseQuery(query)
 	languageFilter = strings.TrimSpace(languageFilter)
 	out := make([]orgProfileRepo, 0, len(repos))
 	for _, repo := range repos {
@@ -160,7 +161,7 @@ func filterOrgRepositories(repos []orgProfileRepo, query, typeFilter, languageFi
 		if languageFilter != "" && !strings.EqualFold(repo.PrimaryLanguage, languageFilter) {
 			continue
 		}
-		if query != "" && !orgRepositoryMatchesQuery(repo, query) {
+		if query != "" && !orgRepositoryMatchesParsedQuery(owner, repo, parsed) {
 			continue
 		}
 		out = append(out, repo)
@@ -183,20 +184,6 @@ func orgRepositoryMatchesType(repo orgProfileRepo, typeFilter string) bool {
 	default:
 		return true
 	}
-}
-
-func orgRepositoryMatchesQuery(repo orgProfileRepo, query string) bool {
-	if strings.Contains(strings.ToLower(repo.Name), query) ||
-		strings.Contains(strings.ToLower(repo.Description), query) ||
-		strings.Contains(strings.ToLower(repo.PrimaryLanguage), query) {
-		return true
-	}
-	for _, topic := range repo.Topics {
-		if strings.Contains(strings.ToLower(topic), query) {
-			return true
-		}
-	}
-	return false
 }
 
 func sortOrgRepositories(repos []orgProfileRepo, sortKey string) {

@@ -48,3 +48,31 @@ func appendDateRangeFilter(args *[]any, expr string, dr *DateRange) string {
 	}
 	return out
 }
+
+func appendRepoQualifierFilters(args *[]any, repoAlias string, q ParsedQuery) string {
+	out := appendCITextFilter(args, repoAlias+".visibility::text", q.VisibilityFilter)
+	if q.ForkFilter != nil {
+		if *q.ForkFilter {
+			out += fmt.Sprintf(" AND %s.fork_of_repo_id IS NOT NULL", repoAlias)
+		} else {
+			out += fmt.Sprintf(" AND %s.fork_of_repo_id IS NULL", repoAlias)
+		}
+	}
+	if q.ArchivedFilter != nil {
+		if *q.ArchivedFilter {
+			out += fmt.Sprintf(" AND %s.is_archived", repoAlias)
+		} else {
+			out += fmt.Sprintf(" AND NOT %s.is_archived", repoAlias)
+		}
+	}
+	for _, topic := range q.TopicFilters {
+		pos := len(*args) + 1
+		*args = append(*args, topic)
+		out += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM repo_topics rt"+
+				" WHERE rt.repo_id = %[1]s.id AND rt.topic = $%[2]d)",
+			repoAlias, pos,
+		)
+	}
+	return out
+}

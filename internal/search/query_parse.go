@@ -32,16 +32,20 @@ type ParsedQuery struct {
 	// repo's owning user OR org slug. gh aliases them for search; we
 	// keep the positive fast path here and retain negated forms in
 	// Qualifiers for callers that can enforce exclusions.
-	OwnerFilter     string
-	LabelFilters    []string
-	MilestoneFilter string
-	LanguageFilter  string
-	PathFilter      string
-	ExtensionFilter string
-	CreatedFilter   *DateRange
-	UpdatedFilter   *DateRange
-	ClosedFilter    *DateRange
-	MergedFilter    *DateRange
+	OwnerFilter      string
+	LabelFilters     []string
+	MilestoneFilter  string
+	LanguageFilter   string
+	VisibilityFilter string
+	ForkFilter       *bool
+	ArchivedFilter   *bool
+	TopicFilters     []string
+	PathFilter       string
+	ExtensionFilter  string
+	CreatedFilter    *DateRange
+	UpdatedFilter    *DateRange
+	ClosedFilter     *DateRange
+	MergedFilter     *DateRange
 }
 
 // RepoFilter splits the `repo:owner/name` operator value.
@@ -191,7 +195,8 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	switch key {
 	case "repo", "is", "state", "author", "assignee", "commenter",
 		"user", "org", "label", "milestone", "language", "path",
-		"extension", "created", "updated", "closed", "merged":
+		"extension", "created", "updated", "closed", "merged",
+		"visibility", "fork", "archived", "topic":
 	default:
 		return false
 	}
@@ -216,6 +221,12 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 			out.KindFilter = "issue"
 		case "pr", "pull-request", "pull_request":
 			out.KindFilter = "pr"
+		case "public", "private":
+			out.VisibilityFilter = strings.ToLower(val)
+		case "fork":
+			out.ForkFilter = boolSearchPtr(true)
+		case "archived":
+			out.ArchivedFilter = boolSearchPtr(true)
 		default:
 			return false
 		}
@@ -240,6 +251,27 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 		out.MilestoneFilter = val
 	case key == "language":
 		out.LanguageFilter = val
+	case key == "visibility":
+		switch strings.ToLower(val) {
+		case "public", "private":
+			out.VisibilityFilter = strings.ToLower(val)
+		default:
+			return false
+		}
+	case key == "fork":
+		v, ok := parseBoolSearchQualifier(val)
+		if !ok {
+			return false
+		}
+		out.ForkFilter = boolSearchPtr(v)
+	case key == "archived":
+		v, ok := parseBoolSearchQualifier(val)
+		if !ok {
+			return false
+		}
+		out.ArchivedFilter = boolSearchPtr(v)
+	case key == "topic":
+		out.TopicFilters = append(out.TopicFilters, val)
 	case key == "path":
 		out.PathFilter = val
 	case key == "extension":
@@ -262,6 +294,21 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	}
 	out.Qualifiers = append(out.Qualifiers, Qualifier{Key: key, Value: val})
 	return true
+}
+
+func boolSearchPtr(v bool) *bool {
+	return &v
+}
+
+func parseBoolSearchQualifier(raw string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "yes", "1", "only":
+		return true, true
+	case "false", "no", "0":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func parseDateRange(raw string) (DateRange, bool) {
@@ -340,7 +387,9 @@ func (p ParsedQuery) HasContent() bool {
 		p.StateFilter != "" || p.KindFilter != "" || p.AuthorFilter != "" ||
 		p.AssigneeFilter != "" || p.CommenterFilter != "" || p.OwnerFilter != "" ||
 		len(p.LabelFilters) > 0 || p.MilestoneFilter != "" ||
-		p.LanguageFilter != "" || p.PathFilter != "" || p.ExtensionFilter != "" ||
+		p.LanguageFilter != "" || p.VisibilityFilter != "" || p.ForkFilter != nil ||
+		p.ArchivedFilter != nil || len(p.TopicFilters) > 0 ||
+		p.PathFilter != "" || p.ExtensionFilter != "" ||
 		p.CreatedFilter != nil || p.UpdatedFilter != nil || p.ClosedFilter != nil ||
 		p.MergedFilter != nil || len(p.ExcludedTerms) > 0 || len(p.Qualifiers) > 0
 }
