@@ -32,6 +32,11 @@ WHERE repo_id = $1
   AND (sqlc.arg(status_filter)::text = ''
        OR status::text = sqlc.arg(status_filter)::text);
 
+-- name: GetLatestSecretScanFindingObservedAt :one
+SELECT max(last_seen_at)::timestamptz AS latest_observed_at
+FROM secret_scan_findings
+WHERE repo_id = $1;
+
 -- name: GetSecretScanFinding :one
 SELECT *
 FROM secret_scan_findings

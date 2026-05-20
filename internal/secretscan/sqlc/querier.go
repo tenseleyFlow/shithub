@@ -24,6 +24,7 @@ type Querier interface {
 	DeleteSecretScanAlertPrefs(ctx context.Context, db DBTX, userID int64) error
 	DeleteSecretScanAllowlist(ctx context.Context, db DBTX, arg DeleteSecretScanAllowlistParams) error
 	DeleteSecretScanCustomPattern(ctx context.Context, db DBTX, arg DeleteSecretScanCustomPatternParams) error
+	GetLatestSecretScanFindingObservedAt(ctx context.Context, db DBTX, repoID int64) (pgtype.Timestamptz, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	//
 	// PRO-EXT01-10d: per-user alert preference CRUD.

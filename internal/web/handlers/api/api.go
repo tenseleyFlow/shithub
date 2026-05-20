@@ -225,6 +225,8 @@ func (h *Handlers) Mount(r chi.Router) {
 		h.mountActionsLifecycleREST(r)
 		// S50 §13 — actions secrets CRUD (repo + org) + sealed-box public-key.
 		h.mountActionsSecrets(r)
+		// SP26c — read-only Secret Protection metadata API.
+		h.mountSecretScanning(r)
 		// S50 §13 — actions variables CRUD (repo + org).
 		h.mountActionsVariables(r)
 		// SP23 — repository Actions environments + environment secrets.

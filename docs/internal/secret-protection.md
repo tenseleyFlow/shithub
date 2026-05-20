@@ -4,7 +4,8 @@ SP26 turns the existing personal secret scanning substrate into the first
 organization Secret Protection baseline. The owning code lives in
 `internal/secretscan`, `internal/worker/jobs/secret_scan_history.go`,
 `cmd/shithubd/hook_secret_protection.go`,
-`internal/web/handlers/repo/security_secret_scanning.go`, and
+`internal/web/handlers/repo/security_secret_scanning.go`,
+`internal/web/handlers/api/secret_scanning.go`, and
 `internal/web/handlers/orgs/security.go`.
 
 ## Product Contract
@@ -66,6 +67,22 @@ summary/finding queries only after the Team `secret_scanning`
 entitlement passes. Custom pattern rows are not loaded unless
 `secret_custom_patterns` is allowed.
 
+SP26c adds read-only API routes for repository secret scanning status,
+alerts, allowlist rows, and bypass requests:
+
+- `GET /api/v1/repos/{owner}/{repo}/secret-scanning/status`
+- `GET /api/v1/repos/{owner}/{repo}/secret-scanning/alerts`
+- `GET /api/v1/repos/{owner}/{repo}/secret-scanning/allowlist`
+- `GET /api/v1/repos/{owner}/{repo}/secret-scanning/bypass-requests`
+
+The API uses `repo:read` PAT scope plus the same repository settings
+policy action as the browser page. Private organization repositories
+require Team before alert, allowlist, or status metadata is loaded, and
+bypass requests additionally require `secret_bypass_controls`. API
+responses omit raw secret bytes and omit the redacted excerpt column;
+clients receive pattern names, paths, line numbers, commit OIDs, states,
+actors, timestamps, and counts only.
+
 ## Push Protection
 
 `pre-receive` runs secret push protection before branch protection for
@@ -108,7 +125,8 @@ so broken configuration cannot deny all pushes.
 
 ## Known Gaps
 
-- Scan history API endpoints are not implemented yet.
+- The scan history API reports the current finding store, not a durable
+  worker-job history ledger.
 - Provider notification and provider-side validity checks are not
   implemented yet.
 - Non-prefixed high-entropy generic heuristics remain deferred until
