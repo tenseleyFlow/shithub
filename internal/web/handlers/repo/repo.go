@@ -223,6 +223,8 @@ func (h *Handlers) MountRepoHome(r chi.Router) {
 	r.Post("/{owner}/{repo}/security/secret-scanning/scan", h.repoSecretScanningRunScan)
 	r.Post("/{owner}/{repo}/security/secret-scanning/allowlist", h.repoSecretScanningAllowlistAdd)
 	r.Post("/{owner}/{repo}/security/secret-scanning/allowlist/{id}/remove", h.repoSecretScanningAllowlistRemove)
+	r.Post("/{owner}/{repo}/security/secret-scanning/bypass/{id}/approve", h.repoSecretScanningBypassApprove)
+	r.Post("/{owner}/{repo}/security/secret-scanning/bypass/{id}/deny", h.repoSecretScanningBypassDeny)
 	r.Get("/{owner}/{repo}/pulse", h.repoInsightsPulse)
 	r.Get("/{owner}/{repo}/graphs/contributors", h.repoInsightsContributors)
 	r.Get("/{owner}/{repo}/graphs/commit-activity", h.repoInsightsCommitActivity)

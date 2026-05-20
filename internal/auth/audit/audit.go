@@ -108,6 +108,13 @@ const (
 	ActionActionsVariableDeleted Action = "actions_variable_deleted"
 	ActionActionsPolicyUpdated   Action = "actions_policy_updated"
 
+	// SP26b — secret push-protection bypass lifecycle. Metadata must
+	// stay structural: request id, pattern name, path, line, commit oid,
+	// and expiry. Never include raw match bytes or excerpts.
+	ActionSecretBypassRequested Action = "secret_bypass_requested"
+	ActionSecretBypassApproved  Action = "secret_bypass_approved"
+	ActionSecretBypassDenied    Action = "secret_bypass_denied"
+
 	// S41h — Actions run/job lifecycle. Metadata must stay structural:
 	// run/job ids, status, conclusion, workflow path/name. Never include
 	// event payloads, env, logs, permissions, tokens, or secret values.

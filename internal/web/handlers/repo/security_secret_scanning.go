@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/tenseleyFlow/shithub/internal/auth/audit"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
@@ -136,6 +138,98 @@ func (h *Handlers) repoSecretScanningAllowlistRemove(w http.ResponseWriter, r *h
 	h.renderSecretScanningPage(w, r, row, owner.Username, "", "Allowlist entry removed.")
 }
 
+func (h *Handlers) repoSecretScanningBypassApprove(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
+		return
+	}
+	gate := h.repoSecretBypassGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		h.renderSecretScanningPage(w, r, row, owner.Username,
+			"Secret push-protection bypass controls require billing for this repository.", "")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Invalid bypass request id.", "")
+		return
+	}
+	note := strings.TrimSpace(r.PostFormValue("review_note"))
+	if len(note) > 500 {
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Review note is too long (max 500 characters).", "")
+		return
+	}
+	hours, ok := parseSecretBypassApprovalHours(r.PostFormValue("approved_for_hours"))
+	if !ok {
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Approval duration must be between 1 and 168 hours.", "")
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	approvedUntil := time.Now().UTC().Add(time.Duration(hours) * time.Hour)
+	reviewed, err := secretscandb.New().ReviewSecretScanBypassRequest(r.Context(), h.d.Pool, secretscandb.ReviewSecretScanBypassRequestParams{
+		ID:            id,
+		RepoID:        row.ID,
+		Status:        secretscandb.SecretScanBypassStatusApproved,
+		ReviewedBy:    pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+		ReviewNote:    note,
+		ApprovedUntil: pgtype.Timestamptz{Time: approvedUntil, Valid: true},
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "secret-scan: approve bypass", "id", id, "repo_id", row.ID, "error", err)
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Could not approve bypass request.", "")
+		return
+	}
+	h.recordSecretBypassReview(r, row.ID, auditActionSecretBypassApproved, reviewed)
+	h.renderSecretScanningPage(w, r, row, owner.Username, "", "Bypass request approved.")
+}
+
+func (h *Handlers) repoSecretScanningBypassDeny(w http.ResponseWriter, r *http.Request) {
+	row, owner, ok := h.loadRepoAndAuthorize(w, r, policy.ActionRepoSettingsGeneral)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.d.Render.HTTPError(w, r, http.StatusBadRequest, "form parse")
+		return
+	}
+	gate := h.repoSecretBypassGate(r.Context(), row, owner.Username)
+	if !gate.Allowed {
+		h.renderSecretScanningPage(w, r, row, owner.Username,
+			"Secret push-protection bypass controls require billing for this repository.", "")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Invalid bypass request id.", "")
+		return
+	}
+	note := strings.TrimSpace(r.PostFormValue("review_note"))
+	if len(note) > 500 {
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Review note is too long (max 500 characters).", "")
+		return
+	}
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	reviewed, err := secretscandb.New().ReviewSecretScanBypassRequest(r.Context(), h.d.Pool, secretscandb.ReviewSecretScanBypassRequestParams{
+		ID:            id,
+		RepoID:        row.ID,
+		Status:        secretscandb.SecretScanBypassStatusDenied,
+		ReviewedBy:    pgtype.Int8{Int64: viewer.ID, Valid: viewer.ID != 0},
+		ReviewNote:    note,
+		ApprovedUntil: pgtype.Timestamptz{},
+	})
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "secret-scan: deny bypass", "id", id, "repo_id", row.ID, "error", err)
+		h.renderSecretScanningPage(w, r, row, owner.Username, "Could not deny bypass request.", "")
+		return
+	}
+	h.recordSecretBypassReview(r, row.ID, auditActionSecretBypassDenied, reviewed)
+	h.renderSecretScanningPage(w, r, row, owner.Username, "", "Bypass request denied.")
+}
+
 // renderSecretScanningPage is the shared render path. Always loads
 // findings + allowlist for the repo + computes the Pro-gate state.
 func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Request, row reposdb.Repo, ownerSlug, errMsg, successMsg string) {
@@ -149,6 +243,11 @@ func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Reque
 	})
 	allowlist, _ := sq.ListSecretScanAllowlistForRepo(r.Context(), h.d.Pool, row.ID)
 	gate := h.repoSecretScanGate(r.Context(), row, ownerSlug)
+	bypassGate := h.repoSecretBypassGate(r.Context(), row, ownerSlug)
+	bypassRequests := []secretscandb.SecretScanBypassRequest{}
+	if bypassGate.Allowed {
+		bypassRequests, _ = sq.ListSecretScanBypassRequestsForRepo(r.Context(), h.d.Pool, row.ID)
+	}
 	_ = h.d.Render.RenderPage(w, r, "repo/security_secret_scanning", map[string]any{
 		"Title":              "Secret scanning · " + row.Name,
 		"CSRFToken":          middleware.CSRFTokenForRequest(r),
@@ -161,6 +260,11 @@ func (h *Handlers) renderSecretScanningPage(w http.ResponseWriter, r *http.Reque
 		"RunScanFeatureKey":  gate.FeatureKey,
 		"RunScanUpgradeHref": gate.UpgradeHref,
 		"RunScanUpgradeText": gate.UpgradeText,
+		"BypassAllowed":      bypassGate.Allowed,
+		"BypassRequests":     bypassRequests,
+		"BypassFeatureKey":   bypassGate.FeatureKey,
+		"BypassUpgradeHref":  bypassGate.UpgradeHref,
+		"BypassUpgradeText":  bypassGate.UpgradeText,
 		"RepoActions":        h.repoActions(r, row.ID),
 		"RepoCounts":         h.subnavCounts(r.Context(), row.ID, row.ForkCount),
 		"CanSettings":        h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
@@ -222,4 +326,74 @@ func (h *Handlers) repoSecretScanGate(ctx context.Context, row reposdb.Repo, own
 		gate.Allowed = true
 	}
 	return gate
+}
+
+// repoSecretBypassGate reports whether push-protection bypass review is
+// available. Public repos and personal private repos keep the baseline
+// owner-control surface; private organization repos require Team's
+// secret_bypass_controls feature before the page reveals exact blocked
+// paths or approval controls.
+func (h *Handlers) repoSecretBypassGate(ctx context.Context, row reposdb.Repo, ownerSlug string) repoSecretScanGate {
+	gate := repoSecretScanGate{
+		Allowed:     true,
+		FeatureKey:  string(entitlements.FeatureSecretBypassControls),
+		UpgradeHref: "/settings/billing",
+		UpgradeText: "Upgrade",
+	}
+	if row.Visibility != reposdb.RepoVisibilityPrivate || !row.OwnerOrgID.Valid {
+		return gate
+	}
+	gate.Allowed = false
+	gate.UpgradeHref = "/organizations/" + ownerSlug + "/settings/billing"
+	gate.UpgradeText = "Upgrade to Team"
+	decision, err := entitlements.CheckPrincipalFeature(ctx,
+		entitlements.Deps{Pool: h.d.Pool},
+		billing.PrincipalForOrg(row.OwnerOrgID.Int64),
+		entitlements.FeatureSecretBypassControls)
+	if err != nil {
+		return gate
+	}
+	gate.Allowed = decision.Allowed
+	return gate
+}
+
+func parseSecretBypassApprovalHours(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 24, true
+	}
+	hours, err := strconv.Atoi(raw)
+	if err != nil || hours < 1 || hours > 168 {
+		return 0, false
+	}
+	return hours, true
+}
+
+type secretBypassAuditAction string
+
+const (
+	auditActionSecretBypassApproved secretBypassAuditAction = "approved"
+	auditActionSecretBypassDenied   secretBypassAuditAction = "denied"
+)
+
+func (h *Handlers) recordSecretBypassReview(r *http.Request, repoID int64, action secretBypassAuditAction, row secretscandb.SecretScanBypassRequest) {
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	auditAction := audit.ActionSecretBypassDenied
+	if action == auditActionSecretBypassApproved {
+		auditAction = audit.ActionSecretBypassApproved
+	}
+	meta := map[string]any{
+		"bypass_request_id": row.ID,
+		"pattern":           row.Pattern,
+		"path":              row.Path,
+		"line_no":           row.LineNo,
+		"commit_oid":        row.CommitOid,
+		"status":            row.Status,
+	}
+	if row.ApprovedUntil.Valid {
+		meta["approved_until"] = row.ApprovedUntil.Time.UTC().Format(time.RFC3339)
+	}
+	if err := h.d.Audit.Record(r.Context(), h.d.Pool, viewer.ID, auditAction, audit.TargetRepo, repoID, meta); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "secret-scan: audit bypass review", "repo_id", repoID, "request_id", row.ID, "error", err)
+	}
 }

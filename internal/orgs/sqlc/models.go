@@ -1398,6 +1398,49 @@ func (ns NullScheduledIssueStatus) Value() (driver.Value, error) {
 	return string(ns.ScheduledIssueStatus), nil
 }
 
+type SecretScanBypassStatus string
+
+const (
+	SecretScanBypassStatusPending  SecretScanBypassStatus = "pending"
+	SecretScanBypassStatusApproved SecretScanBypassStatus = "approved"
+	SecretScanBypassStatusDenied   SecretScanBypassStatus = "denied"
+)
+
+func (e *SecretScanBypassStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SecretScanBypassStatus(s)
+	case string:
+		*e = SecretScanBypassStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SecretScanBypassStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSecretScanBypassStatus struct {
+	SecretScanBypassStatus SecretScanBypassStatus
+	Valid                  bool // Valid is true if SecretScanBypassStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSecretScanBypassStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SecretScanBypassStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SecretScanBypassStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSecretScanBypassStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SecretScanBypassStatus), nil
+}
+
 type SecretScanFindingStatus string
 
 const (
@@ -3791,6 +3834,25 @@ type SecretScanAllowlist struct {
 	Reason    string
 	CreatedBy pgtype.Int8
 	CreatedAt pgtype.Timestamptz
+}
+
+type SecretScanBypassRequest struct {
+	ID            int64
+	RepoID        int64
+	Pattern       string
+	Path          string
+	CommitOid     string
+	LineNo        int32
+	Status        SecretScanBypassStatus
+	RequestedBy   pgtype.Int8
+	ReviewedBy    pgtype.Int8
+	RequestReason string
+	ReviewNote    string
+	ApprovedUntil pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	ReviewedAt    pgtype.Timestamptz
+	LastSeenAt    pgtype.Timestamptz
 }
 
 type SecretScanCustomPattern struct {

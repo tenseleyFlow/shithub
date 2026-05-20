@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	billingdb "github.com/tenseleyFlow/shithub/internal/billing/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/infra/config"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -180,6 +182,101 @@ func TestSecretScanning_PublicOrgAllowedWithoutTeam(t *testing.T) {
 	}
 }
 
+func TestSecretScanning_BypassApproveAndDeny(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	first := seedBypassRequest(t, f, f.publicRepo.ID, "github-token", "config/secrets.env", strings.Repeat("a", 40))
+	second := seedBypassRequest(t, f, f.publicRepo.ID, "github-token", "config/other.env", strings.Repeat("b", 40))
+	mux := f.securityScanningMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alice/public-repo/security/secret-scanning", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if got, want := resp.Body.String(), "REQ=github-token:config/secrets.env:"+strings.Repeat("a", 40)+":1:pending;"; !strings.Contains(got, want) {
+		t.Fatalf("GET body missing %q in %s", want, got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost,
+		"/alice/public-repo/security/secret-scanning/bypass/"+strconv.FormatInt(first.ID, 10)+"/approve",
+		url.Values{"approved_for_hours": {"48"}, "review_note": {"fixture approval"}})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("approve status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	approved := getBypassRequest(t, f, f.publicRepo.ID, first.ID)
+	if approved.Status != secretscandb.SecretScanBypassStatusApproved || !approved.ApprovedUntil.Valid {
+		t.Fatalf("approved row status=%s approved_until=%v", approved.Status, approved.ApprovedUntil.Valid)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost,
+		"/alice/public-repo/security/secret-scanning/bypass/"+strconv.FormatInt(second.ID, 10)+"/deny",
+		url.Values{"review_note": {"still a secret"}})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("deny status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	denied := getBypassRequest(t, f, f.publicRepo.ID, second.ID)
+	if denied.Status != secretscandb.SecretScanBypassStatusDenied || denied.ApprovedUntil.Valid {
+		t.Fatalf("denied row status=%s approved_until=%v", denied.Status, denied.ApprovedUntil.Valid)
+	}
+}
+
+func TestSecretScanning_PrivateOrgBypassRequiresTeam(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixture(t)
+	orgID := f.insertOwnedOrg(t, "acme")
+	repo := f.insertOrgRepo(t, orgID, "private-app", reposdb.RepoVisibilityPrivate)
+	reqRow := seedBypassRequest(t, f, repo.ID, "github-token", "config/private.env", strings.Repeat("c", 40))
+	mux := f.securityScanningMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/acme/private-app/security/secret-scanning", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET free status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "BYPASS=false;") || strings.Contains(got, "config/private.env") {
+		t.Fatalf("free private org should gate exact bypass rows, body=%s", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost,
+		"/acme/private-app/security/secret-scanning/bypass/"+strconv.FormatInt(reqRow.ID, 10)+"/approve",
+		url.Values{"approved_for_hours": {"24"}})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("approve free status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := getBypassRequest(t, f, repo.ID, reqRow.ID).Status; got != secretscandb.SecretScanBypassStatusPending {
+		t.Fatalf("free private org changed status to %s, want pending", got)
+	}
+
+	upgradeOrgToTeamForSecretScan(t, f, orgID)
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/acme/private-app/security/secret-scanning", nil)
+	mux.ServeHTTP(resp, req)
+	if got := resp.Body.String(); !strings.Contains(got, "REQ=github-token:config/private.env:"+strings.Repeat("c", 40)+":1:pending;") {
+		t.Fatalf("team private org should reveal request row, body=%s", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newFormRequest(http.MethodPost,
+		"/acme/private-app/security/secret-scanning/bypass/"+strconv.FormatInt(reqRow.ID, 10)+"/approve",
+		url.Values{"approved_for_hours": {"24"}})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("approve team status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := getBypassRequest(t, f, repo.ID, reqRow.ID).Status; got != secretscandb.SecretScanBypassStatusApproved {
+		t.Fatalf("team private org status=%s, want approved", got)
+	}
+}
+
 // securityScanningMux wires the secret-scanning routes against the
 // repoFixture in a minimal chi mux with the test viewer pinned to
 // the owner.
@@ -195,6 +292,8 @@ func (f *repoFixture) securityScanningMux(userID int64, username string) http.Ha
 	mux.Post("/{owner}/{repo}/security/secret-scanning/scan", f.handlers.repoSecretScanningRunScan)
 	mux.Post("/{owner}/{repo}/security/secret-scanning/allowlist", f.handlers.repoSecretScanningAllowlistAdd)
 	mux.Post("/{owner}/{repo}/security/secret-scanning/allowlist/{id}/remove", f.handlers.repoSecretScanningAllowlistRemove)
+	mux.Post("/{owner}/{repo}/security/secret-scanning/bypass/{id}/approve", f.handlers.repoSecretScanningBypassApprove)
+	mux.Post("/{owner}/{repo}/security/secret-scanning/bypass/{id}/deny", f.handlers.repoSecretScanningBypassDeny)
 	return mux
 }
 
@@ -244,6 +343,35 @@ func seedFinding(t *testing.T, f *repoFixture, pattern, path string, line int, e
 	); err != nil {
 		t.Fatalf("seed finding: %v", err)
 	}
+}
+
+func seedBypassRequest(t *testing.T, f *repoFixture, repoID int64, pattern, path, commit string) secretscandb.SecretScanBypassRequest {
+	t.Helper()
+	row, err := secretscandb.New().UpsertSecretScanBypassRequest(context.Background(), f.pool, secretscandb.UpsertSecretScanBypassRequestParams{
+		RepoID:        repoID,
+		Pattern:       pattern,
+		Path:          path,
+		CommitOid:     commit,
+		LineNo:        1,
+		RequestedBy:   pgtype.Int8{Int64: f.owner.ID, Valid: true},
+		RequestReason: "test fixture",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecretScanBypassRequest: %v", err)
+	}
+	return row
+}
+
+func getBypassRequest(t *testing.T, f *repoFixture, repoID, id int64) secretscandb.SecretScanBypassRequest {
+	t.Helper()
+	row, err := secretscandb.New().GetSecretScanBypassRequest(context.Background(), f.pool, secretscandb.GetSecretScanBypassRequestParams{
+		ID:     id,
+		RepoID: repoID,
+	})
+	if err != nil {
+		t.Fatalf("GetSecretScanBypassRequest: %v", err)
+	}
+	return row
 }
 
 func allowlistCount(t *testing.T, f *repoFixture, repoID int64) int64 {

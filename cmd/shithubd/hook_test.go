@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -137,6 +138,17 @@ func TestEnforcePreReceiveSecretProtectionRejectsPublicRepoSecret(t *testing.T) 
 	if strings.Contains(msg, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ") {
 		t.Fatalf("friendly message leaked raw secret: %s", msg)
 	}
+	var status secretscandb.SecretScanBypassStatus
+	var pattern, path, commitOID string
+	var lineNo int
+	if err := pool.QueryRow(ctx, `SELECT status, pattern, path, commit_oid, line_no FROM secret_scan_bypass_requests WHERE repo_id = $1`, repo.ID).
+		Scan(&status, &pattern, &path, &commitOID, &lineNo); err != nil {
+		t.Fatalf("lookup bypass request: %v", err)
+	}
+	if status != secretscandb.SecretScanBypassStatusPending || pattern != "github-token" || path != "config/secrets.env" || commitOID != commit || lineNo != 1 {
+		t.Fatalf("bypass request = (%s, %s, %s, %s, %d), want pending github-token config/secrets.env %s 1",
+			status, pattern, path, commitOID, lineNo, commit)
+	}
 }
 
 func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
@@ -160,6 +172,64 @@ func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
 		ref:    "refs/heads/trunk",
 	}}); err != nil {
 		t.Fatalf("enforcePreReceiveSecretProtection allowlisted err = %v", err)
+	}
+}
+
+func TestEnforcePreReceiveSecretProtectionHonorsApprovedBypass(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(24*time.Hour))
+
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}); err != nil {
+		t.Fatalf("enforcePreReceiveSecretProtection approved bypass err = %v", err)
+	}
+}
+
+func TestEnforcePreReceiveSecretProtectionDeniedBypassStillRejects(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusDenied, time.Time{})
+
+	var secretErr errHookSecretProtection
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}); !errors.As(err, &secretErr) {
+		t.Fatalf("denied bypass err = %v, want errHookSecretProtection", err)
+	}
+}
+
+func TestEnforcePreReceiveSecretProtectionExpiredBypassReturnsToPending(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+	row := seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(-time.Hour))
+
+	var secretErr errHookSecretProtection
+	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}}); !errors.As(err, &secretErr) {
+		t.Fatalf("expired bypass err = %v, want errHookSecretProtection", err)
+	}
+	refreshed, err := secretscandb.New().GetSecretScanBypassRequest(ctx, pool, secretscandb.GetSecretScanBypassRequestParams{ID: row.ID, RepoID: repo.ID})
+	if err != nil {
+		t.Fatalf("GetSecretScanBypassRequest: %v", err)
+	}
+	if refreshed.Status != secretscandb.SecretScanBypassStatusPending || refreshed.ReviewedAt.Valid || refreshed.ApprovedUntil.Valid {
+		t.Fatalf("expired bypass status = %s reviewed=%v approved_until=%v, want pending unreviewed",
+			refreshed.Status, refreshed.ReviewedAt.Valid, refreshed.ApprovedUntil.Valid)
 	}
 }
 
@@ -337,4 +407,49 @@ func danglingCommitWithBody(t *testing.T, path, body string) (string, string) {
 		t.Fatalf("delete temp ref: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return gitDir, commit
+}
+
+func seedSecretBypassRequest(t *testing.T, pool *pgxpool.Pool, repoID, userID int64, commit string, status secretscandb.SecretScanBypassStatus, approvedUntil time.Time) secretscandb.SecretScanBypassRequest {
+	t.Helper()
+	ctx := context.Background()
+	row, err := secretscandb.New().UpsertSecretScanBypassRequest(ctx, pool, secretscandb.UpsertSecretScanBypassRequestParams{
+		RepoID:        repoID,
+		Pattern:       "github-token",
+		Path:          "config/secrets.env",
+		CommitOid:     commit,
+		LineNo:        1,
+		RequestedBy:   pgtype.Int8{Int64: userID, Valid: true},
+		RequestReason: "test fixture",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecretScanBypassRequest: %v", err)
+	}
+	switch status {
+	case secretscandb.SecretScanBypassStatusPending:
+		return row
+	case secretscandb.SecretScanBypassStatusApproved:
+		row, err = secretscandb.New().ReviewSecretScanBypassRequest(ctx, pool, secretscandb.ReviewSecretScanBypassRequestParams{
+			ID:            row.ID,
+			RepoID:        repoID,
+			Status:        secretscandb.SecretScanBypassStatusApproved,
+			ReviewedBy:    pgtype.Int8{Int64: userID, Valid: true},
+			ReviewNote:    "approved fixture",
+			ApprovedUntil: pgtype.Timestamptz{Time: approvedUntil, Valid: true},
+		})
+	case secretscandb.SecretScanBypassStatusDenied:
+		row, err = secretscandb.New().ReviewSecretScanBypassRequest(ctx, pool, secretscandb.ReviewSecretScanBypassRequestParams{
+			ID:            row.ID,
+			RepoID:        repoID,
+			Status:        secretscandb.SecretScanBypassStatusDenied,
+			ReviewedBy:    pgtype.Int8{Int64: userID, Valid: true},
+			ReviewNote:    "denied fixture",
+			ApprovedUntil: pgtype.Timestamptz{},
+		})
+	default:
+		t.Fatalf("unsupported bypass status %q", status)
+	}
+	if err != nil {
+		t.Fatalf("ReviewSecretScanBypassRequest: %v", err)
+	}
+	return row
 }
