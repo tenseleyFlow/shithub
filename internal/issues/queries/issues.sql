@@ -61,14 +61,24 @@ UPDATE issues
 SET title = $2, body = $3, body_html_cached = $4, edited_at = now(), updated_at = now()
 WHERE id = $1;
 
--- name: SetIssueState :exec
+-- H15 / H14: gate on the state actually changing. Pre-fix
+-- `setState` unconditionally rewrote state_reason + closed_at even
+-- when the state value was already the requested one — so two
+-- concurrent close-with-comment calls each succeeded AND emitted a
+-- "closed" timeline event AND posted a comment, persisting both. The
+-- `WHERE state != $2` clause makes the UPDATE a no-op for already-
+-- closed-and-now-closed (and same for open), and the :execrows
+-- variant lets the caller observe whether a transition actually
+-- happened so it can gate downstream side-effects (event emit, audit
+-- record, CLI's success line).
+-- name: SetIssueState :execrows
 UPDATE issues
 SET state = $2,
     state_reason = sqlc.narg(state_reason)::issue_state_reason,
     closed_at = CASE WHEN $2::issue_state = 'closed' THEN now() ELSE NULL END,
     closed_by_user_id = sqlc.narg(closed_by_user_id)::bigint,
     updated_at = now()
-WHERE id = $1;
+WHERE id = $1 AND state <> $2;
 
 -- name: SetIssueLock :exec
 UPDATE issues

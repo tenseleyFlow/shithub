@@ -1036,14 +1036,14 @@ func (q *Queries) SetIssueMilestone(ctx context.Context, db DBTX, arg SetIssueMi
 	return err
 }
 
-const setIssueState = `-- name: SetIssueState :exec
+const setIssueState = `-- name: SetIssueState :execrows
 UPDATE issues
 SET state = $2,
     state_reason = $3::issue_state_reason,
     closed_at = CASE WHEN $2::issue_state = 'closed' THEN now() ELSE NULL END,
     closed_by_user_id = $4::bigint,
     updated_at = now()
-WHERE id = $1
+WHERE id = $1 AND state <> $2
 `
 
 type SetIssueStateParams struct {
@@ -1053,14 +1053,27 @@ type SetIssueStateParams struct {
 	ClosedByUserID pgtype.Int8
 }
 
-func (q *Queries) SetIssueState(ctx context.Context, db DBTX, arg SetIssueStateParams) error {
-	_, err := db.Exec(ctx, setIssueState,
+// H15 / H14: gate on the state actually changing. Pre-fix
+// `setState` unconditionally rewrote state_reason + closed_at even
+// when the state value was already the requested one — so two
+// concurrent close-with-comment calls each succeeded AND emitted a
+// "closed" timeline event AND posted a comment, persisting both. The
+// `WHERE state != $2` clause makes the UPDATE a no-op for already-
+// closed-and-now-closed (and same for open), and the :execrows
+// variant lets the caller observe whether a transition actually
+// happened so it can gate downstream side-effects (event emit, audit
+// record, CLI's success line).
+func (q *Queries) SetIssueState(ctx context.Context, db DBTX, arg SetIssueStateParams) (int64, error) {
+	result, err := db.Exec(ctx, setIssueState,
 		arg.ID,
 		arg.State,
 		arg.StateReason,
 		arg.ClosedByUserID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setMilestoneState = `-- name: SetMilestoneState :exec

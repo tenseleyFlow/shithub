@@ -81,7 +81,17 @@ type Querier interface {
 	RemoveIssueLabel(ctx context.Context, db DBTX, arg RemoveIssueLabelParams) error
 	SetIssueLock(ctx context.Context, db DBTX, arg SetIssueLockParams) error
 	SetIssueMilestone(ctx context.Context, db DBTX, arg SetIssueMilestoneParams) error
-	SetIssueState(ctx context.Context, db DBTX, arg SetIssueStateParams) error
+	// H15 / H14: gate on the state actually changing. Pre-fix
+	// `setState` unconditionally rewrote state_reason + closed_at even
+	// when the state value was already the requested one — so two
+	// concurrent close-with-comment calls each succeeded AND emitted a
+	// "closed" timeline event AND posted a comment, persisting both. The
+	// `WHERE state != $2` clause makes the UPDATE a no-op for already-
+	// closed-and-now-closed (and same for open), and the :execrows
+	// variant lets the caller observe whether a transition actually
+	// happened so it can gate downstream side-effects (event emit, audit
+	// record, CLI's success line).
+	SetIssueState(ctx context.Context, db DBTX, arg SetIssueStateParams) (int64, error)
 	SetMilestoneState(ctx context.Context, db DBTX, arg SetMilestoneStateParams) error
 	UnassignUserFromIssue(ctx context.Context, db DBTX, arg UnassignUserFromIssueParams) error
 	UpdateIssueCommentBody(ctx context.Context, db DBTX, arg UpdateIssueCommentBodyParams) error
