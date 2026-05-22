@@ -101,7 +101,12 @@ type Querier interface {
 	// the org hard-delete cascade to fan out per-repo destruction.
 	ListOrgRepoIDs(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) ([]int64, error)
 	ListOrgScheduledReminders(ctx context.Context, db DBTX, orgID int64) ([]ListOrgScheduledRemindersRow, error)
-	// Profile-page input: every org a user is a member of, with role.
+	// Profile-page input + CLI /user/orgs (F47): every org a user is a
+	// member of, with role and the gh-canonical detail fields the CLI's
+	// `org list --json` exporter projects. Pre-fix the listing returned
+	// only slug + role + display_name; the CLI surfaced zero-valued
+	// description, createdAt, etc. We carry detail here so the listing
+	// is one query instead of N round-trips.
 	ListOrgsForUser(ctx context.Context, db DBTX, userID int64) ([]ListOrgsForUserRow, error)
 	ListPendingInvitationsForEmail(ctx context.Context, db DBTX, targetEmail pgtype.Text) ([]ListPendingInvitationsForEmailRow, error)
 	ListPendingInvitationsForOrg(ctx context.Context, db DBTX, orgID int64) ([]ListPendingInvitationsForOrgRow, error)
