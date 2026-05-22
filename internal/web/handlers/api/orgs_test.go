@@ -30,6 +30,11 @@ type apiMembership struct {
 	Slug        string `json:"slug"`
 	Login       string `json:"login"`
 	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+	Website     string `json:"website"`
+	AvatarURL   string `json:"avatar_url"`
+	CreatedAt   string `json:"created_at"`
 	Role        string `json:"role"`
 }
 
@@ -78,6 +83,18 @@ func TestOrgs_UserOrgsListSelf(t *testing.T) {
 	}
 	if listed[0].Role != "owner" {
 		t.Errorf("role: got %q, want owner", listed[0].Role)
+	}
+	// F47: detail fields must be populated; pre-fix everything past
+	// slug + role came back zero-valued and the CLI's `--json`
+	// exporter surfaced empty strings.
+	if listed[0].Description != "Acme org" {
+		t.Errorf("description: got %q, want %q", listed[0].Description, "Acme org")
+	}
+	if listed[0].CreatedAt == "" {
+		t.Errorf("created_at: got empty, want RFC3339 timestamp")
+	}
+	if listed[0].DisplayName != "Acme" {
+		t.Errorf("display_name: got %q, want %q", listed[0].DisplayName, "Acme")
 	}
 }
 

@@ -39,8 +39,16 @@ ORDER BY m.role ASC, u.username ASC;
 SELECT count(*) FROM org_members WHERE org_id = $1 AND role = 'owner';
 
 -- name: ListOrgsForUser :many
--- Profile-page input: every org a user is a member of, with role.
-SELECT m.org_id, m.role, o.slug, o.display_name, o.avatar_object_key
+-- Profile-page input + CLI /user/orgs (F47): every org a user is a
+-- member of, with role and the gh-canonical detail fields the CLI's
+-- `org list --json` exporter projects. Pre-fix the listing returned
+-- only slug + role + display_name; the CLI surfaced zero-valued
+-- description, createdAt, etc. We carry detail here so the listing
+-- is one query instead of N round-trips.
+SELECT m.org_id, m.role,
+       o.slug, o.display_name, o.description,
+       o.avatar_object_key, o.location, o.website,
+       o.created_at
 FROM org_members m
 JOIN orgs o ON o.id = m.org_id
 WHERE m.user_id = $1

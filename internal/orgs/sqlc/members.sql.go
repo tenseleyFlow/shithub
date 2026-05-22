@@ -147,7 +147,10 @@ func (q *Queries) ListOrgMembers(ctx context.Context, db DBTX, orgID int64) ([]L
 }
 
 const listOrgsForUser = `-- name: ListOrgsForUser :many
-SELECT m.org_id, m.role, o.slug, o.display_name, o.avatar_object_key
+SELECT m.org_id, m.role,
+       o.slug, o.display_name, o.description,
+       o.avatar_object_key, o.location, o.website,
+       o.created_at
 FROM org_members m
 JOIN orgs o ON o.id = m.org_id
 WHERE m.user_id = $1
@@ -160,10 +163,19 @@ type ListOrgsForUserRow struct {
 	Role            OrgRole
 	Slug            string
 	DisplayName     string
+	Description     string
 	AvatarObjectKey pgtype.Text
+	Location        string
+	Website         string
+	CreatedAt       pgtype.Timestamptz
 }
 
-// Profile-page input: every org a user is a member of, with role.
+// Profile-page input + CLI /user/orgs (F47): every org a user is a
+// member of, with role and the gh-canonical detail fields the CLI's
+// `org list --json` exporter projects. Pre-fix the listing returned
+// only slug + role + display_name; the CLI surfaced zero-valued
+// description, createdAt, etc. We carry detail here so the listing
+// is one query instead of N round-trips.
 func (q *Queries) ListOrgsForUser(ctx context.Context, db DBTX, userID int64) ([]ListOrgsForUserRow, error) {
 	rows, err := db.Query(ctx, listOrgsForUser, userID)
 	if err != nil {
@@ -178,7 +190,11 @@ func (q *Queries) ListOrgsForUser(ctx context.Context, db DBTX, userID int64) ([
 			&i.Role,
 			&i.Slug,
 			&i.DisplayName,
+			&i.Description,
 			&i.AvatarObjectKey,
+			&i.Location,
+			&i.Website,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
