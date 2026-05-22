@@ -46,11 +46,18 @@ type Deps struct {
 // Errors returned by the orchestrator. Handlers map these to status
 // codes + friendly user-facing messages.
 var (
-	ErrEmptyTitle        = errors.New("issues: title is required")
-	ErrTitleTooLong      = errors.New("issues: title too long (max 256)")
-	ErrBodyTooLong       = errors.New("issues: body too long")
-	ErrEmptyComment      = errors.New("issues: comment body is required")
-	ErrCommentTooLong    = errors.New("issues: comment too long")
+	ErrEmptyTitle     = errors.New("issues: title is required")
+	ErrTitleTooLong   = errors.New("issues: title too long (max 256)")
+	ErrBodyTooLong    = errors.New("issues: body too long")
+	ErrEmptyComment   = errors.New("issues: comment body is required")
+	ErrCommentTooLong = errors.New("issues: comment too long")
+	// H3 (H-audit): null bytes silently truncate Postgres TEXT writes,
+	// causing user-visible data loss (`body=$'before\x00after'` stored
+	// as just "before"). Reject at orchestrator entry so the request
+	// fails fast with a typed 422 instead of silently dropping bytes.
+	ErrNullByteInTitle   = errors.New("issues: title contains a null byte")
+	ErrNullByteInBody    = errors.New("issues: body contains a null byte")
+	ErrNullByteInComment = errors.New("issues: comment contains a null byte")
 	ErrIssueLocked       = errors.New("issues: issue is locked")
 	ErrCommentRateLimit  = errors.New("issues: comment rate limit exceeded")
 	ErrLabelExists       = errors.New("issues: label name already taken on this repo")
@@ -121,8 +128,14 @@ func CreateInTx(ctx context.Context, tx pgx.Tx, deps Deps, p CreateParams) (issu
 	if len(title) > 256 {
 		return issuesdb.Issue{}, ErrTitleTooLong
 	}
+	if strings.ContainsRune(title, 0) {
+		return issuesdb.Issue{}, ErrNullByteInTitle
+	}
 	if len(p.Body) > 65535 {
 		return issuesdb.Issue{}, ErrBodyTooLong
+	}
+	if strings.ContainsRune(p.Body, 0) {
+		return issuesdb.Issue{}, ErrNullByteInBody
 	}
 	kind := p.Kind
 	if kind == "" {
@@ -196,6 +209,9 @@ func AddComment(ctx context.Context, deps Deps, p CommentCreateParams) (issuesdb
 	}
 	if len(body) > 65535 {
 		return issuesdb.IssueComment{}, ErrCommentTooLong
+	}
+	if strings.ContainsRune(body, 0) {
+		return issuesdb.IssueComment{}, ErrNullByteInComment
 	}
 	if deps.Limiter != nil && p.AuthorUserID != 0 {
 		if err := deps.Limiter.Hit(ctx, deps.Pool, throttle.Limit{
@@ -311,12 +327,18 @@ func Edit(ctx context.Context, deps Deps, p EditParams) (issuesdb.Issue, error) 
 		if len(title) > 256 {
 			return issuesdb.Issue{}, ErrTitleTooLong
 		}
+		if strings.ContainsRune(title, 0) {
+			return issuesdb.Issue{}, ErrNullByteInTitle
+		}
 	}
 	body := cur.Body
 	if p.Body != nil {
 		body = *p.Body
 		if len(body) > 65535 {
 			return issuesdb.Issue{}, ErrBodyTooLong
+		}
+		if strings.ContainsRune(body, 0) {
+			return issuesdb.Issue{}, ErrNullByteInBody
 		}
 	}
 	html, _ := renderBody(ctx, deps, body)

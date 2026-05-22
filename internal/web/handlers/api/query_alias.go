@@ -23,3 +23,19 @@ func firstQueryParam(r *http.Request, names ...string) string {
 	}
 	return ""
 }
+
+// firstQueryParamRaw returns the first non-empty BYTE-EXACT value from
+// the query string. H3 (H7): the trimmed variant above silently strips
+// whitespace, so `?head=feat1 ` (trailing space) matched the same row
+// as `?head=feat1`. For ref/state/enum filters that should be exact,
+// use this variant so whitespace-padded values fall through to the
+// validation predicate (which 422s).
+func firstQueryParamRaw(r *http.Request, names ...string) string {
+	q := r.URL.Query()
+	for _, n := range names {
+		if v, ok := q[n]; ok && len(v) > 0 && v[0] != "" {
+			return v[0]
+		}
+	}
+	return ""
+}

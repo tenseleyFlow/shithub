@@ -389,7 +389,11 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 // values return an error so the handler can 422 instead of silently
 // returning unfiltered rows (E-audit E5; matches gh's strict semantic).
 func strictIssueState(s string) (pgtype.Text, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	// H3 (H8): byte-exact match. Pre-fix the `ToLower(TrimSpace(...))`
+	// chain silently normalized "OPEN", "open " (trailing space), and
+	// $'open\n' to "open"; user input that wasn't exactly in the set
+	// shouldn't pass — surface a 422 so typos are visible.
+	switch s {
 	case "open":
 		return pgtype.Text{String: "open", Valid: true}, nil
 	case "closed":
@@ -1239,7 +1243,11 @@ func writeIssuesError(w http.ResponseWriter, err error) {
 		errors.Is(err, issues.ErrTitleTooLong),
 		errors.Is(err, issues.ErrBodyTooLong),
 		errors.Is(err, issues.ErrEmptyComment),
-		errors.Is(err, issues.ErrCommentTooLong):
+		errors.Is(err, issues.ErrCommentTooLong),
+		// H3 — null-byte rejections.
+		errors.Is(err, issues.ErrNullByteInTitle),
+		errors.Is(err, issues.ErrNullByteInBody),
+		errors.Is(err, issues.ErrNullByteInComment):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, issues.ErrCommentRateLimit):
 		writeAPIError(w, http.StatusTooManyRequests, "comment rate limit exceeded")

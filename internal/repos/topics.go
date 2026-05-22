@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"strings"
 
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 )
@@ -28,14 +27,20 @@ var (
 
 var topicRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$`)
 
-// NormalizeTopics dedups + lowercases an incoming list and validates
-// each entry. Returns the cleaned slice (stable-ordered, dedup'd) or
-// the first validation error.
+// NormalizeTopics dedups an incoming list and validates each entry.
+// Returns the cleaned slice (stable-ordered, dedup'd) or the first
+// validation error.
+//
+// H3 (H12): byte-exact match. Pre-fix the `ToLower(TrimSpace(...))`
+// chain silently normalized "FOOBAR" / " foo " to "foobar"/"foo"; raw
+// API callers got 422 for "FOOBAR" while CLI callers silently
+// succeeded after lowercasing. Now both surface 422 — the topic regex
+// at line 29 already restricts to `[a-z0-9-]` so uppercase / whitespace
+// fail the same way as embedded tabs.
 func NormalizeTopics(raw []string) ([]string, error) {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(raw))
 	for _, t := range raw {
-		t = strings.ToLower(strings.TrimSpace(t))
 		if t == "" {
 			continue
 		}

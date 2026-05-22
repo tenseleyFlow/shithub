@@ -272,6 +272,35 @@ func TestRepos_CreateRejectsBadName(t *testing.T) {
 	}
 }
 
+// TestRepos_CreateRejectsHostileNames pins H3 (H12): byte-exact name
+// validation. Pre-fix the API handler called repos.NormalizeName which
+// silently trimmed whitespace and lowercased — so `"  Demo  "` was
+// saved as `"demo"` and the user had no idea their input was rewritten.
+func TestRepos_CreateRejectsHostileNames(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	for _, name := range []string{
+		"  leading-space",
+		"trailing-space  ",
+		"DEMO",
+		"De-Mo",
+		" demo",
+		"demo ",
+	} {
+		body, _ := json.Marshal(map[string]any{"name": name, "visibility": "public"})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("name=%q: code=%d want 422; body=%s", name, rr.Code, rr.Body.String())
+		}
+	}
+}
+
 func TestRepos_CreateRejectsDuplicate(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	router, _ := newReposAPIRouter(t, pool)

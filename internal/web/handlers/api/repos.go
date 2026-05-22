@@ -476,12 +476,18 @@ func (h *Handlers) userRepoCreate(w http.ResponseWriter, r *http.Request) {
 		ActorIsSiteAdmin: auth.IsSiteAdmin,
 		OwnerUserID:      auth.UserID,
 		OwnerUsername:    auth.Username,
-		Name:             repos.NormalizeName(body.Name),
-		Description:      body.Description,
-		Visibility:       visibility,
-		InitReadme:       body.AutoInit,
-		LicenseKey:       body.License,
-		GitignoreKey:     body.Gitignore,
+		// H3 (H12): byte-exact. Pre-fix `repos.NormalizeName` trimmed
+		// whitespace and lowercased — `repo create "  Demo  "` was
+		// silently saved as "demo". ValidateName (called inside
+		// repos.Create) already rejects uppercase + whitespace via the
+		// `[a-z0-9]`-edged regex, so pass the verbatim user input and
+		// let it 422 rather than masking typos.
+		Name:         body.Name,
+		Description:  body.Description,
+		Visibility:   visibility,
+		InitReadme:   body.AutoInit,
+		LicenseKey:   body.License,
+		GitignoreKey: body.Gitignore,
 	}
 	h.runRepoCreate(w, r, params, auth.Username)
 }
@@ -533,12 +539,13 @@ func (h *Handlers) orgRepoCreate(w http.ResponseWriter, r *http.Request) {
 		ActorIsSiteAdmin: auth.IsSiteAdmin,
 		OwnerOrgID:       org.ID,
 		OwnerSlug:        string(org.Slug),
-		Name:             repos.NormalizeName(body.Name),
-		Description:      body.Description,
-		Visibility:       visibility,
-		InitReadme:       body.AutoInit,
-		LicenseKey:       body.License,
-		GitignoreKey:     body.Gitignore,
+		// H3 (H12): byte-exact — see user-repo path above.
+		Name:         body.Name,
+		Description:  body.Description,
+		Visibility:   visibility,
+		InitReadme:   body.AutoInit,
+		LicenseKey:   body.License,
+		GitignoreKey: body.Gitignore,
 	}
 	h.runRepoCreate(w, r, params, string(org.Slug))
 }
