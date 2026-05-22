@@ -58,6 +58,15 @@ var (
 	ErrNullByteInTitle   = errors.New("issues: title contains a null byte")
 	ErrNullByteInBody    = errors.New("issues: body contains a null byte")
 	ErrNullByteInComment = errors.New("issues: comment contains a null byte")
+	// H14 follow-on (H-audit): the H1 SQL change made re-close idempotent
+	// at the row level (state_reason no longer silently mutates). This
+	// sentinel surfaces the no-op signal to the caller so the API
+	// handler can 422 when the user explicitly passed `state_reason`
+	// (signal that their reason-change intent was lost). Bare idempotent
+	// close (`issue close N` on already-closed) keeps gh-compat
+	// success semantics because the handler only translates this
+	// sentinel to 422 when state_reason was in the request body.
+	ErrAlreadyInState    = errors.New("issues: already in target state")
 	ErrIssueLocked       = errors.New("issues: issue is locked")
 	ErrCommentRateLimit  = errors.New("issues: comment rate limit exceeded")
 	ErrLabelExists       = errors.New("issues: label name already taken on this repo")
@@ -420,11 +429,15 @@ func setState(ctx context.Context, deps Deps, actorUserID, issueID int64, newSta
 	}
 	if rowsAffected == 0 {
 		// No transition: short-circuit before event emit / audit.
+		// H14: surface a typed signal so the API handler can decide
+		// whether to 422 (e.g., user passed --reason) or treat it as
+		// idempotent success (bare `issue close` on already-closed,
+		// matching gh-compat). Bare callers errors.Is-check and ignore.
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
 		committed = true
-		return nil
+		return ErrAlreadyInState
 	}
 	kind := "closed"
 	if newState == "open" {
