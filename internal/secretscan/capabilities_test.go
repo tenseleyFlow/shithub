@@ -43,3 +43,13 @@ func TestCapabilityForCustomPatternIsLocalOnly(t *testing.T) {
 		t.Fatalf("custom pattern should be unsupported: %+v", cap)
 	}
 }
+
+func TestProviderCapabilityDescriptionsDoNotImplyConfigurableSupport(t *testing.T) {
+	cap := CapabilityForPattern("github-token")
+	if got := cap.ValidityDescription(); got != "GitHub supports validity checks for this provider pattern, but shithub does not currently implement provider validation." {
+		t.Fatalf("validity description=%q", got)
+	}
+	if got := cap.ProviderNotificationDescription(); got != "GitHub supports partner/provider notification for this pattern, but shithub does not currently implement provider notification." {
+		t.Fatalf("provider notification description=%q", got)
+	}
+}

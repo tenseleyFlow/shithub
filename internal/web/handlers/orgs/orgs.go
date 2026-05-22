@@ -738,6 +738,16 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP26-secret-protection.md", State: "Baseline shipped",
 				},
 				{
+					Name: "Provider notification", Description: "Notify third-party secret providers when supported credentials are detected.",
+					Free: "Not available", Team: "Not available", Enterprise: "Contact sales", Owner: "SP26d",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP26d-provider-notification-validity.md", State: "Unsupported",
+				},
+				{
+					Name: "Validity checks", Description: "Verify detected credentials with the issuing provider.",
+					Free: "Not available", Team: "Not available", Enterprise: "Contact sales", Owner: "SP26d",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP26d-provider-notification-validity.md", State: "Unsupported",
+				},
+				{
 					Name: "Code security", Description: "Import SARIF reports, review code scanning alerts, and run security campaigns.",
 					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP27",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP27-code-security.md", State: "Baseline shipped",

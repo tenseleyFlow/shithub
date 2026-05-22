@@ -106,6 +106,8 @@ func TestOrgPlanSelectionIncludesSP17OwnedCompareRows(t *testing.T) {
 		"ROW=Wikis|SP21|.docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md|Shipped|Public repositories|Included",
 		"ROW=Multiple issue and pull request assignees|SP21|.docs/sprints/PAYMENTS/SP21-pages-wikis-projects-collaboration.md|Shipped|Public repositories|Included",
 		"ROW=Private organization collaborators|SP06a|.docs/sprints/PAYMENTS/SP06a-private-collaboration-limits.md|Shipped|Limited|Billed by licensed seat",
+		"ROW=Provider notification|SP26d|.docs/sprints/PAYMENTS/SP26d-provider-notification-validity.md|Unsupported|Not available|Not available",
+		"ROW=Validity checks|SP26d|.docs/sprints/PAYMENTS/SP26d-provider-notification-validity.md|Unsupported|Not available|Not available",
 		"ROW=Enterprise account, SAML, SCIM, and managed users|SP09|.docs/sprints/PAYMENTS/SP09-enterprise-stub.md|Deferred|-|-",
 	} {
 		if !strings.Contains(string(body), want) {

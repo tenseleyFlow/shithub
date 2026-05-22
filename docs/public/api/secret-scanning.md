@@ -15,9 +15,9 @@ Unauthorized or unentitled private organization requests return `402` without
 paths, pattern rows, or finding locations.
 
 Provider notification and provider-side validity checks are reported
-truthfully. Until an operator-configured provider integration ships, alert
-responses mark those surfaces as `unsupported`; no API response implies that
-shithub has contacted a third-party provider.
+truthfully. shithub does not currently implement provider egress for either
+surface, so alert responses mark them as `unsupported`; no API response implies
+that shithub has contacted a third-party provider.
 
 ## Routes
 
@@ -78,14 +78,14 @@ array. `status` may be `open`, `resolved`, `allowlisted`, or `stale`.
       "supported_by_github": true,
       "supported_by_instance": false,
       "status": "unsupported",
-      "description": "GitHub supports validity checks for this provider pattern, but this shithub instance has no configured provider validator."
+      "description": "GitHub supports validity checks for this provider pattern, but shithub does not currently implement provider validation."
     },
     "provider_notification": "unsupported",
     "provider_notification_capability": {
       "supported_by_github": true,
       "supported_by_instance": false,
       "status": "unsupported",
-      "description": "GitHub supports partner/provider notification for this pattern, but this shithub instance has no configured provider notifier."
+      "description": "GitHub supports partner/provider notification for this pattern, but shithub does not currently implement provider notification."
     },
     "path": "config/secrets.env",
     "line": 7,
@@ -102,7 +102,8 @@ The response does not include `secret`, `excerpt`, or redacted excerpt fields.
 `validity` may be `unsupported`, `unknown`, `active`, or `inactive`.
 `provider_notification` may be `unsupported`, `disabled`, `pending`, `sent`,
 or `failed`. The current built-in provider registry reports `unsupported` for
-provider egress until a real integration is configured.
+provider egress; provider notification and validity checks are not Team-plan
+features in the current paid-organization launch scope.
 
 ## Allowlist
 
