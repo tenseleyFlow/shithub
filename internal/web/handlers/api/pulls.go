@@ -268,7 +268,10 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 	page, perPage := apipage.ParseQuery(r, apipage.DefaultPerPage, apipage.MaxPerPage)
 	// E5: strict state. PR-specific value `merged` is post-filter
 	// (merged_at IS NOT NULL); the sqlc query still takes open/closed/NULL.
-	rawState := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("state")))
+	// H3 (H8): byte-exact match. Pre-fix `ToLower(TrimSpace(...))`
+	// silently normalized "OPEN", "open " (trailing space), $'open\n'
+	// to "open"; we reject those now so typos are visible.
+	rawState := r.URL.Query().Get("state")
 	var stateFilter pgtype.Text
 	var wantMerged bool
 	switch rawState {
@@ -307,8 +310,12 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, "assignee: "+aerr.Error())
 		return
 	}
-	baseRef := firstQueryParam(r, "base")
-	headRef := firstQueryParam(r, "head")
+	// H3 (H7): byte-exact ref read. Pre-fix `firstQueryParam` trimmed
+	// whitespace and `?head=feat1 ` (trailing space) silently matched
+	// the trimmed branch. Use the raw variant so the validator sees
+	// the user's literal input and 422s on padding.
+	baseRef := firstQueryParamRaw(r, "base")
+	headRef := firstQueryParamRaw(r, "head")
 	// G5 (F15/F2-2): validate base + head against this repo's refs.
 	// Pre-fix `--base BOGUS` silently empty and `--head BOGUS` silently
 	// all/empty depending on G1 ordering — both shapes hide typos.
@@ -493,7 +500,10 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 // 422s. Was previously lenient (silently dropped non-bool); tightened
 // for the E5 cluster.
 func strictDraftFilter(s string) (pgtype.Bool, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	// H3 (H8): byte-exact match. Pre-fix the `ToLower(TrimSpace(...))`
+	// chain silently accepted "TRUE", "true ", $'true\n' as "true"; we
+	// reject those now so typos are visible.
+	switch s {
 	case "true":
 		return pgtype.Bool{Bool: true, Valid: true}, nil
 	case "false":
