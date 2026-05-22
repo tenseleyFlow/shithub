@@ -18,8 +18,10 @@ package pulls
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strings"
 	"time"
@@ -64,9 +66,15 @@ var (
 	ErrAlreadyMerged    = errors.New("pulls: already merged")
 	ErrAlreadyClosed    = errors.New("pulls: already closed")
 	ErrMergeBlocked     = errors.New("pulls: merge blocked (mergeable_state != clean)")
-	ErrMergeMethodOff   = errors.New("pulls: requested merge method is disabled on this repo")
-	ErrConcurrentMerge  = errors.New("pulls: PR is being merged by another request")
-	ErrPRNotFound       = errors.New("pulls: PR not found")
+	// H2: pre-merge sanity check. Surfaced when the PR's head OID is
+	// already reachable from base — happens when a previous (perhaps
+	// race-duplicated, see H1) PR with the same head already landed.
+	// Pre-fix the merge engine crashed with a 500; with this sentinel
+	// the handler maps it to a 422 the user can act on.
+	ErrHeadAlreadyMerged = errors.New("pulls: head is already merged into base")
+	ErrMergeMethodOff    = errors.New("pulls: requested merge method is disabled on this repo")
+	ErrConcurrentMerge   = errors.New("pulls: PR is being merged by another request")
+	ErrPRNotFound        = errors.New("pulls: PR not found")
 	// G8b (F43): `pr update-branch` outcomes.
 	ErrBranchUpToDate     = errors.New("pulls: branch is already up to date with base")
 	ErrUpdateBranchMethod = errors.New("pulls: update-branch method must be merge or rebase")
@@ -135,15 +143,36 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		return CreateResult{}, ErrNoCommitsToMerge
 	}
 
-	// G6 (F46): a single OPEN PR per `(repo, base, head)` triple — gh's
-	// rule. Pre-fix the server happily opened unlimited duplicates; the
-	// list view filled up with three- or four-deep stacks of the same
-	// branch. Probe before inserting; race window narrows to the gap
-	// between this check and the INSERT (acceptable for v1 — a strict
-	// fix would be a partial unique index on `(repo_id, base_ref,
-	// head_ref) WHERE state = 'open'` on the issues+pull_requests join,
-	// future migration).
-	existing, err := pullsdb.New().FindOpenPullRequestByBranches(ctx, deps.Pool,
+	// G6 (F46) + H1: a single OPEN PR per `(repo, base, head)` triple.
+	// G6 added the probe + DuplicatePRError sentinel but ran the check
+	// outside any locking primitive — two concurrent POSTs both passed
+	// the existence check before either committed (H-audit H1, race
+	// window provably exploitable from a CI matrix). H1 closes the
+	// window by:
+	//   1. Wrapping the probe + issue insert + PR insert in a single tx.
+	//   2. Taking pg_advisory_xact_lock keyed on (repo, base, head) as
+	//      the first statement inside that tx, so concurrent Create
+	//      callers for the same triple serialize through Postgres.
+	// The advisory lock auto-releases on tx commit/rollback. The same
+	// connection holds both lock and writes, so a pool with as few as
+	// 2 connections never deadlocks under concurrent fire.
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	lockKey := createLockKey(p.RepoID, base, head)
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockKey); err != nil {
+		return CreateResult{}, fmt.Errorf("advisory lock: %w", err)
+	}
+
+	existing, err := pullsdb.New().FindOpenPullRequestByBranches(ctx, tx,
 		pullsdb.FindOpenPullRequestByBranchesParams{
 			RepoID:  p.RepoID,
 			BaseRef: base,
@@ -160,10 +189,10 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		return CreateResult{}, fmt.Errorf("duplicate probe: %w", err)
 	}
 
-	// Open the issues row first via the issues orchestrator so we get
-	// the per-repo number allocation, body markdown render, and
-	// reference indexing for free.
-	issueRow, err := issues.Create(ctx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, issues.CreateParams{
+	// Open the issues row first via the issues orchestrator (Tx variant
+	// so it shares our advisory-locked tx) so we get the per-repo
+	// number allocation, body markdown render, and reference indexing.
+	issueRow, err := issues.CreateInTx(ctx, tx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, issues.CreateParams{
 		RepoID:       p.RepoID,
 		AuthorUserID: p.AuthorUserID,
 		Title:        p.Title,
@@ -174,7 +203,7 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 		return CreateResult{}, err
 	}
 
-	prRow, err := pullsdb.New().CreatePullRequest(ctx, deps.Pool, pullsdb.CreatePullRequestParams{
+	prRow, err := pullsdb.New().CreatePullRequest(ctx, tx, pullsdb.CreatePullRequestParams{
 		IssueID:    issueRow.ID,
 		BaseRef:    base,
 		HeadRef:    head,
@@ -186,6 +215,11 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("create pull_request: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return CreateResult{}, fmt.Errorf("commit: %w", err)
+	}
+	committed = true
 
 	// Best-effort initial synchronize so the PR view has commits + files
 	// even before the worker queue runs. Failures here don't fail the
@@ -217,6 +251,20 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (CreateResult, error
 	enqueueDependencyReview(ctx, deps, prRow.IssueID, "pr_create")
 
 	return CreateResult{Issue: issueRow, PullRequest: prRow}, nil
+}
+
+// createLockKey hashes (repo_id, base_ref, head_ref) into the bigint
+// key Postgres advisory locks accept. FNV-1a is cheap and uniform; we
+// don't need cryptographic strength because collisions only cost a
+// spurious serialization (two unrelated creates briefly block each
+// other), not correctness.
+func createLockKey(repoID int64, base, head string) int64 {
+	h := fnv.New64a()
+	_ = binary.Write(h, binary.LittleEndian, repoID)
+	h.Write([]byte(base))
+	h.Write([]byte{0}) // separator so "ab|c" doesn't collide with "a|bc"
+	h.Write([]byte(head))
+	return int64(h.Sum64()) //nolint:gosec // intentional reinterpretation; lock key only
 }
 
 func enqueueDependencyReview(ctx context.Context, deps Deps, prID int64, reason string) {
