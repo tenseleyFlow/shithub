@@ -617,6 +617,13 @@ func TestPulls_ListStateStrict(t *testing.T) {
 		{"", 200},
 		{"nonsense", 422},
 		{"draft", 422},
+		// H3 (H8): byte-exact match. Pre-fix the validator's
+		// ToLower(TrimSpace) chain silently accepted these as "open"
+		// — now each surfaces 422 with the typo visible to the user.
+		{"OPEN", 422},
+		{"open%20", 422}, // trailing space, URL-encoded
+		{"%20open", 422}, // leading space
+		{"open%0A", 422}, // trailing newline
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?state="+tc.state, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
