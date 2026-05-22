@@ -856,7 +856,12 @@ func (h *Handlers) issueComment(w http.ResponseWriter, r *http.Request) {
 		} else {
 			err = issues.SetState(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason)
 		}
-		if err != nil {
+		// H14: the HTML form path treats idempotent-close as success
+		// (the user clicked "Close" on an already-closed issue — page
+		// re-renders identically). The API handler is stricter about
+		// `state_reason` because the wire shape lets the caller signal
+		// intent; HTML form posts don't.
+		if err != nil && !errors.Is(err, issues.ErrAlreadyInState) {
 			h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
 			return
 		}
@@ -889,7 +894,8 @@ func (h *Handlers) issueSetState(w http.ResponseWriter, r *http.Request) {
 	}
 	state := strings.TrimSpace(r.PostFormValue("state"))
 	reason := strings.TrimSpace(r.PostFormValue("reason"))
-	if err := issues.SetState(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason); err != nil {
+	// H14: HTML form treats idempotent close as success (see above).
+	if err := issues.SetState(r.Context(), h.issuesDeps(), viewer.ID, issue.ID, state, reason); err != nil && !errors.Is(err, issues.ErrAlreadyInState) {
 		h.handleIssueWriteError(w, r, owner.Username, row, issue, err)
 		return
 	}
