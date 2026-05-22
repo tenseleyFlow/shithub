@@ -989,7 +989,12 @@ func writePullsError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, pulls.ErrAlreadyMerged),
 		errors.Is(err, pulls.ErrAlreadyClosed),
-		errors.Is(err, pulls.ErrMergeBlocked):
+		errors.Is(err, pulls.ErrMergeBlocked),
+		// H2: pre-merge sanity check sentinel. Surfaced when the PR's
+		// head OID is already part of base history (race-duplicate
+		// after a sibling PR merged). Pre-fix this path crashed with
+		// a 500 from the merge engine.
+		errors.Is(err, pulls.ErrHeadAlreadyMerged):
 		writeAPIError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, pulls.ErrConcurrentMerge):
 		writeAPIError(w, http.StatusServiceUnavailable, "another merge is in flight")
