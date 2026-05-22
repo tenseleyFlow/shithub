@@ -67,11 +67,22 @@ func presentOrg(o orgsdb.Org) orgResponse {
 	}
 }
 
+// orgMembershipResponse is the row shape returned by /user/orgs.
+// F47: the CLI's `org list --json` exporter projects gh-canonical
+// detail fields (description, location, website, created_at, avatar
+// URL) for each row. Pre-fix the listing carried only slug + role,
+// and the exporter emitted zero values for everything else. The
+// fields below come from the same JOIN as the listing query.
 type orgMembershipResponse struct {
 	OrgID       int64  `json:"org_id"`
 	Slug        string `json:"slug"`
 	Login       string `json:"login"`
 	DisplayName string `json:"display_name"`
+	Description string `json:"description,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Website     string `json:"website,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
 	Role        string `json:"role"`
 }
 
@@ -123,13 +134,23 @@ func (h *Handlers) userOrgsListPublic(w http.ResponseWriter, r *http.Request) {
 func presentMembershipList(rows []orgsdb.ListOrgsForUserRow) []orgMembershipResponse {
 	out := make([]orgMembershipResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, orgMembershipResponse{
+		entry := orgMembershipResponse{
 			OrgID:       row.OrgID,
 			Slug:        row.Slug,
 			Login:       row.Slug,
 			DisplayName: row.DisplayName,
+			Description: row.Description,
+			Location:    row.Location,
+			Website:     row.Website,
 			Role:        string(row.Role),
-		})
+		}
+		if row.AvatarObjectKey.Valid {
+			entry.AvatarURL = row.AvatarObjectKey.String
+		}
+		if row.CreatedAt.Valid {
+			entry.CreatedAt = row.CreatedAt.Time.UTC().Format(time.RFC3339)
+		}
+		out = append(out, entry)
 	}
 	return out
 }
