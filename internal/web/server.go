@@ -386,7 +386,11 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("register handlers: %w", err)
 	}
 	r.NotFound(notFoundHandler)
-	r.MethodNotAllowed(http.HandlerFunc(methodNotAllowedHandler))
+	// H19/H20: 405 needs an Allow header (RFC 9110 §15.5.6) and the
+	// API must answer OPTIONS preflight with CORS headers. Close over
+	// the mux so the handler can probe which methods are registered
+	// for the request path.
+	r.MethodNotAllowed(http.HandlerFunc(methodNotAllowedHandlerFor(r)))
 
 	rootHandler := middleware.Recover(logger, panicHandler)(r)
 
@@ -503,4 +507,60 @@ func methodNotAllowedHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusMethodNotAllowed)
+}
+
+// methodNotAllowedHandlerFor wraps methodNotAllowedHandler so it can
+// emit the RFC 9110 §15.5.6 `Allow:` header (H19) and answer browser
+// CORS preflight via OPTIONS (H20). The chi mux is closed over for
+// route discovery: we probe each common verb against the request
+// path with mx.Match — every match is a method the route supports.
+func methodNotAllowedHandlerFor(mx *chi.Mux) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		allowed := discoverAllowedMethods(mx, req.URL.Path)
+		if len(allowed) > 0 {
+			w.Header().Set("Allow", strings.Join(allowed, ", "))
+		}
+		// H20: when the request is a CORS preflight, answer it with
+		// the same allowlist + permissive defaults so browser-based
+		// clients can probe the API. We intentionally echo the
+		// requested origin instead of `*` — pairs with credential-
+		// bearing flows the CLI doesn't use but a future web UI will.
+		// API surface only; non-API OPTIONS preserves chi's 405.
+		if req.Method == http.MethodOptions && strings.HasPrefix(req.URL.Path, "/api/v1/") {
+			origin := req.Header.Get("Origin")
+			if origin == "" {
+				origin = "*"
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", strings.Join(allowed, ", "))
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Set("Vary", "Origin")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		methodNotAllowedHandler(w, req)
+	}
+}
+
+// discoverAllowedMethods returns the set of methods registered on
+// path, in canonical-ordered form. Always includes OPTIONS when at
+// least one other method matches (since we handle preflight for the
+// API surface).
+func discoverAllowedMethods(mx *chi.Mux, path string) []string {
+	verbs := []string{
+		http.MethodGet, http.MethodHead, http.MethodPost,
+		http.MethodPut, http.MethodPatch, http.MethodDelete,
+	}
+	var allowed []string
+	for _, v := range verbs {
+		rctx := chi.NewRouteContext()
+		if mx.Match(rctx, v, path) {
+			allowed = append(allowed, v)
+		}
+	}
+	if len(allowed) > 0 && strings.HasPrefix(path, "/api/v1/") {
+		allowed = append(allowed, http.MethodOptions)
+	}
+	return allowed
 }
