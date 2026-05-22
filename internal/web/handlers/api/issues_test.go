@@ -459,7 +459,7 @@ func TestIssues_ListFiltersByState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIssueByNumber: %v", err)
 	}
-	if err := q.SetIssueState(context.Background(), pool, issuesdb.SetIssueStateParams{
+	if _, err := q.SetIssueState(context.Background(), pool, issuesdb.SetIssueStateParams{
 		ID:             issue.ID,
 		State:          issuesdb.IssueStateClosed,
 		StateReason:    issuesdb.NullIssueStateReason{Valid: false},

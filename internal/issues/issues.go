@@ -82,6 +82,38 @@ type CreateParams struct {
 // via insertReferencesFromBody — refs to other issues create
 // `issue_references` rows + a `referenced` event on the target.
 func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, error) {
+	tx, err := deps.Pool.Begin(ctx)
+	if err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	row, err := CreateInTx(ctx, tx, deps, p)
+	if err != nil {
+		return issuesdb.Issue{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return issuesdb.Issue{}, fmt.Errorf("commit: %w", err)
+	}
+	committed = true
+	return row, nil
+}
+
+// CreateInTx is the inner of Create that runs against a caller-provided
+// tx. H1 introduces this seam: the pulls.Create race-condition fix
+// needs to hold a pg_advisory_xact_lock across the issue-create + PR-
+// insert pair. Sharing the tx with the lock holder is the only way to
+// keep the lock across both inserts; without it we'd need a second
+// connection per concurrent create and a small pool deadlocks
+// (MaxConns=4 + N concurrent creates blocked on the lock).
+//
+// Callers that don't need to share a tx should use Create instead.
+func CreateInTx(ctx context.Context, tx pgx.Tx, deps Deps, p CreateParams) (issuesdb.Issue, error) {
 	title := strings.TrimSpace(p.Title)
 	if title == "" {
 		return issuesdb.Issue{}, ErrEmptyTitle
@@ -96,17 +128,6 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 	if kind == "" {
 		kind = "issue"
 	}
-
-	tx, err := deps.Pool.Begin(ctx)
-	if err != nil {
-		return issuesdb.Issue{}, fmt.Errorf("begin: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback(ctx)
-		}
-	}()
 
 	q := issuesdb.New()
 	if err := q.EnsureRepoIssueCounter(ctx, tx, p.RepoID); err != nil {
@@ -129,7 +150,6 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 		return issuesdb.Issue{}, fmt.Errorf("insert: %w", err)
 	}
 
-	// Render markdown for the cached body html.
 	html, mentions := renderBody(ctx, deps, p.Body)
 	row.BodyHtmlCached = pgtype.Text{String: html, Valid: html != ""}
 
@@ -144,11 +164,6 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 		return issuesdb.Issue{}, fmt.Errorf("refs: %w", err)
 	}
 
-	// Emit the domain event in the same tx as the issue row so a
-	// rollback drops both. Mention resolution happens *after* commit
-	// to avoid holding the row lock through user-id lookups; the
-	// fan-out worker reads payload.mentions to drive @-ping
-	// recipients.
 	mentionIDs := mentionUserIDs(ctx, deps.Pool, mentions)
 	repoVis, _ := repoVisibilityPublic(ctx, tx, p.RepoID)
 	eventKind := "issue_created"
@@ -159,10 +174,6 @@ func Create(ctx context.Context, deps Deps, p CreateParams) (issuesdb.Issue, err
 		return issuesdb.Issue{}, fmt.Errorf("emit event: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return issuesdb.Issue{}, fmt.Errorf("commit: %w", err)
-	}
-	committed = true
 	return row, nil
 }
 
@@ -369,13 +380,29 @@ func setState(ctx context.Context, deps Deps, actorUserID, issueID int64, newSta
 	if reason != "" {
 		stateReason = pgtype.Text{String: reason, Valid: true}
 	}
-	if err := q.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
+	// H15 / H14: SetIssueState now only updates the row when the state
+	// actually changes (and returns the affected row count). When the
+	// caller is idempotently re-closing an already-closed issue (or
+	// re-opening an already-open one), skip the timeline event, the
+	// state_reason rewrite, and the audit record. The function still
+	// returns nil — the *transition* is idempotent from the caller's
+	// perspective, but no side effects fire.
+	rowsAffected, err := q.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
 		ID:             issueID,
 		State:          issuesdb.IssueState(newState),
 		StateReason:    issuesdb.NullIssueStateReason{IssueStateReason: issuesdb.IssueStateReason(stateReason.String), Valid: stateReason.Valid},
 		ClosedByUserID: closedBy,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if rowsAffected == 0 {
+		// No transition: short-circuit before event emit / audit.
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
 	}
 	kind := "closed"
 	if newState == "open" {

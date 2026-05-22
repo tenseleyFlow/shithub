@@ -82,6 +82,20 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 	if issue.State != issuesdb.IssueStateOpen {
 		return ErrAlreadyClosed
 	}
+	// H2: defend against the case where the head OID is already part
+	// of base history — happens when a race-duplicate PR (now closed
+	// by H1's advisory lock, but old race-dups can still exist) shares
+	// its head with an already-merged sibling, or when the user opens
+	// a new PR for a feature branch that was previously merged. The
+	// check runs BEFORE the mergeable_state gate because that state
+	// can be stale ("clean" even though head is in base) — H-audit H2
+	// proved this. Pre-fix the merge engine itself crashed with a 500
+	// trying to merge an already-merged commit.
+	if pr.HeadOid != "" && pr.BaseOid != "" {
+		if ancestor, aerr := repogit.IsAncestor(ctx, p.GitDir, pr.HeadOid, pr.BaseOid); aerr == nil && ancestor {
+			return ErrHeadAlreadyMerged
+		}
+	}
 	if pr.MergeableState != pullsdb.PrMergeableStateClean {
 		return ErrMergeBlocked
 	}
@@ -194,8 +208,11 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 		}
 	}
 
-	// Close the issue side with state_reason=completed.
-	if err := iq.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
+	// Close the issue side with state_reason=completed. H15: SetIssueState
+	// now returns affected rows (0 if state was already 'closed'); merge
+	// gates above already guarantee the PR is open so the count is 1 in
+	// the happy path, but we ignore it to avoid coupling.
+	if _, err := iq.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
 		ID:             p.PRID,
 		State:          issuesdb.IssueStateClosed,
 		StateReason:    issuesdb.NullIssueStateReason{IssueStateReason: issuesdb.IssueStateReasonCompleted, Valid: true},
@@ -236,7 +253,7 @@ func Merge(ctx context.Context, deps Deps, p MergeParams) error {
 			continue
 		}
 		closed[target.ID] = true
-		_ = iq.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
+		_, _ = iq.SetIssueState(ctx, tx, issuesdb.SetIssueStateParams{
 			ID:             target.ID,
 			State:          issuesdb.IssueStateClosed,
 			StateReason:    issuesdb.NullIssueStateReason{IssueStateReason: issuesdb.IssueStateReasonCompleted, Valid: true},

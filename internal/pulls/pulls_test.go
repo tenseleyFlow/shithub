@@ -4,6 +4,7 @@ package pulls_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/checks"
+	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
@@ -104,6 +106,13 @@ func setup(t *testing.T) fixture {
 		Logger: slog.New(slog.NewTextHandler(w, nil)),
 	}
 	return fixture{pool: pool, deps: deps, userID: user.ID, repoID: repo.ID, gitDir: gitDir}
+}
+
+// issueDeps returns an issues.Deps wired against the fixture's pool +
+// logger. Used by H1 (H15) tests that need to drive issues.SetState
+// directly without going through the API surface.
+func (f fixture) issueDeps() issues.Deps {
+	return issues.Deps{Pool: f.pool, Logger: f.deps.Logger}
 }
 
 func createPullsTestUser(t *testing.T, pool *pgxpool.Pool, username string) int64 {
@@ -674,5 +683,146 @@ func TestMerge_LinkedIssueAutoClose(t *testing.T) {
 	}
 	if got.State != issuesdb.IssueStateClosed {
 		t.Errorf("linked issue state: got %s, want closed", got.State)
+	}
+}
+
+// TestCreate_ConcurrentRaceReturnsExactlyOneSuccess pins H1: the
+// pre-G6 race window allowed two concurrent Create calls for the same
+// (repo, base, head) triple to both succeed. The advisory-lock fix
+// serializes them so exactly one wins; the others return
+// DuplicatePRError referencing the winner.
+func TestCreate_ConcurrentRaceReturnsExactlyOneSuccess(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+
+	const N = 8
+	var wg sync.WaitGroup
+	results := make([]error, N)
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+				RepoID: f.repoID, AuthorUserID: f.userID,
+				Title:   "race",
+				BaseRef: "trunk", HeadRef: "feature",
+				GitDir: f.gitDir,
+			})
+			results[i] = err
+		}(i)
+	}
+	wg.Wait()
+
+	successes, duplicates := 0, 0
+	var dup *pulls.DuplicatePRError
+	for _, err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.As(err, &dup):
+			duplicates++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if successes != 1 {
+		t.Errorf("want exactly 1 success, got %d (duplicates=%d)", successes, duplicates)
+	}
+	if duplicates != N-1 {
+		t.Errorf("want %d DuplicatePRError, got %d", N-1, duplicates)
+	}
+}
+
+// TestMerge_HeadAlreadyInBaseReturnsErrHeadAlreadyMerged pins H2: a PR
+// whose head OID is already reachable from base must not crash the
+// merge engine. We seed the scenario by merging a sibling PR first
+// (advancing base to include the head), then attempting to merge the
+// race-dup. Pre-fix the second merge returned a 500; post-fix it
+// returns the typed ErrHeadAlreadyMerged → 409.
+func TestMerge_HeadAlreadyInBaseReturnsErrHeadAlreadyMerged(t *testing.T) {
+	f := setup(t)
+	commitOnBranch(t, f.gitDir, "trunk", "init", "README.md", "hi\n")
+	commitOnBranch(t, f.gitDir, "feature", "add foo", "foo.txt", "foo\n")
+
+	// Create + merge PR A so feature lands in trunk.
+	resA, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "A", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create A: %v", err)
+	}
+	_ = pulls.Mergeability(context.Background(), f.deps, f.gitDir, resA.PullRequest.IssueID)
+	if err := pulls.Merge(context.Background(), f.deps, pulls.MergeParams{
+		PRID: resA.PullRequest.IssueID, ActorUserID: f.userID,
+		GitDir: f.gitDir, Method: "merge",
+	}); err != nil {
+		t.Fatalf("Merge A: %v", err)
+	}
+
+	// Now open PR B for the same feature branch. PR A is closed, so H1's
+	// lock allows the new open. But feature's head OID is already in
+	// trunk's history (A merged it). Pre-fix the merge engine crashed
+	// with a 500; the new pre-merge sanity check should return
+	// ErrHeadAlreadyMerged.
+	resB, err := pulls.Create(context.Background(), f.deps, pulls.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "B", BaseRef: "trunk", HeadRef: "feature", GitDir: f.gitDir,
+	})
+	if err != nil {
+		t.Fatalf("Create B: %v", err)
+	}
+	_ = pulls.Mergeability(context.Background(), f.deps, f.gitDir, resB.PullRequest.IssueID)
+	err = pulls.Merge(context.Background(), f.deps, pulls.MergeParams{
+		PRID: resB.PullRequest.IssueID, ActorUserID: f.userID,
+		GitDir: f.gitDir, Method: "merge",
+	})
+	if !errors.Is(err, pulls.ErrHeadAlreadyMerged) {
+		t.Errorf("want ErrHeadAlreadyMerged, got %v", err)
+	}
+}
+
+// TestSetState_IdempotentCloseSkipsEvent pins H15 / H14: re-closing an
+// already-closed issue must not emit a second "closed" timeline event
+// or mutate state_reason. Pre-fix `setState` ran the UPDATE
+// unconditionally, so concurrent close-with-comment calls each
+// produced a `closed` event row even though only one was a real
+// transition.
+func TestSetState_IdempotentCloseSkipsEvent(t *testing.T) {
+	f := setup(t)
+
+	issue, err := issues.Create(context.Background(), f.issueDeps(), issues.CreateParams{
+		RepoID: f.repoID, AuthorUserID: f.userID,
+		Title: "race-close", Body: "", Kind: "issue",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// First close — real transition.
+	if err := issues.SetState(context.Background(), f.issueDeps(), f.userID, issue.ID, "closed", "completed"); err != nil {
+		t.Fatalf("SetState first: %v", err)
+	}
+	// Second close with a different reason — should be a no-op.
+	if err := issues.SetState(context.Background(), f.issueDeps(), f.userID, issue.ID, "closed", "not_planned"); err != nil {
+		t.Fatalf("SetState second: %v", err)
+	}
+
+	// Assert state_reason did NOT mutate (H14 sub-finding).
+	iq := issuesdb.New()
+	got, _ := iq.GetIssueByID(context.Background(), f.pool, issue.ID)
+	if string(got.StateReason.IssueStateReason) != "completed" {
+		t.Errorf("state_reason mutated to %q; want stays 'completed'", got.StateReason.IssueStateReason)
+	}
+
+	// Assert only ONE "closed" timeline event exists.
+	var events int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM issue_events WHERE issue_id = $1 AND kind = 'closed'`,
+		issue.ID).Scan(&events); err != nil {
+		t.Fatalf("event count: %v", err)
+	}
+	if events != 1 {
+		t.Errorf("want 1 closed event, got %d", events)
 	}
 }
