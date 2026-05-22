@@ -837,8 +837,23 @@ func (h *Handlers) issuePatch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := issues.SetState(r.Context(), h.issuesDeps(), auth.UserID, issue.ID, newState, reason); err != nil {
-			writeIssuesError(w, err)
-			return
+			// H14: when the caller explicitly passed `state_reason` but
+			// the state didn't transition, surface a typed 422 so the
+			// CLI can tell the user their reason-change intent was lost.
+			// Bare `state` change on already-matching state stays
+			// idempotent success — matches gh-compat (and absorbs the
+			// sentinel here).
+			if errors.Is(err, issues.ErrAlreadyInState) {
+				if body.StateReason != nil {
+					writeAPIError(w, http.StatusUnprocessableEntity,
+						"issue is already "+newState+"; pass state_reason via a separate edit if you want to change the reason")
+					return
+				}
+				// Idempotent success — fall through.
+			} else {
+				writeIssuesError(w, err)
+				return
+			}
 		}
 	}
 

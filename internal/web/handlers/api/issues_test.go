@@ -570,6 +570,56 @@ func TestIssues_PatchTitleBodyState(t *testing.T) {
 	}
 }
 
+// TestIssues_PatchAlreadyClosedWithReasonReturns422 pins H14: when the
+// issue is already in target state AND the caller passed state_reason,
+// surface a typed 422 so the user sees their reason-change intent was
+// lost. Bare `state` change on already-matching state (no state_reason)
+// keeps gh-compat idempotent success.
+func TestIssues_PatchAlreadyClosedWithReasonReturns422(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	body, _ := json.Marshal(map[string]any{"title": "x"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rr.Code)
+	}
+
+	// First close.
+	close1, _ := json.Marshal(map[string]any{"state": "closed", "state_reason": "completed"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/issues/1", bytes.NewReader(close1))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first close: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Re-close with a different state_reason — should now 422.
+	close2, _ := json.Marshal(map[string]any{"state": "closed", "state_reason": "not_planned"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/issues/1", bytes.NewReader(close2))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("re-close with reason: got %d want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("already closed")) {
+		t.Errorf("body should mention already closed: %s", rr.Body.String())
+	}
+
+	// Bare re-close (no state_reason) — should still be idempotent success.
+	close3, _ := json.Marshal(map[string]any{"state": "closed"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/repos/alice/demo/issues/1", bytes.NewReader(close3))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("bare re-close: got %d want 200 (idempotent); body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestIssues_PatchTitleByOtherForbidden(t *testing.T) {
 	pool, router, _, _, tokenAlice := seedIssuesEnv(t, "alice")
 	body, _ := json.Marshal(map[string]any{"title": "alice's bug"})

@@ -803,9 +803,12 @@ func TestSetState_IdempotentCloseSkipsEvent(t *testing.T) {
 	if err := issues.SetState(context.Background(), f.issueDeps(), f.userID, issue.ID, "closed", "completed"); err != nil {
 		t.Fatalf("SetState first: %v", err)
 	}
-	// Second close with a different reason — should be a no-op.
-	if err := issues.SetState(context.Background(), f.issueDeps(), f.userID, issue.ID, "closed", "not_planned"); err != nil {
-		t.Fatalf("SetState second: %v", err)
+	// Second close with a different reason — should be a no-op AND
+	// surface ErrAlreadyInState (H14 sentinel) so callers that care
+	// about the lost reason intent can branch on it.
+	err = issues.SetState(context.Background(), f.issueDeps(), f.userID, issue.ID, "closed", "not_planned")
+	if !errors.Is(err, issues.ErrAlreadyInState) {
+		t.Fatalf("SetState second: want ErrAlreadyInState, got %v", err)
 	}
 
 	// Assert state_reason did NOT mutate (H14 sub-finding).

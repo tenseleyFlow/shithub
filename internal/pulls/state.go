@@ -44,7 +44,11 @@ func SetState(ctx context.Context, deps Deps, gitDir string, actorUserID, prID i
 			return err
 		}
 	}
-	if err := issues.SetState(ctx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, actorUserID, prID, newState, ""); err != nil {
+	// H14: idempotent close/reopen is success here — the PR wrapper
+	// passes empty `reason` so the API caller never sent a meaningful
+	// state_reason. The sentinel just signals "no transition happened";
+	// callers of pulls.SetState don't surface that further.
+	if err := issues.SetState(ctx, issues.Deps{Pool: deps.Pool, Logger: deps.Logger}, actorUserID, prID, newState, ""); err != nil && !errors.Is(err, issues.ErrAlreadyInState) {
 		return err
 	}
 	if deps.Audit != nil {
