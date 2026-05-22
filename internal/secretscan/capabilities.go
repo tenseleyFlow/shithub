@@ -62,7 +62,7 @@ func (c Capability) ValidityDescription() string {
 	case c.InstanceValidityCheckSupported:
 		return "No provider validity check has run yet."
 	case c.GitHubValidityCheckSupported:
-		return "GitHub supports validity checks for this provider pattern, but this shithub instance has no configured provider validator."
+		return "GitHub supports validity checks for this provider pattern, but shithub does not currently implement provider validation."
 	default:
 		return "Provider validity checks are not supported for this pattern."
 	}
@@ -73,7 +73,7 @@ func (c Capability) ProviderNotificationDescription() string {
 	case c.InstanceProviderNotificationSupported:
 		return "Provider notification is available but disabled for this finding."
 	case c.GitHubProviderNotificationSupported:
-		return "GitHub supports partner/provider notification for this pattern, but this shithub instance has no configured provider notifier."
+		return "GitHub supports partner/provider notification for this pattern, but shithub does not currently implement provider notification."
 	default:
 		return "Provider notification is not supported for this pattern."
 	}

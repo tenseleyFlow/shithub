@@ -32,10 +32,12 @@ secret keys, Slack token prefixes, and private-key headers.
 SP26d adds a local provider capability registry for those built-in
 patterns. The registry records GitHub reference support for provider
 notification and validity checks separately from shithub instance
-support. As of SP26d's first slice, shithub has no operator-configured
-provider validators or notifiers, so repository UI and API responses
-report validity and provider notification as `unsupported` rather than
-claiming a provider was contacted.
+support. SP26d closeout ratifies provider notification and provider-side
+validity checks as unsupported for paid-organization GA: shithub has no
+provider validators, no provider notifiers, and no outbound provider egress
+for these surfaces. Repository UI, plan comparison, and API responses report
+validity and provider notification as `unsupported` rather than claiming a
+provider was contacted.
 
 The scanner returns pattern name, line number, and a redacted excerpt.
 Raw matched secret bytes must not be stored, logged, or printed. New
@@ -137,8 +139,10 @@ so broken configuration cannot deny all pushes.
 - The scan history API reports the current finding store, not a durable
   worker-job history ledger.
 - Provider notification and provider-side validity checks have capability
-  metadata and truthful unsupported/unknown API/UI states, but no real
-  outbound provider integrations yet.
+  metadata and truthful unsupported API/UI states. They are not implemented,
+  are not advertised as Team features, and require a future provider-egress
+  sprint before the status can become `unknown`, `active`, `inactive`, `sent`,
+  or `failed`.
 - Non-prefixed high-entropy generic heuristics remain deferred until
   the false-positive UX is stronger.
 
