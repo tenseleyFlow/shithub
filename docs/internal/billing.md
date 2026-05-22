@@ -588,9 +588,11 @@ PAYMENTS SP26 ships the first organization Secret Protection baseline:
   views, on-demand scans, organization security overview aggregation,
   and pre-receive push protection.
 - The scanner uses the local curated pattern set documented in
-  [`secret-protection.md`](./secret-protection.md); provider
-  notification, validity checks, custom patterns, and bypass-request
-  workflows are not shipped yet.
+  [`secret-protection.md`](./secret-protection.md). Custom patterns,
+  bypass-request workflows, and scan-history APIs are shipped. Provider
+  notification and provider-side validity checks currently expose
+  truthful unsupported capability states only; no outbound provider
+  integration is shipped yet.
 
 ## Entitlement architecture
 

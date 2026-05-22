@@ -15,6 +15,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/entitlements"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/secretscan"
 	secretscandb "github.com/tenseleyFlow/shithub/internal/secretscan/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -48,7 +49,7 @@ type secretScanningGate struct {
 
 func (h *Handlers) secretScanningGate(ctx context.Context, repo reposdb.Repo) secretScanningGate {
 	gate := secretScanningGate{Allowed: true}
-	if repo.Visibility != reposdb.RepoVisibilityPrivate {
+	if !secretScanningRepoIsPrivate(repo) {
 		return gate
 	}
 	if repo.OwnerOrgID.Valid {
@@ -83,7 +84,7 @@ func (h *Handlers) secretScanningGate(ctx context.Context, repo reposdb.Repo) se
 
 func (h *Handlers) secretBypassGate(ctx context.Context, repo reposdb.Repo) secretScanningGate {
 	gate := secretScanningGate{Allowed: true}
-	if repo.Visibility != reposdb.RepoVisibilityPrivate || !repo.OwnerOrgID.Valid {
+	if !secretScanningRepoIsPrivate(repo) || !repo.OwnerOrgID.Valid {
 		return gate
 	}
 	gate.FeatureKey = string(entitlements.FeatureSecretBypassControls)
@@ -98,6 +99,10 @@ func (h *Handlers) secretBypassGate(ctx context.Context, repo reposdb.Repo) secr
 	}
 	gate.Allowed = decision.Allowed
 	return gate
+}
+
+func secretScanningRepoIsPrivate(repo reposdb.Repo) bool {
+	return policy.RepoRef{Visibility: string(repo.Visibility)}.IsPrivate()
 }
 
 func writeSecretScanningGateError(w http.ResponseWriter, gate secretScanningGate) {
@@ -149,21 +154,23 @@ func (h *Handlers) secretScanningStatusGet(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, secretScanningStatusResponse{
-		Enabled:                   true,
-		Visibility:                string(repo.Visibility),
-		FeatureKey:                gate.FeatureKey,
-		TotalAlertCount:           counts.Total,
-		OpenAlertCount:            counts.Open,
-		ResolvedAlertCount:        counts.Resolved,
-		AllowlistedAlertCount:     counts.Allowlisted,
-		StaleAlertCount:           counts.Stale,
-		AllowlistCount:            len(allowlist),
-		BypassControlsAvailable:   bypassGate.Allowed,
-		BypassControlsFeatureKey:  bypassGate.FeatureKey,
-		BypassRequestCount:        bypassCount,
-		LatestFindingObservedAt:   counts.LatestObservedAt,
-		ScanHistoryBacking:        "findings",
-		RawSecretMaterialIncluded: false,
+		Enabled:                        true,
+		Visibility:                     string(repo.Visibility),
+		FeatureKey:                     gate.FeatureKey,
+		TotalAlertCount:                counts.Total,
+		OpenAlertCount:                 counts.Open,
+		ResolvedAlertCount:             counts.Resolved,
+		AllowlistedAlertCount:          counts.Allowlisted,
+		StaleAlertCount:                counts.Stale,
+		AllowlistCount:                 len(allowlist),
+		BypassControlsAvailable:        bypassGate.Allowed,
+		BypassControlsFeatureKey:       bypassGate.FeatureKey,
+		BypassRequestCount:             bypassCount,
+		LatestFindingObservedAt:        counts.LatestObservedAt,
+		ScanHistoryBacking:             "findings",
+		RawSecretMaterialIncluded:      false,
+		ValidityChecksAvailable:        false,
+		ProviderNotificationsAvailable: false,
 	})
 }
 
@@ -331,55 +338,89 @@ func (h *Handlers) secretScanningFindingCounts(ctx context.Context, repo reposdb
 }
 
 type secretScanningStatusResponse struct {
-	Enabled                   bool   `json:"enabled"`
-	Visibility                string `json:"visibility"`
-	FeatureKey                string `json:"feature_key,omitempty"`
-	TotalAlertCount           int64  `json:"total_alert_count"`
-	OpenAlertCount            int64  `json:"open_alert_count"`
-	ResolvedAlertCount        int64  `json:"resolved_alert_count"`
-	AllowlistedAlertCount     int64  `json:"allowlisted_alert_count"`
-	StaleAlertCount           int64  `json:"stale_alert_count"`
-	AllowlistCount            int    `json:"allowlist_count"`
-	BypassControlsAvailable   bool   `json:"bypass_controls_available"`
-	BypassControlsFeatureKey  string `json:"bypass_controls_feature_key,omitempty"`
-	BypassRequestCount        int    `json:"bypass_request_count,omitempty"`
-	LatestFindingObservedAt   string `json:"latest_finding_observed_at,omitempty"`
-	ScanHistoryBacking        string `json:"scan_history_backing"`
-	RawSecretMaterialIncluded bool   `json:"raw_secret_material_included"`
+	Enabled                        bool   `json:"enabled"`
+	Visibility                     string `json:"visibility"`
+	FeatureKey                     string `json:"feature_key,omitempty"`
+	TotalAlertCount                int64  `json:"total_alert_count"`
+	OpenAlertCount                 int64  `json:"open_alert_count"`
+	ResolvedAlertCount             int64  `json:"resolved_alert_count"`
+	AllowlistedAlertCount          int64  `json:"allowlisted_alert_count"`
+	StaleAlertCount                int64  `json:"stale_alert_count"`
+	AllowlistCount                 int    `json:"allowlist_count"`
+	BypassControlsAvailable        bool   `json:"bypass_controls_available"`
+	BypassControlsFeatureKey       string `json:"bypass_controls_feature_key,omitempty"`
+	BypassRequestCount             int    `json:"bypass_request_count,omitempty"`
+	LatestFindingObservedAt        string `json:"latest_finding_observed_at,omitempty"`
+	ScanHistoryBacking             string `json:"scan_history_backing"`
+	RawSecretMaterialIncluded      bool   `json:"raw_secret_material_included"`
+	ValidityChecksAvailable        bool   `json:"validity_checks_available"`
+	ProviderNotificationsAvailable bool   `json:"provider_notifications_available"`
 }
 
 type secretScanningAlertResponse struct {
-	ID                    int64  `json:"id"`
-	Number                int64  `json:"number"`
-	State                 string `json:"state"`
-	Status                string `json:"status"`
-	SecretType            string `json:"secret_type"`
-	SecretTypeDisplayName string `json:"secret_type_display_name"`
-	Path                  string `json:"path"`
-	Line                  int32  `json:"line"`
-	CommitSHA             string `json:"commit_sha"`
-	FirstSeenSHA          string `json:"first_seen_sha"`
-	CreatedAt             string `json:"created_at"`
-	UpdatedAt             string `json:"updated_at"`
-	ResolvedAt            string `json:"resolved_at,omitempty"`
-	HTMLURL               string `json:"html_url,omitempty"`
+	ID                             int64                         `json:"id"`
+	Number                         int64                         `json:"number"`
+	State                          string                        `json:"state"`
+	Status                         string                        `json:"status"`
+	SecretType                     string                        `json:"secret_type"`
+	SecretTypeDisplayName          string                        `json:"secret_type_display_name"`
+	ProviderSlug                   string                        `json:"provider_slug,omitempty"`
+	PatternCategory                string                        `json:"pattern_category"`
+	Validity                       string                        `json:"validity"`
+	ValidityCheck                  secretScanningCapabilityState `json:"validity_check"`
+	ProviderNotification           string                        `json:"provider_notification"`
+	ProviderNotificationCapability secretScanningCapabilityState `json:"provider_notification_capability"`
+	Path                           string                        `json:"path"`
+	Line                           int32                         `json:"line"`
+	CommitSHA                      string                        `json:"commit_sha"`
+	FirstSeenSHA                   string                        `json:"first_seen_sha"`
+	CreatedAt                      string                        `json:"created_at"`
+	UpdatedAt                      string                        `json:"updated_at"`
+	ResolvedAt                     string                        `json:"resolved_at,omitempty"`
+	HTMLURL                        string                        `json:"html_url,omitempty"`
+}
+
+type secretScanningCapabilityState struct {
+	SupportedByGitHub   bool   `json:"supported_by_github"`
+	SupportedByInstance bool   `json:"supported_by_instance"`
+	Status              string `json:"status"`
+	Description         string `json:"description"`
 }
 
 func presentSecretScanningAlert(row secretscandb.SecretScanFinding, owner, repoName, baseURL string) secretScanningAlertResponse {
+	capability := secretscan.CapabilityForPattern(row.Pattern)
+	validity := capability.ValidityState()
+	providerNotification := capability.ProviderNotificationState()
 	out := secretScanningAlertResponse{
 		ID:                    row.ID,
 		Number:                row.ID,
 		State:                 secretScanningAlertState(row.Status),
 		Status:                string(row.Status),
-		SecretType:            row.Pattern,
-		SecretTypeDisplayName: row.Pattern,
-		Path:                  row.Path,
-		Line:                  row.LineNo,
-		CommitSHA:             row.LastSeenOid,
-		FirstSeenSHA:          row.FirstSeenOid,
-		CreatedAt:             pgTimestampString(row.FirstSeenAt),
-		UpdatedAt:             pgTimestampString(row.LastSeenAt),
-		ResolvedAt:            pgTimestampString(row.ResolvedAt),
+		SecretType:            capability.SecretType,
+		SecretTypeDisplayName: capability.DisplayName,
+		ProviderSlug:          capability.ProviderSlug,
+		PatternCategory:       capability.Category,
+		Validity:              string(validity),
+		ValidityCheck: secretScanningCapabilityState{
+			SupportedByGitHub:   capability.GitHubValidityCheckSupported,
+			SupportedByInstance: capability.InstanceValidityCheckSupported,
+			Status:              string(validity),
+			Description:         capability.ValidityDescription(),
+		},
+		ProviderNotification: string(providerNotification),
+		ProviderNotificationCapability: secretScanningCapabilityState{
+			SupportedByGitHub:   capability.GitHubProviderNotificationSupported,
+			SupportedByInstance: capability.InstanceProviderNotificationSupported,
+			Status:              string(providerNotification),
+			Description:         capability.ProviderNotificationDescription(),
+		},
+		Path:         row.Path,
+		Line:         row.LineNo,
+		CommitSHA:    row.LastSeenOid,
+		FirstSeenSHA: row.FirstSeenOid,
+		CreatedAt:    pgTimestampString(row.FirstSeenAt),
+		UpdatedAt:    pgTimestampString(row.LastSeenAt),
+		ResolvedAt:   pgTimestampString(row.ResolvedAt),
 	}
 	if base := strings.TrimRight(baseURL, "/"); base != "" {
 		out.HTMLURL = base + "/" + owner + "/" + repoName + "/security/secret-scanning"
