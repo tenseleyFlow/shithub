@@ -152,6 +152,47 @@ func TestIssues_CreateRejectsEmptyTitle(t *testing.T) {
 	}
 }
 
+// TestIssues_CreateRejectsNullByteInBody pins H3: posting a body
+// containing `\x00` previously truncated silently at the null (Postgres
+// TEXT columns can't hold null bytes — the pgx driver dropped them).
+// Now the orchestrator rejects with a typed 422.
+func TestIssues_CreateRejectsNullByteInBody(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "nullbyte",
+		"body":  "before\x00after",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("null byte")) {
+		t.Errorf("error should mention null byte: %s", rr.Body.String())
+	}
+}
+
+// TestIssues_CreateRejectsNullByteInTitle is the symmetric H3 case for
+// the title field.
+func TestIssues_CreateRejectsNullByteInTitle(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "abc\x00def",
+		"body":  "ok",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestIssues_CreateRequiresRepoWriteScope(t *testing.T) {
 	pool, router, userID, _, _ := seedIssuesEnv(t, "alice")
 	readOnly := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoRead))
@@ -1057,6 +1098,11 @@ func TestIssues_ListStateStrict(t *testing.T) {
 		{"", 200},
 		{"nonsense", 422},
 		{"merged", 422}, // PR-only; rejected on issues
+		// H3 (H8): byte-exact match — silent normalization removed.
+		{"OPEN", 422},
+		{"open%20", 422},
+		{"%20open", 422},
+		{"open%0A", 422},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?state="+tc.state, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
