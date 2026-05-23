@@ -17,6 +17,7 @@ import (
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls/review"
 	pullsdb "github.com/tenseleyFlow/shithub/internal/pulls/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
@@ -382,16 +383,35 @@ func (h *Handlers) pullRequestedReviewersList(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, out)
 }
 
+// requestedReviewerCreateRequest accepts both shapes:
+//
+//   - shithub singleton form: {"username": "..."} or {"user_id": N} (or
+//     team variants) — addresses exactly one reviewer per request
+//   - gh-canonical envelope form (F28): {"reviewers": ["login1", ...],
+//     "team_reviewers": ["slug1", ...]} — fans out internally
+//
+// The gh-canonical form is what `gh pr edit --add-reviewer` (and
+// shithub-cli's `pr edit --add-reviewer`) emits. Pre-fix the server
+// rejected it with `exactly one user or team reviewer is required`
+// because none of the singleton fields were populated. F28: accept
+// the envelope, iterate, and merge any per-reviewer 422s into a
+// single error.
 type requestedReviewerCreateRequest struct {
-	// Either Username or UserID identifies the reviewer; if both are
-	// present UserID wins. UserID is the stable handle; Username is
-	// the gh-compatible form.
+	// Singleton form.
 	Username string `json:"username"`
 	UserID   int64  `json:"user_id"`
-	// Either TeamSlug or TeamID identifies an org team reviewer.
-	// TeamID wins when both are present.
 	TeamSlug string `json:"team_slug"`
 	TeamID   int64  `json:"team_id"`
+	// gh-canonical envelope form. Either or both arrays may be set;
+	// each entry is added as a separate review request.
+	Reviewers     []string `json:"reviewers"`
+	TeamReviewers []string `json:"team_reviewers"`
+}
+
+// hasEnvelopeForm reports whether the request uses the gh-canonical
+// array envelope. When true we route through the fan-out path.
+func (r requestedReviewerCreateRequest) hasEnvelopeForm() bool {
+	return len(r.Reviewers) > 0 || len(r.TeamReviewers) > 0
 }
 
 func (h *Handlers) pullRequestedReviewersAdd(w http.ResponseWriter, r *http.Request) {
@@ -407,6 +427,13 @@ func (h *Handlers) pullRequestedReviewersAdd(w http.ResponseWriter, r *http.Requ
 	var body requestedReviewerCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	// F28: gh-canonical envelope form (CLI's --add-reviewer emits this).
+	// Fan out into per-reviewer requests; surface the first failure as
+	// the response. Successful requests up to that point persist.
+	if body.hasEnvelopeForm() {
+		h.pullRequestedReviewersAddEnvelope(w, r, repo, pr.IssueID, auth.UserID, body)
 		return
 	}
 	target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, body)
@@ -427,6 +454,54 @@ func (h *Handlers) pullRequestedReviewersAdd(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, presentRequest(row))
 }
 
+// pullRequestedReviewersAddEnvelope fans out a gh-canonical envelope
+// (`reviewers` + `team_reviewers` arrays) into individual review
+// requests. On success returns 201 with the array of created rows.
+// On the first reviewer failure surfaces the 422/etc; rows added
+// before the failure persist (matches gh's partial-apply semantic).
+func (h *Handlers) pullRequestedReviewersAddEnvelope(
+	w http.ResponseWriter, r *http.Request,
+	repo *reposdb.Repo, prIssueID, actorID int64,
+	body requestedReviewerCreateRequest,
+) {
+	created := make([]requestedReviewerResponse, 0, len(body.Reviewers)+len(body.TeamReviewers))
+	for _, login := range body.Reviewers {
+		req := requestedReviewerCreateRequest{Username: login}
+		target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, req)
+		if err != nil {
+			writeAPIError(w, http.StatusUnprocessableEntity, "reviewer "+login+": "+err.Error())
+			return
+		}
+		row, err := review.Request(r.Context(), review.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, review.RequestParams{
+			PRIssueID: prIssueID, RequestedUserID: target.userID,
+			RequestedByUserID: actorID,
+		})
+		if err != nil {
+			writeReviewError(w, err)
+			return
+		}
+		created = append(created, presentRequest(row))
+	}
+	for _, slug := range body.TeamReviewers {
+		req := requestedReviewerCreateRequest{TeamSlug: slug}
+		target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, req)
+		if err != nil {
+			writeAPIError(w, http.StatusUnprocessableEntity, "team_reviewer "+slug+": "+err.Error())
+			return
+		}
+		row, err := review.Request(r.Context(), review.Deps{Pool: h.d.Pool, Logger: h.d.Logger}, review.RequestParams{
+			PRIssueID: prIssueID, RequestedTeamID: target.teamID,
+			RequestedByUserID: actorID,
+		})
+		if err != nil {
+			writeReviewError(w, err)
+			return
+		}
+		created = append(created, presentRequest(row))
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
 func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.Request) {
 	repo, ok := h.resolveAPIRepo(w, r, policy.ActionPullReview)
 	if !ok {
@@ -440,6 +515,25 @@ func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.R
 	var body requestedReviewerCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	// F28 (DELETE half): same envelope acceptance as POST. Fan-out
+	// dismisses each reviewer; first miss returns 404, prior dismissals
+	// persist.
+	if body.hasEnvelopeForm() {
+		for _, login := range body.Reviewers {
+			req := requestedReviewerCreateRequest{Username: login}
+			if !h.dismissOneReviewer(w, r, repo, pr.IssueID, req, "reviewer "+login) {
+				return
+			}
+		}
+		for _, slug := range body.TeamReviewers {
+			req := requestedReviewerCreateRequest{TeamSlug: slug}
+			if !h.dismissOneReviewer(w, r, repo, pr.IssueID, req, "team_reviewer "+slug) {
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, body)
@@ -474,6 +568,49 @@ func (h *Handlers) pullRequestedReviewersRemove(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeAPIError(w, http.StatusNotFound, "no active review request for that reviewer")
+}
+
+// dismissOneReviewer dismisses a single reviewer's active request and
+// writes the appropriate failure response if the reviewer can't be
+// resolved or has no active request. Returns true when the dismissal
+// succeeded (caller continues); false when an error response was
+// written (caller stops). Used by the F28 envelope DELETE path.
+func (h *Handlers) dismissOneReviewer(
+	w http.ResponseWriter, r *http.Request,
+	repo *reposdb.Repo, prIssueID int64,
+	body requestedReviewerCreateRequest, label string,
+) bool {
+	target, err := h.resolveReviewerTarget(r, repo.OwnerOrgID.Int64, repo.OwnerOrgID.Valid, body)
+	if err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, label+": "+err.Error())
+		return false
+	}
+	q := pullsdb.New()
+	rows, err := q.ListPRReviewRequests(r.Context(), h.d.Pool, prIssueID)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "api: list review requests", "error", err)
+		writeAPIError(w, http.StatusInternalServerError, "delete failed")
+		return false
+	}
+	for _, row := range rows {
+		if target.userID != 0 && (!row.RequestedUserID.Valid || row.RequestedUserID.Int64 != target.userID) {
+			continue
+		}
+		if target.teamID != 0 && (!row.RequestedTeamID.Valid || row.RequestedTeamID.Int64 != target.teamID) {
+			continue
+		}
+		if row.DismissedAt.Valid || row.SatisfiedByReviewID.Valid {
+			continue
+		}
+		if err := q.DismissPRReviewRequest(r.Context(), h.d.Pool, row.ID); err != nil {
+			h.d.Logger.ErrorContext(r.Context(), "api: dismiss review request", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "delete failed")
+			return false
+		}
+		return true
+	}
+	writeAPIError(w, http.StatusNotFound, label+": no active review request")
+	return false
 }
 
 type resolvedReviewerTarget struct {
