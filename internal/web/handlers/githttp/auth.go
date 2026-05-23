@@ -20,12 +20,13 @@ import (
 // callers decide whether anonymous is allowed (yes for pulling a public
 // repo, no for everything else).
 type resolvedAuth struct {
-	Anonymous          bool
-	UserID             int64
-	Username           string
-	ViaPAT             bool
-	ViaRunnerCheckout  bool
-	RunnerCheckoutRepo int64
+	Anonymous             bool
+	UserID                int64
+	Username              string
+	HasConfirmedTwoFactor bool
+	ViaPAT                bool
+	ViaRunnerCheckout     bool
+	RunnerCheckoutRepo    int64
 	// PATRepoBinding is the repo this PAT is locked to (PRO-EXT01-11b)
 	// or 0 if the token is unbound. Callers MUST compare against the
 	// request's resolved repo before serving data when ViaPAT is true.
@@ -136,12 +137,16 @@ func (h *Handlers) resolveViaPAT(ctx context.Context, raw string) (resolvedAuth,
 	if err != nil || user.SuspendedAt.Valid {
 		return resolvedAuth{}, errBadCredentials
 	}
+	has2FA, err := h.uq.HasConfirmedUserTOTP(ctx, h.d.Pool, user.ID)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
 	var binding int64
 	if row.RepoID.Valid {
 		binding = row.RepoID.Int64
 	}
 	return resolvedAuth{
-		UserID: user.ID, Username: user.Username, ViaPAT: true,
+		UserID: user.ID, Username: user.Username, HasConfirmedTwoFactor: has2FA, ViaPAT: true,
 		PATRepoBinding: binding,
 	}, nil
 }
@@ -173,7 +178,11 @@ func (h *Handlers) resolveViaPassword(ctx context.Context, username, secret stri
 	if err != nil || !ok {
 		return resolvedAuth{}, errBadCredentials
 	}
+	has2FA, err := h.uq.HasConfirmedUserTOTP(ctx, h.d.Pool, user.ID)
+	if err != nil {
+		return resolvedAuth{}, errBadCredentials
+	}
 	return resolvedAuth{
-		UserID: user.ID, Username: user.Username, ViaPAT: false,
+		UserID: user.ID, Username: user.Username, HasConfirmedTwoFactor: has2FA, ViaPAT: false,
 	}, nil
 }

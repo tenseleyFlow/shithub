@@ -12,6 +12,8 @@ S06 ships TOTP-based 2FA: enrollment, login challenge, recovery codes, encrypted
 - `internal/auth/audit` — typed action recorder.
 - `/login/2fa` challenge step.
 - `/settings/security/2fa/{enable,disable,regenerate}`.
+- `/organizations/{org}/settings/security` owner toggle for requiring
+  2FA inside an organization.
 - `shithubd admin clear-2fa <username>` operator escape hatch.
 
 ## Login flow with 2FA enrolled
@@ -131,6 +133,7 @@ A future sprint will ship this as a `shithubd admin rotate-totp-key` command. Un
 | `recovery_codes_regenerated` | regen handler | meta: `{count: 10}` |
 | `2fa_disabled` | disable handler | meta: `{}` |
 | `admin_cleared_2fa` | `shithubd admin clear-2fa` | meta: `{admin: "cli"}` |
+| `org_required_2fa_updated` | org security settings handler | target: `org`; meta: `{require_two_factor: bool}` |
 
 Future sprints will reuse the same table (S07 SSH key changes, S15 permissions, S30 org membership, S34 admin actions). When adding a new action, append a constant in `internal/auth/audit/audit.go` and document it here.
 
@@ -145,6 +148,31 @@ shithubd admin clear-2fa <username>
 For support cases where the user has lost both their authenticator AND their recovery codes. Wipes `user_totp` + `user_recovery_codes`, writes `admin_cleared_2fa` to the audit log, and emails the user a notification (best-effort). The user must re-enroll 2FA after this.
 
 By policy this should only be invoked after manual identity verification through a support channel — there's no automated bypass.
+
+## Organization-required 2FA
+
+Org owners can require 2FA from
+`/organizations/{org}/settings/security`. The setting lives in
+`org_security_settings.require_two_factor` and is available on Free and
+Team organizations; it is a baseline security control, not a paid-only
+feature.
+
+Policy enforcement happens in `internal/auth/policy.Can`:
+
+- Public repository reads remain public.
+- Organization members, owners, and collaborators without a confirmed
+  `user_totp.confirmed_at` row cannot read private repositories owned
+  by that organization.
+- Those same actors cannot write organization repositories, including
+  public org repositories.
+- Non-members can still participate in public repositories through the
+  normal public visibility rules.
+
+Every request actor that can hit repository policy must carry current
+confirmed-2FA state. Browser sessions, PAT auth, smart HTTP git, SSH
+git dispatch, hooks, and Actions trigger policy load
+`HasConfirmedUserTOTP` before calling `policy.Can`; adding a new
+transport or worker path that touches repo policy must do the same.
 
 ## QR rendering
 

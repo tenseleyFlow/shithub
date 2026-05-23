@@ -51,6 +51,9 @@ const (
 	// Pro-tier soft-freeze state, not a permanent retirement. Reads
 	// are allowed; only writes are blocked.
 	DenyPaused
+	// DenyOrgRequiresTwoFactor is returned when an org requires 2FA and
+	// the actor has repo access but has not confirmed TOTP on their account.
+	DenyOrgRequiresTwoFactor
 )
 
 // Decision is the verdict from Can. Allow is the only field handlers
@@ -130,6 +133,15 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		if actor.IsAnonymous {
 			return deny(DenyAnonymous, "anonymous cannot create/comment on issues")
 		}
+		if repo.OwnerOrgID != 0 && !actor.HasConfirmedTwoFactor && orgRequiresTwoFactor(ctx, d, repo.OwnerOrgID) {
+			role, err := effectiveRole(ctx, d, actor, repo)
+			if err != nil {
+				return deny(DenyDBError, "role lookup failed: "+err.Error())
+			}
+			if role != RoleNone {
+				return deny(DenyOrgRequiresTwoFactor, "organization requires two-factor authentication")
+			}
+		}
 		if repo.IsArchived {
 			return deny(DenyArchived, "repo archived")
 		}
@@ -152,7 +164,17 @@ func Can(ctx context.Context, d Deps, actor Actor, action Action, repo RepoRef) 
 		return deny(DenyDBError, "role lookup failed: "+err.Error())
 	}
 
-	// 7a. Author-self-close on issues and PRs. The author of an issue or
+	// 7a. Organization-required 2FA blocks members/collaborators from
+	//     reading private org repositories or writing org repositories
+	//     until they have confirmed TOTP. Public reads stay public; a
+	//     user with no role on a private repo still falls through to
+	//     the normal visibility-shaped deny below.
+	if repo.OwnerOrgID != 0 && role != RoleNone && (repo.IsPrivate() || isWriteAction(action)) &&
+		!actor.HasConfirmedTwoFactor && orgRequiresTwoFactor(ctx, d, repo.OwnerOrgID) {
+		return deny(DenyOrgRequiresTwoFactor, "organization requires two-factor authentication")
+	}
+
+	// 7b. Author-self-close on issues and PRs. The author of an issue or
 	//     PR is allowed to close (and reopen — same Action) their own
 	//     thread regardless of their collaborator role. Handlers populate
 	//     `repo.AuthorUserID` on the close path; everywhere else the
@@ -232,6 +254,24 @@ func isOrgSuspended(ctx context.Context, d Deps, orgID int64) bool {
 	return err == nil && suspended
 }
 
+func orgRequiresTwoFactor(ctx context.Context, d Deps, orgID int64) bool {
+	if d.Pool == nil {
+		return false
+	}
+	var required bool
+	err := d.Pool.QueryRow(
+		ctx,
+		`SELECT EXISTS (
+		    SELECT 1
+		      FROM org_security_settings
+		     WHERE org_id = $1
+		       AND require_two_factor
+		)`,
+		orgID,
+	).Scan(&required)
+	return err == nil && required
+}
+
 // IsVisibleTo is a convenience wrapper around Can(actor, repo:read, …).
 // Used by listing endpoints that need to filter results by visibility
 // without caring about the deny reason.
@@ -251,6 +291,9 @@ func IsVisibleTo(ctx context.Context, d Deps, actor Actor, repo RepoRef) bool {
 func Maybe404(decision Decision, repo RepoRef, actor Actor) int {
 	if decision.Allow {
 		return http.StatusOK
+	}
+	if decision.Code == DenyOrgRequiresTwoFactor {
+		return http.StatusForbidden
 	}
 	// Anything that turns on private-visibility surfaces as 404.
 	if repo.IsPrivate() {

@@ -64,7 +64,7 @@ func (h *Handlers) newRepoFromTemplate(w http.ResponseWriter, r *http.Request, u
 	// Visibility-aware read check. Private templates are only visible
 	// to actors with explicit read access. Reuse policy.Can with
 	// ActionRepoRead.
-	actor := middleware.CurrentUser{ID: user.ID, Username: user.Username, IsSiteAdmin: user.IsSiteAdmin}.PolicyActor()
+	actor := user.PolicyActor()
 	allowed := policy.Can(r.Context(), policy.Deps{Pool: h.d.Pool}, actor, policy.ActionRepoRead, policy.NewRepoRefFromRepo(template))
 	if !allowed.Allow {
 		// Existence-leak-safe: same message as not-found.

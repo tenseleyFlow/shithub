@@ -107,6 +107,7 @@ const (
 	ActionActionsVariableSet     Action = "actions_variable_set"
 	ActionActionsVariableDeleted Action = "actions_variable_deleted"
 	ActionActionsPolicyUpdated   Action = "actions_policy_updated"
+	ActionOrgRequired2FAUpdated  Action = "org_required_2fa_updated"
 
 	// SP26b — secret push-protection bypass lifecycle. Metadata must
 	// stay structural: request id, pattern name, path, line, commit oid,

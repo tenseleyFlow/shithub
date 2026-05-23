@@ -185,6 +185,41 @@ func TestEvaluateTrigger_PullRequestApprovalPolicyCanAllowImmediateRun(t *testin
 	}
 }
 
+func TestEvaluateTrigger_OrgRequiredTwoFactorBlocksPushUntilConfirmed(t *testing.T) {
+	t.Parallel()
+	f := setupPolicyFx(t)
+	if _, err := f.pool.Exec(f.ctx, `INSERT INTO org_security_settings (org_id, require_two_factor)
+		SELECT owner_org_id, true FROM repos WHERE id = $1`, f.orgRepo.ID); err != nil {
+		t.Fatalf("enable org required 2fa: %v", err)
+	}
+
+	dec, err := actionspolicy.EvaluateTrigger(f.ctx, actionspolicy.Deps{Pool: f.pool}, actionspolicy.TriggerRequest{
+		Repo:        f.orgRepo,
+		EventKind:   string(trigger.EventPush),
+		ActorUserID: f.orgOwner.ID,
+	})
+	if !errors.Is(err, actionspolicy.ErrUnauthorized) || dec.Allow {
+		t.Fatalf("without 2fa decision=%+v err=%v, want unauthorized deny", dec, err)
+	}
+	if !strings.Contains(dec.Reason, "two-factor") {
+		t.Fatalf("without 2fa reason=%q, want two-factor deny", dec.Reason)
+	}
+
+	if _, err := f.pool.Exec(f.ctx, `INSERT INTO user_totp (user_id, secret_encrypted, secret_nonce, confirmed_at)
+		VALUES ($1, $2, $3, now())`,
+		f.orgOwner.ID, []byte("secret"), []byte("123456789012")); err != nil {
+		t.Fatalf("confirm user totp: %v", err)
+	}
+	dec, err = actionspolicy.EvaluateTrigger(f.ctx, actionspolicy.Deps{Pool: f.pool}, actionspolicy.TriggerRequest{
+		Repo:        f.orgRepo,
+		EventKind:   string(trigger.EventPush),
+		ActorUserID: f.orgOwner.ID,
+	})
+	if err != nil || !dec.Allow {
+		t.Fatalf("with 2fa decision=%+v err=%v, want allow", dec, err)
+	}
+}
+
 func TestEvaluateTrigger_DeniesArchivedAndDisabledRepos(t *testing.T) {
 	t.Parallel()
 	f := setupPolicyFx(t)

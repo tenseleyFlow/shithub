@@ -230,6 +230,56 @@ func TestOrgSecretPatternsBlocksAndHidesRowsWithoutTeamEntitlement(t *testing.T)
 	}
 }
 
+func TestOrgSecuritySettingsRequiredTwoFactorRoundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/security", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET org security status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "SETTING=false") {
+		t.Fatalf("default required 2fa setting missing: %s", got)
+	}
+
+	resp = httptest.NewRecorder()
+	req = newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/security", url.Values{
+		"require_two_factor": {"on"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST org security status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var requireTwoFactor bool
+	if err := pool.QueryRow(ctx, `SELECT require_two_factor FROM org_security_settings WHERE org_id = $1`, orgID).Scan(&requireTwoFactor); err != nil {
+		t.Fatalf("query org security settings: %v", err)
+	}
+	if !requireTwoFactor {
+		t.Fatal("require_two_factor=false, want true")
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM auth_audit_log WHERE action = 'org_required_2fa_updated' AND target_type = 'org' AND target_id = $1`, orgID).Scan(&auditCount); err != nil {
+		t.Fatalf("query audit log: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("audit count=%d, want 1", auditCount)
+	}
+}
+
 func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 	t.Helper()
 	tmplFS := fstest.MapFS{
@@ -237,6 +287,7 @@ func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 		"orgs/settings_profile.html":         {Data: []byte(`{{ define "page" }}profile{{ end }}`)},
 		"orgs/settings_secrets.html":         {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
 		"orgs/settings_secret_patterns.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Patterns }}PATTERN={{ .Name }}:{{ .Enabled }};{{ end }}{{ end }}`)},
+		"orgs/settings_security.html":        {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }}{{ end }}SETTING={{ .Settings.RequireTwoFactor }}{{ end }}`)},
 		"errors/403.html":                    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":                    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":                    {Data: []byte(`{{ define "page" }}500{{ end }}`)},

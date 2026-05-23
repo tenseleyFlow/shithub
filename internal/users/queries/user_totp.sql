@@ -21,6 +21,14 @@ SELECT id, user_id, secret_encrypted, secret_nonce, confirmed_at,
 FROM user_totp
 WHERE user_id = $1;
 
+-- name: HasConfirmedUserTOTP :one
+SELECT EXISTS (
+    SELECT 1
+    FROM user_totp
+    WHERE user_id = $1
+      AND confirmed_at IS NOT NULL
+);
+
 -- name: ConfirmUserTOTP :execrows
 -- Sets confirmed_at on a pending row. Returns the number of rows updated;
 -- callers MUST check this to handle the parallel-enrollment race

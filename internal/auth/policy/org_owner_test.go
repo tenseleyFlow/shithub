@@ -163,6 +163,72 @@ func TestTeamGrant_GivesWriteAccess(t *testing.T) {
 	}
 }
 
+func TestOrgRequiredTwoFactor_BlocksMemberPrivateAccessAndWrites(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	creator, err := usersdb.New().CreateUser(ctx, pool, usersdb.CreateUserParams{
+		Username: "alice", DisplayName: "Alice", PasswordHash: fixtureHash,
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	deps := orgs.Deps{Pool: pool}
+	org, err := orgs.Create(ctx, deps, orgs.CreateParams{Slug: "secureco", CreatedByUserID: creator.ID})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO org_security_settings (org_id, require_two_factor) VALUES ($1, true)`, org.ID); err != nil {
+		t.Fatalf("enable required 2fa: %v", err)
+	}
+	rq := reposdb.New()
+	privateRepo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "private-demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("create private repo: %v", err)
+	}
+	publicRepo, err := rq.CreateRepo(ctx, pool, reposdb.CreateRepoParams{
+		OwnerOrgID:    pgtype.Int8{Int64: org.ID, Valid: true},
+		Name:          "public-demo",
+		DefaultBranch: "trunk",
+		Visibility:    reposdb.RepoVisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("create public repo: %v", err)
+	}
+
+	pdeps := policy.Deps{Pool: pool}
+	actorWithout2FA := policy.UserActor(creator.ID, "alice", false, false)
+	actorWith2FA := policy.UserActorWithTwoFactor(creator.ID, "alice", false, false, true)
+	privateRef := policy.NewRepoRefFromRepo(privateRepo)
+	publicRef := policy.NewRepoRefFromRepo(publicRepo)
+
+	privateRead := policy.Can(ctx, pdeps, actorWithout2FA, policy.ActionRepoRead, privateRef)
+	if privateRead.Allow || privateRead.Code != policy.DenyOrgRequiresTwoFactor {
+		t.Fatalf("private read without 2fa decision=%+v, want required-2fa deny", privateRead)
+	}
+	if got := policy.Maybe404(privateRead, privateRef, actorWithout2FA); got != 403 {
+		t.Fatalf("Maybe404 required 2fa status=%d, want 403", got)
+	}
+	if got := policy.Can(ctx, pdeps, actorWith2FA, policy.ActionRepoRead, privateRef); !got.Allow {
+		t.Fatalf("private read with 2fa should allow: %+v", got)
+	}
+	if got := policy.Can(ctx, pdeps, actorWithout2FA, policy.ActionRepoRead, publicRef); !got.Allow {
+		t.Fatalf("public read without 2fa should stay public: %+v", got)
+	}
+	publicWrite := policy.Can(ctx, pdeps, actorWithout2FA, policy.ActionRepoWrite, publicRef)
+	if publicWrite.Allow || publicWrite.Code != policy.DenyOrgRequiresTwoFactor {
+		t.Fatalf("public write without 2fa decision=%+v, want required-2fa deny", publicWrite)
+	}
+	if got := policy.Can(ctx, pdeps, actorWith2FA, policy.ActionRepoWrite, publicRef); !got.Allow {
+		t.Fatalf("public write with 2fa should allow: %+v", got)
+	}
+}
+
 // TestTeamParent_Inheritance pins the one-level parent inheritance
 // rule: a child-team member inherits the parent team's repo grants.
 func TestTeamParent_Inheritance(t *testing.T) {

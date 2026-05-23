@@ -16,6 +16,7 @@ import (
 	notifdb "github.com/tenseleyFlow/shithub/internal/notif/sqlc"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	socialdb "github.com/tenseleyFlow/shithub/internal/social/sqlc"
+	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 )
 
 // FanoutConsumer is the consumer name used in
@@ -186,7 +187,11 @@ func canRecipientSeeRepo(ctx context.Context, deps Deps, recipientID, repoID int
 		}
 		return false, err
 	}
-	actor := policy.UserActor(recipientID, "", false, false)
+	has2FA, err := usersdb.New().HasConfirmedUserTOTP(ctx, deps.Pool, recipientID)
+	if err != nil {
+		return false, err
+	}
+	actor := policy.UserActorWithTwoFactor(recipientID, "", false, false, has2FA)
 	return policy.IsVisibleTo(ctx, policy.Deps{Pool: deps.Pool}, actor, policy.NewRepoRefFromRepo(repo)), nil
 }
 

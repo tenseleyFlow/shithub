@@ -21,10 +21,11 @@ var currentUserKey = ctxKey{name: "current_user"}
 // constructs an actor with a hard-coded `false` lets a suspended account
 // keep writing — the audit found this gap (S00-S25 audit, finding C1).
 type CurrentUser struct {
-	ID          int64
-	Username    string
-	IsSuspended bool
-	IsSiteAdmin bool
+	ID                    int64
+	Username              string
+	IsSuspended           bool
+	IsSiteAdmin           bool
+	HasConfirmedTwoFactor bool
 	// SwitchAccounts are other accounts that completed authentication in
 	// this browser session and can be selected from the profile menu. They
 	// are UI hints only; /account/switch re-checks the sealed session entry
@@ -57,13 +58,14 @@ func (u CurrentUser) IsAnonymous() bool { return u.ID == 0 }
 // re-introduces the C1/C2 leaks the SR2 sprint fixed.
 func (u CurrentUser) PolicyActor() policy.Actor {
 	return policy.UserActorFromCurrentUser(policy.CurrentUserView{
-		ID:                 u.ID,
-		Username:           u.Username,
-		IsSuspended:        u.IsSuspended,
-		IsSiteAdmin:        u.IsSiteAdmin,
-		ImpersonatedUserID: u.ImpersonatedUserID,
-		RealActorID:        u.RealActorID,
-		ImpersonateWriteOK: u.ImpersonateWriteOK,
+		ID:                    u.ID,
+		Username:              u.Username,
+		IsSuspended:           u.IsSuspended,
+		IsSiteAdmin:           u.IsSiteAdmin,
+		HasConfirmedTwoFactor: u.HasConfirmedTwoFactor,
+		ImpersonatedUserID:    u.ImpersonatedUserID,
+		RealActorID:           u.RealActorID,
+		ImpersonateWriteOK:    u.ImpersonateWriteOK,
 	})
 }
 
@@ -93,10 +95,11 @@ func (u CurrentUser) AuditActor(meta map[string]any) (int64, map[string]any) {
 // fields (e.g. is_admin once S34 lands) don't keep widening the signature
 // and forcing every callsite to update.
 type UserLookupResult struct {
-	Username     string
-	SessionEpoch int32
-	IsSuspended  bool
-	IsSiteAdmin  bool
+	Username              string
+	SessionEpoch          int32
+	IsSuspended           bool
+	IsSiteAdmin           bool
+	HasConfirmedTwoFactor bool
 }
 
 // UserLookup resolves a user_id into the data the auth middleware needs.
@@ -134,6 +137,7 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 							u.Username = res.Username
 							u.IsSuspended = res.IsSuspended
 							u.IsSiteAdmin = res.IsSiteAdmin
+							u.HasConfirmedTwoFactor = res.HasConfirmedTwoFactor
 						}
 					}
 				}
@@ -152,6 +156,7 @@ func OptionalUser(lookup UserLookup) func(http.Handler) http.Handler {
 						u.Username = res.Username
 						u.IsSuspended = res.IsSuspended
 						u.IsSiteAdmin = false // never carry admin into impersonated identity
+						u.HasConfirmedTwoFactor = res.HasConfirmedTwoFactor
 						u.ImpersonateWriteOK = s.ImpersonateWriteOK
 					}
 				}

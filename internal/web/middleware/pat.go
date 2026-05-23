@@ -42,13 +42,14 @@ var patAuthKey = ctxKey{name: "pat_auth"}
 // (audit C2) hardened stars.go, actions_rerun.go, actions_cancel.go
 // after the auditor found stars.go bypassing — keep the pattern.
 type PATAuth struct {
-	UserID      int64
-	Username    string
-	TokenID     int64
-	Scopes      []string
-	RepoBinding int64
-	IsSuspended bool
-	IsSiteAdmin bool
+	UserID                int64
+	Username              string
+	TokenID               int64
+	Scopes                []string
+	RepoBinding           int64
+	IsSuspended           bool
+	IsSiteAdmin           bool
+	HasConfirmedTwoFactor bool
 }
 
 // PATAuthFromContext returns the resolved PAT auth state, or the zero
@@ -65,7 +66,7 @@ func (p PATAuth) PolicyActor() policy.Actor {
 	if p.UserID == 0 {
 		return policy.AnonymousActor()
 	}
-	return policy.UserActor(p.UserID, p.Username, p.IsSuspended, p.IsSiteAdmin)
+	return policy.UserActorWithTwoFactor(p.UserID, p.Username, p.IsSuspended, p.IsSiteAdmin, p.HasConfirmedTwoFactor)
 }
 
 // PATConfig configures the PAT auth middleware.
@@ -142,6 +143,11 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 				writePATChallenge(w, cfg.Realm, "account suspended")
 				return
 			}
+			has2FA, err := q.HasConfirmedUserTOTP(r.Context(), cfg.Pool, row.UserID)
+			if err != nil {
+				writePATChallenge(w, cfg.Realm, "invalid token")
+				return
+			}
 
 			// PRO-EXT01-11a: IP allowlist enforcement.
 			//
@@ -204,13 +210,14 @@ func PATAuthMiddleware(cfg PATConfig) func(http.Handler) http.Handler {
 				repoBinding = row.RepoID.Int64
 			}
 			ctx := context.WithValue(r.Context(), patAuthKey, PATAuth{
-				UserID:      row.UserID,
-				Username:    user.Username,
-				TokenID:     row.ID,
-				Scopes:      row.Scopes,
-				RepoBinding: repoBinding,
-				IsSuspended: user.SuspendedAt.Valid,
-				IsSiteAdmin: user.IsSiteAdmin,
+				UserID:                row.UserID,
+				Username:              user.Username,
+				TokenID:               row.ID,
+				Scopes:                row.Scopes,
+				RepoBinding:           repoBinding,
+				IsSuspended:           user.SuspendedAt.Valid,
+				IsSiteAdmin:           user.IsSiteAdmin,
+				HasConfirmedTwoFactor: has2FA,
 			})
 
 			// PRO-EXT01-11c: record this request for the per-token

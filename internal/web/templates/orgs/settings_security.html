@@ -1,0 +1,41 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-success" role="status">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Authentication security</h2>
+        <div class="Subhead-description">Require stronger account authentication before members can access or write organization repositories.</div>
+      </div>
+
+      <section class="shithub-org-settings-section" aria-labelledby="required-2fa-heading">
+        <h3 id="required-2fa-heading">Two-factor authentication</h3>
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/security" class="shithub-org-settings-form" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label class="shithub-org-settings-checkbox">
+            <input type="checkbox" name="require_two_factor"{{ if .Settings.RequireTwoFactor }} checked{{ end }}>
+            <span>
+              <strong>Require two-factor authentication for everyone in this organization</strong>
+              <small>Members and collaborators without confirmed 2FA cannot read private organization repositories or write to organization repositories.</small>
+            </span>
+          </label>
+          <button type="submit" class="shithub-button shithub-button-primary">Save</button>
+        </form>
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

@@ -88,8 +88,12 @@ func ResolveCodeOwnerTargets(ctx context.Context, pool *pgxpool.Pool, repo repos
 }
 
 func userCanReview(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo, u usersdb.User) bool {
-	actor := policy.UserActor(u.ID, u.Username, u.SuspendedAt.Valid, u.IsSiteAdmin)
-	return policy.HasRoleAtLeast(ctx, policy.Deps{Pool: pool}, actor, policy.NewRepoRefFromRepo(repo), policy.RoleWrite)
+	has2FA, err := usersdb.New().HasConfirmedUserTOTP(ctx, pool, u.ID)
+	if err != nil {
+		return false
+	}
+	actor := policy.UserActorWithTwoFactor(u.ID, u.Username, u.SuspendedAt.Valid, u.IsSiteAdmin, has2FA)
+	return policy.Can(ctx, policy.Deps{Pool: pool}, actor, policy.ActionPullReview, policy.NewRepoRefFromRepo(repo)).Allow
 }
 
 func teamRepoRoleCanReview(role orgsdb.TeamRepoRole) bool {

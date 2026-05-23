@@ -159,6 +159,7 @@ type Querier interface {
 	// Scoped fetch: only returns the row if it belongs to user_id. Used by
 	// the analytics handler to verify ownership before rendering.
 	GetUserTokenByIDForUser(ctx context.Context, db DBTX, arg GetUserTokenByIDForUserParams) (GetUserTokenByIDForUserRow, error)
+	HasConfirmedUserTOTP(ctx context.Context, db DBTX, userID int64) (bool, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	InsertAuditLog(ctx context.Context, db DBTX, arg InsertAuditLogParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later

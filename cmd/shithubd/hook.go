@@ -208,12 +208,13 @@ type errHookGate struct{ kind string }
 func (e errHookGate) Error() string { return "shithub-hook: " + e.kind }
 
 var (
-	errHookSuspended  = errHookGate{"user suspended"}
-	errHookArchived   = errHookGate{"repo archived"}
-	errHookDeleted    = errHookGate{"repo deleted"}
-	errHookMissing    = errHookGate{"missing context"}
-	errHookPermDenied = errHookGate{"permission denied"}
-	errHookStorage    = errHookGate{"storage quota exceeded"}
+	errHookSuspended   = errHookGate{"user suspended"}
+	errHookArchived    = errHookGate{"repo archived"}
+	errHookDeleted     = errHookGate{"repo deleted"}
+	errHookMissing     = errHookGate{"missing context"}
+	errHookPermDenied  = errHookGate{"permission denied"}
+	errHookStorage     = errHookGate{"storage quota exceeded"}
+	errHookRequires2FA = errHookGate{"organization requires two-factor authentication"}
 )
 
 // hookRepoFSAndGitDir resolves the bare-repo path for the hook's repo.
@@ -254,6 +255,8 @@ func friendlyHookErr(err error) string {
 		return "shithub: you do not have write access to this repository."
 	case errors.Is(err, errHookStorage):
 		return "shithub: this organization is over its storage quota; pushes are disabled until storage is reduced or the quota is raised."
+	case errors.Is(err, errHookRequires2FA):
+		return "shithub: this organization requires two-factor authentication before you can push."
 	case errors.Is(err, errHookMissing):
 		return "shithub: server error: hook context missing. Contact the operator."
 	default:
@@ -277,7 +280,11 @@ func preReceiveCheck(ctx context.Context, h *hookCtx) (reposdb.Repo, error) {
 		return reposdb.Repo{}, fmt.Errorf("repo lookup: %w", err)
 	}
 
-	actor := policy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, false)
+	has2FA, err := uq.HasConfirmedUserTOTP(ctx, h.pool, user.ID)
+	if err != nil {
+		return reposdb.Repo{}, fmt.Errorf("user 2fa lookup: %w", err)
+	}
+	actor := policy.UserActorWithTwoFactor(user.ID, user.Username, user.SuspendedAt.Valid, false, has2FA)
 	repoRef := policy.NewRepoRefFromRepo(repo)
 	decision := policy.Can(ctx, policy.Deps{Pool: h.pool}, actor, policy.ActionRepoWrite, repoRef)
 	if decision.Allow {
@@ -290,6 +297,8 @@ func preReceiveCheck(ctx context.Context, h *hookCtx) (reposdb.Repo, error) {
 		return reposdb.Repo{}, errHookSuspended
 	case policy.DenyArchived:
 		return reposdb.Repo{}, errHookArchived
+	case policy.DenyOrgRequiresTwoFactor:
+		return reposdb.Repo{}, errHookRequires2FA
 	default:
 		return reposdb.Repo{}, errHookPermDenied
 	}

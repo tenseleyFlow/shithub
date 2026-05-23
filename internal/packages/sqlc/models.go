@@ -3268,6 +3268,13 @@ type OrgScheduledReminderDelivery struct {
 	DeliveredAt     pgtype.Timestamptz
 }
 
+type OrgSecuritySetting struct {
+	OrgID            int64
+	RequireTwoFactor bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type OrgUsageCounter struct {
 	OrgID                int64
 	RepoStorageBytes     int64

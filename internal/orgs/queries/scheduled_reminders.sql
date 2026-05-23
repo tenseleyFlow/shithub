@@ -131,7 +131,13 @@ SELECT rr.id AS review_request_id,
        u.id AS recipient_user_id,
        u.username AS recipient_username,
        (u.suspended_at IS NOT NULL)::bool AS recipient_suspended,
-       u.is_site_admin AS recipient_site_admin
+       u.is_site_admin AS recipient_site_admin,
+       EXISTS (
+         SELECT 1
+         FROM user_totp ut
+         WHERE ut.user_id = u.id
+           AND ut.confirmed_at IS NOT NULL
+       )::bool AS recipient_has_confirmed_two_factor
 FROM org_scheduled_reminders sr
 JOIN repos r ON r.owner_org_id = sr.org_id
 JOIN issues i ON i.repo_id = r.id AND i.kind = 'pr' AND i.state = 'open'
@@ -178,7 +184,13 @@ SELECT rr.id AS review_request_id,
        u.id AS recipient_user_id,
        u.username AS recipient_username,
        (u.suspended_at IS NOT NULL)::bool AS recipient_suspended,
-       u.is_site_admin AS recipient_site_admin
+       u.is_site_admin AS recipient_site_admin,
+       EXISTS (
+         SELECT 1
+         FROM user_totp ut
+         WHERE ut.user_id = u.id
+           AND ut.confirmed_at IS NOT NULL
+       )::bool AS recipient_has_confirmed_two_factor
 FROM org_scheduled_reminders sr
 JOIN repos r ON r.owner_org_id = sr.org_id
 JOIN issues i ON i.repo_id = r.id AND i.kind = 'pr' AND i.state = 'open'

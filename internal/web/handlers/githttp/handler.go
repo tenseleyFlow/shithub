@@ -191,7 +191,7 @@ func (h *Handlers) authorizeForService(w http.ResponseWriter, r *http.Request, s
 	if auth.Anonymous {
 		actor = policy.AnonymousActor()
 	} else {
-		actor = policy.UserActor(auth.UserID, auth.Username, false, false)
+		actor = policy.UserActorWithTwoFactor(auth.UserID, auth.Username, false, false, auth.HasConfirmedTwoFactor)
 	}
 	action := policy.ActionRepoRead
 	if svc == protocol.ReceivePack {

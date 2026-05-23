@@ -293,7 +293,13 @@ SELECT rr.id AS review_request_id,
        u.id AS recipient_user_id,
        u.username AS recipient_username,
        (u.suspended_at IS NOT NULL)::bool AS recipient_suspended,
-       u.is_site_admin AS recipient_site_admin
+       u.is_site_admin AS recipient_site_admin,
+       EXISTS (
+         SELECT 1
+         FROM user_totp ut
+         WHERE ut.user_id = u.id
+           AND ut.confirmed_at IS NOT NULL
+       )::bool AS recipient_has_confirmed_two_factor
 FROM org_scheduled_reminders sr
 JOIN repos r ON r.owner_org_id = sr.org_id
 JOIN issues i ON i.repo_id = r.id AND i.kind = 'pr' AND i.state = 'open'
@@ -326,22 +332,23 @@ ORDER BY r.id ASC, i.number ASC, u.username ASC
 `
 
 type ListDirectReviewReminderCandidatesRow struct {
-	ReviewRequestID    int64
-	PrIssueID          int64
-	PrNumber           int64
-	PrTitle            string
-	AuthorUserID       pgtype.Int8
-	RepoID             int64
-	OwnerUserID        pgtype.Int8
-	OwnerOrgID         pgtype.Int8
-	RepoVisibility     string
-	IsArchived         bool
-	DeletedAt          pgtype.Timestamptz
-	IsPaused           bool
-	RecipientUserID    int64
-	RecipientUsername  string
-	RecipientSuspended bool
-	RecipientSiteAdmin bool
+	ReviewRequestID                int64
+	PrIssueID                      int64
+	PrNumber                       int64
+	PrTitle                        string
+	AuthorUserID                   pgtype.Int8
+	RepoID                         int64
+	OwnerUserID                    pgtype.Int8
+	OwnerOrgID                     pgtype.Int8
+	RepoVisibility                 string
+	IsArchived                     bool
+	DeletedAt                      pgtype.Timestamptz
+	IsPaused                       bool
+	RecipientUserID                int64
+	RecipientUsername              string
+	RecipientSuspended             bool
+	RecipientSiteAdmin             bool
+	RecipientHasConfirmedTwoFactor bool
 }
 
 func (q *Queries) ListDirectReviewReminderCandidates(ctx context.Context, db DBTX, id int64) ([]ListDirectReviewReminderCandidatesRow, error) {
@@ -370,6 +377,7 @@ func (q *Queries) ListDirectReviewReminderCandidates(ctx context.Context, db DBT
 			&i.RecipientUsername,
 			&i.RecipientSuspended,
 			&i.RecipientSiteAdmin,
+			&i.RecipientHasConfirmedTwoFactor,
 		); err != nil {
 			return nil, err
 		}
@@ -477,7 +485,13 @@ SELECT rr.id AS review_request_id,
        u.id AS recipient_user_id,
        u.username AS recipient_username,
        (u.suspended_at IS NOT NULL)::bool AS recipient_suspended,
-       u.is_site_admin AS recipient_site_admin
+       u.is_site_admin AS recipient_site_admin,
+       EXISTS (
+         SELECT 1
+         FROM user_totp ut
+         WHERE ut.user_id = u.id
+           AND ut.confirmed_at IS NOT NULL
+       )::bool AS recipient_has_confirmed_two_factor
 FROM org_scheduled_reminders sr
 JOIN repos r ON r.owner_org_id = sr.org_id
 JOIN issues i ON i.repo_id = r.id AND i.kind = 'pr' AND i.state = 'open'
@@ -506,22 +520,23 @@ ORDER BY r.id ASC, i.number ASC, u.username ASC
 `
 
 type ListTeamReviewReminderCandidatesRow struct {
-	ReviewRequestID    int64
-	PrIssueID          int64
-	PrNumber           int64
-	PrTitle            string
-	AuthorUserID       pgtype.Int8
-	RepoID             int64
-	OwnerUserID        pgtype.Int8
-	OwnerOrgID         pgtype.Int8
-	RepoVisibility     string
-	IsArchived         bool
-	DeletedAt          pgtype.Timestamptz
-	IsPaused           bool
-	RecipientUserID    int64
-	RecipientUsername  string
-	RecipientSuspended bool
-	RecipientSiteAdmin bool
+	ReviewRequestID                int64
+	PrIssueID                      int64
+	PrNumber                       int64
+	PrTitle                        string
+	AuthorUserID                   pgtype.Int8
+	RepoID                         int64
+	OwnerUserID                    pgtype.Int8
+	OwnerOrgID                     pgtype.Int8
+	RepoVisibility                 string
+	IsArchived                     bool
+	DeletedAt                      pgtype.Timestamptz
+	IsPaused                       bool
+	RecipientUserID                int64
+	RecipientUsername              string
+	RecipientSuspended             bool
+	RecipientSiteAdmin             bool
+	RecipientHasConfirmedTwoFactor bool
 }
 
 func (q *Queries) ListTeamReviewReminderCandidates(ctx context.Context, db DBTX, id int64) ([]ListTeamReviewReminderCandidatesRow, error) {
@@ -550,6 +565,7 @@ func (q *Queries) ListTeamReviewReminderCandidates(ctx context.Context, db DBTX,
 			&i.RecipientUsername,
 			&i.RecipientSuspended,
 			&i.RecipientSiteAdmin,
+			&i.RecipientHasConfirmedTwoFactor,
 		); err != nil {
 			return nil, err
 		}
