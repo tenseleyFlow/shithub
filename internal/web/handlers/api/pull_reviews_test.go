@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -439,6 +440,63 @@ func TestReviewers_RequestAndDismissTeam(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("dismiss: %d; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestReviewers_AcceptsEnvelopeForm pins F28: pre-fix the server only
+// understood the singleton shape `{"username": "..."}`. The CLI emits
+// gh's canonical envelope `{"reviewers": ["login1", ...]}` and got
+// `exactly one user or team reviewer is required`. The envelope is
+// now fanned out into per-reviewer requests; POST returns 201 with
+// the array of created rows.
+func TestReviewers_AcceptsEnvelopeForm(t *testing.T) {
+	router, ownerToken, _, _, otherID := openPRForReviewTest(t)
+
+	// gh-canonical envelope with a single reviewer.
+	body, _ := json.Marshal(map[string]any{"reviewers": []string{"bob"}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls/1/requested_reviewers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("envelope request: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var created []apiRequestedReviewer
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode array: %v", err)
+	}
+	if len(created) != 1 || created[0].UserID != otherID {
+		t.Errorf("array shape: %+v", created)
+	}
+
+	// DELETE same envelope dismisses.
+	body, _ = json.Marshal(map[string]any{"reviewers": []string{"bob"}})
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/repos/alice/demo/pulls/1/requested_reviewers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("envelope dismiss: got %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestReviewers_EnvelopeUnknownUserNamesIt pins that envelope-form
+// 422s now name the specific reviewer that failed — the singleton
+// path returned `reviewer not found` with no hint which entry of the
+// caller's array was bad.
+func TestReviewers_EnvelopeUnknownUserNamesIt(t *testing.T) {
+	router, ownerToken, _, _, _ := openPRForReviewTest(t)
+
+	body, _ := json.Marshal(map[string]any{"reviewers": []string{"ghost"}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls/1/requested_reviewers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "reviewer ghost") {
+		t.Errorf("body should name the bad reviewer: %s", rr.Body.String())
 	}
 }
 
