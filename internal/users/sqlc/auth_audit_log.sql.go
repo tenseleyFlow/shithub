@@ -78,3 +78,80 @@ func (q *Queries) ListAuditLogForTarget(ctx context.Context, db DBTX, arg ListAu
 	}
 	return items, nil
 }
+
+const listOrgAuditLog = `-- name: ListOrgAuditLog :many
+SELECT al.id, al.actor_id, al.action, al.target_type, al.target_id, al.meta, al.created_at
+FROM auth_audit_log al
+WHERE (
+    (al.target_type = 'org' AND al.target_id = $1::bigint)
+    OR (
+        al.target_type = 'repo'
+        AND al.target_id IN (
+            SELECT r.id
+            FROM repos r
+            WHERE r.owner_org_id = $1::bigint
+        )
+    )
+)
+AND ($2::bigint IS NULL OR al.actor_id = $2::bigint)
+AND ($3::text IS NULL OR al.action ILIKE $3::text || '%')
+AND ($4::text IS NULL OR al.target_type = $4::text)
+AND ($5::bigint IS NULL OR al.target_id = $5::bigint)
+AND ($6::timestamptz IS NULL OR al.created_at >= $6::timestamptz)
+AND ($7::timestamptz IS NULL OR al.created_at < $7::timestamptz)
+ORDER BY al.created_at DESC, al.id DESC
+LIMIT $9::int OFFSET $8::int
+`
+
+type ListOrgAuditLogParams struct {
+	OrgID        int64
+	ActorID      pgtype.Int8
+	ActionPrefix pgtype.Text
+	TargetType   pgtype.Text
+	TargetID     pgtype.Int8
+	Since        pgtype.Timestamptz
+	Until        pgtype.Timestamptz
+	OffsetCount  int32
+	LimitCount   int32
+}
+
+// Organization owner view. Includes direct org events and repository
+// events for repositories owned by the organization, with the same
+// filtering surface as the site-admin audit viewer.
+func (q *Queries) ListOrgAuditLog(ctx context.Context, db DBTX, arg ListOrgAuditLogParams) ([]AuthAuditLog, error) {
+	rows, err := db.Query(ctx, listOrgAuditLog,
+		arg.OrgID,
+		arg.ActorID,
+		arg.ActionPrefix,
+		arg.TargetType,
+		arg.TargetID,
+		arg.Since,
+		arg.Until,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthAuditLog{}
+	for rows.Next() {
+		var i AuthAuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Meta,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

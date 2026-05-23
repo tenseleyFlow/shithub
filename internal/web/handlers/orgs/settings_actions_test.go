@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -19,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/secretbox"
 	orgbilling "github.com/tenseleyFlow/shithub/internal/billing"
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
+	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/testing/dbtest"
 	orgsh "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -280,6 +282,74 @@ func TestOrgSecuritySettingsRequiredTwoFactorRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOrgAuditLogShowsOrgAndOwnedRepoEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	repoID := insertOrgAuditOrgRepo(t, pool, orgID, "project")
+	otherOwnerID := insertOrgAvatarUser(t, pool, "other")
+	otherRepoID := insertOrgAuditUserRepo(t, pool, otherOwnerID, "outside")
+	for _, row := range []struct {
+		action     string
+		targetType string
+		targetID   int64
+	}{
+		{"org_required_2fa_updated", "org", orgID},
+		{"repo_visibility_changed", "repo", repoID},
+		{"repo_visibility_changed", "repo", otherRepoID},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO auth_audit_log (actor_id, action, target_type, target_id, meta)
+			 VALUES ($1, $2, $3, $4, '{"test":true}'::jsonb)`,
+			ownerID, row.action, row.targetType, row.targetID,
+		); err != nil {
+			t.Fatalf("insert audit row %s: %v", row.action, err)
+		}
+	}
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/audit-log", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET org audit status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "ROW=org_required_2fa_updated|org|") {
+		t.Fatalf("org audit row missing: %s", body)
+	}
+	if !strings.Contains(body, "ROW=repo_visibility_changed|repo|"+strconv.FormatInt(repoID, 10)+";") {
+		t.Fatalf("owned repo audit row missing: %s", body)
+	}
+	if strings.Contains(body, "ROW=repo_visibility_changed|repo|"+strconv.FormatInt(otherRepoID, 10)+";") {
+		t.Fatalf("unowned repo audit row leaked: %s", body)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/audit-log?action=org_", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("filtered GET org audit status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body = resp.Body.String()
+	if !strings.Contains(body, "ROW=org_required_2fa_updated|org|") {
+		t.Fatalf("filtered org audit row missing: %s", body)
+	}
+	if strings.Contains(body, "ROW=repo_visibility_changed|repo|"+strconv.FormatInt(repoID, 10)+";") {
+		t.Fatalf("action prefix filter included repo row: %s", body)
+	}
+}
+
 func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 	t.Helper()
 	tmplFS := fstest.MapFS{
@@ -288,6 +358,7 @@ func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 		"orgs/settings_secrets.html":         {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Secrets }}SECRET={{ .Name }};{{ end }}{{ range .Variables }}VAR={{ .Name }}:{{ .Value }};{{ end }}{{ end }}`)},
 		"orgs/settings_secret_patterns.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Patterns }}PATTERN={{ .Name }}:{{ .Enabled }};{{ end }}{{ end }}`)},
 		"orgs/settings_security.html":        {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }}{{ end }}SETTING={{ .Settings.RequireTwoFactor }}{{ end }}`)},
+		"orgs/settings_audit.html":           {Data: []byte(`{{ define "page" }}{{ range .Rows }}ROW={{ .Action }}|{{ .TargetType }}|{{ if .TargetID.Valid }}{{ .TargetID.Int64 }}{{ end }};{{ end }}FILTERS={{ .Filters }};{{ end }}`)},
 		"errors/403.html":                    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":                    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":                    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
@@ -325,4 +396,32 @@ func newOrgFormRequest(method, target string, form url.Values) *http.Request {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return req
+}
+
+func insertOrgAuditOrgRepo(t *testing.T, db orgsdb.DBTX, orgID int64, name string) int64 {
+	t.Helper()
+	var repoID int64
+	if err := db.QueryRow(context.Background(),
+		`INSERT INTO repos (owner_org_id, name, visibility, default_branch)
+		 VALUES ($1, $2, 'public', 'trunk')
+		 RETURNING id`,
+		orgID, name,
+	).Scan(&repoID); err != nil {
+		t.Fatalf("insert org repo: %v", err)
+	}
+	return repoID
+}
+
+func insertOrgAuditUserRepo(t *testing.T, db orgsdb.DBTX, userID int64, name string) int64 {
+	t.Helper()
+	var repoID int64
+	if err := db.QueryRow(context.Background(),
+		`INSERT INTO repos (owner_user_id, name, visibility, default_branch)
+		 VALUES ($1, $2, 'public', 'trunk')
+		 RETURNING id`,
+		userID, name,
+	).Scan(&repoID); err != nil {
+		t.Fatalf("insert user repo: %v", err)
+	}
+	return repoID
 }

@@ -50,6 +50,7 @@ GET  /organizations/{org}/settings/billing/seats/add
 POST /organizations/{org}/settings/billing/seats/add
 GET  /organizations/{org}/settings/billing/seats/remove
 POST /organizations/{org}/settings/billing/seats/remove
+GET  /organizations/{org}/settings/audit-log
 POST /organizations/{org}/billing/checkout
 POST /organizations/{org}/billing/portal
 GET  /organizations/{org}/billing/success
@@ -263,6 +264,18 @@ subscription quantity before changing local license state. Team member
 invitations redirect back to People with an Add seats action when the
 organization has no available seats.
 
+## Audit log
+
+Org owners can browse `/organizations/{org}/settings/audit-log`.
+The page shows direct `target_type='org'` audit rows plus
+`target_type='repo'` rows for repositories owned by the organization,
+including soft-deleted repository rows that still exist in the repos
+table. Filters mirror the site-admin audit viewer: actor id, action
+prefix, target type, target id, and inclusive date inputs. Rows expose
+timestamp, actor id or system, action, target, and metadata JSON.
+Export/API access is still deferred; this is the owner-facing browsing
+surface only.
+
 ## What we deferred from the spec
 
 * **`username_redirects` rename to `principal_redirects`**. The
@@ -270,10 +283,10 @@ organization has no available seats.
   (each one gets a regenerated model). Org renames aren't in the
   S30 DoD; deferred to a follow-up sprint that owns the rename
   refactor end to end.
-* **Org-level audit log surface**, **suspension UI**, **org rename /
-  archive settings actions**, **email notifications for role-change /
-  remove / suspension / deletion**. Schema columns are present; UI and
-  notification fan-out land in follow-ups.
+* **Suspension UI**, **org rename / archive settings actions**, and
+  **email notifications for role-change / remove / suspension /
+  deletion**. Schema columns are present; UI and notification fan-out
+  land in follow-ups.
 * **Org renaming via `principal_redirects`** — depends on the
   rename refactor.
 * **Daily digest / SAML** — post-MVP per spec.

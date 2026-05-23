@@ -1,0 +1,65 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Audit log</h2>
+        <div class="Subhead-description">Review organization, billing, security, and repository events for this organization.</div>
+      </div>
+
+      <form method="GET" action="/organizations/{{ .Org.Slug }}/settings/audit-log" class="shithub-finder-form">
+        <input type="text" name="actor" value="{{ .Q.Get "actor" }}" placeholder="actor id" aria-label="Actor id">
+        <input type="text" name="action" value="{{ .Q.Get "action" }}" placeholder="action prefix" aria-label="Action prefix">
+        <input type="text" name="target_type" value="{{ .Q.Get "target_type" }}" placeholder="target type" aria-label="Target type">
+        <input type="text" name="target_id" value="{{ .Q.Get "target_id" }}" placeholder="target id" aria-label="Target id">
+        <input type="date" name="since" value="{{ .Q.Get "since" }}" aria-label="Since">
+        <input type="date" name="until" value="{{ .Q.Get "until" }}" aria-label="Until">
+        <button type="submit" class="shithub-button">Filter</button>
+      </form>
+
+      {{ if .Rows }}
+      <table class="shithub-branches-table">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Rows }}
+          <tr>
+            <td><time datetime="{{ .CreatedAt.Time.Format "2006-01-02T15:04:05Z" }}">{{ relativeTime .CreatedAt.Time }}</time></td>
+            <td>{{ if .ActorID.Valid }}#{{ .ActorID.Int64 }}{{ else }}<span class="shithub-fg-muted">system</span>{{ end }}</td>
+            <td><code>{{ .Action }}</code></td>
+            <td>{{ .TargetType }}{{ if .TargetID.Valid }} #{{ .TargetID.Int64 }}{{ end }}</td>
+            <td><code>{{ printf "%s" .Meta }}</code></td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ else }}
+      <p class="shithub-empty-note">No audit rows match.</p>
+      {{ end }}
+
+      <nav class="shithub-pagination" aria-label="Audit log pagination">
+        {{ if gt .Page 1 }}<a href="?page={{ .PrevPage }}{{ if .Filters }}&{{ .Filters }}{{ end }}">Prev</a>{{ end }}
+        {{ if .HasMore }}<a href="?page={{ .NextPage }}{{ if .Filters }}&{{ .Filters }}{{ end }}">Next</a>{{ end }}
+      </nav>
+    </div>
+  </div>
+</section>
+{{- end }}

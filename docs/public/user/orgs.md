@@ -72,7 +72,9 @@ the owner being a single user.
 
 ## Audit
 
-Org → Settings → Audit log surfaces org-level events: member
-add/remove, team create/delete, repo transferred in/out, role
-changes. Same per-row IP + user-agent capture as the personal
-audit log.
+Org → Settings → Audit log surfaces organization-scoped events plus
+events for repositories owned by the organization. Owners can filter by
+actor id, action prefix, target type, target id, and date range. The
+current surface shows time, actor, action, target, and metadata for
+captured billing, security, Actions secrets/variables, and repository
+events; export/API access is not yet part of the owner UI.

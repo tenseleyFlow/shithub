@@ -232,6 +232,10 @@ type Querier interface {
 	//
 	// PRO-EXT01-09: per-repo contribution-graph opt-outs.
 	ListContributionOptoutsForUser(ctx context.Context, db DBTX, userID int64) ([]UserContributionRepoOptout, error)
+	// Organization owner view. Includes direct org events and repository
+	// events for repositories owned by the organization, with the same
+	// filtering surface as the site-admin audit viewer.
+	ListOrgAuditLog(ctx context.Context, db DBTX, arg ListOrgAuditLogParams) ([]AuthAuditLog, error)
 	ListSavedRepliesForUser(ctx context.Context, db DBTX, userID int64) ([]UserSavedReply, error)
 	// Settings page: pending first (sorted by schedule_at), then recent
 	// non-pending. Limit prevents an unbounded scan in pathological data.
