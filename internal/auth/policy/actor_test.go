@@ -40,6 +40,11 @@ func TestUserActorFromCurrentUser_PropagatesAllFlags(t *testing.T) {
 			want: Actor{UserID: 7, Username: "alice", IsSiteAdmin: true},
 		},
 		{
+			name: "confirmed two-factor user",
+			view: CurrentUserView{ID: 7, Username: "alice", HasConfirmedTwoFactor: true},
+			want: Actor{UserID: 7, Username: "alice", HasConfirmedTwoFactor: true},
+		},
+		{
 			name: "impersonating admin, read-only-by-default",
 			view: CurrentUserView{
 				ID:                 99, // viewer.ID is the impersonated user

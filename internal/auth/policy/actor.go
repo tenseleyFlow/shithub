@@ -17,6 +17,10 @@ type Actor struct {
 	IsAnonymous bool
 	IsSuspended bool
 	IsSiteAdmin bool
+	// HasConfirmedTwoFactor is the actor's current confirmed TOTP state.
+	// Organization-level required-2FA checks depend on this; callers that
+	// authenticate outside web sessions must populate it from user_totp.
+	HasConfirmedTwoFactor bool
 	// Impersonating reports whether this actor was constructed from
 	// an admin viewing-as another user. ImpersonateWriteOK enables
 	// the admin's writes during the impersonation; without it, every
@@ -41,11 +45,18 @@ func AnonymousActor() Actor {
 // callers that don't have a CurrentUser handy (SSH/HTTP git, worker
 // jobs, tests).
 func UserActor(userID int64, username string, suspended, siteAdmin bool) Actor {
+	return UserActorWithTwoFactor(userID, username, suspended, siteAdmin, false)
+}
+
+// UserActorWithTwoFactor wraps a logged-in user and carries the user's
+// confirmed TOTP state for organization required-2FA enforcement.
+func UserActorWithTwoFactor(userID int64, username string, suspended, siteAdmin, hasConfirmedTwoFactor bool) Actor {
 	return Actor{
-		UserID:      userID,
-		Username:    username,
-		IsSuspended: suspended,
-		IsSiteAdmin: siteAdmin,
+		UserID:                userID,
+		Username:              username,
+		IsSuspended:           suspended,
+		IsSiteAdmin:           siteAdmin,
+		HasConfirmedTwoFactor: hasConfirmedTwoFactor,
 	}
 }
 
@@ -54,13 +65,14 @@ func UserActor(userID int64, username string, suspended, siteAdmin bool) Actor {
 // satisfies this implicitly — keeping the type local avoids a
 // policy → middleware import cycle.
 type CurrentUserView struct {
-	ID                 int64
-	Username           string
-	IsSuspended        bool
-	IsSiteAdmin        bool
-	ImpersonatedUserID int64
-	RealActorID        int64
-	ImpersonateWriteOK bool
+	ID                    int64
+	Username              string
+	IsSuspended           bool
+	IsSiteAdmin           bool
+	HasConfirmedTwoFactor bool
+	ImpersonatedUserID    int64
+	RealActorID           int64
+	ImpersonateWriteOK    bool
 }
 
 // UserActorFromCurrentUser is the canonical web-layer constructor.
@@ -75,11 +87,12 @@ type CurrentUserView struct {
 // silent permission leak (audit 2026-05-10 C1/C2).
 func UserActorFromCurrentUser(v CurrentUserView) Actor {
 	return Actor{
-		UserID:             v.ID,
-		Username:           v.Username,
-		IsSuspended:        v.IsSuspended,
-		IsSiteAdmin:        v.IsSiteAdmin,
-		Impersonating:      v.ImpersonatedUserID != 0,
-		ImpersonateWriteOK: v.ImpersonateWriteOK,
+		UserID:                v.ID,
+		Username:              v.Username,
+		IsSuspended:           v.IsSuspended,
+		IsSiteAdmin:           v.IsSiteAdmin,
+		HasConfirmedTwoFactor: v.HasConfirmedTwoFactor,
+		Impersonating:         v.ImpersonatedUserID != 0,
+		ImpersonateWriteOK:    v.ImpersonateWriteOK,
 	}
 }

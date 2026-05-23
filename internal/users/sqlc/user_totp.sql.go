@@ -86,6 +86,22 @@ func (q *Queries) GetUserTOTP(ctx context.Context, db DBTX, userID int64) (UserT
 	return i, err
 }
 
+const hasConfirmedUserTOTP = `-- name: HasConfirmedUserTOTP :one
+SELECT EXISTS (
+    SELECT 1
+    FROM user_totp
+    WHERE user_id = $1
+      AND confirmed_at IS NOT NULL
+)
+`
+
+func (q *Queries) HasConfirmedUserTOTP(ctx context.Context, db DBTX, userID int64) (bool, error) {
+	row := db.QueryRow(ctx, hasConfirmedUserTOTP, userID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const upsertUserTOTP = `-- name: UpsertUserTOTP :one
 
 INSERT INTO user_totp (user_id, secret_encrypted, secret_nonce)

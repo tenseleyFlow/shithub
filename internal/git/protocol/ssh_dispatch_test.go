@@ -212,6 +212,7 @@ func TestFriendlyMessageFor(t *testing.T) {
 		{protocol.ErrSSHPermDenied, "shithub: permission denied"},
 		{protocol.ErrSSHArchived, "shithub: this repository is archived; pushes are disabled"},
 		{protocol.ErrSSHSuspended, "shithub: your account is suspended"},
+		{protocol.ErrSSHRequires2FA, "shithub: this organization requires two-factor authentication"},
 		{protocol.ErrUnknownSSHCommand, "shithub does not allow shell access"},
 		{protocol.ErrInvalidSSHPath, "shithub: repository not found"},
 	}

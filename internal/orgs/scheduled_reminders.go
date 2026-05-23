@@ -408,7 +408,7 @@ func deliverScheduledReminder(ctx context.Context, deps ScheduledReminderSweepDe
 		if c.recipientSuspended {
 			continue
 		}
-		actor := policy.UserActor(c.recipientUserID, c.recipientUsername, c.recipientSuspended, c.recipientSiteAdmin)
+		actor := policy.UserActorWithTwoFactor(c.recipientUserID, c.recipientUsername, c.recipientSuspended, c.recipientSiteAdmin, c.recipientHas2FA)
 		if dec := policy.Can(ctx, policy.Deps{Pool: deps.Pool}, actor, policy.ActionRepoRead, c.repoRef()); !dec.Allow {
 			continue
 		}
@@ -487,6 +487,7 @@ type scheduledReminderCandidate struct {
 	recipientUsername  string
 	recipientSuspended bool
 	recipientSiteAdmin bool
+	recipientHas2FA    bool
 }
 
 func (c scheduledReminderCandidate) repoRef() policy.RepoRef {
@@ -527,6 +528,7 @@ func scheduledReminderCandidates(ctx context.Context, deps ScheduledReminderSwee
 				recipientUsername:  r.RecipientUsername,
 				recipientSuspended: r.RecipientSuspended,
 				recipientSiteAdmin: r.RecipientSiteAdmin,
+				recipientHas2FA:    r.RecipientHasConfirmedTwoFactor,
 			})
 		}
 	}
@@ -552,6 +554,7 @@ func scheduledReminderCandidates(ctx context.Context, deps ScheduledReminderSwee
 				recipientUsername:  r.RecipientUsername,
 				recipientSuspended: r.RecipientSuspended,
 				recipientSiteAdmin: r.RecipientSiteAdmin,
+				recipientHas2FA:    r.RecipientHasConfirmedTwoFactor,
 			})
 		}
 	}

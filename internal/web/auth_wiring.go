@@ -125,11 +125,16 @@ func usernameLookup(pool *pgxpool.Pool) middleware.UserLookup {
 		if err != nil {
 			return middleware.UserLookupResult{}, err
 		}
+		has2FA, err := q.HasConfirmedUserTOTP(ctx, pool, id)
+		if err != nil {
+			return middleware.UserLookupResult{}, err
+		}
 		return middleware.UserLookupResult{
-			Username:     u.Username,
-			SessionEpoch: u.SessionEpoch,
-			IsSuspended:  u.SuspendedAt.Valid,
-			IsSiteAdmin:  u.IsSiteAdmin,
+			Username:              u.Username,
+			SessionEpoch:          u.SessionEpoch,
+			IsSuspended:           u.SuspendedAt.Valid,
+			IsSiteAdmin:           u.IsSiteAdmin,
+			HasConfirmedTwoFactor: has2FA,
 		}, nil
 	}
 }

@@ -62,6 +62,7 @@ const (
 	MsgArchived     = "shithub: this repository is archived; pushes are disabled"
 	MsgPaused       = "shithub: this repository is paused; pushes are disabled until the owner unpauses"
 	MsgSuspended    = "shithub: your account is suspended"
+	MsgRequires2FA  = "shithub: this organization requires two-factor authentication"
 )
 
 // Sentinel errors callers can errors.Is to map to friendly messages.
@@ -71,6 +72,7 @@ var (
 	ErrSSHArchived     = errors.New("ssh dispatch: archived")
 	ErrSSHPaused       = errors.New("ssh dispatch: paused")
 	ErrSSHSuspended    = errors.New("ssh dispatch: suspended")
+	ErrSSHRequires2FA  = errors.New("ssh dispatch: organization requires two-factor authentication")
 	ErrSSHInternal     = errors.New("ssh dispatch: internal error")
 )
 
@@ -134,7 +136,11 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 	// Authz via policy.Can. Map the policy decision back to the typed
 	// SSH errors so the friendly-message catalogue keeps working.
 	repoRef := policy.NewRepoRefFromRepo(repo)
-	actor := policy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, false)
+	has2FA, err := uq.HasConfirmedUserTOTP(ctx, deps.Pool, user.ID)
+	if err != nil {
+		return nil, parsed, fmt.Errorf("%w: %v", ErrSSHInternal, err)
+	}
+	actor := policy.UserActorWithTwoFactor(user.ID, user.Username, user.SuspendedAt.Valid, false, has2FA)
 	action := policy.ActionRepoRead
 	if parsed.Service == ReceivePack {
 		action = policy.ActionRepoWrite
@@ -148,6 +154,8 @@ func PrepareDispatch(ctx context.Context, deps SSHDispatchDeps, in SSHDispatchIn
 			return nil, parsed, ErrSSHArchived
 		case policy.DenyPaused:
 			return nil, parsed, ErrSSHPaused
+		case policy.DenyOrgRequiresTwoFactor:
+			return nil, parsed, ErrSSHRequires2FA
 		case policy.DenyVisibility, policy.DenyRepoDeleted:
 			// Existence-leak guard: pretend the repo doesn't exist.
 			return nil, parsed, ErrSSHRepoNotFound
@@ -198,6 +206,8 @@ func FriendlyMessageFor(err error, requestID string) string {
 		return MsgPaused
 	case errors.Is(err, ErrSSHSuspended):
 		return MsgSuspended
+	case errors.Is(err, ErrSSHRequires2FA):
+		return MsgRequires2FA
 	case errors.Is(err, ErrUnknownSSHCommand):
 		return "shithub does not allow shell access"
 	case errors.Is(err, ErrInvalidSSHPath):

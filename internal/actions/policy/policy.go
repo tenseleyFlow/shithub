@@ -92,12 +92,18 @@ func EvaluateTrigger(ctx context.Context, deps Deps, req TriggerRequest) (Trigge
 		base.Reason = "actor required"
 		return base, ErrActorRequired
 	}
-	user, err := usersdb.New().GetUserByID(ctx, deps.Pool, req.ActorUserID)
+	uq := usersdb.New()
+	user, err := uq.GetUserByID(ctx, deps.Pool, req.ActorUserID)
 	if err != nil {
 		base.Reason = "actor not found"
 		return base, fmt.Errorf("%w: %w", ErrActorNotFound, err)
 	}
-	actor := authpolicy.UserActor(user.ID, user.Username, user.SuspendedAt.Valid, user.IsSiteAdmin)
+	has2FA, err := uq.HasConfirmedUserTOTP(ctx, deps.Pool, user.ID)
+	if err != nil {
+		base.Reason = "actor 2fa lookup failed"
+		return base, err
+	}
+	actor := authpolicy.UserActorWithTwoFactor(user.ID, user.Username, user.SuspendedAt.Valid, user.IsSiteAdmin, has2FA)
 	authz := authpolicy.Can(ctx, authpolicy.Deps{Pool: deps.Pool}, actor, authpolicy.ActionActionsRun, authpolicy.NewRepoRefFromRepo(req.Repo))
 	if authz.Allow {
 		base.Allow = true

@@ -71,6 +71,8 @@ type Querier interface {
 	GetOrgInvitationByTokenHash(ctx context.Context, db DBTX, tokenHash []byte) (OrgInvitation, error)
 	GetOrgMember(ctx context.Context, db DBTX, arg GetOrgMemberParams) (OrgMember, error)
 	GetOrgScheduledReminder(ctx context.Context, db DBTX, id int64) (OrgScheduledReminder, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	GetOrgSecuritySettings(ctx context.Context, db DBTX, orgID int64) (OrgSecuritySetting, error)
 	GetTeamByID(ctx context.Context, db DBTX, id int64) (Team, error)
 	GetTeamByOrgAndSlug(ctx context.Context, db DBTX, arg GetTeamByOrgAndSlugParams) (Team, error)
 	GetTeamRepoAccess(ctx context.Context, db DBTX, arg GetTeamRepoAccessParams) (TeamRepoAccess, error)
@@ -162,6 +164,7 @@ type Querier interface {
 	UpdateOrgProfile(ctx context.Context, db DBTX, arg UpdateOrgProfileParams) error
 	UpdateOrgScheduledReminder(ctx context.Context, db DBTX, arg UpdateOrgScheduledReminderParams) (OrgScheduledReminder, error)
 	UpdateTeamProfile(ctx context.Context, db DBTX, arg UpdateTeamProfileParams) error
+	UpsertOrgSecuritySettings(ctx context.Context, db DBTX, arg UpsertOrgSecuritySettingsParams) (OrgSecuritySetting, error)
 }
 
 var _ Querier = (*Queries)(nil)

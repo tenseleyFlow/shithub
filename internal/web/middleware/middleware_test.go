@@ -30,7 +30,7 @@ func dropLogger() *slog.Logger {
 func TestOptionalUser_PopulatesIsSuspended(t *testing.T) {
 	t.Parallel()
 
-	bind := func(t *testing.T, suspended bool) CurrentUser {
+	bind := func(t *testing.T, suspended, has2FA bool) CurrentUser {
 		t.Helper()
 		var captured CurrentUser
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +39,7 @@ func TestOptionalUser_PopulatesIsSuspended(t *testing.T) {
 		})
 		lookup := func(ctx context.Context, id int64) (UserLookupResult, error) {
 			return UserLookupResult{
-				Username: "alice", SessionEpoch: 7, IsSuspended: suspended,
+				Username: "alice", SessionEpoch: 7, IsSuspended: suspended, HasConfirmedTwoFactor: has2FA,
 			}, nil
 		}
 		// Inject the session directly into context — bypasses the
@@ -53,11 +53,14 @@ func TestOptionalUser_PopulatesIsSuspended(t *testing.T) {
 		return captured
 	}
 
-	if u := bind(t, true); !u.IsSuspended {
+	if u := bind(t, true, false); !u.IsSuspended {
 		t.Errorf("suspended=true: got IsSuspended=false, want true")
 	}
-	if u := bind(t, false); u.IsSuspended {
+	if u := bind(t, false, false); u.IsSuspended {
 		t.Errorf("suspended=false: got IsSuspended=true, want false")
+	}
+	if u := bind(t, false, true); !u.HasConfirmedTwoFactor || !u.PolicyActor().HasConfirmedTwoFactor {
+		t.Errorf("has2FA=true: got current=%t actor=%t, want true", u.HasConfirmedTwoFactor, u.PolicyActor().HasConfirmedTwoFactor)
 	}
 }
 
@@ -65,12 +68,13 @@ func TestPATAuthPolicyActorPropagatesResolvedUserFlags(t *testing.T) {
 	t.Parallel()
 
 	actor := PATAuth{
-		UserID:      42,
-		Username:    "alice",
-		IsSuspended: true,
-		IsSiteAdmin: true,
+		UserID:                42,
+		Username:              "alice",
+		IsSuspended:           true,
+		IsSiteAdmin:           true,
+		HasConfirmedTwoFactor: true,
 	}.PolicyActor()
-	if actor.UserID != 42 || actor.Username != "alice" || !actor.IsSuspended || !actor.IsSiteAdmin {
+	if actor.UserID != 42 || actor.Username != "alice" || !actor.IsSuspended || !actor.IsSiteAdmin || !actor.HasConfirmedTwoFactor {
 		t.Fatalf("PolicyActor did not propagate PAT user flags: %+v", actor)
 	}
 	if anon := (PATAuth{}).PolicyActor(); !anon.IsAnonymous {

@@ -9,8 +9,9 @@ enforces the boundary in CI.
 
 ## The shape
 
-* **Actor** — who's asking. Anonymous, logged-in user (with `IsSuspended`
-  and `IsSiteAdmin` flags), or future org-team principal (S31).
+* **Actor** — who's asking. Anonymous, logged-in user (with
+  `IsSuspended`, `IsSiteAdmin`, and confirmed-2FA flags), or future
+  org-team principal (S31).
 * **Action** — what they want to do, drawn from the constant registry
   in `internal/auth/policy/actions.go`. New actions go in their owning
   sprint's PR; the matrix test ensures every constant is covered for
@@ -158,6 +159,9 @@ code that doesn't reveal whether a private repo exists. Convention:
 * Deny on a private repo, viewer **is** the owner (e.g. push to
   archived) → **403**, since the owner already knows the repo exists.
 * Deny on a public repo → **403**.
+* `DenyOrgRequiresTwoFactor` → **403** even on private repositories,
+  because a member blocked by an org-required-2FA gate already has a
+  relationship to the org/repo and needs an actionable security error.
 
 Handlers that care about user-facing message tone (e.g. the HTTP git
 handler's "repository is archived" stderr line) should switch on
@@ -175,44 +179,49 @@ If a handler mutates collaborator state mid-request and re-checks
 policy in the same flight, call `policy.InvalidateRepo(ctx, repoID)`
 between the mutation and the re-check.
 
-## Suspended actors and the auth surfaces
+## Suspended actors, required 2FA, and auth surfaces
 
-The `IsSuspended` flag on `Actor` is the canonical input the policy
-package uses to deny writes by suspended accounts. Each entrypoint
-that constructs an actor must source it correctly:
+The `IsSuspended` and `HasConfirmedTwoFactor` flags on `Actor` are the
+canonical inputs the policy package uses to deny writes by suspended
+accounts and to enforce organization-required 2FA. Each entrypoint
+that constructs an actor must source them correctly:
 
 * **Web (session)** — `middleware.OptionalUser` populates
-  `CurrentUser.IsSuspended` from `users.suspended_at`. Handlers pass
-  `viewer.IsSuspended` straight into `policy.UserActor`. The lookup
-  is run on every request (no cookie-baked state), so an admin
-  suspending an account takes effect on the user's next click.
+  `CurrentUser.IsSuspended` from `users.suspended_at` and
+  `CurrentUser.HasConfirmedTwoFactor` from `user_totp.confirmed_at`.
+  Handlers call `viewer.PolicyActor()`. The lookup is run on every
+  request (no cookie-baked state), so account suspension or 2FA
+  enrollment changes take effect on the user's next click.
 * **Web (PAT)** — `middleware.PATAuthMiddleware` rejects requests
   whose owning user has `suspended_at IS NOT NULL` with a 401 before
-  the handler runs. It still binds username, suspension, and site-admin
-  fields into `middleware.PATAuth`; API policy gates must construct
-  actors through `PATAuth.PolicyActor()` so the request actor stays
-  honest even as the middleware evolves.
+  the handler runs. It still binds username, suspension, site-admin,
+  and confirmed-2FA fields into `middleware.PATAuth`; API policy gates
+  must construct actors through `PATAuth.PolicyActor()` so the request
+  actor stays honest even as the middleware evolves.
 * **git over HTTPS (`internal/web/handlers/githttp`)** — the basic-
   auth resolver (`auth.go::resolveViaPAT`/`resolveViaPassword`)
-  rejects suspended owners with `errBadCredentials` *before* the
-  policy check runs, so the `policy.UserActor(..., false, ...)` call
-  in `handler.go` never sees a suspended actor. Suspension on the
-  HTTPS git path is enforced at credential resolution, not at policy
-  evaluation. If the credential resolver is ever reorganised to
-  return a populated user even for suspended accounts, propagate the
-  flag here.
+  rejects suspended owners with `errBadCredentials` before the policy
+  check runs. Successful resolution carries `HasConfirmedTwoFactor`
+  into `policy.UserActorWithTwoFactor` so required-2FA orgs cannot be
+  bypassed through smart HTTP.
 * **git over SSH (`internal/git/protocol/ssh_dispatch.go`)** — the
   dispatcher loads the user row before constructing the actor and
-  passes `user.SuspendedAt.Valid` directly into `policy.UserActor`.
+  passes `user.SuspendedAt.Valid` plus `HasConfirmedUserTOTP` into
+  `policy.UserActorWithTwoFactor`.
   The `authorized_keys` invocation also rejects up-front (see
   `docs/internal/git-ssh.md`), but the policy call is the
   defence-in-depth layer.
-* **post-receive hook (`cmd/shithubd/hook.go`)** — same shape as
-  SSH dispatch: load user, pass `SuspendedAt.Valid` into the actor.
+* **pre-receive hook (`cmd/shithubd/hook.go`)** — same shape as
+  SSH dispatch: load user, pass suspension and confirmed-2FA state into
+  the actor before `policy.Can`.
+* **Actions trigger policy (`internal/actions/policy`)** — schedule
+  events are system-triggered; actor-triggered events load the user and
+  confirmed-2FA state before checking `actions:run`.
 
 When adding a new auth entrypoint (e.g. an OAuth-bearing webhook
 ingest), the rule is: load the user record, source `IsSuspended`
-from `users.suspended_at`, and *never* hard-code `false`.
+from `users.suspended_at`, source confirmed 2FA from
+`user_totp.confirmed_at`, and *never* hard-code either flag to `false`.
 
 ## Site-admin scope
 
