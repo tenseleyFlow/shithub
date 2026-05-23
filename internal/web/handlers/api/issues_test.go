@@ -1164,6 +1164,37 @@ func TestIssues_ListStateStrict(t *testing.T) {
 	}
 }
 
+// TestIssues_ListSortDirectionStrict pins F2-4 (issues half): the
+// list endpoint now 422s on unknown sort/direction/order values
+// instead of silently dropping them.
+func TestIssues_ListSortDirectionStrict(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+	for _, tc := range []struct {
+		q        string
+		wantCode int
+	}{
+		{"sort=created", 200},
+		{"sort=updated", 200},
+		{"sort=comments", 200},
+		{"sort=popularity", 422}, // PR-only sort key
+		{"sort=BOGUS", 422},
+		{"direction=asc", 200},
+		{"direction=desc", 200},
+		{"direction=BOGUS", 422},
+		{"order=asc", 200},
+		{"order=desc", 200},
+		{"order=BOGUS", 422},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues?"+tc.q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("q=%q: code=%d want %d; body=%s", tc.q, rr.Code, tc.wantCode, rr.Body.String())
+		}
+	}
+}
+
 // issueIDByNumber resolves the issue.id for (repoID, number) — used by
 // list-filter tests that need to attach assignees by id.
 func issueIDByNumber(t *testing.T, pool *pgxpool.Pool, repoID, number int64) int64 {
