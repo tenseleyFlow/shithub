@@ -14,6 +14,7 @@
     <span aria-disabled="true">{{ octicon "package" }} Packages</span>
     <h2>Security</h2>
     <span aria-disabled="true">{{ octicon "shield-check" }} Code security</span>
+    <a{{ if eq .OrgSettingsActive "security" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/security">{{ octicon "shield-check" }} Authentication security</a>
     <a{{ if eq .OrgSettingsActive "secret-patterns" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/security/secret-patterns">{{ octicon "shield-lock" }} Secret patterns</a>
     <span aria-disabled="true">{{ octicon "globe" }} Domains</span>
     <h2>Access</h2>

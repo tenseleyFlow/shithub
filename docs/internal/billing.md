@@ -113,8 +113,16 @@ Rules for paid-org copy:
 | Validity checks | Not available | Not available | Contact sales |
 | Code scanning and security campaigns | Public repositories | SARIF ingestion, repo/org code scanning views, and campaign grouping for private org repos | Contact sales |
 | Repository security advisories | Public repositories and personal repos | Draft/publish/withdraw/archive advisory workflow for private org repos | Contact sales |
+| Required organization 2FA | Included | Included | Contact sales |
+| Role-based access control | Included | Included | Contact sales |
+| Audit log | Baseline event capture | Baseline event capture; org-owner UI planned | Contact sales |
+| Audit log API | Deferred | Deferred | Later Enterprise feature |
+| SBOMs | Planned | Planned | Contact sales |
+| Artifact attestations | Planned for public repositories | Planned for public repositories | Contact sales |
+| GitHub Apps / app-style integrations | Planned | Planned | Contact sales |
+| Status checks | Included through branch protection | Included through branch protection | Contact sales |
+| Pre-receive hooks | Deferred | Deferred | Enterprise Server planning item |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
-| Audit log export | Deferred | Deferred | Later Enterprise feature |
 | SAML/SCIM/managed users | Deferred | Deferred | Later Enterprise feature |
 | Data residency/compliance | Deferred | Deferred | Later Enterprise feature |
 | Billing support | Basic instance support | Billing support via published contact | Contact sales |
@@ -207,6 +215,18 @@ Present but still moving toward full enforcement:
   Per-advisory user/team disclosure collaborators can view nonpublished
   advisory details; collaborator roles are stored for audit/disclosure
   membership, not write delegation.
+- Required organization 2FA has shipped as a baseline org security
+  control. Org owners toggle it from
+  `/organizations/{org}/settings/security`; session, PAT, smart HTTP
+  git, SSH git, hooks, and Actions trigger actors all carry confirmed
+  TOTP state into repository policy. Public reads stay public, while
+  org members/collaborators without confirmed 2FA cannot read private
+  org repositories or write organization repositories.
+- SP29 pricing comparison rows split shipped baseline controls from
+  explicit planned/deferred rows: RBAC and status checks are baseline
+  shipped, audit event capture exists but an org-owner audit-log UI is
+  planned, SBOMs/attestations/GitHub Apps remain planned, and audit-log
+  API/pre-receive hooks remain Enterprise/deferred placement.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a

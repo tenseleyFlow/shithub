@@ -136,6 +136,8 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/pause", h.settingsScheduledReminderPause)
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/resume", h.settingsScheduledReminderResume)
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/delete", h.settingsScheduledReminderDelete)
+	r.Get("/organizations/{org}/settings/security", h.settingsSecurity)
+	r.Post("/organizations/{org}/settings/security", h.settingsSecuritySubmit)
 	r.Get("/organizations/{org}/settings/security/secret-patterns", h.settingsSecretPatterns)
 	r.Post("/organizations/{org}/settings/security/secret-patterns", h.settingsSecretPatternCreate)
 	r.Post("/organizations/{org}/settings/security/secret-patterns/{patternID}", h.settingsSecretPatternUpdate)
@@ -753,9 +755,54 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP27-code-security.md", State: "Baseline shipped",
 				},
 				{
-					Name: "Required 2FA and audit log", Description: "Set stronger organization security posture and review activity.",
-					Free: "Upgrade", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
+					Name: "Required 2FA", Description: "Require confirmed two-factor authentication before members access private org repositories or write org repositories.",
+					Free: "Included", Team: "Included", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Shipped",
+				},
+				{
+					Name: "Role-based access control", Description: "Control org ownership, membership, teams, and repository permissions.",
+					Free: "Included", Team: "Included", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Baseline shipped",
+				},
+				{
+					Name: "Audit log", Description: "Record security-relevant organization, repository, billing, and access changes.",
+					Free: "Baseline events", Team: "Baseline events", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Owner UI planned",
+				},
+				{
+					Name: "Audit log API", Description: "Enterprise audit-log export API is not self-serve in v1.",
+					Free: "-", Team: "-", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Enterprise deferred",
+				},
+				{
+					Name: "SBOMs", Description: "Software bill of materials generation and storage.",
+					Free: "Planned", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
 					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+				},
+				{
+					Name: "Artifact attestations", Description: "Store provenance attestations for build artifacts.",
+					Free: "Public repositories planned", Team: "Public repositories planned", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+				},
+			},
+		},
+		{
+			Name: "Marketplace and integrations",
+			Rows: []orgPlanFeatureRow{
+				{
+					Name: "GitHub Apps", Description: "Install app-style integrations against organization repositories.",
+					Free: "Planned", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+				},
+				{
+					Name: "Status checks", Description: "Require named check runs before protected branches merge.",
+					Free: "Included", Team: "Included", Enterprise: "Contact sales", Owner: "SP23",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP23-actions-environments-and-quota-parity.md", State: "Shipped",
+				},
+				{
+					Name: "Pre-receive hooks", Description: "Server-side custom hooks remain an Enterprise Server planning item.",
+					Free: "-", Team: "-", Enterprise: "Enterprise Server", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Enterprise deferred",
 				},
 			},
 		},
