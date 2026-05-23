@@ -295,6 +295,13 @@ func (h *Handlers) pullsList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, derr.Error())
 		return
 	}
+	// F2-4: strict sort/direction validation. gh's documented sort set
+	// for /pulls is created|updated|popularity|long-running; direction
+	// is asc|desc. Pre-fix bogus values silently no-op'd.
+	if err := validateSortDirection(r, []string{"created", "updated", "popularity", "long-running"}); err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
 	// E5: author/base/label filters — same treatment as the issue side.
 	// G1: accept gh-canonical `creator` as an alias for `author`, and
