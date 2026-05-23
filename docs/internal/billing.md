@@ -224,8 +224,9 @@ Present but still moving toward full enforcement:
   org repositories or write organization repositories.
 - SP29 pricing comparison rows split shipped baseline controls from
   explicit planned/deferred rows: RBAC and status checks are baseline
-  shipped, audit event capture exists but an org-owner audit-log UI is
-  planned, SBOMs/attestations/GitHub Apps remain planned, and audit-log
+  shipped, audit event capture exists and owners can browse org/repo
+  rows from `/organizations/{org}/settings/audit-log`,
+  SBOMs/attestations/GitHub Apps remain planned, and audit-log
   API/pre-receive hooks remain Enterprise/deferred placement.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
