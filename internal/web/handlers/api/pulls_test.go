@@ -1037,22 +1037,15 @@ func TestPulls_SharedNamespace_PatchTitleBodyStateRejected(t *testing.T) {
 	}
 }
 
-// G2 boundary: GET /issues/{N} on a PR number must still 404. The
-// kindless resolver is opt-in for sub-routes; the bare GET surface
-// is issue-specific (PRs get their own /pulls/{N} GET).
-func TestPulls_BareIssuesGetStillRejectsPR(t *testing.T) {
-	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
-	pr := openPullFor(t, router, token, "alice", "demo")
-	num := strconv.FormatInt(pr.Number, 10)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/"+num, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("GET /issues/{PR}: code=%d want 404; body=%s", rr.Code, rr.Body.String())
-	}
-}
+// I9 supersedes G2's bare-GET boundary: GET /issues/{N} now accepts
+// PR numbers symmetrically with PATCH. See TestIssues_GetAcceptsPRNumber
+// at the bottom of this file for the positive case. The G2 design
+// (kindless resolver opt-in only for sub-routes) was already broken in
+// spirit when H11 made PATCH /issues/{N} accept PRs; the CLI's
+// read-modify-write flow for labels/assignees needs both sides of the
+// shared namespace, and gh's REST behaves this way too (GET
+// /issues/{N} on a PR returns the issue envelope with pull_request
+// set). The G2 boundary test that pinned the 404 was removed.
 
 // G5 (F15/F2-2): base/head ref validation now hits git rev-parse so
 // typos surface as a 422 with the bad value echoed back. Pre-fix the
@@ -1188,5 +1181,33 @@ func TestPulls_UpdateBranchForbidsNonAuthorReader(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("non-author update-branch: code=%d want 403", rr.Code)
+	}
+}
+
+// TestIssues_GetAcceptsPRNumber pins I9 (F26 carryover via I41): the
+// GET /repos/o/r/issues/{N} handler must serve PR numbers through the
+// shared issue namespace, not 404. The CLI's `pr edit --add-label` /
+// `--add-assignee` flow reads-modify-writes via this route — pre-fix
+// the GET refused PRs ("issue not found") and the entire flow died.
+// H11 fixed PATCH but missed GET; this test pins the symmetric fix.
+func TestIssues_GetAcceptsPRNumber(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	pr := openPullFor(t, router, token, "alice", "demo")
+	num := strconv.FormatInt(pr.Number, 10)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/repos/alice/demo/issues/"+num, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /issues/{pr_number}: code=%d want 200; body=%s",
+			rr.Code, rr.Body.String())
+	}
+	// Body shape: standard issue envelope — labels[], assignees[],
+	// milestone, etc. The CLI's RMW flow reads these to compose the
+	// merged set before PATCH.
+	if !strings.Contains(rr.Body.String(), `"labels":`) {
+		t.Errorf("response should carry labels envelope: %s", rr.Body.String())
 	}
 }

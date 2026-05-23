@@ -581,27 +581,17 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	num, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
-	if err != nil {
-		writeAPIError(w, http.StatusNotFound, "issue not found")
-		return
-	}
-	issue, err := issuesdb.New().GetIssueByNumber(r.Context(), h.d.Pool, issuesdb.GetIssueByNumberParams{
-		RepoID: repo.ID, Number: num,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeAPIError(w, http.StatusNotFound, "issue not found")
-			return
-		}
-		h.d.Logger.ErrorContext(r.Context(), "api: get issue", "error", err)
-		writeAPIError(w, http.StatusInternalServerError, "lookup failed")
-		return
-	}
-	if issue.Kind != issuesdb.IssueKindIssue {
-		// PRs share the `issues` table but are not exposed on the
-		// /issues REST surface — they get their own routes in §4.
-		writeAPIError(w, http.StatusNotFound, "issue not found")
+	// I9 (F26 carryover via I41): pre-fix this handler refused PR
+	// numbers with "issue not found". The CLI's `pr edit --add-label`
+	// / `--add-assignee` flow GETs the issue first (to compute the
+	// merged label/assignee set), then PATCHes — H11 fixed the PATCH
+	// half via resolveIssueOrPRByNumber but the GET half still threw
+	// 404 on PRs, breaking the entire flow. Make GET symmetric: PRs
+	// share the issues table, and the issue-shape response (labels,
+	// assignees, milestone) is identical for both kinds. Dedicated
+	// PR-specific routes still live under /pulls/{N}.
+	issue, ok := h.resolveIssueOrPRByNumber(w, r, repo.ID, chi.URLParam(r, "number"))
+	if !ok {
 		return
 	}
 	var u *userEnvelope
