@@ -232,6 +232,14 @@ func (h *Handlers) issuesList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, serr.Error())
 		return
 	}
+	// F2-4: strict sort/direction validation. gh's documented sort set
+	// for /issues is created|updated|comments; direction is asc|desc.
+	// Pre-fix bogus values were silently dropped and a full unsorted
+	// list came back.
+	if err := validateSortDirection(r, []string{"created", "updated", "comments"}); err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	q := issuesdb.New()
 
 	// E-audit E4: filters previously silently dropped — assignee, author,

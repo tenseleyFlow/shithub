@@ -659,6 +659,42 @@ func TestPulls_ListDraftStrict(t *testing.T) {
 	}
 }
 
+// TestPulls_ListSortDirectionStrict pins F2-4: pre-fix the server
+// silently accepted any value for sort/direction/order and returned
+// a full unsorted list. The validator now 422s on unknown values.
+func TestPulls_ListSortDirectionStrict(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+	openPullFor(t, router, token, "alice", "demo")
+
+	for _, tc := range []struct {
+		q        string
+		wantCode int
+	}{
+		{"sort=created", 200},
+		{"sort=updated", 200},
+		{"sort=popularity", 200},
+		{"sort=long-running", 200},
+		{"sort=BOGUS", 422},
+		{"direction=asc", 200},
+		{"direction=desc", 200},
+		{"direction=BOGUS", 422},
+		{"order=asc", 200},
+		{"order=desc", 200},
+		{"order=BOGUS", 422},
+		// Combinations: bad sort wins over good direction.
+		{"sort=BOGUS&direction=asc", 422},
+		{"sort=created&direction=BOGUS", 422},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls?"+tc.q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != tc.wantCode {
+			t.Errorf("q=%q: code=%d want %d; body=%s", tc.q, rr.Code, tc.wantCode, rr.Body.String())
+		}
+	}
+}
+
 func TestPulls_ListAuthorFilter(t *testing.T) {
 	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
 	openPullFor(t, router, token, "alice", "demo")
