@@ -119,28 +119,30 @@ type repoResponse struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
 	FullName string `json:"full_name"`
-	// Legacy flat owner fields.
-	OwnerLogin string `json:"owner_login"`
-	OwnerType  string `json:"owner_type"` // "user" | "org"
-	// GitHub-compat nested envelope.
-	Owner         *repoOwnerEnvelope   `json:"owner,omitempty"`
-	Description   string               `json:"description"`
-	Homepage      string               `json:"homepage"`
-	Visibility    string               `json:"visibility"`
-	Private       bool                 `json:"private"`
-	HTMLURL       string               `json:"html_url,omitempty"`
-	DefaultBranch string               `json:"default_branch"`
-	Fork          bool                 `json:"fork"`
-	Archived      bool                 `json:"archived"`
-	IsTemplate    bool                 `json:"is_template"`
-	HasIssues     bool                 `json:"has_issues"`
-	HasPulls      bool                 `json:"has_pulls"`
-	StarCount     int64                `json:"star_count"`
-	WatcherCount  int64                `json:"watcher_count"`
-	ForkCount     int64                `json:"fork_count"`
-	Topics        []string             `json:"topics,omitempty"`
-	License       *repoLicenseEnvelope `json:"license,omitempty"`
-	Language      string               `json:"language,omitempty"`
+	// I7c (audit-I18): the legacy `owner_login` and `owner_type` flat
+	// fields were dropped — read owner.login + owner.type instead. The
+	// nested envelope below is the single source of truth.
+	Owner         *repoOwnerEnvelope `json:"owner,omitempty"`
+	Description   string             `json:"description"`
+	Homepage      string             `json:"homepage"`
+	Visibility    string             `json:"visibility"`
+	Private       bool               `json:"private"`
+	HTMLURL       string             `json:"html_url,omitempty"`
+	DefaultBranch string             `json:"default_branch"`
+	Fork          bool               `json:"fork"`
+	Archived      bool               `json:"archived"`
+	IsTemplate    bool               `json:"is_template"`
+	HasIssues     bool               `json:"has_issues"`
+	HasPulls      bool               `json:"has_pulls"`
+	StarCount     int64              `json:"star_count"`
+	WatcherCount  int64              `json:"watcher_count"`
+	ForkCount     int64              `json:"fork_count"`
+	// I7c (audit-I16): topics is always emitted as `[]` even when no
+	// rows exist (no omitempty). Pre-fix scripts had to handle both
+	// `null` and `[]` for the same conceptual empty list.
+	Topics   []string             `json:"topics"`
+	License  *repoLicenseEnvelope `json:"license,omitempty"`
+	Language string               `json:"language,omitempty"`
 	// Size is reported in KB to match gh-compat; the DB stores bytes.
 	Size      int64  `json:"size"`
 	CreatedAt string `json:"created_at"`
@@ -262,11 +264,9 @@ func presentRepoFull(
 	}
 	repoRef := policy.NewRepoRefFromRepo(r)
 	resp := repoResponse{
-		ID:         r.ID,
-		Name:       r.Name,
-		FullName:   ownerLogin + "/" + r.Name,
-		OwnerLogin: ownerLogin,
-		OwnerType:  ownerType,
+		ID:       r.ID,
+		Name:     r.Name,
+		FullName: ownerLogin + "/" + r.Name,
 		Owner: &repoOwnerEnvelope{
 			Login: ownerLogin,
 			Type:  capitalizeFirst(ownerType),
@@ -335,9 +335,11 @@ func presentRepoFull(
 	if r.PrimaryLanguage.Valid {
 		resp.Language = r.PrimaryLanguage.String
 	}
-	if len(topics) > 0 {
-		resp.Topics = topics
+	// I7c (audit-I16): empty topic list still emits `[]` not null.
+	if topics == nil {
+		topics = []string{}
 	}
+	resp.Topics = topics
 	if baseURL != "" {
 		resp.HTMLURL = strings.TrimRight(baseURL, "/") + "/" + ownerLogin + "/" + r.Name
 	}
