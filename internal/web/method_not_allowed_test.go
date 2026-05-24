@@ -12,6 +12,20 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// testCORSPolicy returns the policy used by the test mux: same-host
+// = https://example.com (matches the existing test fixtures); explicit
+// allow-list = {https://allowed.example.com} for I11 regression
+// coverage. Unknown origins (https://attacker.example.com, `null`,
+// `*`) fall through to the no-ACAO branch.
+func testCORSPolicy() corsOriginPolicy {
+	return corsOriginPolicy{
+		sameHost: "https://example.com",
+		allowed: map[string]struct{}{
+			"https://allowed.example.com": {},
+		},
+	}
+}
+
 // TestMethodNotAllowed_APIRouteEmitsJSONEnvelope pins F2-11 / F2-17:
 // when a /api/v1/* route exists but the method isn't registered, the
 // 405 response must carry a `{"error":...}` body so callers piping the
@@ -49,7 +63,7 @@ func TestMethodNotAllowed_EmitsAllowHeader(t *testing.T) {
 	mx := chi.NewRouter()
 	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
 	mx.Post("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
-	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx))
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("DELETE", "/api/v1/user", nil)
@@ -74,7 +88,7 @@ func TestMethodNotAllowed_EmitsAllowHeader(t *testing.T) {
 func TestMethodNotAllowed_CORSPreflight(t *testing.T) {
 	mx := chi.NewRouter()
 	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
-	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx))
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("OPTIONS", "/api/v1/user", nil)
@@ -99,7 +113,7 @@ func TestMethodNotAllowed_CORSPreflight(t *testing.T) {
 func TestMethodNotAllowed_CORSPreflightNonAPI(t *testing.T) {
 	mx := chi.NewRouter()
 	mx.Get("/login", func(_ http.ResponseWriter, _ *http.Request) {})
-	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx))
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("OPTIONS", "/login", nil)
@@ -128,5 +142,95 @@ func TestMethodNotAllowed_NonAPIPathKeepsBareResponse(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Type"); strings.HasPrefix(got, "application/json") {
 		t.Errorf("non-API path should not emit JSON; got Content-Type %q", got)
+	}
+}
+
+// TestCORSPreflight_RejectsUnknownOrigin pins audit-I33: pre-fix the
+// handler echoed any Origin header into ACAO. Now unknown origins
+// (`https://attacker.example.com`, `null`, `*`) get a 204 with no
+// ACAO header, which the browser treats as "server doesn't speak
+// CORS for this origin" and refuses the cross-origin request.
+func TestCORSPreflight_RejectsUnknownOrigin(t *testing.T) {
+	mx := chi.NewRouter()
+	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
+
+	for _, origin := range []string{"https://attacker.example.com", "null", "*"} {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("OPTIONS", "/api/v1/user", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		mx.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusNoContent {
+			t.Errorf("origin=%q: status got %d want 204", origin, rr.Code)
+		}
+		if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("origin=%q: ACAO leak %q (pre-fix this echoed back)", origin, got)
+		}
+	}
+}
+
+// TestCORSPreflight_AllowsSameHost pins audit-I33: same-host origin
+// (matches the configured sameHost) gets the full preflight 204 with
+// ACAO echoing the origin.
+func TestCORSPreflight_AllowsSameHost(t *testing.T) {
+	mx := chi.NewRouter()
+	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("OPTIONS", "/api/v1/user", nil)
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	mx.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d want 204", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://example.com" {
+		t.Errorf("same-host ACAO: got %q", got)
+	}
+}
+
+// TestCORSPreflight_AllowsAllowlisted pins audit-I33: an explicit
+// allow-list entry receives a real ACAO.
+func TestCORSPreflight_AllowsAllowlisted(t *testing.T) {
+	mx := chi.NewRouter()
+	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("OPTIONS", "/api/v1/user", nil)
+	req.Header.Set("Origin", "https://allowed.example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	mx.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d want 204", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://allowed.example.com" {
+		t.Errorf("allow-listed ACAO: got %q", got)
+	}
+}
+
+// TestCORSPreflight_AllowsLocalhostDev pins audit-I33: a CRA/Vite
+// dev server on localhost gets through without operators needing to
+// list every port they spin up.
+func TestCORSPreflight_AllowsLocalhostDev(t *testing.T) {
+	mx := chi.NewRouter()
+	mx.Get("/api/v1/user", func(_ http.ResponseWriter, _ *http.Request) {})
+	mx.MethodNotAllowed(methodNotAllowedHandlerFor(mx, testCORSPolicy()))
+
+	for _, origin := range []string{"http://localhost:5173", "http://127.0.0.1:3000"} {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("OPTIONS", "/api/v1/user", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		mx.ServeHTTP(rr, req)
+
+		if got := rr.Header().Get("Access-Control-Allow-Origin"); got != origin {
+			t.Errorf("localhost origin=%q: ACAO got %q want echo", origin, got)
+		}
 	}
 }
