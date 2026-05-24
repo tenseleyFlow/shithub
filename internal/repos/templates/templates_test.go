@@ -86,3 +86,33 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// TestLicenseCanonical pins audit-I35: case-insensitive license-key
+// lookup. Pre-fix `--license mit` was rejected; only the canonical
+// SPDX casing worked. gh accepts lowercase keys via /licenses; we
+// match that contract at the consumption point.
+func TestLicenseCanonical(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		in, want string
+		ok       bool
+	}{
+		{"MIT", "MIT", true},
+		{"mit", "MIT", true},
+		{"Mit", "MIT", true},
+		{"agpl-3.0", "AGPL-3.0", true},
+		{"AGPL-3.0", "AGPL-3.0", true},
+		{"bsd-3-clause", "BSD-3-Clause", true},
+		{"unlicense", "Unlicense", true},
+		{"bogus", "", false},
+		{"", "", false},
+	} {
+		got, ok := templates.LicenseCanonical(tc.in)
+		if ok != tc.ok {
+			t.Errorf("LicenseCanonical(%q): ok=%v want %v", tc.in, ok, tc.ok)
+		}
+		if got != tc.want {
+			t.Errorf("LicenseCanonical(%q): got %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
