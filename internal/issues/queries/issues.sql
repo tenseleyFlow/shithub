@@ -103,6 +103,13 @@ SELECT * FROM issue_comments
 WHERE issue_id = $1
 ORDER BY created_at ASC;
 
+-- name: CountIssueComments :one
+-- I7a (audit-I12): gh-compat issue/PR responses expose a `comments`
+-- count distinct from the `/comments` collection endpoint. One COUNT
+-- per fetched issue; covered by the existing issue_comments(issue_id)
+-- index.
+SELECT count(*) FROM issue_comments WHERE issue_id = $1;
+
 -- name: GetIssueComment :one
 SELECT * FROM issue_comments WHERE id = $1;
 

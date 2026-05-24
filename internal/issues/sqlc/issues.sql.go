@@ -77,6 +77,21 @@ func (q *Queries) CountIssueAssignees(ctx context.Context, db DBTX, issueID int6
 	return count, err
 }
 
+const countIssueComments = `-- name: CountIssueComments :one
+SELECT count(*) FROM issue_comments WHERE issue_id = $1
+`
+
+// I7a (audit-I12): gh-compat issue/PR responses expose a `comments`
+// count distinct from the `/comments` collection endpoint. One COUNT
+// per fetched issue; covered by the existing issue_comments(issue_id)
+// index.
+func (q *Queries) CountIssueComments(ctx context.Context, db DBTX, issueID int64) (int64, error) {
+	row := db.QueryRow(ctx, countIssueComments, issueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countIssueEvents = `-- name: CountIssueEvents :one
 SELECT COUNT(*) FROM issue_events WHERE issue_id = $1
 `
