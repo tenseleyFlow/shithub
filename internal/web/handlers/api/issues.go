@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
+	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/api/apipage"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
@@ -68,14 +70,20 @@ func (h *Handlers) mountIssues(r chi.Router) {
 // ─── presentation ───────────────────────────────────────────────────
 
 type issueResponse struct {
-	ID          int64  `json:"id"`
-	Number      int64  `json:"number"`
-	Title       string `json:"title"`
-	Body        string `json:"body"`
-	State       string `json:"state"`
-	StateReason string `json:"state_reason,omitempty"`
-	Locked      bool   `json:"locked"`
-	LockReason  string `json:"lock_reason,omitempty"`
+	ID     int64  `json:"id"`
+	Number int64  `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	// StateReason is `*string` so the key surfaces with explicit `null`
+	// on open issues (I7a audit-I12). gh-compat clients parse against
+	// presence-of-key, not omitempty.
+	StateReason *string `json:"state_reason"`
+	Locked      bool    `json:"locked"`
+	LockReason  string  `json:"lock_reason,omitempty"`
+	// ActiveLockReason mirrors LockReason but is the gh-canonical field
+	// name (audit-I12); kept alongside for one release cycle.
+	ActiveLockReason *string `json:"active_lock_reason"`
 	// AuthorID is the legacy flat foreign key. Kept alongside the new
 	// `user` envelope for one release cycle (S60 audit migration);
 	// prefer `user.id` for new code.
@@ -103,7 +111,59 @@ type issueResponse struct {
 	Milestone *milestoneIssueEnvelope `json:"milestone"`
 	CreatedAt string                  `json:"created_at"`
 	UpdatedAt string                  `json:"updated_at"`
-	ClosedAt  string                  `json:"closed_at,omitempty"`
+	// ClosedAt is `*string` so the key is `null` on open issues and an
+	// RFC3339 timestamp once closed (I7a audit-I12).
+	ClosedAt *string `json:"closed_at"`
+	// ClosedBy is the user who closed the issue. Null when open or
+	// when the close pre-dates the columns being populated. Best-effort
+	// lookup — a join failure emits null rather than fails the GET.
+	ClosedBy *userEnvelope `json:"closed_by"`
+
+	// ─── I7a (audit-I12): gh-compat expansion ─────────────────────────
+	//
+	// NodeID is the opaque base64 of `gid://shithub/Issue/{id}`.
+	NodeID string `json:"node_id,omitempty"`
+	// Comments is the count of comments on this issue. Distinct from
+	// the `/comments` collection endpoint, which returns the rows.
+	Comments int64 `json:"comments"`
+	// Reactions is gh's reaction-count rollup. shithub doesn't ship
+	// reactions today — stub `{total_count: 0, url: "…/reactions"}`
+	// so gh-compat clients see the key and skip cleanly.
+	Reactions *issueReactionsEnvelope `json:"reactions,omitempty"`
+	// AuthorAssociation is the gh-compat 5-value enum describing how
+	// the issue author relates to the repo (OWNER / MEMBER /
+	// COLLABORATOR / CONTRIBUTOR / NONE). See policy.AuthorAssociation.
+	AuthorAssociation string `json:"author_association,omitempty"`
+	// RepositoryURL is the API URL of the owning repo. gh emits this
+	// on every issue-shaped response.
+	RepositoryURL string `json:"repository_url,omitempty"`
+	// EventsURL / LabelsURL / CommentsURL are sub-resource URLs gh
+	// emits as a small bundle. The {/name} placeholder on LabelsURL
+	// is gh's documented form for url-template hints.
+	EventsURL   string `json:"events_url,omitempty"`
+	LabelsURL   string `json:"labels_url,omitempty"`
+	CommentsURL string `json:"comments_url,omitempty"`
+	// PerformedViaGitHubApp is always null on shithub (no GitHub Apps
+	// surface). Emitting it explicitly lets gh-compat clients null-check
+	// instead of crashing on the missing key.
+	PerformedViaGitHubApp *struct{} `json:"performed_via_github_app"`
+}
+
+// issueReactionsEnvelope is the gh-compat reactions bundle. shithub
+// hasn't shipped reactions, so the count is hard-zero and the URL
+// points back at where the collection *would* live. Clients use
+// `total_count` to feature-detect.
+type issueReactionsEnvelope struct {
+	URL        string `json:"url"`
+	TotalCount int64  `json:"total_count"`
+	PlusOne    int64  `json:"+1"`
+	MinusOne   int64  `json:"-1"`
+	Laugh      int64  `json:"laugh"`
+	Hooray     int64  `json:"hooray"`
+	Confused   int64  `json:"confused"`
+	Heart      int64  `json:"heart"`
+	Rocket     int64  `json:"rocket"`
+	Eyes       int64  `json:"eyes"`
 }
 
 // milestoneIssueEnvelope is the trimmed milestone shape that
@@ -153,6 +213,37 @@ func presentMilestoneIssueEnvelope(m issuesdb.Milestone) *milestoneIssueEnvelope
 // callers resolve it via milestoneEnvelopeFor so the lookup happens
 // outside this pure builder.
 func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, assignees []userEnvelope, milestone *milestoneIssueEnvelope) issueResponse {
+	// Back-compat thin wrapper for the legacy 5-arg shape. List + create
+	// paths use this signature; the single-issue GET path (which has
+	// the actor + repo context needed for permissions/associations)
+	// calls presentIssueFull directly.
+	return presentIssueFull(i, labels, user, assignees, milestone, issueExtras{})
+}
+
+// issueExtras carries the I7a (audit-I12) gh-compat expansion inputs.
+// All fields are optional — the zero value emits the legacy shape plus
+// gh-compat default null/empty values for the new keys, which is the
+// right behavior for code paths (issue create response) where the
+// caller doesn't have the data yet.
+type issueExtras struct {
+	NodeID            string
+	CommentsCount     int64
+	AuthorAssociation string
+	ClosedBy          *userEnvelope
+	RepositoryURL     string
+	EventsURL         string
+	LabelsURL         string
+	CommentsURL       string
+}
+
+func presentIssueFull(
+	i issuesdb.Issue,
+	labels []labelEnvelope,
+	user *userEnvelope,
+	assignees []userEnvelope,
+	milestone *milestoneIssueEnvelope,
+	extras issueExtras,
+) issueResponse {
 	if assignees == nil {
 		assignees = []userEnvelope{}
 	}
@@ -160,32 +251,82 @@ func presentIssue(i issuesdb.Issue, labels []labelEnvelope, user *userEnvelope, 
 		labels = []labelEnvelope{}
 	}
 	out := issueResponse{
-		ID:        i.ID,
-		Number:    i.Number,
-		Title:     i.Title,
-		Body:      i.Body,
-		State:     string(i.State),
-		Locked:    i.Locked,
-		Labels:    labels,
-		User:      user,
-		Assignees: assignees,
-		Milestone: milestone,
-		CreatedAt: i.CreatedAt.Time.UTC().Format(time.RFC3339),
-		UpdatedAt: i.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		ID:                    i.ID,
+		Number:                i.Number,
+		Title:                 i.Title,
+		Body:                  i.Body,
+		State:                 string(i.State),
+		Locked:                i.Locked,
+		Labels:                labels,
+		User:                  user,
+		Assignees:             assignees,
+		Milestone:             milestone,
+		CreatedAt:             i.CreatedAt.Time.UTC().Format(time.RFC3339),
+		UpdatedAt:             i.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		NodeID:                extras.NodeID,
+		Comments:              extras.CommentsCount,
+		Reactions:             zeroReactionsEnvelope(extras.RepositoryURL, i.Number),
+		AuthorAssociation:     extras.AuthorAssociation,
+		ClosedBy:              extras.ClosedBy,
+		RepositoryURL:         extras.RepositoryURL,
+		EventsURL:             extras.EventsURL,
+		LabelsURL:             extras.LabelsURL,
+		CommentsURL:           extras.CommentsURL,
+		PerformedViaGitHubApp: nil, // gh-compat: always null on shithub
 	}
 	if i.StateReason.Valid {
-		out.StateReason = string(i.StateReason.IssueStateReason)
+		s := string(i.StateReason.IssueStateReason)
+		out.StateReason = &s
 	}
 	if i.LockReason.Valid {
 		out.LockReason = i.LockReason.String
+		// I7a (audit-I12): active_lock_reason is gh's canonical name.
+		// Emit it whenever the legacy LockReason carries content so
+		// gh-compat clients see the right key.
+		s := i.LockReason.String
+		out.ActiveLockReason = &s
 	}
 	if i.AuthorUserID.Valid {
 		out.AuthorID = i.AuthorUserID.Int64
 	}
 	if i.ClosedAt.Valid {
-		out.ClosedAt = i.ClosedAt.Time.UTC().Format(time.RFC3339)
+		s := i.ClosedAt.Time.UTC().Format(time.RFC3339)
+		out.ClosedAt = &s
 	}
 	return out
+}
+
+// zeroReactionsEnvelope returns the gh-compat stub for an issue with
+// no reactions. Returns nil when we don't have a repository URL to
+// build the reactions link (the legacy presentIssue signature path).
+func zeroReactionsEnvelope(repoURL string, issueNumber int64) *issueReactionsEnvelope {
+	if repoURL == "" {
+		return nil
+	}
+	return &issueReactionsEnvelope{
+		URL:        fmt.Sprintf("%s/issues/%d/reactions", repoURL, issueNumber),
+		TotalCount: 0,
+	}
+}
+
+// issueNodeID is the opaque base64 of `gid://shithub/Issue/{id}`.
+// gh-compat clients use it as the GraphQL node cache key.
+func issueNodeID(id int64) string {
+	raw := "gid://shithub/Issue/" + strconv.FormatInt(id, 10)
+	return base64.StdEncoding.EncodeToString([]byte(raw))
+}
+
+// buildIssueSubURLs returns the (repository, events, labels, comments)
+// URL bundle for an issue. baseURL must be non-empty; callers check
+// that upstream. The labels URL carries gh's documented {/name} URL
+// template hint.
+func buildIssueSubURLs(baseURL, ownerLogin, repoName string, issueNumber int64) (repoURL, eventsURL, labelsURL, commentsURL string) {
+	repoPrefix := strings.TrimRight(baseURL, "/") + "/api/v1/repos/" + ownerLogin + "/" + repoName
+	issuePrefix := repoPrefix + "/issues/" + strconv.FormatInt(issueNumber, 10)
+	return repoPrefix,
+		issuePrefix + "/events",
+		issuePrefix + "/labels{/name}",
+		issuePrefix + "/comments"
 }
 
 type commentResponse struct {
@@ -598,11 +739,51 @@ func (h *Handlers) issueGet(w http.ResponseWriter, r *http.Request) {
 	if issue.AuthorUserID.Valid {
 		u = h.resolveUserEnvelope(r.Context(), issue.AuthorUserID.Int64)
 	}
-	resp := presentIssue(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u,
+	// I7a (audit-I12): single-issue GET carries the full gh-compat
+	// surface — node_id + comments count + author_association + the
+	// sub-resource URL bundle + closed_by + reactions stub. The list
+	// endpoint stays on the legacy presentIssue signature; cost of the
+	// extra lookups doesn't amortize across N issues per page.
+	extras := h.buildIssueExtras(r.Context(), repo, ownerLogin, issue)
+	resp := presentIssueFull(issue, h.labelEnvelopesFor(r.Context(), issue.ID), u,
 		h.assigneeEnvelopesFor(r.Context(), issue.ID),
-		h.milestoneEnvelopeFor(r.Context(), issue))
+		h.milestoneEnvelopeFor(r.Context(), issue),
+		extras)
 	resp.HTMLURL = h.issueHTMLURL(ownerLogin, repo.Name, issue.Number)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// buildIssueExtras resolves all the I7a-expansion inputs for a single
+// issue GET. Best-effort: a failed comment count emits zero rather
+// than failing the GET. Skips entirely when BaseURL is empty.
+func (h *Handlers) buildIssueExtras(ctx context.Context, repo reposdb.Repo, ownerLogin string, issue issuesdb.Issue) issueExtras {
+	extras := issueExtras{NodeID: issueNodeID(issue.ID)}
+	if h.d.BaseURL != "" {
+		repoURL, eventsURL, labelsURL, commentsURL := buildIssueSubURLs(h.d.BaseURL, ownerLogin, repo.Name, issue.Number)
+		extras.RepositoryURL = repoURL
+		extras.EventsURL = eventsURL
+		extras.LabelsURL = labelsURL
+		extras.CommentsURL = commentsURL
+	}
+	if c, err := issuesdb.New().CountIssueComments(ctx, h.d.Pool, issue.ID); err == nil {
+		extras.CommentsCount = c
+	}
+	if issue.AuthorUserID.Valid {
+		auth := middleware.PATAuthFromContext(ctx)
+		// AuthorAssociation describes how the *issue author* relates to
+		// the repo. The author was resolved against AuthorUserID, but
+		// the helper takes a policy.Actor — construct one for the
+		// author here. The actor's IsAnonymous/IsSuspended flags don't
+		// affect the association mapping (they're for write gates), so
+		// the minimal shape is enough.
+		_ = auth // suppress unused; reserved for follow-up if author-vs-viewer association becomes needed
+		authorActor := policy.UserActor(issue.AuthorUserID.Int64, "", false, false)
+		extras.AuthorAssociation = policy.AuthorAssociation(ctx, policy.Deps{Pool: h.d.Pool}, authorActor, policy.NewRepoRefFromRepo(repo))
+	}
+	if issue.ClosedAt.Valid && issue.ClosedByUserID.Valid {
+		extras.ClosedBy = h.resolveUserEnvelope(ctx, issue.ClosedByUserID.Int64)
+	}
+	return extras
 }
 
 // ─── create ─────────────────────────────────────────────────────────
