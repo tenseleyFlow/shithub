@@ -3486,39 +3486,40 @@ type RateLimit struct {
 }
 
 type Repo struct {
-	ID                 int64
-	OwnerUserID        pgtype.Int8
-	OwnerOrgID         pgtype.Int8
-	Name               string
-	Description        string
-	Visibility         RepoVisibility
-	DefaultBranch      string
-	IsArchived         bool
-	ArchivedAt         pgtype.Timestamptz
-	DeletedAt          pgtype.Timestamptz
-	DiskUsedBytes      int64
-	ForkOfRepoID       pgtype.Int8
-	LicenseKey         pgtype.Text
-	PrimaryLanguage    pgtype.Text
-	HasIssues          bool
-	HasPulls           bool
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-	DefaultBranchOid   pgtype.Text
-	AllowSquashMerge   bool
-	AllowRebaseMerge   bool
-	AllowMergeCommit   bool
-	DefaultMergeMethod PrMergeMethod
-	StarCount          int64
-	WatcherCount       int64
-	ForkCount          int64
-	InitStatus         RepoInitStatus
-	LastIndexedOid     pgtype.Text
-	IsTemplate         bool
-	IsPaused           bool
-	PausedAt           pgtype.Timestamptz
-	PauseReason        pgtype.Text
-	Homepage           string
+	ID                  int64
+	OwnerUserID         pgtype.Int8
+	OwnerOrgID          pgtype.Int8
+	Name                string
+	Description         string
+	Visibility          RepoVisibility
+	DefaultBranch       string
+	IsArchived          bool
+	ArchivedAt          pgtype.Timestamptz
+	DeletedAt           pgtype.Timestamptz
+	DiskUsedBytes       int64
+	ForkOfRepoID        pgtype.Int8
+	LicenseKey          pgtype.Text
+	PrimaryLanguage     pgtype.Text
+	HasIssues           bool
+	HasPulls            bool
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	DefaultBranchOid    pgtype.Text
+	AllowSquashMerge    bool
+	AllowRebaseMerge    bool
+	AllowMergeCommit    bool
+	DefaultMergeMethod  PrMergeMethod
+	StarCount           int64
+	WatcherCount        int64
+	ForkCount           int64
+	InitStatus          RepoInitStatus
+	LastIndexedOid      pgtype.Text
+	IsTemplate          bool
+	IsPaused            bool
+	PausedAt            pgtype.Timestamptz
+	PauseReason         pgtype.Text
+	Homepage            string
+	DeleteBranchOnMerge bool
 }
 
 type RepoCollaborator struct {

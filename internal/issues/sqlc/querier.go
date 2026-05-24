@@ -20,6 +20,11 @@ type Querier interface {
 	// ─── assignees ───────────────────────────────────────────────────────
 	AssignUserToIssue(ctx context.Context, db DBTX, arg AssignUserToIssueParams) error
 	CountIssueAssignees(ctx context.Context, db DBTX, issueID int64) (int64, error)
+	// I7a (audit-I12): gh-compat issue/PR responses expose a `comments`
+	// count distinct from the `/comments` collection endpoint. One COUNT
+	// per fetched issue; covered by the existing issue_comments(issue_id)
+	// index.
+	CountIssueComments(ctx context.Context, db DBTX, issueID int64) (int64, error)
 	CountIssueEvents(ctx context.Context, db DBTX, issueID int64) (int64, error)
 	CountIssues(ctx context.Context, db DBTX, arg CountIssuesParams) (int64, error)
 	// ─── issues ──────────────────────────────────────────────────────────
