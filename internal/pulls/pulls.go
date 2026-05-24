@@ -588,6 +588,13 @@ func EditPR(ctx context.Context, deps Deps, prID int64, title, body string) erro
 	if len(title) > 256 {
 		return issues.ErrTitleTooLong
 	}
+	if strings.ContainsRune(title, 0) {
+		return issues.ErrNullByteInTitle
+	}
+	// I52 (I-audit): reject multi-line titles in the PR-edit path too.
+	if strings.ContainsAny(title, "\n\r") {
+		return issues.ErrMultilineTitle
+	}
 	if len(body) > 65535 {
 		return issues.ErrBodyTooLong
 	}
