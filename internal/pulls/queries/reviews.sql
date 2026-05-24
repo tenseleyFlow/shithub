@@ -196,3 +196,30 @@ WHERE id = $1;
 SELECT count(*)::int FROM pr_review_requests
 WHERE pr_issue_id = $1
   AND dismissed_at IS NULL;
+
+-- name: ListActivePRReviewRequestTargets :many
+-- I7a (audit-I13): variant of ListPRReviewRequestTargets that filters
+-- to active requests only (not dismissed, not satisfied). Drives the
+-- `requested_reviewers` + `requested_teams` arrays on the PR response.
+-- gh's API surfaces only currently-active requests; dismissed and
+-- satisfied requests are visible via the /pulls/{N}/reviews collection.
+SELECT pr.id, pr.pr_issue_id, pr.requested_user_id, pr.requested_team_id,
+       pr.requested_by_user_id, pr.requested_at, pr.dismissed_at,
+       pr.satisfied_by_review_id,
+       u.username AS requested_username,
+       t.slug AS requested_team_slug,
+       o.slug AS requested_team_org_slug
+FROM pr_review_requests pr
+LEFT JOIN users u ON u.id = pr.requested_user_id
+LEFT JOIN teams t ON t.id = pr.requested_team_id
+LEFT JOIN orgs o ON o.id = t.org_id
+WHERE pr.pr_issue_id = $1
+  AND pr.dismissed_at IS NULL
+  AND pr.satisfied_by_review_id IS NULL
+ORDER BY pr.requested_at;
+
+-- name: CountPRReviewComments :one
+-- I7a (audit-I13): gh-compat PR response exposes `review_comments`
+-- as a count distinct from issue-shaped `comments`. pr_review_comments
+-- carries the inline-diff review thread comments.
+SELECT count(*) FROM pr_review_comments WHERE pr_issue_id = $1;

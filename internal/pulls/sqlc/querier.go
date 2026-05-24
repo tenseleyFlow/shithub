@@ -20,12 +20,19 @@ type Querier interface {
 	// Used by the rate-limit gate (max 20 reviewers per PR per the spec
 	// pitfall section).
 	CountActivePRReviewRequests(ctx context.Context, db DBTX, prIssueID int64) (int32, error)
+	// I7a (audit-I13): gh-compat PR response exposes `review_comments`
+	// as a count distinct from issue-shaped `comments`. pr_review_comments
+	// carries the inline-diff review thread comments.
+	CountPRReviewComments(ctx context.Context, db DBTX, prIssueID int64) (int64, error)
 	// Returns the counts the merge gate cares about. `approves` excludes
 	// dismissed reviews; `request_changes` includes only undismissed and
 	// unsuperseded-by-same-author reviews. The "unsuperseded" semantics
 	// (a later review by the same author wins) is computed in Go on the
 	// caller side; this query only returns the raw rows it needs.
 	CountPRReviewsForGate(ctx context.Context, db DBTX, prIssueID int64) (CountPRReviewsForGateRow, error)
+	// I7a (audit-I13): gh-compat pull response exposes `commits` as a
+	// count distinct from the /commits collection endpoint.
+	CountPullRequestCommits(ctx context.Context, db DBTX, prID int64) (int64, error)
 	CountPullRequestsByRepo(ctx context.Context, db DBTX, arg CountPullRequestsByRepoParams) (int64, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	// ─── pr_reviews ──────────────────────────────────────────────────────
@@ -61,6 +68,12 @@ type Querier interface {
 	InsertPullDependencyReviewItem(ctx context.Context, db DBTX, arg InsertPullDependencyReviewItemParams) (PullDependencyReviewItem, error)
 	InsertPullRequestCommit(ctx context.Context, db DBTX, arg InsertPullRequestCommitParams) error
 	InsertPullRequestFile(ctx context.Context, db DBTX, arg InsertPullRequestFileParams) error
+	// I7a (audit-I13): variant of ListPRReviewRequestTargets that filters
+	// to active requests only (not dismissed, not satisfied). Drives the
+	// `requested_reviewers` + `requested_teams` arrays on the PR response.
+	// gh's API surfaces only currently-active requests; dismissed and
+	// satisfied requests are visible via the /pulls/{N}/reviews collection.
+	ListActivePRReviewRequestTargets(ctx context.Context, db DBTX, prIssueID int64) ([]ListActivePRReviewRequestTargetsRow, error)
 	ListDependencyReviewAdvisoryCandidates(ctx context.Context, db DBTX, arg ListDependencyReviewAdvisoryCandidatesParams) ([]ListDependencyReviewAdvisoryCandidatesRow, error)
 	// Position-mapping reads only submitted comments (drafts re-anchor
 	// when the user resumes the diff view).
@@ -116,6 +129,12 @@ type Querier interface {
 	// Updates base_oid + head_oid + last_synchronized_at after a
 	// synchronize tick.
 	SetPullRequestSnapshot(ctx context.Context, db DBTX, arg SetPullRequestSnapshotParams) error
+	// I7a (audit-I13): aggregate of additions/deletions plus changed-file
+	// count. Drives the `additions`, `deletions`, and `changed_files`
+	// fields on the PR response. Returns zero for PRs whose snapshot
+	// hasn't been captured yet (no rows in pull_request_files) — the
+	// response stubs to 0 in that case rather than failing.
+	SumPullRequestDiffStats(ctx context.Context, db DBTX, prID int64) (SumPullRequestDiffStatsRow, error)
 	UpdatePRReviewCommentBody(ctx context.Context, db DBTX, arg UpdatePRReviewCommentBodyParams) error
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	UpsertPullDependencyReview(ctx context.Context, db DBTX, arg UpsertPullDependencyReviewParams) (PullDependencyReview, error)

@@ -47,6 +47,20 @@ func (q *Queries) CountActivePRReviewRequests(ctx context.Context, db DBTX, prIs
 	return column_1, err
 }
 
+const countPRReviewComments = `-- name: CountPRReviewComments :one
+SELECT count(*) FROM pr_review_comments WHERE pr_issue_id = $1
+`
+
+// I7a (audit-I13): gh-compat PR response exposes `review_comments`
+// as a count distinct from issue-shaped `comments`. pr_review_comments
+// carries the inline-diff review thread comments.
+func (q *Queries) CountPRReviewComments(ctx context.Context, db DBTX, prIssueID int64) (int64, error) {
+	row := db.QueryRow(ctx, countPRReviewComments, prIssueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countPRReviewsForGate = `-- name: CountPRReviewsForGate :one
 SELECT
     count(*) FILTER (WHERE state = 'approve' AND dismissed_at IS NULL)::int AS approves,
@@ -309,6 +323,74 @@ func (q *Queries) GetPRReviewComment(ctx context.Context, db DBTX, id int64) (Pr
 		&i.EditedAt,
 	)
 	return i, err
+}
+
+const listActivePRReviewRequestTargets = `-- name: ListActivePRReviewRequestTargets :many
+SELECT pr.id, pr.pr_issue_id, pr.requested_user_id, pr.requested_team_id,
+       pr.requested_by_user_id, pr.requested_at, pr.dismissed_at,
+       pr.satisfied_by_review_id,
+       u.username AS requested_username,
+       t.slug AS requested_team_slug,
+       o.slug AS requested_team_org_slug
+FROM pr_review_requests pr
+LEFT JOIN users u ON u.id = pr.requested_user_id
+LEFT JOIN teams t ON t.id = pr.requested_team_id
+LEFT JOIN orgs o ON o.id = t.org_id
+WHERE pr.pr_issue_id = $1
+  AND pr.dismissed_at IS NULL
+  AND pr.satisfied_by_review_id IS NULL
+ORDER BY pr.requested_at
+`
+
+type ListActivePRReviewRequestTargetsRow struct {
+	ID                   int64
+	PrIssueID            int64
+	RequestedUserID      pgtype.Int8
+	RequestedTeamID      pgtype.Int8
+	RequestedByUserID    pgtype.Int8
+	RequestedAt          pgtype.Timestamptz
+	DismissedAt          pgtype.Timestamptz
+	SatisfiedByReviewID  pgtype.Int8
+	RequestedUsername    pgtype.Text
+	RequestedTeamSlug    pgtype.Text
+	RequestedTeamOrgSlug pgtype.Text
+}
+
+// I7a (audit-I13): variant of ListPRReviewRequestTargets that filters
+// to active requests only (not dismissed, not satisfied). Drives the
+// `requested_reviewers` + `requested_teams` arrays on the PR response.
+// gh's API surfaces only currently-active requests; dismissed and
+// satisfied requests are visible via the /pulls/{N}/reviews collection.
+func (q *Queries) ListActivePRReviewRequestTargets(ctx context.Context, db DBTX, prIssueID int64) ([]ListActivePRReviewRequestTargetsRow, error) {
+	rows, err := db.Query(ctx, listActivePRReviewRequestTargets, prIssueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActivePRReviewRequestTargetsRow{}
+	for rows.Next() {
+		var i ListActivePRReviewRequestTargetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PrIssueID,
+			&i.RequestedUserID,
+			&i.RequestedTeamID,
+			&i.RequestedByUserID,
+			&i.RequestedAt,
+			&i.DismissedAt,
+			&i.SatisfiedByReviewID,
+			&i.RequestedUsername,
+			&i.RequestedTeamSlug,
+			&i.RequestedTeamOrgSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listNonDraftCommentsForPositionMap = `-- name: ListNonDraftCommentsForPositionMap :many

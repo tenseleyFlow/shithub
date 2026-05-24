@@ -155,6 +155,24 @@ SELECT * FROM pull_request_commits
 WHERE pr_id = $1
 ORDER BY position;
 
+-- name: CountPullRequestCommits :one
+-- I7a (audit-I13): gh-compat pull response exposes `commits` as a
+-- count distinct from the /commits collection endpoint.
+SELECT count(*) FROM pull_request_commits WHERE pr_id = $1;
+
+-- name: SumPullRequestDiffStats :one
+-- I7a (audit-I13): aggregate of additions/deletions plus changed-file
+-- count. Drives the `additions`, `deletions`, and `changed_files`
+-- fields on the PR response. Returns zero for PRs whose snapshot
+-- hasn't been captured yet (no rows in pull_request_files) — the
+-- response stubs to 0 in that case rather than failing.
+SELECT
+    COALESCE(SUM(additions), 0)::bigint AS additions,
+    COALESCE(SUM(deletions), 0)::bigint AS deletions,
+    count(*)::bigint                    AS changed_files
+FROM pull_request_files
+WHERE pr_id = $1;
+
 -- name: ClearPullRequestFiles :exec
 DELETE FROM pull_request_files WHERE pr_id = $1;
 

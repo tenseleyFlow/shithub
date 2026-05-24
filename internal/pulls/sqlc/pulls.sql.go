@@ -31,6 +31,19 @@ func (q *Queries) ClearPullRequestFiles(ctx context.Context, db DBTX, prID int64
 	return err
 }
 
+const countPullRequestCommits = `-- name: CountPullRequestCommits :one
+SELECT count(*) FROM pull_request_commits WHERE pr_id = $1
+`
+
+// I7a (audit-I13): gh-compat pull response exposes `commits` as a
+// count distinct from the /commits collection endpoint.
+func (q *Queries) CountPullRequestCommits(ctx context.Context, db DBTX, prID int64) (int64, error) {
+	row := db.QueryRow(ctx, countPullRequestCommits, prID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countPullRequestsByRepo = `-- name: CountPullRequestsByRepo :one
 SELECT count(*)::bigint FROM pull_requests pr
 JOIN issues i ON i.id = pr.issue_id
@@ -743,4 +756,31 @@ type SetPullRequestSnapshotParams struct {
 func (q *Queries) SetPullRequestSnapshot(ctx context.Context, db DBTX, arg SetPullRequestSnapshotParams) error {
 	_, err := db.Exec(ctx, setPullRequestSnapshot, arg.IssueID, arg.BaseOid, arg.HeadOid)
 	return err
+}
+
+const sumPullRequestDiffStats = `-- name: SumPullRequestDiffStats :one
+SELECT
+    COALESCE(SUM(additions), 0)::bigint AS additions,
+    COALESCE(SUM(deletions), 0)::bigint AS deletions,
+    count(*)::bigint                    AS changed_files
+FROM pull_request_files
+WHERE pr_id = $1
+`
+
+type SumPullRequestDiffStatsRow struct {
+	Additions    int64
+	Deletions    int64
+	ChangedFiles int64
+}
+
+// I7a (audit-I13): aggregate of additions/deletions plus changed-file
+// count. Drives the `additions`, `deletions`, and `changed_files`
+// fields on the PR response. Returns zero for PRs whose snapshot
+// hasn't been captured yet (no rows in pull_request_files) — the
+// response stubs to 0 in that case rather than failing.
+func (q *Queries) SumPullRequestDiffStats(ctx context.Context, db DBTX, prID int64) (SumPullRequestDiffStatsRow, error) {
+	row := db.QueryRow(ctx, sumPullRequestDiffStats, prID)
+	var i SumPullRequestDiffStatsRow
+	err := row.Scan(&i.Additions, &i.Deletions, &i.ChangedFiles)
+	return i, err
 }
