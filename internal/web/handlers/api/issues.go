@@ -84,11 +84,11 @@ type issueResponse struct {
 	// ActiveLockReason mirrors LockReason but is the gh-canonical field
 	// name (audit-I12); kept alongside for one release cycle.
 	ActiveLockReason *string `json:"active_lock_reason"`
-	// AuthorID is the legacy flat foreign key. Kept alongside the new
-	// `user` envelope for one release cycle (S60 audit migration);
-	// prefer `user.id` for new code.
-	AuthorID int64         `json:"author_id,omitempty"`
-	User     *userEnvelope `json:"user,omitempty"`
+	// User is the gh-compat author envelope. I7b (audit-I10) stripped
+	// the legacy `author_id` raw-FK field: two ways to identify the
+	// author was a data-model leak and a per-resource consistency
+	// hazard. Consumers that need the integer can read `user.id`.
+	User *userEnvelope `json:"user,omitempty"`
 	// Assignees mirrors gh's issue payload (C-audit C20a). nil when
 	// no assignees; non-nil empty slice when the issue exists but is
 	// unassigned (gh shape). Always populated by presentIssue (the
@@ -286,9 +286,10 @@ func presentIssueFull(
 		s := i.LockReason.String
 		out.ActiveLockReason = &s
 	}
-	if i.AuthorUserID.Valid {
-		out.AuthorID = i.AuthorUserID.Int64
-	}
+	// I7b (audit-I10): the raw author_id FK field was dropped from the
+	// response shape; user.id carries the integer for consumers that
+	// still want one. Author resolution flows through the userEnvelope
+	// argument the caller passes in.
 	if i.ClosedAt.Valid {
 		s := i.ClosedAt.Time.UTC().Format(time.RFC3339)
 		out.ClosedAt = &s
@@ -332,9 +333,8 @@ func buildIssueSubURLs(baseURL, ownerLogin, repoName string, issueNumber int64) 
 type commentResponse struct {
 	ID      int64 `json:"id"`
 	IssueID int64 `json:"issue_id"`
-	// AuthorID is the legacy flat foreign key. See issueResponse for
-	// the S60 migration notes.
-	AuthorID  int64         `json:"author_id,omitempty"`
+	// I7b (audit-I10): the raw author_id FK field was dropped — read
+	// user.id when an integer is needed.
 	User      *userEnvelope `json:"user,omitempty"`
 	Body      string        `json:"body"`
 	CreatedAt string        `json:"created_at"`
@@ -350,9 +350,6 @@ func presentComment(c issuesdb.IssueComment, user *userEnvelope) commentResponse
 		Body:      c.Body,
 		CreatedAt: c.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt: c.UpdatedAt.Time.UTC().Format(time.RFC3339),
-	}
-	if c.AuthorUserID.Valid {
-		out.AuthorID = c.AuthorUserID.Int64
 	}
 	if c.EditedAt.Valid {
 		out.EditedAt = c.EditedAt.Time.UTC().Format(time.RFC3339)
