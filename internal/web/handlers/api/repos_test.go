@@ -45,11 +45,11 @@ type apiRepoLicense struct {
 }
 
 type apiRepo struct {
-	ID            int64           `json:"id"`
-	Name          string          `json:"name"`
-	FullName      string          `json:"full_name"`
-	OwnerLogin    string          `json:"owner_login"`
-	OwnerType     string          `json:"owner_type"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	// I7c (audit-I18): flat owner_login/owner_type fields dropped;
+	// read owner.login + owner.type.
 	Owner         *apiRepoOwner   `json:"owner"`
 	Description   string          `json:"description"`
 	Homepage      string          `json:"homepage"`
@@ -204,7 +204,7 @@ func TestRepos_CreatePersonalAndGet(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create: %v; body=%s", err, rr.Body.String())
 	}
-	if created.Name != "demo" || created.OwnerLogin != "alice" || created.OwnerType != "user" {
+	if created.Name != "demo" || created.Owner == nil || created.Owner.Login != "alice" || created.Owner.Type != "User" {
 		t.Errorf("create payload: %+v", created)
 	}
 	if created.Visibility != "public" || created.Private {

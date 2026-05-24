@@ -101,13 +101,9 @@ type pullResponse struct {
 	Body   string `json:"body"`
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
-	// Legacy flat fields; kept for one release cycle alongside the
-	// nested envelopes. Prefer base/head for new clients.
-	BaseRef string `json:"base_ref"`
-	HeadRef string `json:"head_ref"`
-	BaseOID string `json:"base_oid"`
-	HeadOID string `json:"head_oid"`
-	// GitHub-compat nested envelopes.
+	// I7c (audit-I17): the legacy `base_ref`/`head_ref`/`base_oid`/
+	// `head_oid` flat fields were dropped — read base.ref / base.sha /
+	// head.ref / head.sha from the nested envelopes instead.
 	Base           *prRefEnvelope `json:"base,omitempty"`
 	Head           *prRefEnvelope `json:"head,omitempty"`
 	Mergeable      *bool          `json:"mergeable,omitempty"`
@@ -229,10 +225,6 @@ func presentPullFull(
 		Body:                issue.Body,
 		State:               string(issue.State),
 		Draft:               pr.Draft,
-		BaseRef:             pr.BaseRef,
-		HeadRef:             pr.HeadRef,
-		BaseOID:             pr.BaseOid,
-		HeadOID:             pr.HeadOid,
 		Base:                &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid, Repo: baseRepo},
 		Head:                &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid, Repo: headRepo},
 		MergeableState:      string(pr.MergeableState),
