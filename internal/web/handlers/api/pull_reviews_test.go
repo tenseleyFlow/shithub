@@ -42,7 +42,6 @@ func addRepoCollaborator(t *testing.T, pool *pgxpool.Pool, repoID, userID int64,
 type apiReview struct {
 	ID        int64  `json:"id"`
 	PullID    int64  `json:"pull_id"`
-	AuthorID  int64  `json:"author_id"`
 	State     string `json:"state"`
 	Body      string `json:"body"`
 	Dismissed bool   `json:"dismissed"`
@@ -52,7 +51,6 @@ type apiReviewComment struct {
 	ID       int64  `json:"id"`
 	PullID   int64  `json:"pull_id"`
 	ReviewID int64  `json:"review_id"`
-	AuthorID int64  `json:"author_id"`
 	FilePath string `json:"file_path"`
 	Body     string `json:"body"`
 	Pending  bool   `json:"pending"`

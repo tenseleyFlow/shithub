@@ -66,7 +66,6 @@ type apiPull struct {
 	MergeCommit    string    `json:"merge_commit_sha"`
 	MergeMethod    string    `json:"merge_method"`
 	MergedAt       string    `json:"merged_at"`
-	AuthorID       int64     `json:"author_id"`
 	User           *apiUser  `json:"user"`
 	HTMLURL        string    `json:"html_url"`
 

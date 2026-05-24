@@ -52,9 +52,8 @@ func (h *Handlers) mountPullReviews(r chi.Router) {
 type reviewResponse struct {
 	ID     int64 `json:"id"`
 	PullID int64 `json:"pull_id"`
-	// AuthorID is the legacy flat foreign key. Kept alongside the
-	// `user` envelope for one release cycle (S60 audit migration).
-	AuthorID    int64         `json:"author_id,omitempty"`
+	// I7b (audit-I10): the raw author_id FK was stripped — read user.id
+	// when an integer is needed.
 	User        *userEnvelope `json:"user,omitempty"`
 	State       string        `json:"state"`
 	Body        string        `json:"body,omitempty"`
@@ -72,9 +71,6 @@ func presentReview(r pullsdb.PrReview, user *userEnvelope) reviewResponse {
 		User:      user,
 		Dismissed: r.DismissedAt.Valid,
 	}
-	if r.AuthorUserID.Valid {
-		out.AuthorID = r.AuthorUserID.Int64
-	}
 	if r.SubmittedAt.Valid {
 		out.SubmittedAt = r.SubmittedAt.Time.UTC().Format(time.RFC3339)
 	}
@@ -88,9 +84,8 @@ type reviewCommentResponse struct {
 	ID       int64 `json:"id"`
 	PullID   int64 `json:"pull_id"`
 	ReviewID int64 `json:"review_id,omitempty"`
-	// AuthorID is the legacy flat foreign key. Kept alongside the
-	// `user` envelope for one release cycle (S60 audit migration).
-	AuthorID          int64         `json:"author_id,omitempty"`
+	// I7b (audit-I10): the raw author_id FK was stripped — read user.id
+	// when an integer is needed.
 	User              *userEnvelope `json:"user,omitempty"`
 	FilePath          string        `json:"file_path"`
 	Side              string        `json:"side"`
@@ -124,9 +119,6 @@ func presentReviewComment(c pullsdb.PrReviewComment, user *userEnvelope) reviewC
 	}
 	if c.ReviewID.Valid {
 		out.ReviewID = c.ReviewID.Int64
-	}
-	if c.AuthorUserID.Valid {
-		out.AuthorID = c.AuthorUserID.Int64
 	}
 	if c.CurrentPosition.Valid {
 		v := c.CurrentPosition.Int32
