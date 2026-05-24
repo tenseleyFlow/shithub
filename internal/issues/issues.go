@@ -58,6 +58,13 @@ var (
 	ErrNullByteInTitle   = errors.New("issues: title contains a null byte")
 	ErrNullByteInBody    = errors.New("issues: body contains a null byte")
 	ErrNullByteInComment = errors.New("issues: comment contains a null byte")
+	// I52 (I-audit): the CLI auditor passed `--title $'one\ntwo'` and
+	// the table renderer printed a two-line title — neither bash nor
+	// execve strip the newline, so the server received it intact. The
+	// CLI now rejects at the boundary (issueshared.ValidateTitle); this
+	// sentinel mirrors the same gate server-side for defense in depth
+	// and for non-CLI clients hitting POST /issues directly.
+	ErrMultilineTitle = errors.New("issues: title must be a single line")
 	// H14 follow-on (H-audit): the H1 SQL change made re-close idempotent
 	// at the row level (state_reason no longer silently mutates). This
 	// sentinel surfaces the no-op signal to the caller so the API
@@ -139,6 +146,9 @@ func CreateInTx(ctx context.Context, tx pgx.Tx, deps Deps, p CreateParams) (issu
 	}
 	if strings.ContainsRune(title, 0) {
 		return issuesdb.Issue{}, ErrNullByteInTitle
+	}
+	if strings.ContainsAny(title, "\n\r") {
+		return issuesdb.Issue{}, ErrMultilineTitle
 	}
 	if len(p.Body) > 65535 {
 		return issuesdb.Issue{}, ErrBodyTooLong
@@ -338,6 +348,9 @@ func Edit(ctx context.Context, deps Deps, p EditParams) (issuesdb.Issue, error) 
 		}
 		if strings.ContainsRune(title, 0) {
 			return issuesdb.Issue{}, ErrNullByteInTitle
+		}
+		if strings.ContainsAny(title, "\n\r") {
+			return issuesdb.Issue{}, ErrMultilineTitle
 		}
 	}
 	body := cur.Body

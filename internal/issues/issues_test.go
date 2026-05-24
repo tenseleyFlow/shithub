@@ -128,6 +128,33 @@ func TestCreate_RejectsEmptyTitle(t *testing.T) {
 	}
 }
 
+// TestCreate_RejectsMultilineTitle pins audit-I52: the orchestrator
+// must surface ErrMultilineTitle for embedded LF or CR (mapped to 422
+// by the API layer). Defense in depth — the CLI rejects at the
+// boundary, but the server must too so non-CLI clients can't bypass.
+func TestCreate_RejectsMultilineTitle(t *testing.T) {
+	_, deps, uid, rid := setup(t)
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		title string
+	}{
+		{"newline", "first line\nsecond line"},
+		{"CR", "first\rsecond"},
+		{"CRLF", "first\r\nsecond"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := issues.Create(ctx, deps, issues.CreateParams{
+				RepoID: rid, AuthorUserID: uid, Title: tc.title, Body: "body",
+			})
+			if !errors.Is(err, issues.ErrMultilineTitle) {
+				t.Errorf("got %v, want ErrMultilineTitle", err)
+			}
+		})
+	}
+}
+
 func TestCreate_RendersHTMLAndSanitizesScripts(t *testing.T) {
 	pool, deps, uid, rid := setup(t)
 	ctx := context.Background()
