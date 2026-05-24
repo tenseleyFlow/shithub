@@ -8,10 +8,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -420,6 +422,19 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 	})
 
 	notFound := func(w http.ResponseWriter, r *http.Request) {
+		// I11 (audit-I34): the chi 404 used to always render the HTML
+		// error page. CLI consumers of /api/v1/... that hit a bad
+		// path got HTML they had to scrape. Branch on the API prefix
+		// and emit the {"error":...} envelope clients already parse.
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "not found: " + r.URL.Path,
+			})
+			return
+		}
 		rr.HTTPError(w, r, http.StatusNotFound, r.URL.Path)
 	}
 
