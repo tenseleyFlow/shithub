@@ -116,10 +116,10 @@ type pullResponse struct {
 	MergeCommit    string         `json:"merge_commit_sha,omitempty"`
 	MergeMethod    string         `json:"merge_method,omitempty"`
 	MergedAt       string         `json:"merged_at,omitempty"`
-	// AuthorID is the legacy flat foreign key. Kept alongside the new
-	// `user` envelope for one release cycle (S60 audit migration).
-	AuthorID int64         `json:"author_id,omitempty"`
-	User     *userEnvelope `json:"user,omitempty"`
+	// User is the gh-compat author envelope. I7b (audit-I10) stripped
+	// the legacy `author_id` raw-FK field — read user.id when an
+	// integer is needed.
+	User *userEnvelope `json:"user,omitempty"`
 	// HTMLURL is the user-facing page for this PR (B-audit B7).
 	HTMLURL   string `json:"html_url,omitempty"`
 	CreatedAt string `json:"created_at"`
@@ -270,9 +270,8 @@ func presentPullFull(
 	if pr.MergedAt.Valid {
 		out.MergedAt = pr.MergedAt.Time.UTC().Format(time.RFC3339)
 	}
-	if issue.AuthorUserID.Valid {
-		out.AuthorID = issue.AuthorUserID.Int64
-	}
+	// I7b (audit-I10): author_id stripped; user.id is the single source
+	// of truth when consumers need the integer.
 	if issue.ClosedAt.Valid {
 		out.ClosedAt = issue.ClosedAt.Time.UTC().Format(time.RFC3339)
 	}
