@@ -1260,7 +1260,9 @@ func writeIssuesError(w http.ResponseWriter, err error) {
 		// H3 — null-byte rejections.
 		errors.Is(err, issues.ErrNullByteInTitle),
 		errors.Is(err, issues.ErrNullByteInBody),
-		errors.Is(err, issues.ErrNullByteInComment):
+		errors.Is(err, issues.ErrNullByteInComment),
+		// I52 — multi-line titles rejected at the orchestrator gate.
+		errors.Is(err, issues.ErrMultilineTitle):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, issues.ErrCommentRateLimit):
 		writeAPIError(w, http.StatusTooManyRequests, "comment rate limit exceeded")

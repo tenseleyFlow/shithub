@@ -18,6 +18,7 @@ import (
 
 	"github.com/tenseleyFlow/shithub/internal/auth/pat"
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	"github.com/tenseleyFlow/shithub/internal/issues"
 	issuesdb "github.com/tenseleyFlow/shithub/internal/issues/sqlc"
 	orgsdb "github.com/tenseleyFlow/shithub/internal/orgs/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/pulls"
@@ -1002,7 +1003,16 @@ func writePullsError(w http.ResponseWriter, err error) {
 		errors.Is(err, pulls.ErrMergeMethodOff),
 		// G8b (F43): update-branch sentinels.
 		errors.Is(err, pulls.ErrBranchUpToDate),
-		errors.Is(err, pulls.ErrUpdateBranchMethod):
+		errors.Is(err, pulls.ErrUpdateBranchMethod),
+		// PR create/edit delegates title+body validation to the issues
+		// orchestrator; these sentinels can surface from `pulls.Create`
+		// (I52 multi-line / H3 null-byte / size + emptiness).
+		errors.Is(err, issues.ErrEmptyTitle),
+		errors.Is(err, issues.ErrTitleTooLong),
+		errors.Is(err, issues.ErrBodyTooLong),
+		errors.Is(err, issues.ErrNullByteInTitle),
+		errors.Is(err, issues.ErrNullByteInBody),
+		errors.Is(err, issues.ErrMultilineTitle):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, pulls.ErrAlreadyMerged),
 		errors.Is(err, pulls.ErrAlreadyClosed),
