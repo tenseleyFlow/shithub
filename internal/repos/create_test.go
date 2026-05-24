@@ -480,3 +480,47 @@ func TestCreate_RejectsBothOwnerKindsSet(t *testing.T) {
 		t.Fatal("expected XOR violation error, got nil")
 	}
 }
+
+// TestCreate_LicenseKeyCaseInsensitive pins audit-I35: lowercase
+// license keys now canonicalize through Create. Pre-fix `mit` was
+// rejected with "unknown license"; only the SPDX casing worked.
+func TestCreate_LicenseKeyCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"mit", "Mit", "MIT", "agpl-3.0"} {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			_, deps, uid, uname, _ := setupCreateEnv(t)
+			res, err := repos.Create(context.Background(), deps, repos.Params{
+				OwnerUserID:       uid,
+				OwnerUsername:     uname,
+				Name:              "license-case-" + strings.ToLower(raw),
+				Visibility:        "public",
+				InitReadme:        true,
+				LicenseKey:        raw,
+				InitialCommitWhen: time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC),
+			})
+			if err != nil {
+				t.Fatalf("Create with --license %q: %v", raw, err)
+			}
+			if res.InitialCommitOID == "" {
+				t.Fatal("expected an initial commit")
+			}
+		})
+	}
+}
+
+func TestCreate_LicenseKeyStillRejectsBogus(t *testing.T) {
+	t.Parallel()
+	_, deps, uid, uname, _ := setupCreateEnv(t)
+	_, err := repos.Create(context.Background(), deps, repos.Params{
+		OwnerUserID:   uid,
+		OwnerUsername: uname,
+		Name:          "license-bogus",
+		Visibility:    "public",
+		LicenseKey:    "totally-not-a-license",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown license, got nil")
+	}
+}
