@@ -103,7 +103,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
           last_indexed_oid, is_template,
-          is_paused, paused_at, pause_reason, homepage
+          is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 `
 
 type CreateForkRepoParams struct {
@@ -166,6 +166,7 @@ func (q *Queries) CreateForkRepo(ctx context.Context, db DBTX, arg CreateForkRep
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -185,7 +186,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
           last_indexed_oid, is_template,
-          is_paused, paused_at, pause_reason, homepage
+          is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 `
 
 type CreateRepoParams struct {
@@ -246,6 +247,7 @@ func (q *Queries) CreateRepo(ctx context.Context, db DBTX, arg CreateRepoParams)
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -264,7 +266,7 @@ RETURNING id, owner_user_id, owner_org_id, name, description, visibility,
           allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
           star_count, watcher_count, fork_count, init_status,
           last_indexed_oid, is_template,
-          is_paused, paused_at, pause_reason, homepage
+          is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 `
 
 type CreateRepoFromTemplateParams struct {
@@ -325,6 +327,7 @@ func (q *Queries) CreateRepoFromTemplate(ctx context.Context, db DBTX, arg Creat
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -408,7 +411,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE id = $1
 `
@@ -450,6 +453,7 @@ func (q *Queries) GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, err
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -462,7 +466,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -512,6 +516,7 @@ func (q *Queries) GetRepoByOwnerOrgAndName(ctx context.Context, db DBTX, arg Get
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -524,7 +529,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -571,6 +576,7 @@ func (q *Queries) GetRepoByOwnerUserAndName(ctx context.Context, db DBTX, arg Ge
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -640,7 +646,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_org_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -689,6 +695,7 @@ func (q *Queries) GetSoftDeletedRepoByOwnerOrgAndName(ctx context.Context, db DB
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -701,7 +708,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1 AND name = $2 AND deleted_at IS NOT NULL
 ORDER BY deleted_at DESC, id DESC
@@ -750,6 +757,7 @@ func (q *Queries) GetSoftDeletedRepoByOwnerUserAndName(ctx context.Context, db D
 		&i.PausedAt,
 		&i.PauseReason,
 		&i.Homepage,
+		&i.DeleteBranchOnMerge,
 	)
 	return i, err
 }
@@ -794,7 +802,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL AND is_archived = false
 ORDER BY lower(name), name
@@ -843,6 +851,7 @@ func (q *Queries) ListActiveReposForOwnerUserByName(ctx context.Context, db DBTX
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1046,7 +1055,7 @@ func (q *Queries) ListForksOfRepoForRepack(ctx context.Context, db DBTX, forkOfR
 }
 
 const listProfilePinCandidateReposForUser = `-- name: ListProfilePinCandidateReposForUser :many
-SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, r.is_paused, r.paused_at, r.pause_reason, r.homepage, COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, r.is_paused, r.paused_at, r.pause_reason, r.homepage, r.delete_branch_on_merge, COALESCE(owner_user.username, owner_org.slug)::text AS owner_slug
 FROM repos r
 LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
 LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
@@ -1122,6 +1131,7 @@ func (q *Queries) ListProfilePinCandidateReposForUser(ctx context.Context, db DB
 			&i.Repo.PausedAt,
 			&i.Repo.PauseReason,
 			&i.Repo.Homepage,
+			&i.Repo.DeleteBranchOnMerge,
 			&i.OwnerSlug,
 		); err != nil {
 			return nil, err
@@ -1167,7 +1177,7 @@ func (q *Queries) ListProfilePinsForSet(ctx context.Context, db DBTX, setID int6
 }
 
 const listPublicContributionRepos = `-- name: ListPublicContributionRepos :many
-SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, r.is_paused, r.paused_at, r.pause_reason, r.homepage, COALESCE(u.username, o.slug)::text AS owner_slug
+SELECT r.id, r.owner_user_id, r.owner_org_id, r.name, r.description, r.visibility, r.default_branch, r.is_archived, r.archived_at, r.deleted_at, r.disk_used_bytes, r.fork_of_repo_id, r.license_key, r.primary_language, r.has_issues, r.has_pulls, r.created_at, r.updated_at, r.default_branch_oid, r.allow_squash_merge, r.allow_rebase_merge, r.allow_merge_commit, r.default_merge_method, r.star_count, r.watcher_count, r.fork_count, r.init_status, r.last_indexed_oid, r.is_template, r.is_paused, r.paused_at, r.pause_reason, r.homepage, r.delete_branch_on_merge, COALESCE(u.username, o.slug)::text AS owner_slug
 FROM repos r
 LEFT JOIN users u ON u.id = r.owner_user_id
 LEFT JOIN orgs o ON o.id = r.owner_org_id
@@ -1229,6 +1239,7 @@ func (q *Queries) ListPublicContributionRepos(ctx context.Context, db DBTX, limi
 			&i.Repo.PausedAt,
 			&i.Repo.PauseReason,
 			&i.Repo.Homepage,
+			&i.Repo.DeleteBranchOnMerge,
 			&i.OwnerSlug,
 		); err != nil {
 			return nil, err
@@ -1249,7 +1260,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_org_id = $1
   AND visibility = 'public'
@@ -1309,6 +1320,7 @@ func (q *Queries) ListPublicReposForOwnerOrg(ctx context.Context, db DBTX, arg L
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1328,7 +1340,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1
   AND visibility = 'public'
@@ -1388,6 +1400,7 @@ func (q *Queries) ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg 
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1433,7 +1446,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1482,6 +1495,7 @@ func (q *Queries) ListReposForOwnerOrg(ctx context.Context, db DBTX, ownerOrgID 
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1501,7 +1515,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_org_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1559,6 +1573,7 @@ func (q *Queries) ListReposForOwnerOrgPaged(ctx context.Context, db DBTX, arg Li
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1578,7 +1593,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1627,6 +1642,7 @@ func (q *Queries) ListReposForOwnerUser(ctx context.Context, db DBTX, ownerUserI
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1646,7 +1662,7 @@ SELECT id, owner_user_id, owner_org_id, name, description, visibility,
        allow_squash_merge, allow_rebase_merge, allow_merge_commit, default_merge_method,
        star_count, watcher_count, fork_count, init_status,
        last_indexed_oid, is_template,
-       is_paused, paused_at, pause_reason, homepage
+       is_paused, paused_at, pause_reason, homepage, delete_branch_on_merge
 FROM repos
 WHERE owner_user_id = $1 AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -1706,6 +1722,7 @@ func (q *Queries) ListReposForOwnerUserPaged(ctx context.Context, db DBTX, arg L
 			&i.PausedAt,
 			&i.PauseReason,
 			&i.Homepage,
+			&i.DeleteBranchOnMerge,
 		); err != nil {
 			return nil, err
 		}
