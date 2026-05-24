@@ -53,12 +53,8 @@ type apiPull struct {
 	Body   string `json:"body"`
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
-	// Legacy flat fields (S60 keeps them during transition).
-	BaseRef string `json:"base_ref"`
-	HeadRef string `json:"head_ref"`
-	BaseOID string `json:"base_oid"`
-	HeadOID string `json:"head_oid"`
-	// GitHub-compat nested envelopes.
+	// I7c (audit-I17): flat base_ref/head_ref/base_oid/head_oid fields
+	// were dropped; read base.ref / base.sha / head.ref / head.sha.
 	Base           *apiPRRef `json:"base"`
 	Head           *apiPRRef `json:"head"`
 	MergeableState string    `json:"mergeable_state"`
@@ -193,7 +189,7 @@ func TestPulls_CreateAndGet(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if created.Title != "wire up foo" || created.BaseRef != "trunk" || created.HeadRef != "feature" {
+	if created.Title != "wire up foo" || created.Base == nil || created.Base.Ref != "trunk" || created.Head == nil || created.Head.Ref != "feature" {
 		t.Errorf("shape: %+v", created)
 	}
 	if created.State != "open" || created.Merged {
@@ -422,9 +418,6 @@ func TestPulls_PatchBaseChange(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if updated.BaseRef != "stable" {
-		t.Errorf("base_ref: got %q want %q", updated.BaseRef, "stable")
-	}
 	if updated.Base == nil || updated.Base.Ref != "stable" {
 		t.Errorf("base envelope: %+v", updated.Base)
 	}
@@ -440,8 +433,8 @@ func TestPulls_PatchBaseChange(t *testing.T) {
 	}
 	var fetched apiPull
 	_ = json.Unmarshal(rr.Body.Bytes(), &fetched)
-	if fetched.BaseRef != "stable" {
-		t.Errorf("base_ref after GET: %q want stable", fetched.BaseRef)
+	if fetched.Base == nil || fetched.Base.Ref != "stable" {
+		t.Errorf("base envelope after GET: %+v", fetched.Base)
 	}
 }
 
@@ -1108,7 +1101,10 @@ func TestPulls_UpdateBranchMergeStrategy(t *testing.T) {
 	_, router, _, _, token, gitDir := seedPullsEnv(t, "alice")
 	pr := openPullFor(t, router, token, "alice", "demo")
 	num := strconv.FormatInt(pr.Number, 10)
-	oldHead := pr.HeadOID
+	var oldHead string
+	if pr.Head != nil {
+		oldHead = pr.Head.SHA
+	}
 
 	commitOnRepoBranch(t, gitDir, "trunk", "trunk advance", "TRUNK.md", "advance\n")
 
@@ -1129,7 +1125,7 @@ func TestPulls_UpdateBranchMergeStrategy(t *testing.T) {
 		t.Errorf("response shape: %+v", resp)
 	}
 
-	// GET reflects the moved head_oid.
+	// GET reflects the moved head sha (via head envelope).
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/"+num, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr = httptest.NewRecorder()
@@ -1139,8 +1135,8 @@ func TestPulls_UpdateBranchMergeStrategy(t *testing.T) {
 	}
 	var refreshed apiPull
 	_ = json.Unmarshal(rr.Body.Bytes(), &refreshed)
-	if refreshed.HeadOID == "" || refreshed.HeadOID == oldHead {
-		t.Errorf("head_oid should have advanced: was=%q now=%q", oldHead, refreshed.HeadOID)
+	if refreshed.Head == nil || refreshed.Head.SHA == "" || refreshed.Head.SHA == oldHead {
+		t.Errorf("head sha should have advanced: was=%q now=%+v", oldHead, refreshed.Head)
 	}
 }
 
@@ -1184,7 +1180,7 @@ func TestPulls_UpdateBranchExpectedHeadMismatch(t *testing.T) {
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected_head_sha mismatch: code=%d want 503; body=%s", rr.Code, rr.Body.String())
 	}
-	_ = pr.HeadOID
+	_ = pr.Head
 }
 
 // G8b (F43): non-author read-only collaborator gets 403. Author or
