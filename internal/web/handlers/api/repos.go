@@ -4,10 +4,12 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,12 +74,40 @@ type repoOwnerEnvelope struct {
 }
 
 // repoLicenseEnvelope is the gh-compat license shape. Key is the SPDX
-// id (e.g. "MIT") stored alongside the repo; Name is the human-readable
-// title (e.g. "MIT License"). G13 (F8): pre-fix Name was always empty
-// — gh-compat clients reading `license.name` for display saw blanks.
+// id lowercased (e.g. "mit"); SPDXID carries the canonical SPDX casing
+// (e.g. "MIT"); Name is the human-readable title (e.g. "MIT License").
+// URL points back at the /licenses discovery endpoint added in I35.
+// NodeID is the opaque base64 of `gid://shithub/License/{key}` —
+// gh-compat clients use it as the cache key.
+//
+// G13 (F8): pre-fix Name was always empty. I7a (audit-I11) adds the
+// SPDX casing, URL, and NodeID so the envelope matches gh's shape
+// instead of carrying just the two key+name fields.
 type repoLicenseEnvelope struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	SPDXID string `json:"spdx_id,omitempty"`
+	URL    string `json:"url,omitempty"`
+	NodeID string `json:"node_id,omitempty"`
+}
+
+// repoSecurityAndAnalysis is the gh-compat security envelope. shithub
+// doesn't ship secret-scanning or Dependabot today, but gh-compat
+// clients (Dependabot itself, Renovate, security CI tooling) probe
+// `security_and_analysis.*.status` to feature-detect. Emitting the
+// shape with `disabled` lets those clients skip cleanly instead of
+// crashing on a missing field.
+type repoSecurityAndAnalysis struct {
+	SecretScanning               repoSecurityFeature `json:"secret_scanning"`
+	SecretScanningPushProtection repoSecurityFeature `json:"secret_scanning_push_protection"`
+	DependabotSecurityUpdates    repoSecurityFeature `json:"dependabot_security_updates"`
+}
+
+// repoSecurityFeature is the per-feature status envelope inside
+// security_and_analysis. gh emits `{status: "enabled"|"disabled"}` per
+// feature; we stub everything to disabled for now.
+type repoSecurityFeature struct {
+	Status string `json:"status"`
 }
 
 // repoResponse mirrors GitHub's repo shape. The S62 audit (B14)
@@ -119,13 +149,113 @@ type repoResponse struct {
 	// column, so emit updated_at. Active repos see them converge in
 	// gh-compat anyway.
 	PushedAt string `json:"pushed_at,omitempty"`
+
+	// ─── I7a (audit-I11): gh-compat field expansion ──────────────────
+	//
+	// NodeID is the opaque base64 of `gid://shithub/Repository/{id}`.
+	// gh-compat clients use it as the cache key for the repo node.
+	NodeID string `json:"node_id,omitempty"`
+	// Parent is set on fork responses: the full repo envelope of the
+	// upstream the fork was created from. Nil for non-fork repos.
+	Parent *repoResponse `json:"parent,omitempty"`
+	// Permissions is populated for single-repo GETs against an
+	// authenticated request. List endpoints omit it (gh-compat:
+	// /users/{u}/repos doesn't carry permissions per row).
+	Permissions *RepoPermissionsForResponse `json:"permissions,omitempty"`
+	// SubscribersCount is people watching for notifications. On
+	// shithub this is what the row's WatcherCount column tracks. gh's
+	// WatcherCount field is a legacy alias for stars, which is why
+	// the JSON tag below pins gh-canonical naming.
+	SubscribersCount int64 `json:"subscribers_count"`
+	// NetworkCount is the total descendants of this repo's fork graph.
+	// For now stub to ForkCount (direct children only); a recursive
+	// CTE would land in a follow-up perf review.
+	NetworkCount int64 `json:"network_count"`
+
+	// gh-compat merge-strategy toggles. Three of these are real (squash
+	// / rebase / merge-commit toggles already on the row); the rest are
+	// gh-compat defaults emitted as constants since shithub doesn't
+	// gate behavior on them yet.
+	AllowSquashMerge          bool `json:"allow_squash_merge"`
+	AllowRebaseMerge          bool `json:"allow_rebase_merge"`
+	AllowMergeCommit          bool `json:"allow_merge_commit"`
+	AllowAutoMerge            bool `json:"allow_auto_merge"`
+	AllowUpdateBranch         bool `json:"allow_update_branch"`
+	DeleteBranchOnMerge       bool `json:"delete_branch_on_merge"`
+	UseSquashPRTitleAsDefault bool `json:"use_squash_pr_title_as_default"`
+	WebCommitSignoffRequired  bool `json:"web_commit_signoff_required"`
+
+	// Merge-commit format selectors. gh-compat string enums that
+	// describe how merge commit titles/messages are templated. Stubbed
+	// to gh's documented defaults since shithub doesn't honor them
+	// (single fixed template at merge time).
+	SquashMergeCommitTitle   string `json:"squash_merge_commit_title"`
+	SquashMergeCommitMessage string `json:"squash_merge_commit_message"`
+	MergeCommitTitle         string `json:"merge_commit_title"`
+	MergeCommitMessage       string `json:"merge_commit_message"`
+
+	// MirrorURL is non-null when the repo is a remote mirror. shithub
+	// doesn't support mirrored repos; emit `null` explicitly so the
+	// field is present (gh-compat clients null-check).
+	MirrorURL *string `json:"mirror_url"`
+	// TemplateRepository is non-null when the repo was created from a
+	// template repo. shithub's `repo create --template` flow records
+	// the source but the envelope is deferred until I10's template
+	// surface lands; emit `null` for now.
+	TemplateRepository *repoResponse `json:"template_repository"`
+
+	// SecurityAndAnalysis is a stub envelope (all features disabled).
+	// See repoSecurityAndAnalysis.
+	SecurityAndAnalysis *repoSecurityAndAnalysis `json:"security_and_analysis,omitempty"`
 }
+
+// RepoPermissionsForResponse is the JSON projection of the gh-compat
+// permissions bundle. Mirrors policy.RepoPermissions field-for-field;
+// the indirection keeps the API package from importing the policy
+// struct's tags transitively.
+type RepoPermissionsForResponse struct {
+	Admin    bool `json:"admin"`
+	Maintain bool `json:"maintain"`
+	Push     bool `json:"push"`
+	Triage   bool `json:"triage"`
+	Pull     bool `json:"pull"`
+}
+
+// gh-compat default constants for the merge-commit format selectors.
+// Mirror what gh's API documents for new-repo defaults — clients that
+// feature-detect on these strings see the gh shape.
+const (
+	ghCompatSquashMergeCommitTitle   = "COMMIT_OR_PR_TITLE"
+	ghCompatSquashMergeCommitMessage = "COMMIT_MESSAGES"
+	ghCompatMergeCommitTitle         = "MERGE_MESSAGE"
+	ghCompatMergeCommitMessage       = "PR_TITLE"
+)
 
 // presentRepo builds the gh-compat response for one repo. Topics +
 // baseURL are passed in so the function stays pure; callers that
 // don't have them (e.g. legacy code paths) can supply nil + "" to get
 // a response without those fields populated.
+//
+// For list endpoints, prefer this directly — permissions and parent
+// stay nil (gh-compat: list pages omit them). For single-repo GETs
+// against an authenticated actor, prefer presentRepoFull, which adds
+// the per-actor permissions bundle and resolves the fork parent.
 func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL string) repoResponse {
+	return presentRepoFull(r, ownerLogin, topics, nil, nil, baseURL)
+}
+
+// presentRepoFull is presentRepo + the per-actor permissions bundle
+// + the fork parent envelope (nil for non-forks). Single-repo GETs
+// call through here so the response carries the full gh-compat
+// surface; list endpoints call presentRepo so they stay light.
+func presentRepoFull(
+	r reposdb.Repo,
+	ownerLogin string,
+	topics []string,
+	parent *repoResponse,
+	perms *policy.RepoPermissions,
+	baseURL string,
+) repoResponse {
 	ownerType := "user"
 	if r.OwnerOrgID.Valid {
 		ownerType = "org"
@@ -158,6 +288,34 @@ func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL str
 		CreatedAt:     r.CreatedAt.Time.UTC().Format(time.RFC3339),
 		UpdatedAt:     r.UpdatedAt.Time.UTC().Format(time.RFC3339),
 		PushedAt:      r.UpdatedAt.Time.UTC().Format(time.RFC3339),
+
+		// I7a — gh-compat expansion.
+		NodeID:           repoNodeID(r.ID),
+		Parent:           parent,
+		SubscribersCount: r.WatcherCount, // shithub's watcher_count column == gh's subscribers_count
+		NetworkCount:     r.ForkCount,    // direct-child count; recursive CTE deferred to follow-up perf review
+
+		AllowSquashMerge:          r.AllowSquashMerge,
+		AllowRebaseMerge:          r.AllowRebaseMerge,
+		AllowMergeCommit:          r.AllowMergeCommit,
+		AllowAutoMerge:            false, // deferred — no behavior yet
+		AllowUpdateBranch:         false, // deferred — no behavior yet
+		DeleteBranchOnMerge:       r.DeleteBranchOnMerge,
+		UseSquashPRTitleAsDefault: false, // deferred — no behavior yet
+		WebCommitSignoffRequired:  false, // deferred — no behavior yet
+
+		SquashMergeCommitTitle:   ghCompatSquashMergeCommitTitle,
+		SquashMergeCommitMessage: ghCompatSquashMergeCommitMessage,
+		MergeCommitTitle:         ghCompatMergeCommitTitle,
+		MergeCommitMessage:       ghCompatMergeCommitMessage,
+
+		MirrorURL:          nil, // shithub doesn't mirror; null explicit
+		TemplateRepository: nil, // deferred until I10
+		SecurityAndAnalysis: &repoSecurityAndAnalysis{
+			SecretScanning:               repoSecurityFeature{Status: "disabled"},
+			SecretScanningPushProtection: repoSecurityFeature{Status: "disabled"},
+			DependabotSecurityUpdates:    repoSecurityFeature{Status: "disabled"},
+		},
 	}
 	if r.OwnerUserID.Valid {
 		resp.Owner.ID = r.OwnerUserID.Int64
@@ -165,9 +323,13 @@ func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL str
 		resp.Owner.ID = r.OwnerOrgID.Int64
 	}
 	if r.LicenseKey.Valid && r.LicenseKey.String != "" {
+		key := r.LicenseKey.String
 		resp.License = &repoLicenseEnvelope{
-			Key:  r.LicenseKey.String,
-			Name: templates.LicenseName(r.LicenseKey.String),
+			Key:    strings.ToLower(key),
+			SPDXID: key,
+			Name:   templates.LicenseName(key),
+			URL:    licenseURL(baseURL, key),
+			NodeID: licenseNodeID(key),
 		}
 	}
 	if r.PrimaryLanguage.Valid {
@@ -179,7 +341,40 @@ func presentRepo(r reposdb.Repo, ownerLogin string, topics []string, baseURL str
 	if baseURL != "" {
 		resp.HTMLURL = strings.TrimRight(baseURL, "/") + "/" + ownerLogin + "/" + r.Name
 	}
+	if perms != nil {
+		resp.Permissions = &RepoPermissionsForResponse{
+			Admin:    perms.Admin,
+			Maintain: perms.Maintain,
+			Push:     perms.Push,
+			Triage:   perms.Triage,
+			Pull:     perms.Pull,
+		}
+	}
 	return resp
+}
+
+// repoNodeID returns the opaque base64 ID for a repository node.
+// Format mirrors gh's GraphQL node id shape: base64(`gid://shithub/
+// Repository/{numeric-id}`). Clients should treat this as opaque.
+func repoNodeID(id int64) string {
+	raw := "gid://shithub/Repository/" + strconv.FormatInt(id, 10)
+	return base64.StdEncoding.EncodeToString([]byte(raw))
+}
+
+// licenseURL builds the discovery URL for a license key. Empty baseURL
+// returns "" so list responses (which don't carry baseURL) skip the
+// field via omitempty.
+func licenseURL(baseURL, spdxID string) string {
+	if baseURL == "" {
+		return ""
+	}
+	return strings.TrimRight(baseURL, "/") + "/api/v1/licenses/" + strings.ToLower(spdxID)
+}
+
+// licenseNodeID is the opaque base64 of `gid://shithub/License/{key}`.
+func licenseNodeID(spdxID string) string {
+	raw := "gid://shithub/License/" + spdxID
+	return base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
 // topicsFor fetches the topic set for a repo. Returns nil on lookup
@@ -418,7 +613,51 @@ func (h *Handlers) repoGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, presentRepo(repo, ownerLogin, h.topicsFor(r.Context(), repo.ID), h.d.BaseURL))
+	// I7a: single-repo GET carries the full gh-compat surface — fork
+	// parent (when the repo is itself a fork) plus the actor's
+	// permission bundle. Both lookups are best-effort: a parent miss
+	// (parent repo deleted, transient pool error) emits the response
+	// without parent rather than failing the GET.
+	parent := h.resolveForkParent(r.Context(), repo)
+	auth := middleware.PATAuthFromContext(r.Context())
+	perms := policy.PermissionsFor(r.Context(), policy.Deps{Pool: h.d.Pool}, auth.PolicyActor(), policy.NewRepoRefFromRepo(repo))
+	writeJSON(w, http.StatusOK, presentRepoFull(repo, ownerLogin, h.topicsFor(r.Context(), repo.ID), parent, &perms, h.d.BaseURL))
+}
+
+// resolveForkParent returns the gh-compat parent envelope for a fork,
+// or nil when the repo isn't a fork or the parent lookup fails. Lookup
+// failure is silent by design — the parent column is best-effort and
+// must not break the GET.
+func (h *Handlers) resolveForkParent(ctx context.Context, child reposdb.Repo) *repoResponse {
+	if !child.ForkOfRepoID.Valid {
+		return nil
+	}
+	q := reposdb.New()
+	parent, err := q.GetRepoByID(ctx, h.d.Pool, child.ForkOfRepoID.Int64)
+	if err != nil || parent.DeletedAt.Valid {
+		return nil
+	}
+	parentLogin, err := h.resolveOwnerLogin(ctx, parent)
+	if err != nil {
+		return nil
+	}
+	envelope := presentRepo(parent, parentLogin, nil, h.d.BaseURL)
+	return &envelope
+}
+
+// resolveOwnerLogin returns the owner slug for a repo by joining
+// against users or orgs. Mirrors what lookupRepoByLogin returns at
+// the top of a request, but works from a Repo row already in hand.
+func (h *Handlers) resolveOwnerLogin(ctx context.Context, r reposdb.Repo) (string, error) {
+	row, err := reposdb.New().GetRepoOwnerUsernameByID(ctx, h.d.Pool, r.ID)
+	if err != nil {
+		return "", err
+	}
+	// sqlc projects COALESCE(varchar, varchar) as interface{}; the row
+	// always carries a string at runtime since the LEFT JOINs guarantee
+	// exactly one of users.username or orgs.slug is non-NULL.
+	login, _ := row.OwnerUsername.(string)
+	return login, nil
 }
 
 // ─── create endpoints ───────────────────────────────────────────────
