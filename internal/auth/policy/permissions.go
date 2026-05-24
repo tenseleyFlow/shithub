@@ -31,6 +31,49 @@ type RepoPermissions struct {
 	Pull     bool `json:"pull"`
 }
 
+// AuthorAssociation is the gh-compat enum that surfaces on issue +
+// PR + comment responses to describe how the author relates to the
+// repo. The five values mirror gh's documented surface:
+//
+//	OWNER         — the author is the repo's owner (user-owned repo)
+//	MEMBER        — the author is a member of the owning org
+//	COLLABORATOR  — the author has an explicit collaborator row
+//	CONTRIBUTOR   — the author has previously merged a PR (degrades to
+//	                NONE on shithub today; we don't track historical
+//	                contribution at issue-render time)
+//	NONE          — no association
+//
+// Per-comment authors (in PR/issue threads) pass through the same
+// helper; the policy decision is per-actor-per-repo, not per-resource.
+//
+// I7a (audit-I12): this lands as a CRIT-class field because porting
+// gh scripts that switch on author_association (e.g. permissions
+// matrices in bot-driven workflows) crash on the missing key.
+func AuthorAssociation(ctx context.Context, d Deps, actor Actor, repo RepoRef) string {
+	if actor.IsAnonymous || actor.UserID == 0 {
+		return "NONE"
+	}
+	if repo.IsOwnedByUser(actor.UserID) {
+		return "OWNER"
+	}
+	role := EffectiveRole(ctx, d, actor, repo)
+	switch role {
+	case RoleAdmin, RoleMaintain:
+		// Org-owned repos: admin-via-org-membership surfaces as MEMBER.
+		// User-owned repos: admin-via-collaborator-row → COLLABORATOR.
+		if repo.OwnerOrgID != 0 {
+			return "MEMBER"
+		}
+		return "COLLABORATOR"
+	case RoleWrite, RoleTriage, RoleRead:
+		// gh distinguishes COLLABORATOR (any explicit row) from
+		// CONTRIBUTOR (merged-PR history). Without a historical
+		// contribution table, every collaborator row surfaces here.
+		return "COLLABORATOR"
+	}
+	return "NONE"
+}
+
 // PermissionsFor returns the gh-compat permission bundle for actor
 // against repo. Pure projection over policy.Can — no DB writes, no
 // new caching layer. Callers eat five Can calls per invocation; in
