@@ -41,7 +41,6 @@ type apiIssue struct {
 	StateReason string          `json:"state_reason"`
 	Locked      bool            `json:"locked"`
 	LockReason  string          `json:"lock_reason"`
-	AuthorID    int64           `json:"author_id"`
 	User        *apiUser        `json:"user"`
 	HTMLURL     string          `json:"html_url"`
 	Labels      []apiLabel      `json:"labels"`
@@ -82,7 +81,6 @@ type apiMilestoneIE struct {
 type apiComment struct {
 	ID        int64    `json:"id"`
 	IssueID   int64    `json:"issue_id"`
-	AuthorID  int64    `json:"author_id"`
 	User      *apiUser `json:"user"`
 	Body      string   `json:"body"`
 	CreatedAt string   `json:"created_at"`
@@ -855,9 +853,11 @@ func TestIssues_LockedRejectsCommentEvenFromLocker(t *testing.T) {
 
 // TestIssues_UserEnvelope pins the S60 audit-finding A12 fix: every
 // issue + comment response carries a nested `user: {id, login, type}`
-// envelope alongside the legacy `author_id` so gh-compat clients (the
-// shithub-cli, which renders `ghost` when user is missing) work
-// directly without a separate /users/{id} round-trip.
+// envelope so gh-compat clients (the shithub-cli, which renders
+// `ghost` when user is missing) work directly without a separate
+// /users/{id} round-trip. I7b (audit-I10) stripped the legacy
+// `author_id` field that lived alongside; user.id is the single
+// source of truth now. Body must NOT carry author_id.
 func TestIssues_UserEnvelope(t *testing.T) {
 	_, router, _, _, token := seedIssuesEnv(t, "alice")
 
@@ -869,18 +869,22 @@ func TestIssues_UserEnvelope(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create status: got %d, body=%s", rr.Code, rr.Body.String())
 	}
+	rawBody := rr.Body.String()
+	if strings.Contains(rawBody, `"author_id"`) {
+		t.Errorf("response leaks author_id (I7b regression): %s", rawBody)
+	}
 	var created apiIssue
-	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+	if err := json.Unmarshal([]byte(rawBody), &created); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if created.User == nil {
-		t.Fatalf("issue.user envelope missing; body=%s", rr.Body.String())
+		t.Fatalf("issue.user envelope missing; body=%s", rawBody)
 	}
 	if created.User.Login != "alice" || created.User.Type != "User" {
 		t.Errorf("user envelope shape: %+v", created.User)
 	}
-	if created.User.ID != created.AuthorID {
-		t.Errorf("user.id (%d) != author_id (%d)", created.User.ID, created.AuthorID)
+	if created.User.ID == 0 {
+		t.Errorf("user.id should carry the author's integer ID: %+v", created.User)
 	}
 
 	// Single GET path also exercises the resolveUserEnvelope code path
