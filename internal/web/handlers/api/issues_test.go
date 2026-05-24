@@ -50,6 +50,25 @@ type apiIssue struct {
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
 	ClosedAt    string          `json:"closed_at"`
+
+	// I7a (audit-I12): gh-compat field expansion. Pointer types for
+	// always-emit-with-null shape; the rest match the server response.
+	NodeID                string                   `json:"node_id"`
+	Comments              int64                    `json:"comments"`
+	Reactions             *apiIssueReactionsBundle `json:"reactions"`
+	AuthorAssociation     string                   `json:"author_association"`
+	RepositoryURL         string                   `json:"repository_url"`
+	EventsURL             string                   `json:"events_url"`
+	LabelsURL             string                   `json:"labels_url"`
+	CommentsURL           string                   `json:"comments_url"`
+	ActiveLockReason      *string                  `json:"active_lock_reason"`
+	ClosedBy              *apiUser                 `json:"closed_by"`
+	PerformedViaGitHubApp *struct{}                `json:"performed_via_github_app"`
+}
+
+type apiIssueReactionsBundle struct {
+	URL        string `json:"url"`
+	TotalCount int64  `json:"total_count"`
 }
 
 // apiMilestoneIE mirrors the server's milestoneIssueEnvelope — the
@@ -1314,5 +1333,84 @@ func TestIssues_DeleteRejectsPRNumber(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("DELETE on PR number: code=%d want 404; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestIssues_GetCarriesGHCompatExpansion pins audit-I12: GET on a
+// single issue emits node_id, comments count, the sub-resource URL
+// bundle (repository_url / events_url / labels_url / comments_url),
+// author_association, the reactions stub, and explicit-null
+// performed_via_github_app. Ported gh scripts that switch on these
+// fields would crash on the missing keys today.
+func TestIssues_GetCarriesGHCompatExpansion(t *testing.T) {
+	_, router, _, _, token := seedIssuesEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{"title": "expansion target", "body": "shape me"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/issues", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/issues/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+
+	var got apiIssue
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if got.NodeID == "" {
+		t.Error("node_id missing")
+	}
+	if got.Comments != 0 {
+		t.Errorf("comments: got %d on fresh issue, want 0", got.Comments)
+	}
+	// Author is alice, repo owner → OWNER.
+	if got.AuthorAssociation != "OWNER" {
+		t.Errorf("author_association: got %q, want OWNER", got.AuthorAssociation)
+	}
+	// Sub-resource URLs all rooted at /api/v1/repos/alice/demo.
+	wantPrefix := "https://shithub.test/api/v1/repos/alice/demo"
+	if got.RepositoryURL != wantPrefix {
+		t.Errorf("repository_url: got %q, want %q", got.RepositoryURL, wantPrefix)
+	}
+	if got.EventsURL != wantPrefix+"/issues/1/events" {
+		t.Errorf("events_url: got %q", got.EventsURL)
+	}
+	if got.LabelsURL != wantPrefix+"/issues/1/labels{/name}" {
+		t.Errorf("labels_url: got %q", got.LabelsURL)
+	}
+	if got.CommentsURL != wantPrefix+"/issues/1/comments" {
+		t.Errorf("comments_url: got %q", got.CommentsURL)
+	}
+	// Reactions stub present, zeroed.
+	if got.Reactions == nil {
+		t.Fatal("reactions envelope missing")
+	}
+	if got.Reactions.TotalCount != 0 {
+		t.Errorf("reactions.total_count: got %d, want 0", got.Reactions.TotalCount)
+	}
+	if got.Reactions.URL != wantPrefix+"/issues/1/reactions" {
+		t.Errorf("reactions.url: got %q", got.Reactions.URL)
+	}
+	// performed_via_github_app explicit-null (key present, value nil).
+	if got.PerformedViaGitHubApp != nil {
+		t.Errorf("performed_via_github_app should be null, got %v", got.PerformedViaGitHubApp)
+	}
+	// Open issue → closed_by is nil; closed_at is empty (the JSON null
+	// decodes into "" because apiIssue's ClosedAt is a string).
+	if got.ClosedBy != nil {
+		t.Errorf("closed_by on open issue: got %+v, want nil", got.ClosedBy)
+	}
+	if got.ClosedAt != "" {
+		t.Errorf("closed_at on open issue: got %q, want empty", got.ClosedAt)
 	}
 }
