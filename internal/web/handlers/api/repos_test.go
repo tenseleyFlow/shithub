@@ -37,8 +37,11 @@ type apiRepoOwner struct {
 
 // apiRepoLicense mirrors repoLicenseEnvelope.
 type apiRepoLicense struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	SPDXID string `json:"spdx_id"`
+	URL    string `json:"url"`
+	NodeID string `json:"node_id"`
 }
 
 type apiRepo struct {
@@ -69,6 +72,46 @@ type apiRepo struct {
 	CreatedAt     string          `json:"created_at"`
 	UpdatedAt     string          `json:"updated_at"`
 	PushedAt      string          `json:"pushed_at"`
+
+	// I7a (audit-I11): gh-compat field expansion.
+	NodeID                    string                  `json:"node_id"`
+	Parent                    *apiRepo                `json:"parent"`
+	Permissions               *apiRepoPermissions     `json:"permissions"`
+	SubscribersCount          int64                   `json:"subscribers_count"`
+	NetworkCount              int64                   `json:"network_count"`
+	AllowSquashMerge          bool                    `json:"allow_squash_merge"`
+	AllowRebaseMerge          bool                    `json:"allow_rebase_merge"`
+	AllowMergeCommit          bool                    `json:"allow_merge_commit"`
+	AllowAutoMerge            bool                    `json:"allow_auto_merge"`
+	AllowUpdateBranch         bool                    `json:"allow_update_branch"`
+	DeleteBranchOnMerge       bool                    `json:"delete_branch_on_merge"`
+	UseSquashPRTitleAsDefault bool                    `json:"use_squash_pr_title_as_default"`
+	WebCommitSignoffRequired  bool                    `json:"web_commit_signoff_required"`
+	SquashMergeCommitTitle    string                  `json:"squash_merge_commit_title"`
+	SquashMergeCommitMessage  string                  `json:"squash_merge_commit_message"`
+	MergeCommitTitle          string                  `json:"merge_commit_title"`
+	MergeCommitMessage        string                  `json:"merge_commit_message"`
+	MirrorURL                 *string                 `json:"mirror_url"`
+	TemplateRepository        *apiRepo                `json:"template_repository"`
+	SecurityAndAnalysis       *apiSecurityAndAnalysis `json:"security_and_analysis"`
+}
+
+type apiRepoPermissions struct {
+	Admin    bool `json:"admin"`
+	Maintain bool `json:"maintain"`
+	Push     bool `json:"push"`
+	Triage   bool `json:"triage"`
+	Pull     bool `json:"pull"`
+}
+
+type apiSecurityAndAnalysis struct {
+	SecretScanning               apiSecurityFeature `json:"secret_scanning"`
+	SecretScanningPushProtection apiSecurityFeature `json:"secret_scanning_push_protection"`
+	DependabotSecurityUpdates    apiSecurityFeature `json:"dependabot_security_updates"`
+}
+
+type apiSecurityFeature struct {
+	Status string `json:"status"`
 }
 
 // newReposAPIRouter builds an API router with the repo-create stack
@@ -237,8 +280,15 @@ func TestRepos_CreateWithLicensePopulatesLicenseName(t *testing.T) {
 	if created.License == nil {
 		t.Fatal("license envelope missing on create response")
 	}
-	if created.License.Key != "MIT" {
-		t.Errorf("license.key: got %q want MIT", created.License.Key)
+	// I7a (audit-I11): gh-compat splits the SPDX casing across two
+	// fields — `key` is lowercase (the URL-safe id), `spdx_id` is the
+	// canonical SPDX casing. Pre-I7a, `key` carried the canonical
+	// casing; that shape mismatched gh's documented surface.
+	if created.License.Key != "mit" {
+		t.Errorf("license.key: got %q want %q (gh-compat: lowercase)", created.License.Key, "mit")
+	}
+	if created.License.SPDXID != "MIT" {
+		t.Errorf("license.spdx_id: got %q want %q", created.License.SPDXID, "MIT")
 	}
 	if created.License.Name != "MIT License" {
 		t.Errorf("license.name: got %q want %q", created.License.Name, "MIT License")
@@ -1041,5 +1091,98 @@ func TestRepos_PatchOnArchivedRepoIs403(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("archived GET: got %d, want 200", rr.Code)
+	}
+}
+
+// TestRepos_GetCarriesGHCompatExpansion pins audit-I11: GET on a single
+// repo emits the full gh-compat field surface — node_id, permissions
+// bundle for the authed actor, network/subscribers counts, the merge-
+// strategy toggle constellation, the security-and-analysis stub
+// envelope, and explicit `null` for the deferred mirror_url +
+// template_repository fields. Ported gh scripts rely on these.
+func TestRepos_GetCarriesGHCompatExpansion(t *testing.T) {
+	pool := dbtest.NewTestDB(t)
+	router, _ := newReposAPIRouter(t, pool)
+	userID := seedRepoCreatorUser(t, pool, "alice")
+	token := mintRunnerAPIPAT(t, pool, userID, string(pat.ScopeRepoWrite))
+
+	body, _ := json.Marshal(map[string]any{
+		"name":       "expansion",
+		"visibility": "public",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/repos", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/expansion", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+
+	var got apiRepo
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// NodeID: opaque but must be set + base64-shaped.
+	if got.NodeID == "" {
+		t.Error("node_id missing")
+	}
+
+	// Permissions: alice is owner → all true.
+	if got.Permissions == nil {
+		t.Fatal("permissions missing on owner GET")
+	}
+	if !got.Permissions.Admin || !got.Permissions.Push || !got.Permissions.Pull {
+		t.Errorf("owner permissions: %+v (want admin+push+pull true)", got.Permissions)
+	}
+
+	// Network + subscribers counts present.
+	if got.NetworkCount < 0 || got.SubscribersCount < 0 {
+		t.Errorf("counts: network=%d subscribers=%d", got.NetworkCount, got.SubscribersCount)
+	}
+
+	// Merge-strategy toggles: real fields default to true (squash + merge
+	// + rebase all on at create time); deferred toggles must be false.
+	if got.AllowAutoMerge || got.AllowUpdateBranch || got.UseSquashPRTitleAsDefault || got.WebCommitSignoffRequired {
+		t.Errorf("deferred toggles should default false: %+v", got)
+	}
+	// Merge-commit format constants pinned.
+	if got.SquashMergeCommitTitle != "COMMIT_OR_PR_TITLE" {
+		t.Errorf("squash_merge_commit_title: got %q", got.SquashMergeCommitTitle)
+	}
+	if got.MergeCommitMessage != "PR_TITLE" {
+		t.Errorf("merge_commit_message: got %q", got.MergeCommitMessage)
+	}
+
+	// MirrorURL + TemplateRepository explicit null.
+	if got.MirrorURL != nil {
+		t.Errorf("mirror_url should be null, got %v", got.MirrorURL)
+	}
+	if got.TemplateRepository != nil {
+		t.Errorf("template_repository should be null, got %v", got.TemplateRepository)
+	}
+
+	// Security + analysis stub: all features disabled.
+	if got.SecurityAndAnalysis == nil {
+		t.Fatal("security_and_analysis envelope missing")
+	}
+	if got.SecurityAndAnalysis.SecretScanning.Status != "disabled" {
+		t.Errorf("secret_scanning: %+v", got.SecurityAndAnalysis.SecretScanning)
+	}
+	if got.SecurityAndAnalysis.DependabotSecurityUpdates.Status != "disabled" {
+		t.Errorf("dependabot_security_updates: %+v", got.SecurityAndAnalysis.DependabotSecurityUpdates)
+	}
+
+	// Parent: non-fork repo → nil parent.
+	if got.Parent != nil {
+		t.Errorf("non-fork parent: got %+v, want nil", got.Parent)
 	}
 }
