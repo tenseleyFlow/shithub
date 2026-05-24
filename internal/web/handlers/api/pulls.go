@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,31 +125,137 @@ type pullResponse struct {
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	ClosedAt  string `json:"closed_at,omitempty"`
+
+	// ─── I7a (audit-I13): gh-compat field expansion ──────────────────
+	//
+	// NodeID is the opaque base64 of `gid://shithub/PullRequest/{id}`.
+	NodeID string `json:"node_id,omitempty"`
+	// Shared collab fields. Match issueResponse's shape exactly; gh
+	// treats PR responses as a superset of issue responses for these.
+	Assignees []userEnvelope          `json:"assignees"`
+	Labels    []labelEnvelope         `json:"labels"`
+	Milestone *milestoneIssueEnvelope `json:"milestone"`
+	// RequestedReviewers + RequestedTeams carry the active review-request
+	// rows (not dismissed, not satisfied). Both always present, never
+	// nil — gh-compat clients parse against key presence.
+	RequestedReviewers []userEnvelope    `json:"requested_reviewers"`
+	RequestedTeams     []prRequestedTeam `json:"requested_teams"`
+	// MergedBy is the user who pushed Merge. Null when unmerged.
+	MergedBy *userEnvelope `json:"merged_by"`
+	// AuthorAssociation is the gh-compat 5-value enum (see
+	// policy.AuthorAssociation).
+	AuthorAssociation string `json:"author_association,omitempty"`
+	// Diff-stat aggregates. Stub-zero when no snapshot is captured yet.
+	Additions    int64 `json:"additions"`
+	Deletions    int64 `json:"deletions"`
+	ChangedFiles int64 `json:"changed_files"`
+	// Commits / Comments / ReviewComments counts. comments is the
+	// issue-style comment count; review_comments is the inline-diff
+	// thread count.
+	Commits        int64 `json:"commits"`
+	Comments       int64 `json:"comments"`
+	ReviewComments int64 `json:"review_comments"`
+	// AutoMerge is the auto-merge config envelope. Null when not
+	// scheduled. shithub doesn't ship auto-merge today; stays null
+	// pending the merge-queue sprint.
+	AutoMerge *struct{} `json:"auto_merge"`
+	// MaintainerCanModify mirrors gh's flag for fork PRs. True for
+	// same-repo PRs; for fork PRs we don't track the
+	// maintainer-can-modify toggle, so emit false. Wires up cleanly
+	// when fork-PR settings land.
+	MaintainerCanModify bool `json:"maintainer_can_modify"`
 }
 
-// presentPull is the pure builder; callers pass pre-resolved base+head
-// repo envelopes (E2). For same-repo PRs (the common case) the caller
-// can reuse one envelope for both slots; cross-repo PRs (forks)
-// require a separate head lookup.
+// prRequestedTeam is the gh-compat envelope for a team review request.
+// shithub teams expose slug + org; gh's API surfaces a fuller team
+// node, but the minimum fields here unlock the shape gh-compat
+// clients pattern-match against.
+type prRequestedTeam struct {
+	Slug    string `json:"slug"`
+	OrgSlug string `json:"org_slug,omitempty"`
+}
+
+// presentPull is the legacy thin wrapper for list / create / patch
+// paths that don't have the I7a expansion inputs handy. Single-PR GET
+// goes through presentPullFull.
 func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelope, baseRepo, headRepo *prRepoEnvelope) pullResponse {
+	return presentPullFull(issue, pr, user, baseRepo, headRepo, pullExtras{})
+}
+
+// pullExtras carries the I7a (audit-I13) gh-compat expansion inputs.
+// All fields are optional; the zero value emits gh-compat default
+// null/empty values for the new keys.
+type pullExtras struct {
+	NodeID             string
+	Assignees          []userEnvelope
+	Labels             []labelEnvelope
+	Milestone          *milestoneIssueEnvelope
+	RequestedReviewers []userEnvelope
+	RequestedTeams     []prRequestedTeam
+	MergedBy           *userEnvelope
+	AuthorAssociation  string
+	Additions          int64
+	Deletions          int64
+	ChangedFiles       int64
+	Commits            int64
+	Comments           int64
+	ReviewComments     int64
+}
+
+func presentPullFull(
+	issue issuesdb.Issue,
+	pr pullsdb.PullRequest,
+	user *userEnvelope,
+	baseRepo, headRepo *prRepoEnvelope,
+	extras pullExtras,
+) pullResponse {
+	// Always-present-never-nil slices for gh-compat key presence.
+	if extras.Assignees == nil {
+		extras.Assignees = []userEnvelope{}
+	}
+	if extras.Labels == nil {
+		extras.Labels = []labelEnvelope{}
+	}
+	if extras.RequestedReviewers == nil {
+		extras.RequestedReviewers = []userEnvelope{}
+	}
+	if extras.RequestedTeams == nil {
+		extras.RequestedTeams = []prRequestedTeam{}
+	}
 	out := pullResponse{
-		ID:             issue.ID,
-		Number:         issue.Number,
-		Title:          issue.Title,
-		Body:           issue.Body,
-		State:          string(issue.State),
-		Draft:          pr.Draft,
-		BaseRef:        pr.BaseRef,
-		HeadRef:        pr.HeadRef,
-		BaseOID:        pr.BaseOid,
-		HeadOID:        pr.HeadOid,
-		Base:           &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid, Repo: baseRepo},
-		Head:           &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid, Repo: headRepo},
-		MergeableState: string(pr.MergeableState),
-		Merged:         pr.MergedAt.Valid,
-		User:           user,
-		CreatedAt:      issue.CreatedAt.Time.UTC().Format(time.RFC3339),
-		UpdatedAt:      issue.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		ID:                  issue.ID,
+		Number:              issue.Number,
+		Title:               issue.Title,
+		Body:                issue.Body,
+		State:               string(issue.State),
+		Draft:               pr.Draft,
+		BaseRef:             pr.BaseRef,
+		HeadRef:             pr.HeadRef,
+		BaseOID:             pr.BaseOid,
+		HeadOID:             pr.HeadOid,
+		Base:                &prRefEnvelope{Ref: pr.BaseRef, SHA: pr.BaseOid, Repo: baseRepo},
+		Head:                &prRefEnvelope{Ref: pr.HeadRef, SHA: pr.HeadOid, Repo: headRepo},
+		MergeableState:      string(pr.MergeableState),
+		Merged:              pr.MergedAt.Valid,
+		User:                user,
+		CreatedAt:           issue.CreatedAt.Time.UTC().Format(time.RFC3339),
+		UpdatedAt:           issue.UpdatedAt.Time.UTC().Format(time.RFC3339),
+		NodeID:              extras.NodeID,
+		Assignees:           extras.Assignees,
+		Labels:              extras.Labels,
+		Milestone:           extras.Milestone,
+		RequestedReviewers:  extras.RequestedReviewers,
+		RequestedTeams:      extras.RequestedTeams,
+		MergedBy:            extras.MergedBy,
+		AuthorAssociation:   extras.AuthorAssociation,
+		Additions:           extras.Additions,
+		Deletions:           extras.Deletions,
+		ChangedFiles:        extras.ChangedFiles,
+		Commits:             extras.Commits,
+		Comments:            extras.Comments,
+		ReviewComments:      extras.ReviewComments,
+		AutoMerge:           nil, // shithub doesn't ship auto-merge yet
+		MaintainerCanModify: false,
 	}
 	if pr.Mergeable.Valid {
 		v := pr.Mergeable.Bool
@@ -170,6 +277,13 @@ func presentPull(issue issuesdb.Issue, pr pullsdb.PullRequest, user *userEnvelop
 		out.ClosedAt = issue.ClosedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return out
+}
+
+// pullNodeID is the opaque base64 of `gid://shithub/PullRequest/{id}`.
+// gh-compat clients use it as the GraphQL node cache key.
+func pullNodeID(id int64) string {
+	raw := "gid://shithub/PullRequest/" + strconv.FormatInt(id, 10)
+	return base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
 // prRepoEnvelopeFromRow builds the trimmed envelope from an already-
@@ -540,9 +654,84 @@ func (h *Handlers) pullGet(w http.ResponseWriter, r *http.Request) {
 	}
 	baseEnv := h.prRepoEnvelopeFromRow(repo, ownerLogin)
 	headEnv := h.prHeadRepoEnvelope(r.Context(), pr, repo.ID, baseEnv)
-	resp := presentPull(issue, pr, u, baseEnv, headEnv)
+	// I7a (audit-I13): single-PR GET carries the full gh-compat
+	// surface — assignees/labels/milestone from the shared issue
+	// half, requested_reviewers + requested_teams from the active
+	// review-request rows, merged_by + author_association + diff-stat
+	// aggregates + commit/comment/review-comment counts + node_id.
+	extras := h.buildPullExtras(r.Context(), repo, issue, pr)
+	resp := presentPullFull(issue, pr, u, baseEnv, headEnv, extras)
 	resp.HTMLURL = h.pullHTMLURL(ownerLogin, repo.Name, issue.Number)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// buildPullExtras resolves all the I7a-expansion inputs for a single
+// PR GET. Best-effort: a query failure on any sub-fetch emits the
+// zero/empty value rather than failing the GET. Cost: roughly 8
+// additional queries per PR fetch (3 collab + 3 counts + 1 diff-stat
+// + 1 reviewer-list); covered by indexes on issue_id / pr_id /
+// pr_issue_id.
+func (h *Handlers) buildPullExtras(ctx context.Context, repo reposdb.Repo, issue issuesdb.Issue, pr pullsdb.PullRequest) pullExtras {
+	extras := pullExtras{NodeID: pullNodeID(issue.ID)}
+
+	// Shared collab fields — same projections as the issue GET path.
+	extras.Labels = h.labelEnvelopesFor(ctx, issue.ID)
+	extras.Assignees = h.assigneeEnvelopesFor(ctx, issue.ID)
+	extras.Milestone = h.milestoneEnvelopeFor(ctx, issue)
+
+	// Requested reviewers (active rows only — dismissed/satisfied
+	// surface via /pulls/{N}/reviews).
+	if rows, err := pullsdb.New().ListActivePRReviewRequestTargets(ctx, h.d.Pool, issue.ID); err == nil {
+		for _, row := range rows {
+			if row.RequestedUserID.Valid {
+				if u := h.resolveUserEnvelope(ctx, row.RequestedUserID.Int64); u != nil {
+					extras.RequestedReviewers = append(extras.RequestedReviewers, *u)
+				}
+			} else if row.RequestedTeamID.Valid {
+				team := prRequestedTeam{}
+				if row.RequestedTeamSlug.Valid {
+					team.Slug = row.RequestedTeamSlug.String
+				}
+				if row.RequestedTeamOrgSlug.Valid {
+					team.OrgSlug = row.RequestedTeamOrgSlug.String
+				}
+				if team.Slug != "" {
+					extras.RequestedTeams = append(extras.RequestedTeams, team)
+				}
+			}
+		}
+	}
+
+	// MergedBy.
+	if pr.MergedAt.Valid && pr.MergedByUserID.Valid {
+		extras.MergedBy = h.resolveUserEnvelope(ctx, pr.MergedByUserID.Int64)
+	}
+
+	// AuthorAssociation — author's relation to repo.
+	if issue.AuthorUserID.Valid {
+		authorActor := policy.UserActor(issue.AuthorUserID.Int64, "", false, false)
+		extras.AuthorAssociation = policy.AuthorAssociation(ctx, policy.Deps{Pool: h.d.Pool}, authorActor, policy.NewRepoRefFromRepo(repo))
+	}
+
+	// Diff-stat aggregates.
+	if stats, err := pullsdb.New().SumPullRequestDiffStats(ctx, h.d.Pool, issue.ID); err == nil {
+		extras.Additions = stats.Additions
+		extras.Deletions = stats.Deletions
+		extras.ChangedFiles = stats.ChangedFiles
+	}
+
+	// Counts: commits, issue-style comments, inline review comments.
+	if c, err := pullsdb.New().CountPullRequestCommits(ctx, h.d.Pool, issue.ID); err == nil {
+		extras.Commits = c
+	}
+	if c, err := issuesdb.New().CountIssueComments(ctx, h.d.Pool, issue.ID); err == nil {
+		extras.Comments = c
+	}
+	if c, err := pullsdb.New().CountPRReviewComments(ctx, h.d.Pool, issue.ID); err == nil {
+		extras.ReviewComments = c
+	}
+
+	return extras
 }
 
 // ─── create ─────────────────────────────────────────────────────────

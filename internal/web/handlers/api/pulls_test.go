@@ -69,6 +69,29 @@ type apiPull struct {
 	AuthorID       int64     `json:"author_id"`
 	User           *apiUser  `json:"user"`
 	HTMLURL        string    `json:"html_url"`
+
+	// I7a (audit-I13): gh-compat field expansion.
+	NodeID              string               `json:"node_id"`
+	Assignees           []apiUser            `json:"assignees"`
+	Labels              []apiLabel           `json:"labels"`
+	Milestone           *apiMilestoneIE      `json:"milestone"`
+	RequestedReviewers  []apiUser            `json:"requested_reviewers"`
+	RequestedTeams      []apiPRRequestedTeam `json:"requested_teams"`
+	MergedBy            *apiUser             `json:"merged_by"`
+	AuthorAssociation   string               `json:"author_association"`
+	Additions           int64                `json:"additions"`
+	Deletions           int64                `json:"deletions"`
+	ChangedFiles        int64                `json:"changed_files"`
+	Commits             int64                `json:"commits"`
+	Comments            int64                `json:"comments"`
+	ReviewComments      int64                `json:"review_comments"`
+	AutoMerge           *struct{}            `json:"auto_merge"`
+	MaintainerCanModify bool                 `json:"maintainer_can_modify"`
+}
+
+type apiPRRequestedTeam struct {
+	Slug    string `json:"slug"`
+	OrgSlug string `json:"org_slug"`
 }
 
 // gitCmdAPI is the test-side git shell wrapper — every invocation runs
@@ -1209,5 +1232,89 @@ func TestIssues_GetAcceptsPRNumber(t *testing.T) {
 	// merged set before PATCH.
 	if !strings.Contains(rr.Body.String(), `"labels":`) {
 		t.Errorf("response should carry labels envelope: %s", rr.Body.String())
+	}
+}
+
+// TestPulls_GetCarriesGHCompatExpansion pins audit-I13: single-PR GET
+// emits the full gh-compat field surface — node_id, assignees +
+// labels + milestone (shared with the issue side), requested_reviewers
+// + requested_teams, merged_by, author_association, diff-stat
+// aggregates, commit/comment/review-comment counts, the auto_merge
+// stub, and maintainer_can_modify. Ported gh scripts depend on these.
+func TestPulls_GetCarriesGHCompatExpansion(t *testing.T) {
+	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "expansion target", "body": "shape me",
+		"base": "trunk", "head": "feature",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+
+	var got apiPull
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if got.NodeID == "" {
+		t.Error("node_id missing")
+	}
+	// Author is repo owner → OWNER.
+	if got.AuthorAssociation != "OWNER" {
+		t.Errorf("author_association: got %q, want OWNER", got.AuthorAssociation)
+	}
+	// Empty-by-default slices: assignees, labels, requested_reviewers,
+	// requested_teams must all be non-nil empty (gh-compat key
+	// presence).
+	if got.Assignees == nil {
+		t.Error("assignees should be empty slice, got nil")
+	}
+	if got.Labels == nil {
+		t.Error("labels should be empty slice, got nil")
+	}
+	if got.RequestedReviewers == nil {
+		t.Error("requested_reviewers should be empty slice, got nil")
+	}
+	if got.RequestedTeams == nil {
+		t.Error("requested_teams should be empty slice, got nil")
+	}
+	// Unmerged PR → merged_by null.
+	if got.MergedBy != nil {
+		t.Errorf("merged_by on unmerged PR: got %+v, want nil", got.MergedBy)
+	}
+	// Counts: seedPullsEnv commits one file to the feature branch, so
+	// the PR snapshot captures one commit. comments + review_comments
+	// stay at zero — no comments posted in this test.
+	if got.Commits != 1 {
+		t.Errorf("commits: got %d, want 1 (seedPullsEnv commit)", got.Commits)
+	}
+	if got.Comments != 0 || got.ReviewComments != 0 {
+		t.Errorf("comments=%d review_comments=%d (want both 0)", got.Comments, got.ReviewComments)
+	}
+	// Diff stats reflect the seedPullsEnv commit (one file added, one
+	// line added). Pin presence + non-negative rather than exact
+	// values so seedPullsEnv tweaks don't break the test.
+	if got.ChangedFiles < 1 {
+		t.Errorf("changed_files: got %d, want ≥1 from seedPullsEnv", got.ChangedFiles)
+	}
+	if got.Additions < 1 {
+		t.Errorf("additions: got %d, want ≥1 from seedPullsEnv", got.Additions)
+	}
+	// AutoMerge explicit null.
+	if got.AutoMerge != nil {
+		t.Errorf("auto_merge should be null, got %v", got.AutoMerge)
 	}
 }
