@@ -144,6 +144,10 @@ func (h *Handlers) Mount(r chi.Router) {
 		r.Use(apiLimitMW)
 		// /meta is capability discovery — no scope required, anon ok.
 		h.mountMeta(r)
+		// audit-I35 (I6): curated SPDX license catalog — discovery
+		// endpoint so the CLI can resolve lowercase aliases without
+		// guessing at the canonical SPDX casing. Public, no scope.
+		h.mountLicenses(r)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireScope(pat.ScopeUserRead))
 			r.Get("/api/v1/user", h.userMe)

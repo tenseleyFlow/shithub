@@ -127,8 +127,16 @@ func Create(ctx context.Context, deps Deps, p Params) (Result, error) {
 	if p.Visibility != "public" && p.Visibility != "private" {
 		return Result{}, fmt.Errorf("repos: visibility must be public or private (got %q)", p.Visibility)
 	}
-	if p.LicenseKey != "" && !templates.HasLicense(p.LicenseKey) {
-		return Result{}, fmt.Errorf("%w: %s", ErrUnknownLicense, p.LicenseKey)
+	if p.LicenseKey != "" {
+		// audit-I35: pre-fix license keys were case-sensitive (`mit`
+		// rejected; only `MIT` worked). gh accepts lowercase via the
+		// curated `/licenses` list. Canonicalize at the consumption
+		// point — store the SPDX casing the curated catalog uses.
+		canonical, ok := templates.LicenseCanonical(p.LicenseKey)
+		if !ok {
+			return Result{}, fmt.Errorf("%w: %s", ErrUnknownLicense, p.LicenseKey)
+		}
+		p.LicenseKey = canonical
 	}
 	if p.GitignoreKey != "" && !templates.HasGitignore(p.GitignoreKey) {
 		return Result{}, fmt.Errorf("%w: %s", ErrUnknownGitignore, p.GitignoreKey)

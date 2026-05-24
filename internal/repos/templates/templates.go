@@ -67,6 +67,25 @@ func listKeys(efs embed.FS, dir, suffix string) []string {
 // HasLicense reports whether key is on the curated list.
 func HasLicense(key LicenseKey) bool { return contains(Licenses(), key) }
 
+// LicenseCanonical resolves any-case input to the canonical SPDX key
+// from the curated list, or returns ("", false) when no match exists.
+// audit-I35: pre-fix `--license mit` was rejected because the lookup
+// was case-sensitive. gh accepts lowercase via `GET /licenses` (which
+// returns lowercase keys); we accept any case at the consumption
+// point and emit the canonical SPDX casing in responses.
+func LicenseCanonical(key LicenseKey) (LicenseKey, bool) {
+	if key == "" {
+		return "", false
+	}
+	wantLower := strings.ToLower(key)
+	for _, k := range Licenses() {
+		if strings.ToLower(k) == wantLower {
+			return k, true
+		}
+	}
+	return "", false
+}
+
 // LicenseName returns the human-readable name for a curated SPDX key.
 // G13 (F8): the repo response envelope's `license.name` was emitted
 // as an empty string when the key was set, breaking gh-compat clients
