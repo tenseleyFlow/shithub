@@ -1236,6 +1236,59 @@ func TestIssues_GetAcceptsPRNumber(t *testing.T) {
 // + requested_teams, merged_by, author_association, diff-stat
 // aggregates, commit/comment/review-comment counts, the auto_merge
 // stub, and maintainer_can_modify. Ported gh scripts depend on these.
+// TestPulls_GetMergedPRReportsNilMergeable pins I19: post-merge,
+// `mergeable` becomes "already done, N/A" (gh returns null). Pre-fix
+// the field was whatever the merge-worker computed before merge — so
+// a merged PR could ship `merged: true, mergeable: false`, which
+// clients read as "the merge would fail" rather than "done".
+func TestPulls_GetMergedPRReportsNilMergeable(t *testing.T) {
+	pool, router, _, _, token, _ := seedPullsEnv(t, "alice")
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "merged target", "body": "for I19",
+		"base": "trunk", "head": "feature",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/repos/alice/demo/pulls", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Force merged_at + mergeable=false so the pre-fix bug would have
+	// surfaced (the response would carry mergeable=false alongside
+	// merged=true).
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE pull_requests SET merged_at = now(), mergeable = false WHERE issue_id IN
+		   (SELECT id FROM issues WHERE repo_id = (SELECT id FROM repos WHERE name='demo') AND number = 1)`,
+	); err != nil {
+		t.Fatalf("force merged_at: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/repos/alice/demo/pulls/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Decode into a map so we can distinguish "field absent" / "explicit
+	// null" / "false" — apiPull's *bool decodes false as a non-nil
+	// pointer to false, which is exactly what we need to reject.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if v, ok := raw["mergeable"]; ok && string(v) != "null" {
+		t.Errorf("I19 regression: merged PR carries mergeable=%s (want null/omitted)", string(v))
+	}
+	if v, ok := raw["mergeable_state"]; ok && string(v) != `""` {
+		t.Errorf("I19 regression: merged PR carries mergeable_state=%s (want empty)", string(v))
+	}
+}
+
 func TestPulls_GetCarriesGHCompatExpansion(t *testing.T) {
 	_, router, _, _, token, _ := seedPullsEnv(t, "alice")
 
