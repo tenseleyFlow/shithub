@@ -191,14 +191,21 @@ func TestDelete_RemovesRow(t *testing.T) {
 	}
 }
 
-func TestDelete_MissingIsIdempotent(t *testing.T) {
-	// DELETE WHERE doesn't error on zero rows; the store keeps that
-	// surface so callers can call Delete blindly during cleanup.
+// TestDelete_MissingReturnsNotFound pins I26: DELETE on a name that
+// doesn't exist returns ErrNotFound (mapped to HTTP 404 by the
+// handler). Pre-fix the SQL used :exec and returned nil regardless
+// of rowcount, so the REST API answered 204 even when the operation
+// removed nothing — clients saw success on a typo'd name.
+func TestDelete_MissingReturnsNotFound(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	scope := secrets.RepoScope(f.repoID)
-	if err := f.deps.Delete(ctx, scope, "NEVER_EXISTED"); err != nil {
-		t.Errorf("Delete missing: expected nil, got %v", err)
+	if err := f.deps.Delete(ctx, scope, "NEVER_EXISTED"); !errors.Is(err, secrets.ErrNotFound) {
+		t.Errorf("Delete repo missing: expected ErrNotFound, got %v", err)
+	}
+	// User scope shares the same :execrows treatment.
+	if err := f.deps.Delete(ctx, secrets.UserScope(f.userID), "NEVER_EXISTED"); !errors.Is(err, secrets.ErrNotFound) {
+		t.Errorf("Delete user missing: expected ErrNotFound, got %v", err)
 	}
 }
 
