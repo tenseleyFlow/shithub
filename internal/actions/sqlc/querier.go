@@ -29,14 +29,18 @@ type Querier interface {
 	DeleteEnvironmentSecret(ctx context.Context, db DBTX, arg DeleteEnvironmentSecretParams) error
 	DeleteOldRunnerJWTUsesForCleanup(ctx context.Context, db DBTX, expiresAt pgtype.Timestamptz) (int64, error)
 	DeleteOldWorkflowRunsForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
-	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error
+	// I26 (audit): see DeleteRepoSecret note.
+	DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) (int64, error)
 	DeleteOrgVariable(ctx context.Context, db DBTX, arg DeleteOrgVariableParams) error
 	DeleteRepoEnvironment(ctx context.Context, db DBTX, arg DeleteRepoEnvironmentParams) error
-	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error
+	// I26 (audit): switched to :execrows so the handler can 404 on a
+	// missing name instead of returning 204 ("we deleted nothing" lies).
+	DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) (int64, error)
 	DeleteRepoVariable(ctx context.Context, db DBTX, arg DeleteRepoVariableParams) error
 	DeleteStaleStepLogChunksForCleanup(ctx context.Context, db DBTX, completedAt pgtype.Timestamptz) (int64, error)
 	DeleteStepLogChunks(ctx context.Context, db DBTX, stepID int64) error
-	DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) error
+	// I26 (audit): see DeleteRepoSecret note.
+	DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) (int64, error)
 	DeleteUserVariable(ctx context.Context, db DBTX, arg DeleteUserVariableParams) error
 	DeleteWorkflowArtifactByID(ctx context.Context, db DBTX, id int64) (int64, error)
 	DeleteWorkflowArtifactsByIDs(ctx context.Context, db DBTX, dollar_1 []int64) (int64, error)
