@@ -97,6 +97,22 @@ func (h *Handlers) receivePack(w http.ResponseWriter, r *http.Request) {
 
 // runPack is the shared body for both POST endpoints.
 func (h *Handlers) runPack(w http.ResponseWriter, r *http.Request, svc protocol.Service) {
+	// The Go HTTP server's WriteTimeout (Web.WriteTimeout, 30s by
+	// default) is a hard cap on the entire response. For smart-HTTP
+	// git that's fatal: a large push runs the pre-receive hook (secret
+	// scan up to 45s, branch protection, …) before the first byte of
+	// response body streams. When WriteTimeout fires mid-stream the
+	// connection closes, the reverse proxy reads EOF, and the client
+	// sees HTTP 502 even though the push landed.
+	//
+	// Clear the deadlines per-request so this route runs unbounded.
+	// The 30s default still protects the rest of the API. Caddy's
+	// git-route timeouts (read/write/response_header_timeout = 30m)
+	// are the real ceiling for git ops. Firedrill 2026-05-25.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+	_ = rc.SetReadDeadline(time.Time{})
+
 	row, auth, allow := h.authorizeForService(w, r, svc)
 	if !allow {
 		return
