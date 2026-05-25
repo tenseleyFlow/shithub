@@ -1440,7 +1440,9 @@ func writeIssuesError(w http.ResponseWriter, err error) {
 		errors.Is(err, issues.ErrNullByteInBody),
 		errors.Is(err, issues.ErrNullByteInComment),
 		// I52 — multi-line titles rejected at the orchestrator gate.
-		errors.Is(err, issues.ErrMultilineTitle):
+		errors.Is(err, issues.ErrMultilineTitle),
+		// I28 — bidi/zero-width Unicode in title.
+		errors.Is(err, issues.ErrUnicodeControlInTitle):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, issues.ErrCommentRateLimit):
 		writeAPIError(w, http.StatusTooManyRequests, "comment rate limit exceeded")
