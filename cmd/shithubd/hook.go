@@ -343,6 +343,22 @@ func pushMayAddReachableObjects(refs []refUpdate) bool {
 	return false
 }
 
+// isInitialPush reports whether every ref in the push is a create from
+// the all-zero sentinel — i.e. the first push to a brand-new bare repo.
+// Used by the secret-protection enforcer to defer inline scanning on
+// initial imports where the per-commit diff-tree cost is unbounded.
+func isInitialPush(refs []refUpdate) bool {
+	if len(refs) == 0 {
+		return false
+	}
+	for _, rf := range refs {
+		if !isZeroObjectID(rf.before) {
+			return false
+		}
+	}
+	return true
+}
+
 func isZeroObjectID(s string) bool {
 	if s == "" {
 		return false

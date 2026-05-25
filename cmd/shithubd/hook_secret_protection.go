@@ -99,17 +99,34 @@ func enforcePreReceiveSecretProtection(ctx, scanRoot context.Context, h *hookCtx
 	if !enabled {
 		return nil
 	}
+
+	// Initial-push fast-path: when every ref is being created from the
+	// all-zero sentinel (i.e. first push to a brand-new bare repo) the
+	// inline scan is unworkable. `git diff-tree` runs per-commit against
+	// objects that just landed in quarantine; for a non-trivial repo
+	// (hundreds of commits over thousands of trees/blobs) it routinely
+	// blows 45s even when the commit count is under the inline cap.
+	// Defer wholesale to the background KindSecretScanHistory job, which
+	// walks the full history at its own pace once the push lands.
+	//
+	// Defense in depth: the user can't leak in an initial push anything
+	// that wasn't already in their local copy; the background scan still
+	// catches it as a security alert. Firedrill v5, 2026-05-25.
+	if isInitialPush(refs) {
+		fmt.Fprintln(stderr,
+			"shithub: secret scan: initial push detected; deferring to background scan. Any findings will surface as repository security alerts.")
+		return nil
+	}
+
 	// Carve out a dedicated budget for the scan, derived from scanRoot
 	// (no inherited deadline) so the 45s is genuinely 45s.
 	scanCtx, cancel := context.WithTimeout(scanRoot, preReceiveSecretScanBudget)
 	defer cancel()
 
-	// Initial-import safety valve: if the push introduces more new commits
+	// Inline-scan safety valve: if the push introduces more new commits
 	// than we can scan inline within the budget, skip and defer to the
-	// background KindSecretScanHistory job, which walks the full history
-	// at its own pace. Without this, a first-push of any sizable repo
-	// times out (firedrill 2026-05-25: 3195-object push hit "diff-tree:
-	// context deadline exceeded" on the inline path).
+	// background KindSecretScanHistory job. Catches large incremental
+	// pushes that aren't initial.
 	commits, err := preReceiveNewCommits(scanCtx, gitDir, refs)
 	if err != nil {
 		return fmt.Errorf("secret push protection: %w", err)
