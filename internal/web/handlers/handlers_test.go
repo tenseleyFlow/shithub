@@ -244,3 +244,65 @@ func writeRouteName(name string) http.HandlerFunc {
 		_, _ = io.WriteString(w, name)
 	}
 }
+
+// TestNotFound_APIPathReturnsJSON pins audit-I34: pre-fix the chi 404
+// always rendered the HTML error page, even for /api/v1/... paths. CLI
+// consumers had to scrape HTML. Now the handler branches on the API
+// prefix and emits the {"error":...} envelope.
+func TestNotFound_APIPathReturnsJSON(t *testing.T) {
+	r := chi.NewRouter()
+	_, _, notFound, err := RegisterChi(r, Deps{
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TemplatesFS: testTemplatesFS(t),
+		StaticFS:    testStaticFS(t),
+		LogoSVG:     `<svg xmlns="http://www.w3.org/2000/svg"><title>shithub</title></svg>`,
+	})
+	if err != nil {
+		t.Fatalf("RegisterChi: %v", err)
+	}
+	r.NotFound(notFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/totally-nonexistent", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Errorf("Content-Type: got %q want application/json prefix", got)
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"error"`) {
+		t.Errorf("body should carry the {\"error\":...} envelope: %s", got)
+	}
+	if got := rec.Body.String(); !strings.Contains(got, "/api/v1/totally-nonexistent") {
+		t.Errorf("body should echo the missing path: %s", got)
+	}
+}
+
+// TestNotFound_HTMLPathReturnsHTML pins the boundary: non-API paths
+// keep the existing HTML 404 rendering.
+func TestNotFound_HTMLPathReturnsHTML(t *testing.T) {
+	r := chi.NewRouter()
+	_, _, notFound, err := RegisterChi(r, Deps{
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TemplatesFS: testTemplatesFS(t),
+		StaticFS:    testStaticFS(t),
+		LogoSVG:     `<svg xmlns="http://www.w3.org/2000/svg"><title>shithub</title></svg>`,
+	})
+	if err != nil {
+		t.Fatalf("RegisterChi: %v", err)
+	}
+	r.NotFound(notFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/some/nonexistent/page", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); strings.HasPrefix(got, "application/json") {
+		t.Errorf("non-API 404 should not emit JSON; got Content-Type %q", got)
+	}
+}

@@ -303,6 +303,14 @@ type WebConfig struct {
 	ReadTimeout     time.Duration `toml:"read_timeout"`
 	WriteTimeout    time.Duration `toml:"write_timeout"`
 	ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
+	// CORSAllowedOrigins is the explicit cross-origin allow-list for
+	// the /api/v1/... preflight surface (I11 audit-I33). Same-host
+	// requests are always allowed; localhost dev origins are always
+	// allowed; everything else has to be listed here. Empty default
+	// = same-host + localhost only. Pre-I11 the preflight handler
+	// echoed any `Origin` header — which would have been a CSRF
+	// surface the moment Allow-Credentials switched on.
+	CORSAllowedOrigins []string `toml:"cors_allowed_origins"`
 }
 
 // DBConfig holds Postgres settings.

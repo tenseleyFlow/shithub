@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -390,7 +391,7 @@ func Run(ctx context.Context, opts Options) error {
 	// API must answer OPTIONS preflight with CORS headers. Close over
 	// the mux so the handler can probe which methods are registered
 	// for the request path.
-	r.MethodNotAllowed(http.HandlerFunc(methodNotAllowedHandlerFor(r)))
+	r.MethodNotAllowed(http.HandlerFunc(methodNotAllowedHandlerFor(r, buildCORSOriginPolicy(cfg))))
 
 	rootHandler := middleware.Recover(logger, panicHandler)(r)
 
@@ -509,25 +510,79 @@ func methodNotAllowedHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
+// buildCORSOriginPolicy projects the server config onto the CORS
+// allow-list policy used by the OPTIONS preflight handler. `sameHost`
+// is the BaseURL origin (scheme://host[:port]); `allowed` carries the
+// explicit cross-origin entries from `web.cors_allowed_origins`.
+func buildCORSOriginPolicy(cfg config.Config) corsOriginPolicy {
+	policy := corsOriginPolicy{
+		allowed: make(map[string]struct{}, len(cfg.Web.CORSAllowedOrigins)),
+	}
+	if u, err := url.Parse(cfg.Auth.BaseURL); err == nil && u.Scheme != "" && u.Host != "" {
+		policy.sameHost = u.Scheme + "://" + u.Host
+	}
+	for _, o := range cfg.Web.CORSAllowedOrigins {
+		policy.allowed[strings.TrimSpace(o)] = struct{}{}
+	}
+	return policy
+}
+
+// corsOriginPolicy captures the operator-configured cross-origin
+// surface. `sameHost` is the public base URL of this shithub instance
+// (always allowed); `allowed` is the explicit cross-origin allow-list
+// (anything not in either slot is rejected). Constructed once at boot
+// from config and closed over by methodNotAllowedHandlerFor.
+type corsOriginPolicy struct {
+	sameHost string
+	allowed  map[string]struct{}
+}
+
+// allow reports whether `origin` is permitted to mount cross-origin
+// requests. Same-host always allowed; localhost dev origins always
+// allowed (so a local CRA/Vite dev server can hit the API); everything
+// else has to be in the allow-list. Empty origin (non-browser request)
+// is allowed — the auth check carries the security weight there.
+func (p corsOriginPolicy) allow(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	if p.sameHost != "" && origin == p.sameHost {
+		return true
+	}
+	if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
+		return true
+	}
+	_, ok := p.allowed[origin]
+	return ok
+}
+
 // methodNotAllowedHandlerFor wraps methodNotAllowedHandler so it can
 // emit the RFC 9110 §15.5.6 `Allow:` header (H19) and answer browser
 // CORS preflight via OPTIONS (H20). The chi mux is closed over for
 // route discovery: we probe each common verb against the request
 // path with mx.Match — every match is a method the route supports.
-func methodNotAllowedHandlerFor(mx *chi.Mux) http.HandlerFunc {
+//
+// I11 (audit-I33): the CORS branch now checks `policy` instead of
+// echoing any Origin. Unknown origins fall through to the 405 path
+// without setting any ACAO header; the browser refuses the request
+// just as it would for a server that didn't speak CORS at all.
+func methodNotAllowedHandlerFor(mx *chi.Mux, policy corsOriginPolicy) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		allowed := discoverAllowedMethods(mx, req.URL.Path)
 		if len(allowed) > 0 {
 			w.Header().Set("Allow", strings.Join(allowed, ", "))
 		}
-		// H20: when the request is a CORS preflight, answer it with
-		// the same allowlist + permissive defaults so browser-based
-		// clients can probe the API. We intentionally echo the
-		// requested origin instead of `*` — pairs with credential-
-		// bearing flows the CLI doesn't use but a future web UI will.
-		// API surface only; non-API OPTIONS preserves chi's 405.
 		if req.Method == http.MethodOptions && strings.HasPrefix(req.URL.Path, "/api/v1/") {
 			origin := req.Header.Get("Origin")
+			if !policy.allow(origin) {
+				// I11 (audit-I33): unknown origin — emit 204 with no
+				// ACAO header. The browser sees the missing header
+				// and refuses the cross-origin request. Pre-fix any
+				// origin (including `null` and `*`) got reflected.
+				w.Header().Set("Vary", "Origin")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			if origin == "" {
 				origin = "*"
 			}
