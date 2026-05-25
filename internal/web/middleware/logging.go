@@ -70,3 +70,13 @@ func (s *statusRecorder) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap exposes the underlying ResponseWriter so http.ResponseController
+// can reach the conn for SetWriteDeadline / SetReadDeadline. Without
+// this, the git smart-HTTP handler's per-request deadline clear (added
+// in firedrill v3) silently no-ops because NewResponseController walks
+// the chain via Unwrap and stops at our wrapper. The push then dies at
+// the http.Server's 30s WriteTimeout. Firedrill v4, 2026-05-25.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
