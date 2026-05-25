@@ -76,7 +76,19 @@ func (e errHookSecretProtection) Friendly() string {
 	return b.String()
 }
 
-func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, stderr io.Writer, repo reposdb.Repo, gitDir string, refs []refUpdate) error {
+// enforcePreReceiveSecretProtection takes two contexts on purpose:
+//   - ctx: the 5s pre-receive auth/policy ctx, used for DB lookups
+//     (entitlement check) where we want the same fail-fast behavior as
+//     the rest of the hook.
+//   - scanRoot: a fresh context (typically cmd.Context()) with no
+//     deadline imposed by the pre-receive shell — the scan derives its
+//     own 45s budget from this. THIS IS LOAD-BEARING: previously the
+//     scan derived from `ctx`, and `context.WithTimeout(ctx, 45s)` was
+//     silently capped at the parent's 5s remaining, which is the same
+//     5s the auth path needs. Result: scan timed out under load and
+//     the cap-deferral never got a chance to print (firedrill #399 v1
+//     missed this).
+func enforcePreReceiveSecretProtection(ctx, scanRoot context.Context, h *hookCtx, stderr io.Writer, repo reposdb.Repo, gitDir string, refs []refUpdate) error {
 	if !pushMayAddReachableObjects(refs) {
 		return nil
 	}
@@ -87,11 +99,9 @@ func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, stderr i
 	if !enabled {
 		return nil
 	}
-	// Carve out a dedicated budget for the scan so it doesn't cannibalize
-	// the 5s pre-receive ctx that gates auth + branch protection. Diff-tree
-	// per new-commit dominates wall-clock; 45s comfortably handles the cap
-	// below.
-	scanCtx, cancel := context.WithTimeout(ctx, preReceiveSecretScanBudget)
+	// Carve out a dedicated budget for the scan, derived from scanRoot
+	// (no inherited deadline) so the 45s is genuinely 45s.
+	scanCtx, cancel := context.WithTimeout(scanRoot, preReceiveSecretScanBudget)
 	defer cancel()
 
 	// Initial-import safety valve: if the push introduces more new commits

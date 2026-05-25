@@ -118,7 +118,7 @@ func TestEnforcePreReceiveSecretProtectionRejectsPublicRepoSecret(t *testing.T) 
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
 
-	err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
+	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -170,7 +170,7 @@ func TestEnforcePreReceiveSecretProtectionDefersWhenAboveCommitCap(t *testing.T)
 	gitDir, commit := danglingSecretCommit(t)
 
 	var stderr bytes.Buffer
-	err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, &stderr, repo, gitDir, []refUpdate{{
+	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, &stderr, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -209,7 +209,7 @@ func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
 	}
 	gitDir, commit := danglingSecretCommit(t)
 
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -225,7 +225,7 @@ func TestEnforcePreReceiveSecretProtectionHonorsApprovedBypass(t *testing.T) {
 	gitDir, commit := danglingSecretCommit(t)
 	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(24*time.Hour))
 
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -242,7 +242,7 @@ func TestEnforcePreReceiveSecretProtectionDeniedBypassStillRejects(t *testing.T)
 	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusDenied, time.Time{})
 
 	var secretErr errHookSecretProtection
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -259,7 +259,7 @@ func TestEnforcePreReceiveSecretProtectionExpiredBypassReturnsToPending(t *testi
 	row := seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(-time.Hour))
 
 	var secretErr errHookSecretProtection
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
 		ref:    "refs/heads/trunk",
@@ -287,7 +287,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateOrgRequiresTeam(t *testing.T) {
 		ref:    "refs/heads/trunk",
 	}}
 
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); err != nil {
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); err != nil {
 		t.Fatalf("free private org should skip push protection, got err = %v", err)
 	}
 	if _, err := billing.ApplySubscriptionSnapshot(ctx, billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
@@ -301,7 +301,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateOrgRequiresTeam(t *testing.T) {
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
 	var secretErr errHookSecretProtection
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); !errors.As(err, &secretErr) {
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); !errors.As(err, &secretErr) {
 		t.Fatalf("team private org err = %v, want errHookSecretProtection", err)
 	}
 }
@@ -327,7 +327,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateTeamOrgCustomPattern(t *testing
 		ref:    "refs/heads/trunk",
 	}}
 
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); err != nil {
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); err != nil {
 		t.Fatalf("free private org should skip custom push protection, got err = %v", err)
 	}
 	if _, err := billing.ApplySubscriptionSnapshot(ctx, billing.Deps{Pool: pool}, billing.SubscriptionSnapshot{
@@ -341,7 +341,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateTeamOrgCustomPattern(t *testing
 		t.Fatalf("ApplySubscriptionSnapshot: %v", err)
 	}
 	var secretErr errHookSecretProtection
-	if err := enforcePreReceiveSecretProtection(ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); !errors.As(err, &secretErr) {
+	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, refs); !errors.As(err, &secretErr) {
 		t.Fatalf("team private org custom err = %v, want errHookSecretProtection", err)
 	}
 	if len(secretErr.Findings) != 1 {

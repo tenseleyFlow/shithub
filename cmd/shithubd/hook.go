@@ -95,7 +95,7 @@ var hookPreReceiveCmd = &cobra.Command{
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
 		}
-		if err := enforcePreReceiveSecretProtection(ctx, hook, cmd.ErrOrStderr(), repo, gitDir, refs); err != nil {
+		if err := enforcePreReceiveSecretProtection(ctx, cmd.Context(), hook, cmd.ErrOrStderr(), repo, gitDir, refs); err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), friendlyHookErr(err))
 			return err
 		}
