@@ -152,6 +152,43 @@ func TestEnforcePreReceiveSecretProtectionRejectsPublicRepoSecret(t *testing.T) 
 	}
 }
 
+// TestEnforcePreReceiveSecretProtectionDefersOnInitialPush pins
+// firedrill v5: an initial push (every ref creating from the all-zero
+// sentinel) must skip the inline scan and defer to the background
+// scan. Pre-fix, a first-push to a brand-new repo ran `git diff-tree`
+// per-commit against the quarantine and blew the 45s scan budget even
+// when the commit count was under the inline cap — the auditor's
+// tenseleyflow/shit push (3195 objects) hit this repeatedly.
+func TestEnforcePreReceiveSecretProtectionDefersOnInitialPush(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+
+	var stderr bytes.Buffer
+	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, &stderr, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40), // initial push: zero before
+		after:  commit,
+		ref:    "refs/heads/trunk",
+	}})
+	if err != nil {
+		t.Fatalf("initial-push deferral should return nil, got %v", err)
+	}
+	if !strings.Contains(stderr.String(), "initial push detected") {
+		t.Errorf("stderr missing initial-push note; got: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "deferring to background scan") {
+		t.Errorf("stderr missing background-scan hint; got: %q", stderr.String())
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM secret_scan_bypass_requests WHERE repo_id = $1`, repo.ID).Scan(&count); err != nil {
+		t.Fatalf("count bypass requests: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("initial-push path created %d bypass requests; want 0", count)
+	}
+}
+
 // TestEnforcePreReceiveSecretProtectionDefersWhenAboveCommitCap pins
 // the firedrill fix (2026-05-25): when a push introduces more new
 // commits than preReceiveSecretScanMaxCommits, the inline scan is
