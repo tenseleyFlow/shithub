@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +27,23 @@ import (
 const (
 	preReceiveSecretScanMaxFileBytes = 256 * 1024
 	preReceiveSecretScanMaxFindings  = 10
+	// preReceiveSecretScanBudget is the wall-clock budget given to the
+	// secret scan, independent of the 5s pre-receive ctx that gates
+	// auth + branch-protection checks. Diff-tree per commit dominates;
+	// 45s comfortably handles 500 commits with headroom.
+	preReceiveSecretScanBudget = 45 * time.Second
 )
+
+// preReceiveSecretScanMaxCommits caps the inline scan at N new-to-the-
+// repo commits. First-pushes / large imports above this size defer
+// entirely to the background KindSecretScanHistory job — the inline
+// budget can't cover N×diff-tree without blowing the pre-receive
+// deadline. See firedrill: "secret push protection: git diff-tree:
+// context deadline exceeded" on a 3195-object push (2026-05-25).
+//
+// var, not const, so the deferral test can dial it down without
+// generating 500 real commits.
+var preReceiveSecretScanMaxCommits = 500
 
 type secretPushFinding struct {
 	Commit  string
@@ -58,7 +76,7 @@ func (e errHookSecretProtection) Friendly() string {
 	return b.String()
 }
 
-func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, repo reposdb.Repo, gitDir string, refs []refUpdate) error {
+func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, stderr io.Writer, repo reposdb.Repo, gitDir string, refs []refUpdate) error {
 	if !pushMayAddReachableObjects(refs) {
 		return nil
 	}
@@ -69,7 +87,30 @@ func enforcePreReceiveSecretProtection(ctx context.Context, h *hookCtx, repo rep
 	if !enabled {
 		return nil
 	}
-	findings, err := scanPreReceiveSecrets(ctx, h.pool, repo, gitDir, refs)
+	// Carve out a dedicated budget for the scan so it doesn't cannibalize
+	// the 5s pre-receive ctx that gates auth + branch protection. Diff-tree
+	// per new-commit dominates wall-clock; 45s comfortably handles the cap
+	// below.
+	scanCtx, cancel := context.WithTimeout(ctx, preReceiveSecretScanBudget)
+	defer cancel()
+
+	// Initial-import safety valve: if the push introduces more new commits
+	// than we can scan inline within the budget, skip and defer to the
+	// background KindSecretScanHistory job, which walks the full history
+	// at its own pace. Without this, a first-push of any sizable repo
+	// times out (firedrill 2026-05-25: 3195-object push hit "diff-tree:
+	// context deadline exceeded" on the inline path).
+	commits, err := preReceiveNewCommits(scanCtx, gitDir, refs)
+	if err != nil {
+		return fmt.Errorf("secret push protection: %w", err)
+	}
+	if len(commits) > preReceiveSecretScanMaxCommits {
+		fmt.Fprintf(stderr,
+			"shithub: secret scan: %d new commits exceeds the inline cap (%d); deferring to background scan. Any findings will surface as repository security alerts.\n",
+			len(commits), preReceiveSecretScanMaxCommits)
+		return nil
+	}
+	findings, err := scanPreReceiveSecretsForCommits(scanCtx, h.pool, repo, gitDir, commits)
 	if err != nil {
 		return fmt.Errorf("secret push protection: %w", err)
 	}
@@ -99,7 +140,10 @@ func preReceiveSecretProtectionEnabled(ctx context.Context, h *hookCtx, repo rep
 	return true, nil
 }
 
-func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo, gitDir string, refs []refUpdate) ([]secretPushFinding, error) {
+// scanPreReceiveSecretsForCommits is the inner scan loop, separated so
+// the caller can enforce the commit cap before paying the cost of
+// loading allowlist/bypass/pattern sets.
+func scanPreReceiveSecretsForCommits(ctx context.Context, pool *pgxpool.Pool, repo reposdb.Repo, gitDir string, commits []string) ([]secretPushFinding, error) {
 	allowSet, err := loadPreReceiveSecretAllowlist(ctx, pool, repo.ID)
 	if err != nil {
 		return nil, err
@@ -109,10 +153,6 @@ func scanPreReceiveSecrets(ctx context.Context, pool *pgxpool.Pool, repo reposdb
 		return nil, err
 	}
 	scanPatterns, err := loadPreReceiveSecretPatterns(ctx, pool, repo)
-	if err != nil {
-		return nil, err
-	}
-	commits, err := preReceiveNewCommits(ctx, gitDir, refs)
 	if err != nil {
 		return nil, err
 	}
