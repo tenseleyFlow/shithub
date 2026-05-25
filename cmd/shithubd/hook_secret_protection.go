@@ -35,15 +35,20 @@ const (
 )
 
 // preReceiveSecretScanMaxCommits caps the inline scan at N new-to-the-
-// repo commits. First-pushes / large imports above this size defer
-// entirely to the background KindSecretScanHistory job — the inline
-// budget can't cover N×diff-tree without blowing the pre-receive
-// deadline. See firedrill: "secret push protection: git diff-tree:
-// context deadline exceeded" on a 3195-object push (2026-05-25).
+// repo commits. Pushes above this size defer entirely to the
+// background KindSecretScanHistory job — the inline budget can't
+// cover N×diff-tree without blowing the pre-receive deadline.
 //
-// var, not const, so the deferral test can dial it down without
-// generating 500 real commits.
-var preReceiveSecretScanMaxCommits = 500
+// Empirical sizing (firedrill v6, 2026-05-25): per-commit diff-tree
+// against a fresh quarantine clocks ~90–100ms. The 45s scan budget
+// fits ~450 commits in theory but exhausts at 478 in the field
+// (the auditor's tenseleyflow/shit catch-up push). Cap is 100 to
+// leave generous headroom for incremental workflows (typical < 20
+// commits) while routing weekly/branch-batch pushes to background.
+//
+// var, not const, so tests can dial it down without generating real
+// commits.
+var preReceiveSecretScanMaxCommits = 100
 
 type secretPushFinding struct {
 	Commit  string
