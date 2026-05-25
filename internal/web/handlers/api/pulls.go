@@ -249,7 +249,17 @@ func presentPullFull(
 		AutoMerge:           nil, // shithub doesn't ship auto-merge yet
 		MaintainerCanModify: false,
 	}
-	if pr.Mergeable.Valid {
+	// I19 (audit): once a PR is merged, `mergeable` is undefined (the
+	// question "would this merge cleanly?" no longer has an answer).
+	// Pre-fix the field stayed at whatever the merge-worker last
+	// computed before merge — usually false — alongside `merged=true`,
+	// which clients interpret as "the merge would fail" rather than
+	// "already done, N/A". gh's API returns `mergeable: null` post-
+	// merge; mirror that. Same for the human-formatter state string.
+	if pr.MergedAt.Valid {
+		out.Mergeable = nil
+		out.MergeableState = ""
+	} else if pr.Mergeable.Valid {
 		v := pr.Mergeable.Bool
 		out.Mergeable = &v
 	}
@@ -1192,7 +1202,9 @@ func writePullsError(w http.ResponseWriter, err error) {
 		errors.Is(err, issues.ErrBodyTooLong),
 		errors.Is(err, issues.ErrNullByteInTitle),
 		errors.Is(err, issues.ErrNullByteInBody),
-		errors.Is(err, issues.ErrMultilineTitle):
+		errors.Is(err, issues.ErrMultilineTitle),
+		// I28 — bidi/zero-width Unicode in title.
+		errors.Is(err, issues.ErrUnicodeControlInTitle):
 		writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, pulls.ErrAlreadyMerged),
 		errors.Is(err, pulls.ErrAlreadyClosed),

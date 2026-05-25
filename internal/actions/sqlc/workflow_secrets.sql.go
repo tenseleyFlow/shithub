@@ -25,7 +25,7 @@ func (q *Queries) DeleteEnvironmentSecret(ctx context.Context, db DBTX, arg Dele
 	return err
 }
 
-const deleteOrgSecret = `-- name: DeleteOrgSecret :exec
+const deleteOrgSecret = `-- name: DeleteOrgSecret :execrows
 DELETE FROM workflow_secrets WHERE org_id = $1 AND name = $2
 `
 
@@ -34,12 +34,16 @@ type DeleteOrgSecretParams struct {
 	Name  string
 }
 
-func (q *Queries) DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) error {
-	_, err := db.Exec(ctx, deleteOrgSecret, arg.OrgID, arg.Name)
-	return err
+// I26 (audit): see DeleteRepoSecret note.
+func (q *Queries) DeleteOrgSecret(ctx context.Context, db DBTX, arg DeleteOrgSecretParams) (int64, error) {
+	result, err := db.Exec(ctx, deleteOrgSecret, arg.OrgID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const deleteRepoSecret = `-- name: DeleteRepoSecret :exec
+const deleteRepoSecret = `-- name: DeleteRepoSecret :execrows
 DELETE FROM workflow_secrets WHERE repo_id = $1 AND name = $2
 `
 
@@ -48,12 +52,17 @@ type DeleteRepoSecretParams struct {
 	Name   string
 }
 
-func (q *Queries) DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) error {
-	_, err := db.Exec(ctx, deleteRepoSecret, arg.RepoID, arg.Name)
-	return err
+// I26 (audit): switched to :execrows so the handler can 404 on a
+// missing name instead of returning 204 ("we deleted nothing" lies).
+func (q *Queries) DeleteRepoSecret(ctx context.Context, db DBTX, arg DeleteRepoSecretParams) (int64, error) {
+	result, err := db.Exec(ctx, deleteRepoSecret, arg.RepoID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const deleteUserSecret = `-- name: DeleteUserSecret :exec
+const deleteUserSecret = `-- name: DeleteUserSecret :execrows
 DELETE FROM workflow_secrets WHERE user_id = $1 AND name = $2
 `
 
@@ -62,9 +71,13 @@ type DeleteUserSecretParams struct {
 	Name   string
 }
 
-func (q *Queries) DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) error {
-	_, err := db.Exec(ctx, deleteUserSecret, arg.UserID, arg.Name)
-	return err
+// I26 (audit): see DeleteRepoSecret note.
+func (q *Queries) DeleteUserSecret(ctx context.Context, db DBTX, arg DeleteUserSecretParams) (int64, error) {
+	result, err := db.Exec(ctx, deleteUserSecret, arg.UserID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getEnvironmentSecret = `-- name: GetEnvironmentSecret :one

@@ -42,10 +42,13 @@ SELECT id, name, ciphertext, nonce
 FROM workflow_secrets
 WHERE org_id = $1 AND name = $2;
 
--- name: DeleteRepoSecret :exec
+-- name: DeleteRepoSecret :execrows
+-- I26 (audit): switched to :execrows so the handler can 404 on a
+-- missing name instead of returning 204 ("we deleted nothing" lies).
 DELETE FROM workflow_secrets WHERE repo_id = $1 AND name = $2;
 
--- name: DeleteOrgSecret :exec
+-- name: DeleteOrgSecret :execrows
+-- I26 (audit): see DeleteRepoSecret note.
 DELETE FROM workflow_secrets WHERE org_id = $1 AND name = $2;
 
 -- PRO-EXT01-12: personal Actions secrets. User-scoped rows mirror the
@@ -73,7 +76,8 @@ SELECT id, name, ciphertext, nonce
 FROM workflow_secrets
 WHERE user_id = $1 AND name = $2;
 
--- name: DeleteUserSecret :exec
+-- name: DeleteUserSecret :execrows
+-- I26 (audit): see DeleteRepoSecret note.
 DELETE FROM workflow_secrets WHERE user_id = $1 AND name = $2;
 
 -- SP23: environment-scoped rows are repo-environment-local. They are visible

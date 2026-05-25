@@ -361,8 +361,12 @@ func (d Deps) GetMeta(ctx context.Context, scope Scope, name string) (Meta, erro
 	}, nil
 }
 
-// Delete removes a secret. Returns ErrNotFound when the row didn't
-// exist; idempotent at the SQL layer (DELETE WHERE).
+// Delete removes a secret. Returns ErrNotFound when no row matched
+// the (scope, name) tuple — I26 (audit) pre-fix the SQL was a bare
+// DELETE WHERE which silently affected zero rows; the handler then
+// returned 204 ("success") for a delete that did nothing. The DELETE
+// queries now use sqlc :execrows so we can fan out "0 rows affected"
+// to ErrNotFound and the handler can map that to HTTP 404 (gh-compat).
 func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
 	if !scope.IsRepo() && !scope.IsOrg() && !scope.IsUser() && !scope.IsEnvironment() {
 		return ErrInvalidScope
@@ -371,19 +375,23 @@ func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
 		return err
 	}
 	q := actionsdb.New()
+	var (
+		rows int64
+		err  error
+	)
 	switch {
 	case scope.IsRepo():
-		return q.DeleteRepoSecret(ctx, d.Pool, actionsdb.DeleteRepoSecretParams{
+		rows, err = q.DeleteRepoSecret(ctx, d.Pool, actionsdb.DeleteRepoSecretParams{
 			RepoID: pgtype.Int8{Int64: scope.RepoID, Valid: true},
 			Name:   name,
 		})
 	case scope.IsOrg():
-		return q.DeleteOrgSecret(ctx, d.Pool, actionsdb.DeleteOrgSecretParams{
+		rows, err = q.DeleteOrgSecret(ctx, d.Pool, actionsdb.DeleteOrgSecretParams{
 			OrgID: pgtype.Int8{Int64: scope.OrgID, Valid: true},
 			Name:  name,
 		})
 	case scope.IsUser():
-		return q.DeleteUserSecret(ctx, d.Pool, actionsdb.DeleteUserSecretParams{
+		rows, err = q.DeleteUserSecret(ctx, d.Pool, actionsdb.DeleteUserSecretParams{
 			UserID: pgtype.Int8{Int64: scope.UserID, Valid: true},
 			Name:   name,
 		})
@@ -392,8 +400,16 @@ func (d Deps) Delete(ctx context.Context, scope Scope, name string) error {
 			EnvironmentID: pgtype.Int8{Int64: scope.EnvironmentID, Valid: true},
 			Name:          name,
 		})
+	default:
+		return ErrInvalidScope
 	}
-	return ErrInvalidScope
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func int64ValueOrZero(p pgtype.Int8) int64 {
