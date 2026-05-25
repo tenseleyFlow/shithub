@@ -673,6 +673,72 @@ func TestSearchIssues_AssigneeFilter(t *testing.T) {
 	}
 }
 
+// TestSearchIssues_SoftDeletedRepoExcluded pins I29: after a repo is
+// soft-deleted, its issues must not surface in /search/issues even
+// for the owner. The audit observed ghost rows on `shithub status`
+// (which fans out via assignee:<me>). The fix is structural — the
+// policy.VisibilityPredicate already ANDs in `r.deleted_at IS NULL`,
+// so this test guards against a future regression that drops that
+// clause from the predicate.
+func TestSearchIssues_SoftDeletedRepoExcluded(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+
+	// Assign alice to her own issue on pubRepo, then soft-delete pubRepo.
+	hits, _, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("repo:alice/publicrepo bug"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues seed lookup: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatalf("fixture changed: expected a seeded issue in alice/publicrepo")
+	}
+	target := hits[0]
+	if err := issuesdb.New().AssignUserToIssue(ctx, f.deps.Pool,
+		issuesdb.AssignUserToIssueParams{
+			IssueID:          target.ID,
+			UserID:           f.alice.ID,
+			AssignedByUserID: pgtype.Int8{Int64: f.alice.ID, Valid: true},
+		}); err != nil {
+		t.Fatalf("AssignUserToIssue: %v", err)
+	}
+
+	// Before deletion: assignee:alice must surface this issue.
+	pre, _, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("assignee:alice"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues pre-delete: %v", err)
+	}
+	found := false
+	for _, h := range pre {
+		if h.ID == target.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pre-delete: expected target issue id=%d in assignee:alice", target.ID)
+	}
+
+	// Soft-delete pubRepo.
+	if _, err := f.deps.Pool.Exec(ctx,
+		`UPDATE repos SET deleted_at = now() WHERE id = $1`, f.pubRepo.ID); err != nil {
+		t.Fatalf("soft-delete repo: %v", err)
+	}
+
+	// After deletion: the issue must NOT appear, even for the owner.
+	got, _, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("assignee:alice"), "issue", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues post-delete: %v", err)
+	}
+	for _, h := range got {
+		if h.ID == target.ID {
+			t.Errorf("I29 regression: deleted repo's issue id=%d still appears in assignee:alice", target.ID)
+		}
+	}
+}
+
 func TestSearchIssues_LabelMilestoneCommenterAndOwnerFilters(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
