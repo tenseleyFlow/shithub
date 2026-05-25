@@ -65,6 +65,13 @@ var (
 	// sentinel mirrors the same gate server-side for defense in depth
 	// and for non-CLI clients hitting POST /issues directly.
 	ErrMultilineTitle = errors.New("issues: title must be a single line")
+	// I28 (I-audit): RTL/LTR override and zero-width Unicode marks
+	// flip or forge title display in lists, browser tabs, and email
+	// subjects. Same risk class as homograph URLs. Strip at the
+	// boundary so titles stored in Postgres never carry the hostile
+	// sequences. Same logic mirrors at the CLI's ValidateTitle (which
+	// only handles the I52 control-char set — this is the wider net).
+	ErrUnicodeControlInTitle = errors.New("issues: title contains a disallowed Unicode control character (bidi override or zero-width)")
 	// H14 follow-on (H-audit): the H1 SQL change made re-close idempotent
 	// at the row level (state_reason no longer silently mutates). This
 	// sentinel surfaces the no-op signal to the caller so the API
@@ -149,6 +156,9 @@ func CreateInTx(ctx context.Context, tx pgx.Tx, deps Deps, p CreateParams) (issu
 	}
 	if strings.ContainsAny(title, "\n\r") {
 		return issuesdb.Issue{}, ErrMultilineTitle
+	}
+	if containsHostileUnicode(title) {
+		return issuesdb.Issue{}, ErrUnicodeControlInTitle
 	}
 	if len(p.Body) > 65535 {
 		return issuesdb.Issue{}, ErrBodyTooLong
@@ -351,6 +361,9 @@ func Edit(ctx context.Context, deps Deps, p EditParams) (issuesdb.Issue, error) 
 		}
 		if strings.ContainsAny(title, "\n\r") {
 			return issuesdb.Issue{}, ErrMultilineTitle
+		}
+		if containsHostileUnicode(title) {
+			return issuesdb.Issue{}, ErrUnicodeControlInTitle
 		}
 	}
 	body := cur.Body
@@ -585,4 +598,43 @@ func renderBody(ctx context.Context, deps Deps, body string) (string, []mdrender
 		return "", nil
 	}
 	return string(html), mentions
+}
+
+// containsHostileUnicode reports whether the string carries a bidi
+// override, zero-width, or other display-twisting Unicode code point
+// that has no business in an issue/PR title. The list is conservative
+// — we don't strip CJK / Indic / Arabic combining marks, only the
+// dedicated display-attack characters:
+//
+//	U+200B  ZWSP   (zero-width space)
+//	U+200C  ZWNJ   (zero-width non-joiner)
+//	U+200D  ZWJ    (zero-width joiner)
+//	U+200E  LRM    (left-to-right mark)
+//	U+200F  RLM    (right-to-left mark)
+//	U+202A  LRE    (left-to-right embedding)
+//	U+202B  RLE    (right-to-left embedding)
+//	U+202C  PDF    (pop directional formatting)
+//	U+202D  LRO    (left-to-right override)
+//	U+202E  RLO    (right-to-left override)
+//	U+2066  LRI    (left-to-right isolate)
+//	U+2067  RLI    (right-to-left isolate)
+//	U+2068  FSI    (first strong isolate)
+//	U+2069  PDI    (pop directional isolate)
+//	U+FEFF  BOM    (zero-width no-break space / byte-order mark)
+//
+// I28 (audit): the reproducer issue #18 (U+202E literal) flipped the
+// display of subsequent text in the list. Browser tabs, email
+// subjects, and RSS feeds inherit the corruption.
+func containsHostileUnicode(s string) bool {
+	for _, r := range s {
+		switch r {
+		case 0x200B, 0x200C, 0x200D,
+			0x200E, 0x200F,
+			0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+			0x2066, 0x2067, 0x2068, 0x2069,
+			0xFEFF:
+			return true
+		}
+	}
+	return false
 }

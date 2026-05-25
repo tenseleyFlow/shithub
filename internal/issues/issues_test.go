@@ -155,6 +155,37 @@ func TestCreate_RejectsMultilineTitle(t *testing.T) {
 	}
 }
 
+// TestCreate_RejectsHostileUnicodeInTitle pins audit-I28: bidi-
+// override + zero-width characters in a title flip downstream
+// rendering (RTL override) or forge identical-looking titles
+// (ZWJ/ZWSP). The orchestrator rejects these before insert; mapped
+// to HTTP 422 by writeIssuesError + writePullsError.
+func TestCreate_RejectsHostileUnicodeInTitle(t *testing.T) {
+	_, deps, uid, rid := setup(t)
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		title string
+	}{
+		{"RTL override (U+202E)", "Audit \u202egnola"},
+		{"LRO (U+202D)", "\u202dSpoof"},
+		{"PDI (U+2069)", "Mix \u2069 fragment"},
+		{"ZWSP (U+200B)", "Inv\u200bisible"},
+		{"ZWJ (U+200D)", "Glued\u200dchar"},
+		{"BOM mid-title (U+FEFF)", "Start\ufeffspoof"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := issues.Create(ctx, deps, issues.CreateParams{
+				RepoID: rid, AuthorUserID: uid, Title: tc.title, Body: "body",
+			})
+			if !errors.Is(err, issues.ErrUnicodeControlInTitle) {
+				t.Errorf("got %v, want ErrUnicodeControlInTitle", err)
+			}
+		})
+	}
+}
+
 func TestCreate_RendersHTMLAndSanitizesScripts(t *testing.T) {
 	pool, deps, uid, rid := setup(t)
 	ctx := context.Background()
