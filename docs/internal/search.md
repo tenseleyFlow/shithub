@@ -97,9 +97,19 @@ The boundary is exercised by the search test suite at
 * `RepoFilter` — `repo:owner/name` becomes `{Owner, Name}`.
 * `StateFilter` — `is:open` / `is:closed` / `state:open` /
   `state:closed`. Aliases.
-* `KindFilter` — `is:issue` / `is:pr` for issue-vs-PR scoping.
+* `KindFilter` — `is:issue` / `is:pr` / `type:issue` / `type:pr` for
+  issue-vs-PR scoping.
+* `MergedStateFilter` — `is:merged` / `is:unmerged`; these imply the PR
+  surface and conflict with an issue-only scope.
+* `LockedFilter` — `is:locked` / `is:unlocked`.
 * `AuthorFilter`, `AssigneeFilter`, `CommenterFilter` — username-backed
   issue/PR filters.
+* `AssigneeAnyFilter` — `assignee:*`.
+* `MentionFilter`, `InvolvesFilters` — participant filters. The execution
+  layer resolves `@me` from the current actor so anonymous `@me` searches
+  safely produce no rows.
+* `MissingFilters` — `no:label`, `no:milestone`, `no:assignee`,
+  `no:project`.
 * `OwnerFilter` — `user:handle` and `org:handle` for owner scoping.
 * `LabelFilters`, `MilestoneFilter` — repeated labels are ANDed.
 * `LanguageFilter`, `VisibilityFilter`, `ForkFilter`, `ArchivedFilter`,
@@ -123,9 +133,12 @@ Global result pages currently execute these recognized qualifiers:
   `is:private`, `is:fork`, `is:archived`, `visibility:`, `fork:`,
   `archived:`, `topic:`, `created:`, `updated:`.
 * issues and pull requests: `repo:`, `user:`, `org:`, `is:issue`,
-  `is:pr`, `is:open`, `is:closed`, `state:`, `author:`, `assignee:`,
-  `commenter:`, `label:`, `milestone:`, repository metadata filters,
-  `created:`, `updated:`, `closed:`, `merged:`.
+  `is:pr`, `type:issue`, `type:pr`, `is:open`, `is:closed`, `state:`,
+  `is:merged`, `is:unmerged`, `is:locked`, `is:unlocked`, `author:`,
+  `assignee:`, `assignee:*`, `commenter:`, `mentions:`, `involves:`,
+  `label:`, `milestone:`, `no:label`, `no:milestone`, `no:assignee`,
+  `no:project`, repository metadata filters, `created:`, `updated:`,
+  `closed:`, `merged:`.
 * code: `repo:`, `user:`, `org:`, `language:`, repository metadata
   filters, `path:`, `extension:`, plus free text against indexed paths
   and small-file content.
@@ -135,8 +148,9 @@ maintaining a second SQL dialect. The web helper injects the currently
 browsed `repo:owner/name` scope and ignores any typed `repo:` qualifier so
 searches on those pages cannot escape the repository. The same parser powers
 the search boxes, so examples such as `author:esp label:bug`, `commenter:mf`,
-`milestone:"v1.0"`, and `created:2026-05-01..2026-05-19` work from the repo
-lists as well as the global search page.
+`milestone:"v1.0"`, `no:assignee`, `assignee:*`, `mentions:@me`, and
+`created:2026-05-01..2026-05-19` work from the repo lists as well as the
+global search page.
 
 Profile and organization repository tabs also parse the same repository
 qualifier subset, so `language:Go`, `topic:forge`, `is:public`,
