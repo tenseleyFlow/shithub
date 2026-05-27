@@ -62,11 +62,17 @@ func TestParseQuery(t *testing.T) {
 		got := search.ParseQuery(c.in)
 		if got.Text != c.want.Text || got.Phrase != c.want.Phrase ||
 			got.StateFilter != c.want.StateFilter || got.KindFilter != c.want.KindFilter ||
+			got.MergedStateFilter != c.want.MergedStateFilter ||
 			got.AuthorFilter != c.want.AuthorFilter || got.AssigneeFilter != c.want.AssigneeFilter ||
-			got.CommenterFilter != c.want.CommenterFilter || got.OwnerFilter != c.want.OwnerFilter ||
+			got.AssigneeAnyFilter != c.want.AssigneeAnyFilter ||
+			got.CommenterFilter != c.want.CommenterFilter ||
+			got.MentionFilter != c.want.MentionFilter || got.OwnerFilter != c.want.OwnerFilter ||
 			got.MilestoneFilter != c.want.MilestoneFilter || got.LanguageFilter != c.want.LanguageFilter ||
 			got.VisibilityFilter != c.want.VisibilityFilter ||
 			got.PathFilter != c.want.PathFilter || got.ExtensionFilter != c.want.ExtensionFilter ||
+			!sameBoolPtr(got.LockedFilter, c.want.LockedFilter) ||
+			!reflect.DeepEqual(got.InvolvesFilters, c.want.InvolvesFilters) ||
+			!reflect.DeepEqual(got.MissingFilters, c.want.MissingFilters) ||
 			!reflect.DeepEqual(got.LabelFilters, c.want.LabelFilters) ||
 			!reflect.DeepEqual(got.TopicFilters, c.want.TopicFilters) {
 			t.Errorf("ParseQuery(%q):\n  got  %+v\n  want %+v", c.in, got, c.want)
@@ -80,6 +86,50 @@ func TestParseQuery(t *testing.T) {
 			t.Errorf("ParseQuery(%q): repo-filter %+v, want %+v",
 				c.in, *got.RepoFilter, *c.want.RepoFilter)
 		}
+	}
+}
+
+func sameBoolPtr(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func TestParseQuery_IssuePRParityQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery("type:pr assignee:* no:label no:milestone no:assignee no:project mentions:@me involves:alice involves:bob is:unmerged is:unlocked")
+
+	if got.KindFilter != "pr" || got.MergedStateFilter != "unmerged" {
+		t.Fatalf("kind/merged = %q/%q", got.KindFilter, got.MergedStateFilter)
+	}
+	if got.LockedFilter == nil || *got.LockedFilter {
+		t.Fatalf("LockedFilter = %+v, want false", got.LockedFilter)
+	}
+	if !got.AssigneeAnyFilter || got.AssigneeFilter != "" {
+		t.Fatalf("assignee filters = any:%v value:%q", got.AssigneeAnyFilter, got.AssigneeFilter)
+	}
+	if got.MentionFilter != "@me" {
+		t.Fatalf("MentionFilter = %q", got.MentionFilter)
+	}
+	if !reflect.DeepEqual(got.InvolvesFilters, []string{"alice", "bob"}) {
+		t.Fatalf("InvolvesFilters = %#v", got.InvolvesFilters)
+	}
+	if !reflect.DeepEqual(got.MissingFilters, []string{"label", "milestone", "assignee", "project"}) {
+		t.Fatalf("MissingFilters = %#v", got.MissingFilters)
+	}
+
+	got = search.ParseQuery("type:pull-request is:merged is:locked")
+	if got.KindFilter != "pr" || got.MergedStateFilter != "merged" {
+		t.Fatalf("pull-request/merged = %q/%q", got.KindFilter, got.MergedStateFilter)
+	}
+	if got.LockedFilter == nil || !*got.LockedFilter {
+		t.Fatalf("LockedFilter = %+v, want true", got.LockedFilter)
+	}
+
+	got = search.ParseQuery("type:discussion no:review")
+	if got.Text != "type:discussion no:review" || got.HasContent() != true {
+		t.Fatalf("unknown issue qualifiers should remain free text: %+v", got)
 	}
 }
 
@@ -793,6 +843,198 @@ func TestSearchIssues_LabelMilestoneCommenterAndOwnerFilters(t *testing.T) {
 	if total != 1 || len(got) != 1 || got[0].ID != targetID {
 		t.Fatalf("structured filters got %d rows total=%d, want issue %d: %+v", len(got), total, targetID, got)
 	}
+}
+
+func TestSearchIssues_MissingMetadataAndAssigneeAnyFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	var targetID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'org public bug report'
+	`, f.orgRepo.ID).Scan(&targetID); err != nil {
+		t.Fatalf("lookup org issue: %v", err)
+	}
+	var labelID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO labels (repo_id, name, color, description)
+		VALUES ($1, 'triaged', '0969da', 'Triaged')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&labelID); err != nil {
+		t.Fatalf("seed label: %v", err)
+	}
+	var milestoneID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO milestones (repo_id, title, description)
+		VALUES ($1, 'v2', 'Version two')
+		RETURNING id
+	`, f.orgRepo.ID).Scan(&milestoneID); err != nil {
+		t.Fatalf("seed milestone: %v", err)
+	}
+	var projectID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		INSERT INTO repo_projects (repo_id, title, description, created_by_user_id)
+		VALUES ($1, 'Roadmap', 'Roadmap project', $2)
+		RETURNING id
+	`, f.orgRepo.ID, f.alice.ID).Scan(&projectID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_labels (issue_id, label_id, applied_by_user_id) VALUES ($1, $2, $3)
+	`, targetID, labelID, f.alice.ID); err != nil {
+		t.Fatalf("seed issue label: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE issues SET milestone_id = $1 WHERE id = $2
+	`, milestoneID, targetID); err != nil {
+		t.Fatalf("seed milestone link: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_assignees (issue_id, user_id, assigned_by_user_id) VALUES ($1, $2, $3)
+	`, targetID, f.bob.ID, f.alice.ID); err != nil {
+		t.Fatalf("seed assignee: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO repo_project_items (project_id, issue_id, added_by_user_id) VALUES ($1, $2, $3)
+	`, projectID, targetID, f.alice.ID); err != nil {
+		t.Fatalf("seed project item: %v", err)
+	}
+
+	assigned, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("assignee:* is:issue"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues assignee:*: %v", err)
+	}
+	if total == 0 || !issueResultsContain(assigned, targetID) {
+		t.Fatalf("assignee:* missing assigned target %d: total=%d got=%+v", targetID, total, assigned)
+	}
+
+	missing, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("no:label no:milestone no:assignee no:project is:issue"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues no:*: %v", err)
+	}
+	if total == 0 {
+		t.Fatalf("no:* returned zero rows; fixture should still have unannotated public issues")
+	}
+	if issueResultsContain(missing, targetID) {
+		t.Fatalf("no:* returned annotated issue %d: %+v", targetID, missing)
+	}
+}
+
+func TestSearchIssues_MentionsInvolvesAndAtMeFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	var targetID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'org public bug report'
+	`, f.orgRepo.ID).Scan(&targetID); err != nil {
+		t.Fatalf("lookup org issue: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE issues SET body = 'please take a look @bob' WHERE id = $1
+	`, targetID); err != nil {
+		t.Fatalf("seed mention: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO issue_comments (issue_id, author_user_id, body)
+		VALUES ($1, $2, 'I can help with this')
+	`, targetID, f.bob.ID); err != nil {
+		t.Fatalf("seed comment: %v", err)
+	}
+
+	bob := policy.UserActor(f.bob.ID, f.bob.Username, false, false)
+	for _, raw := range []string{"mentions:@me", "commenter:@me", "involves:@me"} {
+		got, total, err := search.SearchIssues(ctx, f.deps, bob,
+			search.ParseQuery(raw), "", 20, 0)
+		if err != nil {
+			t.Fatalf("SearchIssues %s: %v", raw, err)
+		}
+		if total == 0 || !issueResultsContain(got, targetID) {
+			t.Fatalf("%s missing target %d: total=%d got=%+v", raw, targetID, total, got)
+		}
+	}
+
+	anonHits, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("mentions:@me"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues anonymous @me: %v", err)
+	}
+	if total != 0 || len(anonHits) != 0 {
+		t.Fatalf("anonymous @me returned %d rows total=%d", len(anonHits), total)
+	}
+}
+
+func TestSearchIssues_MergedStateFilters(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	alice := policy.UserActor(f.alice.ID, f.alice.Username, false, false)
+	idep := issues.Deps{Pool: f.deps.Pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	mergedPR, err := issues.Create(ctx, idep, issues.CreateParams{
+		RepoID: f.pubRepo.ID, AuthorUserID: f.alice.ID,
+		Title: "merged branch", Body: "ready to merge", Kind: "pr",
+	})
+	if err != nil {
+		t.Fatalf("Create merged PR issue: %v", err)
+	}
+	unmergedPR, err := issues.Create(ctx, idep, issues.CreateParams{
+		RepoID: f.pubRepo.ID, AuthorUserID: f.alice.ID,
+		Title: "unmerged branch", Body: "still open", Kind: "pr",
+	})
+	if err != nil {
+		t.Fatalf("Create unmerged PR issue: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO pull_requests (issue_id, base_ref, head_ref, head_repo_id, base_oid, head_oid, merged_at)
+		VALUES ($1, 'trunk', 'merged-branch', $3, 'base', 'merged-head', now()),
+		       ($2, 'trunk', 'unmerged-branch', $3, 'base', 'unmerged-head', NULL)
+	`, mergedPR.ID, unmergedPR.ID, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed pull_requests: %v", err)
+	}
+
+	merged, total, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("is:merged branch"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues is:merged: %v", err)
+	}
+	if total == 0 || !issueResultsContain(merged, mergedPR.ID) || issueResultsContain(merged, unmergedPR.ID) {
+		t.Fatalf("is:merged got total=%d rows=%+v", total, merged)
+	}
+
+	unmerged, total, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("is:unmerged branch"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues is:unmerged: %v", err)
+	}
+	if total == 0 || !issueResultsContain(unmerged, unmergedPR.ID) || issueResultsContain(unmerged, mergedPR.ID) {
+		t.Fatalf("is:unmerged got total=%d rows=%+v", total, unmerged)
+	}
+
+	conflict, total, err := search.SearchIssues(ctx, f.deps, alice,
+		search.ParseQuery("type:issue is:merged branch"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues conflicting kind/merged: %v", err)
+	}
+	if total != 0 || len(conflict) != 0 {
+		t.Fatalf("type:issue is:merged returned %d rows total=%d", len(conflict), total)
+	}
+}
+
+func issueResultsContain(results []search.IssueResult, id int64) bool {
+	for _, result := range results {
+		if result.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSearchIssues_RepoFilter(t *testing.T) {

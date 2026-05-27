@@ -5,6 +5,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
 )
@@ -31,24 +32,24 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		}
 		effectiveKind = q.KindFilter
 	}
+	if q.MergedStateFilter != "" {
+		if effectiveKind == "issue" {
+			return nil, 0, nil
+		}
+		effectiveKind = "pr"
+	}
 
 	// At least one signal must drive the query: the FTS payload, a
 	// repo:/owner filter, an actor filter, label/milestone, date
 	// filters, or a state/kind filter.
-	if !hasFTS && q.RepoFilter == nil && q.OwnerFilter == "" &&
-		q.AuthorFilter == "" && q.AssigneeFilter == "" && q.CommenterFilter == "" &&
-		q.StateFilter == "" && effectiveKind == "" && len(q.LabelFilters) == 0 &&
-		q.MilestoneFilter == "" && q.VisibilityFilter == "" && q.ForkFilter == nil &&
-		q.ArchivedFilter == nil && len(q.TopicFilters) == 0 &&
-		q.CreatedFilter == nil && q.UpdatedFilter == nil &&
-		q.ClosedFilter == nil && q.MergedFilter == nil {
+	if !hasFTS && !hasIssueNarrowingFilter(q, effectiveKind) {
 		return nil, 0, nil
 	}
 
 	// G11 (F49): if the user supplied free-text but no narrowing
 	// filters, verify at least one token is long enough to match
 	// indexed content. See repos.go for the heuristic rationale.
-	if hasFTS && q.RepoFilter == nil && q.AuthorFilter == "" && q.AssigneeFilter == "" && q.StateFilter == "" && kindFilter == "" {
+	if hasFTS && !hasIssueNarrowingFilter(q, effectiveKind) {
 		if err := validateFTSNotShortOnly(tsText); err != nil {
 			return nil, 0, err
 		}
@@ -90,32 +91,73 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		whereExtras += fmt.Sprintf(" AND s.kind::text = $%d", kindPos)
 	}
 	if q.AuthorFilter != "" {
-		authorPos := len(args) + 1
-		args = append(args, q.AuthorFilter)
-		whereExtras += fmt.Sprintf(
-			" AND s.author_user_id = (SELECT id FROM users WHERE username = $%d)",
-			authorPos,
-		)
+		author, ok := resolveIssueUserFilter(actor, q.AuthorFilter)
+		if !ok {
+			whereExtras += " AND FALSE"
+		} else {
+			authorPos := len(args) + 1
+			args = append(args, author)
+			whereExtras += fmt.Sprintf(
+				" AND s.author_user_id = (SELECT id FROM users WHERE username = $%d)",
+				authorPos,
+			)
+		}
 	}
 	if q.AssigneeFilter != "" {
-		assigneePos := len(args) + 1
-		args = append(args, q.AssigneeFilter)
-		whereExtras += fmt.Sprintf(
-			" AND EXISTS (SELECT 1 FROM issue_assignees ia"+
-				" JOIN users au2 ON au2.id = ia.user_id"+
-				" WHERE ia.issue_id = s.issue_id AND au2.username = $%d)",
-			assigneePos,
-		)
+		assignee, ok := resolveIssueUserFilter(actor, q.AssigneeFilter)
+		if !ok {
+			whereExtras += " AND FALSE"
+		} else {
+			assigneePos := len(args) + 1
+			args = append(args, assignee)
+			whereExtras += fmt.Sprintf(
+				" AND EXISTS (SELECT 1 FROM issue_assignees ia"+
+					" JOIN users au2 ON au2.id = ia.user_id"+
+					" WHERE ia.issue_id = s.issue_id AND au2.username = $%d)",
+				assigneePos,
+			)
+		}
+	}
+	if q.AssigneeAnyFilter {
+		whereExtras += " AND EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = s.issue_id)"
 	}
 	if q.CommenterFilter != "" {
-		commenterPos := len(args) + 1
-		args = append(args, q.CommenterFilter)
-		whereExtras += fmt.Sprintf(
-			" AND EXISTS (SELECT 1 FROM issue_comments ic"+
-				" JOIN users cu ON cu.id = ic.author_user_id"+
-				" WHERE ic.issue_id = s.issue_id AND cu.username = $%d)",
-			commenterPos,
-		)
+		commenter, ok := resolveIssueUserFilter(actor, q.CommenterFilter)
+		if !ok {
+			whereExtras += " AND FALSE"
+		} else {
+			commenterPos := len(args) + 1
+			args = append(args, commenter)
+			whereExtras += fmt.Sprintf(
+				" AND EXISTS (SELECT 1 FROM issue_comments ic"+
+					" JOIN users cu ON cu.id = ic.author_user_id"+
+					" WHERE ic.issue_id = s.issue_id AND cu.username = $%d)",
+				commenterPos,
+			)
+		}
+	}
+	if q.MentionFilter != "" {
+		mention, ok := resolveIssueUserFilter(actor, q.MentionFilter)
+		if !ok {
+			whereExtras += " AND FALSE"
+		} else {
+			whereExtras += appendIssueMentionFilter(&args, mention)
+		}
+	}
+	if len(q.InvolvesFilters) > 0 {
+		clauses := make([]string, 0, len(q.InvolvesFilters))
+		for _, raw := range q.InvolvesFilters {
+			involved, ok := resolveIssueUserFilter(actor, raw)
+			if !ok {
+				continue
+			}
+			clauses = append(clauses, appendIssueInvolvesClause(&args, involved))
+		}
+		if len(clauses) == 0 {
+			whereExtras += " AND FALSE"
+		} else {
+			whereExtras += " AND (" + strings.Join(clauses, " OR ") + ")"
+		}
 	}
 	for _, label := range q.LabelFilters {
 		labelPos := len(args) + 1
@@ -136,15 +178,40 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 			milestonePos,
 		)
 	}
+	for _, missing := range q.MissingFilters {
+		switch missing {
+		case "label":
+			whereExtras += " AND NOT EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = s.issue_id)"
+		case "milestone":
+			whereExtras += " AND i.milestone_id IS NULL"
+		case "assignee":
+			whereExtras += " AND NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = s.issue_id)"
+		case "project":
+			whereExtras += " AND NOT EXISTS (SELECT 1 FROM repo_project_items rpi WHERE rpi.issue_id = s.issue_id)"
+		}
+	}
+	if q.LockedFilter != nil {
+		if *q.LockedFilter {
+			whereExtras += " AND i.locked"
+		} else {
+			whereExtras += " AND NOT i.locked"
+		}
+	}
 	whereExtras += appendRepoQualifierFilters(&args, "r", q)
 	whereExtras += appendDateRangeFilter(&args, "i.created_at", q.CreatedFilter)
 	whereExtras += appendDateRangeFilter(&args, "i.updated_at", q.UpdatedFilter)
 	whereExtras += appendDateRangeFilter(&args, "i.closed_at", q.ClosedFilter)
 	whereExtras += appendDateRangeFilter(&args, "pr.merged_at", q.MergedFilter)
+	switch q.MergedStateFilter {
+	case "merged":
+		whereExtras += " AND pr.merged_at IS NOT NULL"
+	case "unmerged":
+		whereExtras += " AND pr.merged_at IS NULL"
+	}
 
 	pullJoin := ""
-	if q.MergedFilter != nil {
-		pullJoin = "LEFT JOIN pull_requests pr ON pr.issue_id = i.id"
+	if q.MergedFilter != nil || q.MergedStateFilter != "" {
+		pullJoin = "JOIN pull_requests pr ON pr.issue_id = i.id"
 	}
 
 	whereFTS := "TRUE"
@@ -210,4 +277,59 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		return nil, 0, fmt.Errorf("count issues: %w", err)
 	}
 	return out, total, nil
+}
+
+func hasIssueNarrowingFilter(q ParsedQuery, effectiveKind string) bool {
+	return q.RepoFilter != nil || q.OwnerFilter != "" ||
+		q.AuthorFilter != "" || q.AssigneeFilter != "" || q.AssigneeAnyFilter ||
+		q.CommenterFilter != "" || q.MentionFilter != "" || len(q.InvolvesFilters) > 0 ||
+		q.StateFilter != "" || effectiveKind != "" || len(q.LabelFilters) > 0 ||
+		q.MilestoneFilter != "" || len(q.MissingFilters) > 0 || q.LockedFilter != nil ||
+		q.VisibilityFilter != "" || q.ForkFilter != nil || q.ArchivedFilter != nil ||
+		len(q.TopicFilters) > 0 || q.CreatedFilter != nil || q.UpdatedFilter != nil ||
+		q.ClosedFilter != nil || q.MergedFilter != nil || q.MergedStateFilter != ""
+}
+
+func resolveIssueUserFilter(actor policy.Actor, raw string) (string, bool) {
+	value := strings.TrimSpace(strings.TrimPrefix(raw, "@"))
+	if value == "" {
+		return "", false
+	}
+	if strings.EqualFold(value, "me") {
+		if actor.IsAnonymous || actor.Username == "" {
+			return "", false
+		}
+		return actor.Username, true
+	}
+	return value, true
+}
+
+func appendIssueMentionFilter(args *[]any, username string) string {
+	pos := len(*args) + 1
+	*args = append(*args, "%@"+username+"%")
+	return fmt.Sprintf(
+		" AND (i.title ILIKE $%[1]d OR i.body ILIKE $%[1]d"+
+			" OR EXISTS (SELECT 1 FROM issue_comments im"+
+			" WHERE im.issue_id = s.issue_id AND im.body ILIKE $%[1]d))",
+		pos,
+	)
+}
+
+func appendIssueInvolvesClause(args *[]any, username string) string {
+	userPos := len(*args) + 1
+	mentionPos := len(*args) + 2
+	*args = append(*args, username, "%@"+username+"%")
+	return fmt.Sprintf(
+		"(s.author_user_id = (SELECT id FROM users WHERE username = $%[1]d)"+
+			" OR EXISTS (SELECT 1 FROM issue_assignees ia"+
+			" JOIN users au2 ON au2.id = ia.user_id"+
+			" WHERE ia.issue_id = s.issue_id AND au2.username = $%[1]d)"+
+			" OR EXISTS (SELECT 1 FROM issue_comments ic"+
+			" JOIN users cu ON cu.id = ic.author_user_id"+
+			" WHERE ic.issue_id = s.issue_id AND cu.username = $%[1]d)"+
+			" OR i.title ILIKE $%[2]d OR i.body ILIKE $%[2]d"+
+			" OR EXISTS (SELECT 1 FROM issue_comments im"+
+			" WHERE im.issue_id = s.issue_id AND im.body ILIKE $%[2]d))",
+		userPos, mentionPos,
+	)
 }

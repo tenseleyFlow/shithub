@@ -17,17 +17,23 @@ import (
 // to take effect (a bare `repo:foo` without slash is treated as
 // free text).
 type ParsedQuery struct {
-	Text            string // free-text query (what tsvector matches against)
-	Phrase          string // when a quoted phrase was supplied; empty when not
-	Terms           []TextTerm
-	ExcludedTerms   []TextTerm
-	Qualifiers      []Qualifier
-	RepoFilter      *RepoFilter
-	StateFilter     string // "open" | "closed" | ""
-	KindFilter      string // "issue" | "pr" | ""
-	AuthorFilter    string // username or empty
-	AssigneeFilter  string // username or empty (issue_assignees join)
-	CommenterFilter string // username or empty (issue_comments join)
+	Text              string // free-text query (what tsvector matches against)
+	Phrase            string // when a quoted phrase was supplied; empty when not
+	Terms             []TextTerm
+	ExcludedTerms     []TextTerm
+	Qualifiers        []Qualifier
+	RepoFilter        *RepoFilter
+	StateFilter       string // "open" | "closed" | ""
+	KindFilter        string // "issue" | "pr" | ""
+	MergedStateFilter string // "merged" | "unmerged" | ""
+	LockedFilter      *bool
+	AuthorFilter      string // username or empty
+	AssigneeFilter    string // username or empty (issue_assignees join)
+	AssigneeAnyFilter bool   // assignee:* (at least one assignee)
+	CommenterFilter   string // username or empty (issue_comments join)
+	MentionFilter     string // username mentioned in issue body or comments
+	InvolvesFilters   []string
+	MissingFilters    []string // label | milestone | assignee | project
 	// OwnerFilter matches `user:foo` and `org:foo` qualifiers — the
 	// repo's owning user OR org slug. gh aliases them for search; we
 	// keep the positive fast path here and retain negated forms in
@@ -193,7 +199,8 @@ func splitQualifier(value string) (key, val string, ok bool) {
 
 func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	switch key {
-	case "repo", "is", "state", "author", "assignee", "commenter",
+	case "repo", "is", "type", "state", "author", "assignee", "commenter",
+		"mentions", "involves", "no",
 		"user", "org", "label", "milestone", "language", "path",
 		"extension", "created", "updated", "closed", "merged",
 		"visibility", "fork", "archived", "topic":
@@ -221,12 +228,29 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 			out.KindFilter = "issue"
 		case "pr", "pull-request", "pull_request":
 			out.KindFilter = "pr"
+		case "merged":
+			out.MergedStateFilter = "merged"
+		case "unmerged":
+			out.MergedStateFilter = "unmerged"
+		case "locked":
+			out.LockedFilter = boolSearchPtr(true)
+		case "unlocked":
+			out.LockedFilter = boolSearchPtr(false)
 		case "public", "private":
 			out.VisibilityFilter = strings.ToLower(val)
 		case "fork":
 			out.ForkFilter = boolSearchPtr(true)
 		case "archived":
 			out.ArchivedFilter = boolSearchPtr(true)
+		default:
+			return false
+		}
+	case "type":
+		switch strings.ToLower(val) {
+		case "issue":
+			out.KindFilter = "issue"
+		case "pr", "pull-request", "pull_request":
+			out.KindFilter = "pr"
 		default:
 			return false
 		}
@@ -240,9 +264,24 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	case "author":
 		out.AuthorFilter = val
 	case "assignee":
-		out.AssigneeFilter = val
+		if val == "*" {
+			out.AssigneeAnyFilter = true
+		} else {
+			out.AssigneeFilter = val
+		}
 	case "commenter":
 		out.CommenterFilter = val
+	case "mentions":
+		out.MentionFilter = val
+	case "involves":
+		out.InvolvesFilters = append(out.InvolvesFilters, val)
+	case "no":
+		switch strings.ToLower(val) {
+		case "label", "milestone", "assignee", "project":
+			out.MissingFilters = append(out.MissingFilters, strings.ToLower(val))
+		default:
+			return false
+		}
 	case "user", "org":
 		out.OwnerFilter = val
 	case "label":
@@ -385,7 +424,10 @@ func parseISODate(raw string) (time.Time, bool) {
 func (p ParsedQuery) HasContent() bool {
 	return p.Text != "" || p.Phrase != "" || p.RepoFilter != nil ||
 		p.StateFilter != "" || p.KindFilter != "" || p.AuthorFilter != "" ||
-		p.AssigneeFilter != "" || p.CommenterFilter != "" || p.OwnerFilter != "" ||
+		p.MergedStateFilter != "" || p.LockedFilter != nil ||
+		p.AssigneeFilter != "" || p.AssigneeAnyFilter || p.CommenterFilter != "" ||
+		p.MentionFilter != "" || len(p.InvolvesFilters) > 0 ||
+		len(p.MissingFilters) > 0 || p.OwnerFilter != "" ||
 		len(p.LabelFilters) > 0 || p.MilestoneFilter != "" ||
 		p.LanguageFilter != "" || p.VisibilityFilter != "" || p.ForkFilter != nil ||
 		p.ArchivedFilter != nil || len(p.TopicFilters) > 0 ||
