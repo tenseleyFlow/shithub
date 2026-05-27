@@ -782,9 +782,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Baseline shipped",
 				},
 				{
-					Name: "Artifact attestations", Description: "Store provenance attestations for build artifacts.",
-					Free: "Public repositories planned", Team: "Public repositories planned", Enterprise: "Contact sales", Owner: "SP29",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+					Name: "Artifact attestations", Description: "Store and download in-toto provenance statements for repository artifacts.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Baseline shipped",
 				},
 			},
 		},

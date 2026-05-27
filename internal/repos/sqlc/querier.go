@@ -113,6 +113,7 @@ type Querier interface {
 	GetProfilePinSetForOrg(ctx context.Context, db DBTX, ownerOrgID pgtype.Int8) (int64, error)
 	// ─── profile/org pinned repositories ───────────────────────────────
 	GetProfilePinSetForUser(ctx context.Context, db DBTX, ownerUserID pgtype.Int8) (int64, error)
+	GetRepoArtifactAttestationForRepo(ctx context.Context, db DBTX, arg GetRepoArtifactAttestationForRepoParams) (RepoArtifactAttestation, error)
 	GetRepoByID(ctx context.Context, db DBTX, id int64) (Repo, error)
 	// S30: org-owner mirror of GetRepoByOwnerUserAndName. The (owner_org_id,
 	// name) partial unique index from 0017 backs this lookup with the same
@@ -143,6 +144,10 @@ type Querier interface {
 	InsertDependencyAdvisoryAffectedRange(ctx context.Context, db DBTX, arg InsertDependencyAdvisoryAffectedRangeParams) error
 	InsertDependencyAdvisoryAlias(ctx context.Context, db DBTX, arg InsertDependencyAdvisoryAliasParams) error
 	InsertProfilePin(ctx context.Context, db DBTX, arg InsertProfilePinParams) error
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP29 persisted repository artifact attestations.
+	InsertRepoArtifactAttestation(ctx context.Context, db DBTX, arg InsertRepoArtifactAttestationParams) (RepoArtifactAttestation, error)
 	// ─── redirects ─────────────────────────────────────────────────────────
 	// Both old-owner FKs are nullable; pass exactly one. The CHECK
 	// constraint on the table enforces the xor shape.
@@ -209,6 +214,7 @@ type Querier interface {
 	// Public-only view of a user's repos for the "list another user's repos"
 	// REST endpoint. Hidden behind the same updated_at ordering.
 	ListPublicReposForOwnerUser(ctx context.Context, db DBTX, arg ListPublicReposForOwnerUserParams) ([]Repo, error)
+	ListRepoArtifactAttestations(ctx context.Context, db DBTX, arg ListRepoArtifactAttestationsParams) ([]RepoArtifactAttestation, error)
 	ListRepoDependenciesForRepo(ctx context.Context, db DBTX, arg ListRepoDependenciesForRepoParams) ([]RepoDependency, error)
 	// ─── soft-delete sweep query ───────────────────────────────────────────
 	// The repo:hard_delete enqueuer queries this to find rows ready for
