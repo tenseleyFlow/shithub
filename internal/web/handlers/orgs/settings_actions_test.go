@@ -348,6 +348,35 @@ func TestOrgAuditLogShowsOrgAndOwnedRepoEvents(t *testing.T) {
 	if strings.Contains(body, "ROW=repo_visibility_changed|repo|"+strconv.FormatInt(repoID, 10)+";") {
 		t.Fatalf("action prefix filter included repo row: %s", body)
 	}
+	if !strings.Contains(body, "FILTERS=action=org_;") {
+		t.Fatalf("filter query not preserved for export/pagination: %s", body)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/audit-log/export?action=repo_", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("export org audit status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != "text/csv; charset=utf-8" {
+		t.Fatalf("export content type=%q", got)
+	}
+	if got := resp.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="acme-audit-log.csv"`) {
+		t.Fatalf("export content disposition=%q", got)
+	}
+	body = resp.Body.String()
+	if !strings.Contains(body, "created_at,actor_id,action,target_type,target_id,meta") {
+		t.Fatalf("export header missing: %s", body)
+	}
+	if !strings.Contains(body, ",repo_visibility_changed,repo,"+strconv.FormatInt(repoID, 10)+",") {
+		t.Fatalf("owned repo row missing from export: %s", body)
+	}
+	if strings.Contains(body, "org_required_2fa_updated") {
+		t.Fatalf("action filter included org row in export: %s", body)
+	}
+	if strings.Contains(body, ",repo_visibility_changed,repo,"+strconv.FormatInt(otherRepoID, 10)+",") {
+		t.Fatalf("unowned repo row leaked in export: %s", body)
+	}
 }
 
 func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {

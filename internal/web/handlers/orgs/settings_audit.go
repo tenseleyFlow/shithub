@@ -3,6 +3,7 @@
 package orgs
 
 import (
+	"encoding/csv"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,7 +16,10 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
-const orgAuditLogPerPage = 100
+const (
+	orgAuditLogPerPage     = 100
+	orgAuditLogExportLimit = 10000
+)
 
 func (h *Handlers) settingsAuditLog(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.loadOrgSettingsOwner(w, r)
@@ -27,10 +31,72 @@ func (h *Handlers) settingsAuditLog(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
+	params := orgAuditLogParams(org.ID, q, orgAuditLogPerPage, (page-1)*orgAuditLogPerPage)
+	rows, err := usersdb.New().ListOrgAuditLog(r.Context(), h.d.Pool, params)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org audit log: list", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	h.d.Render.RenderPage(w, r, "orgs/settings_audit", map[string]any{
+		"Title":             org.Slug + " · Audit log",
+		"Org":               org,
+		"CSRFToken":         middleware.CSRFTokenForRequest(r),
+		"OrgSettingsActive": "audit",
+		"BillingEnabled":    h.billingConfigured(),
+		"Rows":              rows,
+		"Filters":           orgAuditFilters(q),
+		"Q":                 q,
+		"Page":              page,
+		"NextPage":          page + 1,
+		"PrevPage":          page - 1,
+		"HasMore":           len(rows) == orgAuditLogPerPage,
+	})
+}
+
+func (h *Handlers) settingsAuditLogExport(w http.ResponseWriter, r *http.Request) {
+	org, ok := h.loadOrgSettingsOwner(w, r)
+	if !ok {
+		return
+	}
+	params := orgAuditLogParams(org.ID, r.URL.Query(), orgAuditLogExportLimit, 0)
+	rows, err := usersdb.New().ListOrgAuditLog(r.Context(), h.d.Pool, params)
+	if err != nil {
+		h.d.Logger.ErrorContext(r.Context(), "org audit log: export", "org_id", org.ID, "error", err)
+		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+string(org.Slug)+`-audit-log.csv"`)
+	out := csv.NewWriter(w)
+	if err := out.Write([]string{"created_at", "actor_id", "action", "target_type", "target_id", "meta"}); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org audit log: export header", "org_id", org.ID, "error", err)
+		return
+	}
+	for _, row := range rows {
+		if err := out.Write([]string{
+			orgAuditTime(row.CreatedAt),
+			orgAuditInt(row.ActorID),
+			row.Action,
+			row.TargetType,
+			orgAuditInt(row.TargetID),
+			string(row.Meta),
+		}); err != nil {
+			h.d.Logger.WarnContext(r.Context(), "org audit log: export row", "org_id", org.ID, "error", err)
+			return
+		}
+	}
+	out.Flush()
+	if err := out.Error(); err != nil {
+		h.d.Logger.WarnContext(r.Context(), "org audit log: export flush", "org_id", org.ID, "error", err)
+	}
+}
+
+func orgAuditLogParams(orgID int64, q url.Values, limit, offset int) usersdb.ListOrgAuditLogParams {
 	params := usersdb.ListOrgAuditLogParams{
-		OrgID:       org.ID,
-		LimitCount:  orgAuditLogPerPage,
-		OffsetCount: int32((page - 1) * orgAuditLogPerPage),
+		OrgID:       orgID,
+		LimitCount:  int32(limit),
+		OffsetCount: int32(offset),
 	}
 	if v := strings.TrimSpace(q.Get("actor")); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
@@ -58,26 +124,7 @@ func (h *Handlers) settingsAuditLog(w http.ResponseWriter, r *http.Request) {
 			params.Until = pgtype.Timestamptz{Time: t.AddDate(0, 0, 1), Valid: true}
 		}
 	}
-	rows, err := usersdb.New().ListOrgAuditLog(r.Context(), h.d.Pool, params)
-	if err != nil {
-		h.d.Logger.ErrorContext(r.Context(), "org audit log: list", "org_id", org.ID, "error", err)
-		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
-		return
-	}
-	h.d.Render.RenderPage(w, r, "orgs/settings_audit", map[string]any{
-		"Title":             org.Slug + " · Audit log",
-		"Org":               org,
-		"CSRFToken":         middleware.CSRFTokenForRequest(r),
-		"OrgSettingsActive": "audit",
-		"BillingEnabled":    h.billingConfigured(),
-		"Rows":              rows,
-		"Filters":           orgAuditFilters(q),
-		"Q":                 q,
-		"Page":              page,
-		"NextPage":          page + 1,
-		"PrevPage":          page - 1,
-		"HasMore":           len(rows) == orgAuditLogPerPage,
-	})
+	return params
 }
 
 func orgAuditFilters(q url.Values) string {
@@ -91,4 +138,18 @@ func orgAuditFilters(q url.Values) string {
 		clone[k] = cp
 	}
 	return clone.Encode()
+}
+
+func orgAuditTime(t pgtype.Timestamptz) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.Time.UTC().Format(time.RFC3339Nano)
+}
+
+func orgAuditInt(v pgtype.Int8) string {
+	if !v.Valid {
+		return ""
+	}
+	return strconv.FormatInt(v.Int64, 10)
 }
