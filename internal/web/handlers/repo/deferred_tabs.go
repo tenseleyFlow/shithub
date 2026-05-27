@@ -31,9 +31,9 @@ func (h *Handlers) repoTabSecurity(w http.ResponseWriter, r *http.Request) {
 		Description: "Review repository security posture, policy files, alerts, and dependency health.",
 		Icon:        "shield-check",
 		Sections: []repoDeferredSection{
-			{Anchor: "overview", Title: "Overview", Body: "Security overview is not wired yet."},
+			{Anchor: "overview", Title: "Overview", Body: "Repository security pages now expose code scanning, secret scanning, dependency advisories, and SBOM exports as their owning data exists."},
 			{Anchor: "policy", Title: "Policy", Body: "Security policy detection already appears in the repository About sidebar when SECURITY.md exists."},
-			{Anchor: "alerts", Title: "Alerts", Body: "Code scanning, secret scanning, and dependency alerts are reserved for later security sprints."},
+			{Anchor: "sbom", Title: "SBOM", Body: "SPDX JSON SBOM exports are available from the repository SBOM page once a dependency snapshot exists."},
 		},
 	})
 }

@@ -53,6 +53,7 @@ const (
 	FeatureDependabotVersionUpdates  Feature = "dependabot_version_updates"
 	FeatureDependabotAutoTriage      Feature = "dependabot_auto_triage"
 	FeatureSecurityAdvisories        Feature = "security_advisories"
+	FeatureSBOMs                     Feature = "sboms"
 	// SP26 Secret Protection surfaces. Public repositories keep baseline
 	// scanning/protection; private organization repositories require Team.
 	FeatureSecretScanning       Feature = "secret_scanning"
@@ -333,6 +334,7 @@ var featureKinds = map[Feature][]billing.SubjectKind{
 	FeatureDependabotVersionUpdates:  {billing.SubjectKindOrg},
 	FeatureDependabotAutoTriage:      {billing.SubjectKindOrg},
 	FeatureSecurityAdvisories:        {billing.SubjectKindOrg},
+	FeatureSBOMs:                     {billing.SubjectKindOrg},
 	FeatureSecretScanning:            {billing.SubjectKindOrg},
 	FeatureSecretPushProtection:      {billing.SubjectKindOrg},
 	FeatureSecretCustomPatterns:      {billing.SubjectKindOrg},

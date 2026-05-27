@@ -1,0 +1,118 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <h1>{{ octicon "package" }} SBOM</h1>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security">Security overview</a>
+        {{ if .LatestExport }}
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security/sbom/download">{{ octicon "download" }} Download SPDX JSON</a>
+        {{ end }}
+        {{ if .CanGenerate }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/sbom/generate" class="shithub-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button shithub-button-primary">{{ octicon "sync" }} Generate SBOM</button>
+        </form>
+        {{ end }}
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ if .Generated }}<p class="shithub-flash shithub-flash-notice" role="status">SBOM generated.</p>{{ end }}
+
+    {{ if not .Gate.Allowed }}
+    <div class="shithub-org-security-upgrade">
+      <div>
+        <h2>SBOM exports are a Team feature for private organization repositories.</h2>
+        <p>Public repositories can export SPDX JSON at no charge. Upgrade this organization to generate private-repo SBOMs.</p>
+      </div>
+      <a class="shithub-button shithub-button-primary" href="{{ .Gate.UpgradeHref }}" data-pro-feature="{{ .Gate.FeatureKey }}">{{ .Gate.UpgradeText }}</a>
+    </div>
+    {{ else }}
+      {{ if .HasSnapshot }}
+      <section class="shithub-org-security-metrics" aria-label="SBOM summary">
+        <div>
+          <strong>{{ .Snapshot.ManifestCount }}</strong>
+          <span>Manifests</span>
+        </div>
+        <div>
+          <strong>{{ .Snapshot.DependencyCount }}</strong>
+          <span>Dependencies</span>
+        </div>
+        <div>
+          <strong>{{ .Snapshot.DefaultBranch }}</strong>
+          <span>Branch</span>
+        </div>
+        <div>
+          <strong>{{ if .LatestExport }}{{ .LatestExport.ShortHeadSHA }}{{ else }}Not generated{{ end }}</strong>
+          <span>Latest SBOM</span>
+        </div>
+      </section>
+
+      {{ if .SignInRequired }}
+      <p class="shithub-muted">Sign in to generate a downloadable SBOM for this repository.</p>
+      {{ end }}
+
+      {{ if .LatestExport }}
+      <section class="shithub-settings-section">
+        <h2>Latest export</h2>
+        <ul class="shithub-org-security-list">
+          <li>
+            <div class="shithub-org-security-list-main">
+              <a href="/{{ .Owner }}/{{ .Repo.Name }}/security/sbom/download">SPDX JSON</a>
+              <strong>{{ .LatestExport.ShortHeadSHA }}</strong>
+              <span>{{ .LatestExport.ByteLabel }} · generated {{ relativeTime .LatestExport.GeneratedAt.Time }}{{ if .LatestExport.Stale }} · older than the current dependency snapshot{{ end }}</span>
+            </div>
+            {{ if .LatestExport.Stale }}
+            <span class="shithub-org-security-severity is-moderate">stale</span>
+            {{ else }}
+            <span class="shithub-org-security-severity is-low">current</span>
+            {{ end }}
+          </li>
+        </ul>
+      </section>
+      {{ end }}
+
+      <section class="shithub-settings-section">
+        <h2>Dependencies</h2>
+        {{ if .Dependencies }}
+        <table class="shithub-settings-table">
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Version</th>
+              <th>Ecosystem</th>
+              <th>Manifest</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Dependencies }}
+            <tr>
+              <td><strong>{{ .PackageName }}</strong></td>
+              <td>{{ if .PackageVersion }}{{ .PackageVersion }}{{ else }}No resolved version{{ end }}</td>
+              <td>{{ .Ecosystem }}</td>
+              <td>{{ .ManifestPath }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <div class="shithub-org-security-empty">
+          {{ octicon "package" }}
+          <h2>No dependencies detected</h2>
+          <p>The latest dependency snapshot found supported manifests but did not record package rows.</p>
+        </div>
+        {{ end }}
+      </section>
+      {{ else }}
+      <div class="shithub-org-security-empty">
+        {{ octicon "package" }}
+        <h2>No dependency snapshot yet</h2>
+        <p>SBOM exports are generated from the repository's latest stored dependency scan.</p>
+      </div>
+      {{ end }}
+    {{ end }}
+  </section>
+</section>
+{{- end }}

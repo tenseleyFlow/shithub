@@ -79,3 +79,11 @@ current surface shows time, actor, action, target, and metadata for
 captured billing, security, Actions secrets/variables, and repository
 events. The Export CSV action downloads the same filtered scope, capped
 at 10,000 rows. API access is not yet part of the owner UI.
+
+## Security exports
+
+Repository → Security → SBOM generates a downloadable SPDX JSON software bill
+of materials from the latest stored dependency snapshot. Public repositories
+and personal repositories can generate exports at baseline. Private
+organization repositories require Team before package details or SBOM downloads
+are available.

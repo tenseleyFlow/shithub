@@ -115,9 +115,9 @@ Rules for paid-org copy:
 | Repository security advisories | Public repositories and personal repos | Draft/publish/withdraw/archive advisory workflow for private org repos | Contact sales |
 | Required organization 2FA | Included | Included | Contact sales |
 | Role-based access control | Included | Included | Contact sales |
-| Audit log | Baseline event capture | Baseline event capture; org-owner UI planned | Contact sales |
+| Audit log | Baseline event capture | Baseline event capture; org-owner UI and CSV export | Contact sales |
 | Audit log API | Deferred | Deferred | Later Enterprise feature |
-| SBOMs | Planned | Planned | Contact sales |
+| SBOMs | Public repositories and personal repos | SPDX JSON generation/storage for private org repos | Contact sales |
 | Artifact attestations | Planned for public repositories | Planned for public repositories | Contact sales |
 | GitHub Apps / app-style integrations | Planned | Planned | Contact sales |
 | Status checks | Included through branch protection | Included through branch protection | Contact sales |
@@ -226,9 +226,10 @@ Present but still moving toward full enforcement:
   explicit planned/deferred rows: RBAC and status checks are baseline
   shipped, audit event capture exists and owners can browse org/repo
   rows from `/organizations/{org}/settings/audit-log` and export the
-  filtered scope as capped CSV,
-  SBOMs/attestations/GitHub Apps remain planned, and audit-log
-  API/pre-receive hooks remain Enterprise/deferred placement.
+  filtered scope as capped CSV, repository SBOMs generate/download SPDX
+  JSON from stored dependency snapshots, attestations and GitHub Apps
+  remain planned, and audit-log API/pre-receive hooks remain
+  Enterprise/deferred placement.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a

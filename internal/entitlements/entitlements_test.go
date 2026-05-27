@@ -174,6 +174,7 @@ func TestForOrgCanUseAndLimit(t *testing.T) {
 		entitlements.FeatureDependabotVersionUpdates,
 		entitlements.FeatureDependabotAutoTriage,
 		entitlements.FeatureSecurityAdvisories,
+		entitlements.FeatureSBOMs,
 		entitlements.FeatureSecretScanning,
 		entitlements.FeatureSecretPushProtection,
 		entitlements.FeatureSecretCustomPatterns,
