@@ -30,6 +30,7 @@ func TestAppliesToOrgOnlyFeatures(t *testing.T) {
 		entitlements.FeatureDependabotAutoTriage,
 		entitlements.FeatureSecurityAdvisories,
 		entitlements.FeatureSBOMs,
+		entitlements.FeatureArtifactAttestations,
 		entitlements.FeatureSecretScanning,
 		entitlements.FeatureSecretPushProtection,
 		entitlements.FeatureSecretCustomPatterns,

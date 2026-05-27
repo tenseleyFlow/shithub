@@ -131,7 +131,8 @@ Medium/known limitations:
   setup/cache actions, matrix, services, reusable workflows, OIDC, and hosted
   image provisioning remain runtime/toolchain gaps.
 - The management pages for caches, runners, usage metrics, performance metrics,
-  and attestations are still first-pass or honest empty-state surfaces.
+  and workflow-published attestations are still first-pass or honest
+  empty-state surfaces.
 
 ## React Decision
 
@@ -156,7 +157,7 @@ current vanilla islands.
 | Cache management and cache action protocol | Actions runtime + UI follow-up | Start with list/delete/filter/quota UX; implement protocol compatibility only with a runtime contract and quota accounting. |
 | Runner management UI | S41j/S41k follow-up after policy design | Needs repo/org policy, audit logging, one-time token display, revocation flows, and host-detail redaction. |
 | Billing-grade metrics | Payments/SP23 + Actions metrics | Period selectors, export, and usage views must read from entitlements/metering, not scattered plan checks. |
-| Attestations/provenance | S54 | Requires persistence, upload/publish API, provenance rendering, and supply-chain security review. |
+| Attestations/provenance | S54 | Repository-level manual in-toto statement storage exists under SP29; workflow automatic generation, publishing API, provenance rendering, signature verification, and supply-chain security review remain. |
 | Marketplace/toolchain parity | S41i + later runtime campaign | First-party setup/cache/toolchain steps, matrix, services, reusable workflows, OIDC, and hosted image contracts belong outside UI polish. |
 | Classic Statuses API | S50 or dedicated API sprint | shithub supports Checks; GitHub-compatible commit statuses remain an explicit product/API decision. |
 | Visual regression CI | UI QA track | Promote the screenshot harness to CI only after deterministic fixture data and stable browser/fonts exist. |

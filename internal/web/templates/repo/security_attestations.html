@@ -1,0 +1,77 @@
+{{ define "page" -}}
+<section class="shithub-repo-page">
+  {{ template "repo-header" . }}
+  <section class="shithub-secret-scanning">
+    <header class="shithub-issues-head">
+      <h1>{{ octicon "shield-check" }} Artifact attestations</h1>
+      <div class="shithub-issues-actions">
+        <a class="shithub-button" href="/{{ .Owner }}/{{ .Repo.Name }}/security">Security overview</a>
+      </div>
+    </header>
+
+    {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+    {{ if .Created }}<p class="shithub-flash shithub-flash-notice" role="status">Artifact attestation uploaded.</p>{{ end }}
+
+    {{ if not .Gate.Allowed }}
+    <div class="shithub-org-security-upgrade">
+      <div>
+        <h2>Artifact attestations are a Team feature for private organization repositories.</h2>
+        <p>Public repositories can publish provenance at no charge. Upgrade this organization to store private-repo in-toto attestations.</p>
+      </div>
+      <a class="shithub-button shithub-button-primary" href="{{ .Gate.UpgradeHref }}" data-pro-feature="{{ .Gate.FeatureKey }}">{{ .Gate.UpgradeText }}</a>
+    </div>
+    {{ else }}
+      <section class="shithub-settings-section">
+        <h2>Upload attestation</h2>
+        <p class="shithub-muted">Store a signed in-toto Statement JSON document for a build artifact, release archive, or generated package.</p>
+        {{ if .CanUpload }}
+        <form method="POST" action="/{{ .Owner }}/{{ .Repo.Name }}/security/attestations">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label for="attestation-statement">Statement JSON</label>
+          <textarea id="attestation-statement" name="statement" rows="12" spellcheck="false" placeholder="{&#10;  &quot;_type&quot;: &quot;https://in-toto.io/Statement/v1&quot;,&#10;  &quot;subject&quot;: [{&quot;name&quot;: &quot;dist/app.tar.gz&quot;, &quot;digest&quot;: {&quot;sha256&quot;: &quot;...&quot;}}],&#10;  &quot;predicateType&quot;: &quot;https://slsa.dev/provenance/v1&quot;,&#10;  &quot;predicate&quot;: {}&#10;}"></textarea>
+          <div>
+            <button type="submit" class="shithub-button shithub-button-primary">{{ octicon "upload" }} Upload attestation</button>
+          </div>
+        </form>
+        {{ else }}
+        <p class="shithub-muted">Repository write access is required to upload attestations.</p>
+        {{ end }}
+      </section>
+
+      <section class="shithub-settings-section">
+        <h2>Stored attestations</h2>
+        {{ if .Attestations }}
+        <table class="shithub-settings-table">
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Digest</th>
+              <th>Predicate type</th>
+              <th>Uploaded</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Attestations }}
+            <tr>
+              <td><strong>{{ .SubjectName }}</strong></td>
+              <td title="{{ .SubjectDigest }}">{{ .ShortDigest }}</td>
+              <td>{{ .PredicateType }}</td>
+              <td>{{ .ByteLabel }} · {{ relativeTime .CreatedAt.Time }}</td>
+              <td><a class="shithub-button" href="{{ .DownloadHref }}">{{ octicon "download" }} Download</a></td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <div class="shithub-org-security-empty">
+          {{ octicon "shield-check" }}
+          <h2>No artifact attestations yet</h2>
+          <p>Upload in-toto Statement JSON to publish provenance for repository artifacts.</p>
+        </div>
+        {{ end }}
+      </section>
+    {{ end }}
+  </section>
+</section>
+{{- end }}

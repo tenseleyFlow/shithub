@@ -3522,6 +3522,19 @@ type Repo struct {
 	DeleteBranchOnMerge bool
 }
 
+type RepoArtifactAttestation struct {
+	ID            int64
+	RepoID        int64
+	SubjectName   string
+	SubjectDigest string
+	PredicateType string
+	Statement     []byte
+	ByteCount     int64
+	SourceRunID   pgtype.Int8
+	UploadedBy    pgtype.Int8
+	CreatedAt     pgtype.Timestamptz
+}
+
 type RepoCollaborator struct {
 	RepoID        int64
 	UserID        int64
