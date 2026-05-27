@@ -27,8 +27,8 @@ management pages, Code-surface status indicators, workflow authoring, workflow
 pinning, grouped completed logs, line permalinks, and PR/check status
 affordances exist. The remaining gaps are no longer "missing Actions tab";
 they are specific runtime, management, analytics, and API subfeatures such as
-cache protocol compatibility, attestations, repo/org runner registration UI,
-billing-grade metrics, and classic Statuses API compatibility.
+cache protocol compatibility, workflow-published attestations, repo/org runner
+registration UI, billing-grade metrics, and classic Statuses API compatibility.
 
 The current implementation remains server-rendered Go templates plus small
 page-scoped JavaScript islands. S41l did not create enough shared client-side
@@ -48,7 +48,7 @@ that cannot be kept small and testable with the existing approach.
 | Step log | Present | In-app logs, SSE/live path, shithub-served download route, grouped completed logs, line/range permalinks, and step-local annotations. |
 | PR/check surfaces | Present | PR list, PR header, merge context, and Checks tab show check rollups; local Actions details URLs link to run pages and rerun forms are writer-gated. |
 | Caches | First pass | Lists real `workflow_caches` rows when present. Full cache protocol/delete/filter UX remains open. |
-| Attestations | Placeholder | Honest "No attestations" surface; no provenance model exists yet. |
+| Attestations | Placeholder | Honest "No attestations" workflow surface; SP29 adds manual repository in-toto statement storage, but Actions does not yet publish provenance. |
 | Runners | First pass | Shows repo-relevant runner inventory without registration tokens or host-sensitive details. |
 | Usage metrics | First pass | Bounded current-month repo metrics; not billing-grade analytics. |
 | Performance metrics | First pass | Bounded current-month runtime/queue/failure views; not historical drilldown parity. |
@@ -68,7 +68,7 @@ that cannot be kept small and testable with the existing approach.
 | ID | Gap | Type | Recommended owner |
 | --- | --- | --- | --- |
 | S41K8-G3 | Cache management: filtering, deletion, protocol/API compatibility, action integration, and quota/retention semantics. | Runtime + UI | Actions cache/runtime follow-up + PAYMENTS/SP23 for quota. |
-| S41K8-G4 | Attestations: persistence model, upload/publish API, provenance rendering, and security review. | Supply chain | S54. |
+| S41K8-G4 | Attestations: workflow automatic generation, publish API, provenance rendering, signature verification, and security review. | Supply chain | S54. |
 | S41K8-G5 | Runner management UI: repo/org registration, revocation, one-time token display, policy gates, and audit logging. | Security-sensitive UI | S41j/S41m follow-up after policy design. |
 | S41K8-G6 | Metrics and usage: historical period selectors, export/download, billing alignment, and performance drilldowns. | Analytics + billing | PAYMENTS/SP23 + Actions metrics follow-up. |
 | S41K8-G9 | Classic GitHub Statuses API compatibility. | API/product decision | S50 or post-MVP checks sprint. |
@@ -89,8 +89,8 @@ that cannot be kept small and testable with the existing approach.
 4. **Runner management UI.** Only after policy, audit logging, token display,
    and operator boundaries are specified. This surface can leak sensitive
    infrastructure details if rushed.
-5. **Attestations and supply chain.** Route to S54 rather than forcing it into
-   Actions UI parity.
+5. **Attestations and supply chain.** Route workflow-published attestations to
+   S54 rather than forcing them into Actions UI parity.
 6. **Marketplace/toolchain parity.** Treat as runtime work, not UI polish. It
    is the blocker for moving shithub's own full CI to shithub Actions.
 7. **Statuses API compatibility.** Make this an explicit API/product sprint
@@ -165,6 +165,7 @@ page-local islands.
   specified.
 - Do not call metrics "usage billing parity" until entitlements and metering
   are the source of truth.
-- Do not treat the Attestations empty state as provenance support.
+- Do not treat the Actions Attestations empty state as workflow provenance
+  support.
 - Do not implement classic Statuses API compatibility accidentally through
   template shortcuts; make it an explicit API/product decision.

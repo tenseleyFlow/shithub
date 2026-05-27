@@ -87,3 +87,9 @@ of materials from the latest stored dependency snapshot. Public repositories
 and personal repositories can generate exports at baseline. Private
 organization repositories require Team before package details or SBOM downloads
 are available.
+
+Repository → Security → Artifact attestations stores downloadable in-toto
+Statement JSON documents for build artifacts, release archives, or generated
+packages. Public repositories and personal repositories can store attestations
+at baseline. Private organization repositories require Team before attestation
+uploads, listings, or downloads are available.
