@@ -26,6 +26,7 @@
         <input type="date" name="since" value="{{ .Q.Get "since" }}" aria-label="Since">
         <input type="date" name="until" value="{{ .Q.Get "until" }}" aria-label="Until">
         <button type="submit" class="shithub-button">Filter</button>
+        <a class="shithub-button" href="/organizations/{{ .Org.Slug }}/settings/audit-log/export{{ if .Filters }}?{{ .Filters }}{{ end }}">Export CSV</a>
       </form>
 
       {{ if .Rows }}

@@ -77,4 +77,5 @@ events for repositories owned by the organization. Owners can filter by
 actor id, action prefix, target type, target id, and date range. The
 current surface shows time, actor, action, target, and metadata for
 captured billing, security, Actions secrets/variables, and repository
-events; export/API access is not yet part of the owner UI.
+events. The Export CSV action downloads the same filtered scope, capped
+at 10,000 rows. API access is not yet part of the owner UI.

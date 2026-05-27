@@ -151,6 +151,7 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/variables/actions", h.settingsActionsVariableSet)
 	r.Post("/organizations/{org}/settings/variables/actions/{name}/delete", h.settingsActionsVariableDelete)
 	r.Get("/organizations/{org}/settings/audit-log", h.settingsAuditLog)
+	r.Get("/organizations/{org}/settings/audit-log/export", h.settingsAuditLogExport)
 	if h.billingConfigured() {
 		r.Get("/organizations/{org}/settings/billing", h.settingsBilling)
 		r.Get("/organizations/{org}/settings/billing/licensing", h.settingsBillingLicensing)

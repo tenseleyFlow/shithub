@@ -51,6 +51,7 @@ POST /organizations/{org}/settings/billing/seats/add
 GET  /organizations/{org}/settings/billing/seats/remove
 POST /organizations/{org}/settings/billing/seats/remove
 GET  /organizations/{org}/settings/audit-log
+GET  /organizations/{org}/settings/audit-log/export
 POST /organizations/{org}/billing/checkout
 POST /organizations/{org}/billing/portal
 GET  /organizations/{org}/billing/success
@@ -273,8 +274,9 @@ including soft-deleted repository rows that still exist in the repos
 table. Filters mirror the site-admin audit viewer: actor id, action
 prefix, target type, target id, and inclusive date inputs. Rows expose
 timestamp, actor id or system, action, target, and metadata JSON.
-Export/API access is still deferred; this is the owner-facing browsing
-surface only.
+`/organizations/{org}/settings/audit-log/export` downloads the same
+filtered scope as CSV, capped at 10,000 most-recent rows. API access is
+still deferred; this is the owner-facing browsing/export surface only.
 
 ## What we deferred from the spec
 
