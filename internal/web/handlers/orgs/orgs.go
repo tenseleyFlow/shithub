@@ -769,7 +769,7 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 				{
 					Name: "Audit log", Description: "Record security-relevant organization, repository, billing, and access changes.",
 					Free: "Baseline events", Team: "Baseline events", Enterprise: "Contact sales", Owner: "SP29",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Owner UI planned",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Owner UI shipped",
 				},
 				{
 					Name: "Audit log API", Description: "Enterprise audit-log export API is not self-serve in v1.",
@@ -777,9 +777,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Enterprise deferred",
 				},
 				{
-					Name: "SBOMs", Description: "Software bill of materials generation and storage.",
-					Free: "Planned", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+					Name: "SBOMs", Description: "Generate and store SPDX JSON software bills of materials from supported dependency snapshots.",
+					Free: "Public repositories", Team: "Included", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Baseline shipped",
 				},
 				{
 					Name: "Artifact attestations", Description: "Store provenance attestations for build artifacts.",

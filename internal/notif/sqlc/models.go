@@ -3672,6 +3672,18 @@ type RepoRedirect struct {
 	RedirectedAt   pgtype.Timestamptz
 }
 
+type RepoSbomExport struct {
+	RepoID                        int64
+	Format                        string
+	SourceHeadSha                 string
+	DependencySnapshotGeneratedAt pgtype.Timestamptz
+	Document                      []byte
+	ByteCount                     int64
+	GeneratedBy                   pgtype.Int8
+	GeneratedAt                   pgtype.Timestamptz
+	UpdatedAt                     pgtype.Timestamptz
+}
+
 type RepoSecurityAdvisory struct {
 	ID                 int64
 	RepoID             int64

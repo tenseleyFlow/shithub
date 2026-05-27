@@ -131,6 +131,7 @@ type Querier interface {
 	// org slug in the same path position as user-owned repos.
 	GetRepoOwnerUsernameByID(ctx context.Context, db DBTX, id int64) (GetRepoOwnerUsernameByIDRow, error)
 	GetRepoProject(ctx context.Context, db DBTX, arg GetRepoProjectParams) (RepoProject, error)
+	GetRepoSBOMExport(ctx context.Context, db DBTX, arg GetRepoSBOMExportParams) (RepoSbomExport, error)
 	GetRepoSecurityAdvisoryByIdentifier(ctx context.Context, db DBTX, arg GetRepoSecurityAdvisoryByIdentifierParams) (RepoSecurityAdvisory, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	GetRepoSourceRemote(ctx context.Context, db DBTX, repoID int64) (RepoSourceRemote, error)
@@ -370,6 +371,10 @@ type Querier interface {
 	// repository security advisories.
 	UpsertRepoDependencySnapshot(ctx context.Context, db DBTX, arg UpsertRepoDependencySnapshotParams) (RepoDependencySnapshot, error)
 	UpsertRepoInsightSnapshot(ctx context.Context, db DBTX, arg UpsertRepoInsightSnapshotParams) (RepoInsightSnapshot, error)
+	// SPDX-License-Identifier: AGPL-3.0-or-later
+	//
+	// SP29 persisted repository SBOM exports.
+	UpsertRepoSBOMExport(ctx context.Context, db DBTX, arg UpsertRepoSBOMExportParams) (RepoSbomExport, error)
 	UpsertRepoSourceRemote(ctx context.Context, db DBTX, arg UpsertRepoSourceRemoteParams) (RepoSourceRemote, error)
 	UpsertRepoTrafficDailyClone(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyCloneParams) error
 	UpsertRepoTrafficDailyView(ctx context.Context, db DBTX, arg UpsertRepoTrafficDailyViewParams) error

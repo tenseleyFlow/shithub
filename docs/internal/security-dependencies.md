@@ -2,7 +2,7 @@
 
 SP25 adds a local dependency inventory and advisory surface for organization
 security overview. The owning code lives in `internal/repos/dependencies`,
-`internal/repos/dependencyupdates`,
+`internal/repos/sbom`, `internal/repos/dependencyupdates`,
 `internal/worker/jobs/repo_dependency_scan.go`,
 `internal/worker/jobs/pr_dependency_review.go`,
 `internal/worker/jobs/repo_dependency_update_config_sync.go`, and the update
@@ -11,7 +11,8 @@ workers at `internal/worker/jobs/repo_dependency_update_sweep.go` and
 lives in `internal/repos/advisoryimport`,
 `internal/worker/jobs/dependency_advisory_osv_import.go`, and
 `cmd/shithubd/dependency_advisory_import.go`. Web surfaces live in the handlers
-at `internal/web/handlers/orgs/security.go` and
+at `internal/web/handlers/orgs/security.go`,
+`internal/web/handlers/repo/security_sbom.go`, and
 `internal/web/handlers/repo/pulls.go`, with repository security advisory
 workflows in `internal/web/handlers/repo/security_advisories.go`.
 
@@ -82,6 +83,9 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
   update, publish, withdraw, archive, and reopen actions.
 - `repo_security_advisory_collaborators` stores per-advisory user/team
   disclosure collaborators and their recorded roles.
+- `repo_sbom_exports` stores the latest generated repository SBOM per format.
+  The v1 format is SPDX 2.3 JSON derived from the latest stored dependency
+  snapshot.
 
 All repository-owned rows use `ON DELETE CASCADE`; advisory creator references
 use `ON DELETE SET NULL`.
@@ -123,6 +127,24 @@ the entitlement is denied, the UI renders an upgrade path and does not create
 or mutate advisory rows. Existing advisory details remain readable according to
 the state visibility rules above so downgrade handling does not hide already
 published security information from repository readers.
+
+## Repository SBOM Exports
+
+Repositories expose SPDX JSON SBOM exports at
+`/{owner}/{repo}/security/sbom`. The page reads the latest
+`repo_dependency_snapshots` and current `repo_dependencies` rows; it does not
+execute package managers or contact remote registries on the request path.
+
+Authenticated repository readers can generate an export when a dependency
+snapshot exists. Downloads serve the latest stored `spdx-json` document from
+`repo_sbom_exports`, so a generated file remains stable until someone
+regenerates it. If a newer dependency snapshot exists, the page marks the
+stored export stale rather than silently changing the downloaded artifact.
+
+Public repositories and personal repositories can generate and download SBOMs
+at baseline. Private organization repositories require the Team `sboms`
+entitlement before the page loads dependency/package details, generates a new
+export, or serves the stored document.
 
 ## Refresh Flow
 
