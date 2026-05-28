@@ -67,6 +67,8 @@ func TestParseQuery(t *testing.T) {
 			got.AssigneeAnyFilter != c.want.AssigneeAnyFilter ||
 			got.CommenterFilter != c.want.CommenterFilter ||
 			got.MentionFilter != c.want.MentionFilter || got.OwnerFilter != c.want.OwnerFilter ||
+			got.ReviewRequestedFilter != c.want.ReviewRequestedFilter ||
+			got.SortFilter != c.want.SortFilter ||
 			got.MilestoneFilter != c.want.MilestoneFilter || got.LanguageFilter != c.want.LanguageFilter ||
 			got.VisibilityFilter != c.want.VisibilityFilter ||
 			got.PathFilter != c.want.PathFilter || got.ExtensionFilter != c.want.ExtensionFilter ||
@@ -130,6 +132,33 @@ func TestParseQuery_IssuePRParityQualifiers(t *testing.T) {
 	got = search.ParseQuery("type:discussion no:review")
 	if got.Text != "type:discussion no:review" || got.HasContent() != true {
 		t.Fatalf("unknown issue qualifiers should remain free text: %+v", got)
+	}
+}
+
+func TestParseQuery_SortAndReviewRequestedQualifiers(t *testing.T) {
+	t.Parallel()
+	got := search.ParseQuery("type:pr review-requested:@me sort:comments updated docs")
+	if got.KindFilter != "pr" {
+		t.Fatalf("KindFilter = %q, want pr", got.KindFilter)
+	}
+	if got.ReviewRequestedFilter != "@me" {
+		t.Fatalf("ReviewRequestedFilter = %q", got.ReviewRequestedFilter)
+	}
+	if got.SortFilter != "comments-desc" {
+		t.Fatalf("SortFilter = %q, want comments-desc", got.SortFilter)
+	}
+	if got.Text != "updated docs" {
+		t.Fatalf("Text = %q, want updated docs", got.Text)
+	}
+
+	got = search.ParseQuery("sort:created-asc sort:updated-desc")
+	if got.SortFilter != "updated-desc" {
+		t.Fatalf("last sort should win; got %q", got.SortFilter)
+	}
+
+	got = search.ParseQuery("sort:unsupported bug")
+	if got.Text != "sort:unsupported bug" || got.SortFilter != "" {
+		t.Fatalf("unsupported sort should remain free text: %+v", got)
 	}
 }
 
@@ -1025,6 +1054,112 @@ func TestSearchIssues_MergedStateFilters(t *testing.T) {
 	}
 	if total != 0 || len(conflict) != 0 {
 		t.Fatalf("type:issue is:merged returned %d rows total=%d", len(conflict), total)
+	}
+}
+
+func TestSearchIssues_ReviewRequestedFilter(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	idep := issues.Deps{Pool: f.deps.Pool, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	pr, err := issues.Create(ctx, idep, issues.CreateParams{
+		RepoID:       f.pubRepo.ID,
+		AuthorUserID: f.alice.ID,
+		Title:        "review requested branch",
+		Body:         "needs review",
+		Kind:         "pr",
+	})
+	if err != nil {
+		t.Fatalf("Create PR issue: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO pull_requests (issue_id, base_ref, head_ref, head_repo_id, base_oid, head_oid)
+		VALUES ($1, 'trunk', 'review-requested-branch', $2, 'base', 'head')
+	`, pr.ID, f.pubRepo.ID); err != nil {
+		t.Fatalf("seed pull_request: %v", err)
+	}
+	if _, err := f.deps.Pool.Exec(ctx, `
+		INSERT INTO pr_review_requests (pr_issue_id, requested_user_id, requested_by_user_id)
+		VALUES ($1, $2, $3)
+	`, pr.ID, f.bob.ID, f.alice.ID); err != nil {
+		t.Fatalf("seed review request: %v", err)
+	}
+
+	bob := policy.UserActor(f.bob.ID, f.bob.Username, false, false)
+	got, total, err := search.SearchIssues(ctx, f.deps, bob,
+		search.ParseQuery("review-requested:@me"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues review-requested:@me: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != pr.ID || got[0].Kind != "pr" {
+		t.Fatalf("review-requested:@me got %d rows total=%d, want PR %d: %+v", len(got), total, pr.ID, got)
+	}
+
+	conflict, total, err := search.SearchIssues(ctx, f.deps, bob,
+		search.ParseQuery("is:issue review-requested:@me"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues issue/review-requested conflict: %v", err)
+	}
+	if total != 0 || len(conflict) != 0 {
+		t.Fatalf("is:issue review-requested:@me returned %d rows total=%d", len(conflict), total)
+	}
+
+	if _, err := f.deps.Pool.Exec(ctx, `
+		UPDATE pr_review_requests SET dismissed_at = now() WHERE pr_issue_id = $1
+	`, pr.ID); err != nil {
+		t.Fatalf("dismiss review request: %v", err)
+	}
+	got, total, err = search.SearchIssues(ctx, f.deps, bob,
+		search.ParseQuery("review-requested:@me"), "", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues dismissed review-requested:@me: %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Fatalf("dismissed review request returned %d rows total=%d", len(got), total)
+	}
+}
+
+func TestSearchIssues_SortByComments(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	var pubID, orgID int64
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'public bug report'
+	`, f.pubRepo.ID).Scan(&pubID); err != nil {
+		t.Fatalf("lookup public issue: %v", err)
+	}
+	if err := f.deps.Pool.QueryRow(ctx, `
+		SELECT id FROM issues WHERE repo_id = $1 AND title = 'org public bug report'
+	`, f.orgRepo.ID).Scan(&orgID); err != nil {
+		t.Fatalf("lookup org issue: %v", err)
+	}
+	for _, issueID := range []int64{pubID, orgID, orgID, orgID} {
+		if _, err := f.deps.Pool.Exec(ctx, `
+			INSERT INTO issue_comments (issue_id, author_user_id, body)
+			VALUES ($1, $2, 'comment for sorting')
+		`, issueID, f.alice.ID); err != nil {
+			t.Fatalf("seed comment for issue %d: %v", issueID, err)
+		}
+	}
+
+	got, total, err := search.SearchIssues(ctx, f.deps,
+		policy.AnonymousActor(),
+		search.ParseQuery("is:issue sort:comments-desc"),
+		"", 20, 0)
+	if err != nil {
+		t.Fatalf("SearchIssues sort:comments-desc: %v", err)
+	}
+	if total < 2 || len(got) < 2 {
+		t.Fatalf("sort:comments-desc got %d rows total=%d, want public fixture issues", len(got), total)
+	}
+	if got[0].ID != orgID {
+		t.Fatalf("sort:comments-desc first result id=%d, want noisier org issue %d; rows=%+v", got[0].ID, orgID, got)
+	}
+	for _, result := range got {
+		if result.RepoName == "privaterepo" {
+			t.Fatalf("sort:comments-desc leaked private issue: %+v", got)
+		}
 	}
 }
 

@@ -17,23 +17,25 @@ import (
 // to take effect (a bare `repo:foo` without slash is treated as
 // free text).
 type ParsedQuery struct {
-	Text              string // free-text query (what tsvector matches against)
-	Phrase            string // when a quoted phrase was supplied; empty when not
-	Terms             []TextTerm
-	ExcludedTerms     []TextTerm
-	Qualifiers        []Qualifier
-	RepoFilter        *RepoFilter
-	StateFilter       string // "open" | "closed" | ""
-	KindFilter        string // "issue" | "pr" | ""
-	MergedStateFilter string // "merged" | "unmerged" | ""
-	LockedFilter      *bool
-	AuthorFilter      string // username or empty
-	AssigneeFilter    string // username or empty (issue_assignees join)
-	AssigneeAnyFilter bool   // assignee:* (at least one assignee)
-	CommenterFilter   string // username or empty (issue_comments join)
-	MentionFilter     string // username mentioned in issue body or comments
-	InvolvesFilters   []string
-	MissingFilters    []string // label | milestone | assignee | project
+	Text                  string // free-text query (what tsvector matches against)
+	Phrase                string // when a quoted phrase was supplied; empty when not
+	Terms                 []TextTerm
+	ExcludedTerms         []TextTerm
+	Qualifiers            []Qualifier
+	RepoFilter            *RepoFilter
+	StateFilter           string // "open" | "closed" | ""
+	KindFilter            string // "issue" | "pr" | ""
+	MergedStateFilter     string // "merged" | "unmerged" | ""
+	LockedFilter          *bool
+	AuthorFilter          string // username or empty
+	AssigneeFilter        string // username or empty (issue_assignees join)
+	AssigneeAnyFilter     bool   // assignee:* (at least one assignee)
+	CommenterFilter       string // username or empty (issue_comments join)
+	MentionFilter         string // username mentioned in issue body or comments
+	InvolvesFilters       []string
+	ReviewRequestedFilter string   // username with an active PR review request
+	MissingFilters        []string // label | milestone | assignee | project
+	SortFilter            string   // normalized GitHub-style sort qualifier
 	// OwnerFilter matches `user:foo` and `org:foo` qualifiers — the
 	// repo's owning user OR org slug. gh aliases them for search; we
 	// keep the positive fast path here and retain negated forms in
@@ -200,7 +202,7 @@ func splitQualifier(value string) (key, val string, ok bool) {
 func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	switch key {
 	case "repo", "is", "type", "state", "author", "assignee", "commenter",
-		"mentions", "involves", "no",
+		"mentions", "involves", "review-requested", "sort", "no",
 		"user", "org", "label", "milestone", "language", "path",
 		"extension", "created", "updated", "closed", "merged",
 		"visibility", "fork", "archived", "topic":
@@ -275,6 +277,14 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 		out.MentionFilter = val
 	case "involves":
 		out.InvolvesFilters = append(out.InvolvesFilters, val)
+	case "review-requested":
+		out.ReviewRequestedFilter = val
+	case "sort":
+		sort, ok := normalizeSortQualifier(val)
+		if !ok {
+			return false
+		}
+		out.SortFilter = sort
 	case "no":
 		switch strings.ToLower(val) {
 		case "label", "milestone", "assignee", "project":
@@ -333,6 +343,30 @@ func applyQualifier(out *ParsedQuery, key, val string, negated bool) bool {
 	}
 	out.Qualifiers = append(out.Qualifiers, Qualifier{Key: key, Value: val})
 	return true
+}
+
+func normalizeSortQualifier(raw string) (string, bool) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "comments":
+		return "comments-desc", true
+	case "comments-asc", "comments-desc":
+		return value, true
+	case "created":
+		return "created-desc", true
+	case "created-asc", "created-desc":
+		return value, true
+	case "updated":
+		return "updated-desc", true
+	case "updated-asc", "updated-desc":
+		return value, true
+	case "relevance":
+		return "relevance-desc", true
+	case "relevance-asc", "relevance-desc":
+		return value, true
+	default:
+		return "", false
+	}
 }
 
 func boolSearchPtr(v bool) *bool {
@@ -427,6 +461,7 @@ func (p ParsedQuery) HasContent() bool {
 		p.MergedStateFilter != "" || p.LockedFilter != nil ||
 		p.AssigneeFilter != "" || p.AssigneeAnyFilter || p.CommenterFilter != "" ||
 		p.MentionFilter != "" || len(p.InvolvesFilters) > 0 ||
+		p.ReviewRequestedFilter != "" || p.SortFilter != "" ||
 		len(p.MissingFilters) > 0 || p.OwnerFilter != "" ||
 		len(p.LabelFilters) > 0 || p.MilestoneFilter != "" ||
 		p.LanguageFilter != "" || p.VisibilityFilter != "" || p.ForkFilter != nil ||
