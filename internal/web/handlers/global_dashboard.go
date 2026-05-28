@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tenseleyFlow/shithub/internal/auth/policy"
+	srch "github.com/tenseleyFlow/shithub/internal/search"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -92,9 +93,9 @@ func (h globalNavHandler) ServeIssues(w http.ResponseWriter, r *http.Request) {
 	if displayQuery == "" {
 		displayQuery = defaultIssueQuery(view, state)
 	}
-	searchText := globalIssueSearchText(rawQuery)
+	parsed := globalDashboardIssueQuery(displayQuery, state)
 
-	items, counts, err := h.listIssues(r.Context(), viewer.PolicyActor(), viewer.ID, "issue", view, state, searchText)
+	items, counts, err := h.listIssues(r.Context(), viewer.PolicyActor(), viewer.ID, "issue", view, parsed)
 	if err != nil {
 		h.logError(r.Context(), "global issues list", err)
 		h.render.HTTPError(w, r, http.StatusInternalServerError, "")
@@ -155,9 +156,9 @@ func (h globalNavHandler) ServePulls(w http.ResponseWriter, r *http.Request) {
 	if displayQuery == "" {
 		displayQuery = defaultPullQuery(view, state, viewer.Username)
 	}
-	searchText := globalIssueSearchText(rawQuery)
+	parsed := globalDashboardIssueQuery(displayQuery, state)
 
-	items, counts, err := h.listIssues(r.Context(), viewer.PolicyActor(), viewer.ID, "pr", view, state, searchText)
+	items, counts, err := h.listIssues(r.Context(), viewer.PolicyActor(), viewer.ID, "pr", view, parsed)
 	if err != nil {
 		h.logError(r.Context(), "global pulls list", err)
 		h.render.HTTPError(w, r, http.StatusInternalServerError, "")
@@ -210,12 +211,14 @@ func (h globalNavHandler) ServeRepos(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h globalNavHandler) listIssues(ctx context.Context, actor policy.Actor, viewerID int64, kind, view, state, searchText string) ([]globalIssueRow, globalIssueCounts, error) {
+func (h globalNavHandler) listIssues(ctx context.Context, actor policy.Actor, viewerID int64, kind, view string, q srch.ParsedQuery) ([]globalIssueRow, globalIssueCounts, error) {
 	if h.pool == nil {
 		return nil, globalIssueCounts{}, fmt.Errorf("database unavailable")
 	}
 
-	countWhere, countArgs := buildGlobalIssueWhere(actor, viewerID, kind, view, "", searchText)
+	countQuery := q
+	countQuery.StateFilter = ""
+	countWhere, countArgs := buildGlobalIssueWhere(actor, viewerID, kind, view, countQuery)
 	countSQL := fmt.Sprintf(`
 SELECT
   COUNT(*)::bigint,
@@ -231,9 +234,10 @@ WHERE %s`, countWhere)
 		return nil, counts, err
 	}
 
-	where, args := buildGlobalIssueWhere(actor, viewerID, kind, view, state, searchText)
+	where, args := buildGlobalIssueWhere(actor, viewerID, kind, view, q)
 	limitPlaceholder := nextPlaceholder(&args, globalDashboardLimit)
 	ownerExpr := globalRepoOwnerExpr()
+	orderBy := globalIssueOrderBy(q.SortFilter)
 	listSQL := fmt.Sprintf(`
 SELECT
   i.id,
@@ -252,8 +256,8 @@ LEFT JOIN users owner_user ON owner_user.id = r.owner_user_id
 LEFT JOIN orgs owner_org ON owner_org.id = r.owner_org_id
 LEFT JOIN users author ON author.id = i.author_user_id
 WHERE %s
-ORDER BY i.updated_at DESC, i.id DESC
-LIMIT %s`, ownerExpr, where, limitPlaceholder)
+ORDER BY %s
+LIMIT %s`, ownerExpr, where, orderBy, limitPlaceholder)
 
 	rows, err := h.pool.Query(ctx, listSQL, args...)
 	if err != nil {
@@ -366,7 +370,7 @@ LIMIT %s`, ownerExpr, listWhere, limitPlaceholder)
 	return out, total, nil
 }
 
-func buildGlobalIssueWhere(actor policy.Actor, viewerID int64, kind, view, state, searchText string) (string, []any) {
+func buildGlobalIssueWhere(actor policy.Actor, viewerID int64, kind, view string, q srch.ParsedQuery) (string, []any) {
 	visClause, visArgs := policy.VisibilityPredicate(actor, "r", 1)
 	args := append([]any{}, visArgs...)
 	clauses := []string{
@@ -374,16 +378,152 @@ func buildGlobalIssueWhere(actor policy.Actor, viewerID int64, kind, view, state
 		"((" + "r.owner_user_id IS NOT NULL AND owner_user.deleted_at IS NULL AND owner_user.suspended_at IS NULL" + ") OR (" + "r.owner_org_id IS NOT NULL AND owner_org.deleted_at IS NULL" + "))",
 	}
 
+	if q.KindFilter != "" && q.KindFilter != kind {
+		clauses = append(clauses, "FALSE")
+	}
+	if kind == "issue" && (q.MergedStateFilter != "" || q.MergedFilter != nil || q.ReviewRequestedFilter != "") {
+		clauses = append(clauses, "FALSE")
+	}
+
 	kindPlaceholder := nextPlaceholder(&args, kind)
 	clauses = append(clauses, "i.kind = "+kindPlaceholder+"::issue_kind")
-	if state != "" && state != "all" {
-		clauses = append(clauses, "i.state = "+nextPlaceholder(&args, state)+"::issue_state")
+	if q.StateFilter != "" {
+		clauses = append(clauses, "i.state = "+nextPlaceholder(&args, q.StateFilter)+"::issue_state")
 	}
+	searchText := globalIssueSearchTextFromParsed(q)
 	if searchText != "" {
 		pattern := "%" + strings.ToLower(searchText) + "%"
 		p := nextPlaceholder(&args, pattern)
 		ownerExpr := "LOWER(" + globalRepoOwnerExpr() + ")"
 		clauses = append(clauses, "(LOWER(i.title) LIKE "+p+" OR LOWER(i.body) LIKE "+p+" OR LOWER(r.name::text) LIKE "+p+" OR "+ownerExpr+" LIKE "+p+")")
+	}
+	if q.RepoFilter != nil {
+		clauses = append(clauses, "LOWER(r.name::text) = LOWER("+nextPlaceholder(&args, q.RepoFilter.Name)+")")
+		owner := nextPlaceholder(&args, q.RepoFilter.Owner)
+		clauses = append(clauses, "(LOWER(owner_user.username::text) = LOWER("+owner+") OR LOWER(owner_org.slug::text) = LOWER("+owner+"))")
+	}
+	if q.OwnerFilter != "" {
+		owner := nextPlaceholder(&args, q.OwnerFilter)
+		clauses = append(clauses, "(LOWER(owner_user.username::text) = LOWER("+owner+") OR LOWER(owner_org.slug::text) = LOWER("+owner+"))")
+	}
+	if q.AuthorFilter != "" {
+		if username, ok := resolveGlobalIssueUserFilter(actor, q.AuthorFilter); ok {
+			clauses = append(clauses, "i.author_user_id = (SELECT id FROM users WHERE username = "+nextPlaceholder(&args, username)+")")
+		} else {
+			clauses = append(clauses, "FALSE")
+		}
+	}
+	if q.AssigneeFilter != "" {
+		if username, ok := resolveGlobalIssueUserFilter(actor, q.AssigneeFilter); ok {
+			user := nextPlaceholder(&args, username)
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM issue_assignees ia JOIN users au ON au.id = ia.user_id WHERE ia.issue_id = i.id AND au.username = "+user+")")
+		} else {
+			clauses = append(clauses, "FALSE")
+		}
+	}
+	if q.AssigneeAnyFilter {
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)")
+	}
+	if q.CommenterFilter != "" {
+		if username, ok := resolveGlobalIssueUserFilter(actor, q.CommenterFilter); ok {
+			user := nextPlaceholder(&args, username)
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM issue_comments ic JOIN users cu ON cu.id = ic.author_user_id WHERE ic.issue_id = i.id AND cu.username = "+user+")")
+		} else {
+			clauses = append(clauses, "FALSE")
+		}
+	}
+	if q.MentionFilter != "" {
+		if username, ok := resolveGlobalIssueUserFilter(actor, q.MentionFilter); ok {
+			mention := nextPlaceholder(&args, "%@"+username+"%")
+			clauses = append(clauses, "(i.title ILIKE "+mention+" OR i.body ILIKE "+mention+" OR EXISTS (SELECT 1 FROM issue_comments im WHERE im.issue_id = i.id AND im.body ILIKE "+mention+"))")
+		} else {
+			clauses = append(clauses, "FALSE")
+		}
+	}
+	if len(q.InvolvesFilters) > 0 {
+		involves := make([]string, 0, len(q.InvolvesFilters))
+		for _, raw := range q.InvolvesFilters {
+			username, ok := resolveGlobalIssueUserFilter(actor, raw)
+			if !ok {
+				continue
+			}
+			user := nextPlaceholder(&args, username)
+			mention := nextPlaceholder(&args, "%@"+username+"%")
+			involves = append(involves, "(i.author_user_id = (SELECT id FROM users WHERE username = "+user+") OR EXISTS (SELECT 1 FROM issue_assignees ia JOIN users au ON au.id = ia.user_id WHERE ia.issue_id = i.id AND au.username = "+user+") OR EXISTS (SELECT 1 FROM issue_comments ic JOIN users cu ON cu.id = ic.author_user_id WHERE ic.issue_id = i.id AND cu.username = "+user+") OR i.title ILIKE "+mention+" OR i.body ILIKE "+mention+" OR EXISTS (SELECT 1 FROM issue_comments im WHERE im.issue_id = i.id AND im.body ILIKE "+mention+"))")
+		}
+		if len(involves) == 0 {
+			clauses = append(clauses, "FALSE")
+		} else {
+			clauses = append(clauses, "("+strings.Join(involves, " OR ")+")")
+		}
+	}
+	if q.ReviewRequestedFilter != "" {
+		if username, ok := resolveGlobalIssueUserFilter(actor, q.ReviewRequestedFilter); ok {
+			user := nextPlaceholder(&args, username)
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM pr_review_requests prr JOIN users ru ON ru.id = prr.requested_user_id WHERE prr.pr_issue_id = i.id AND ru.username = "+user+" AND prr.dismissed_at IS NULL AND prr.satisfied_by_review_id IS NULL)")
+		} else {
+			clauses = append(clauses, "FALSE")
+		}
+	}
+	for _, label := range q.LabelFilters {
+		labelArg := nextPlaceholder(&args, label)
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = i.id AND l.name = "+labelArg+")")
+	}
+	if q.MilestoneFilter != "" {
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM milestones m WHERE m.id = i.milestone_id AND m.title = "+nextPlaceholder(&args, q.MilestoneFilter)+")")
+	}
+	for _, missing := range q.MissingFilters {
+		switch missing {
+		case "label":
+			clauses = append(clauses, "NOT EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id)")
+		case "milestone":
+			clauses = append(clauses, "i.milestone_id IS NULL")
+		case "assignee":
+			clauses = append(clauses, "NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)")
+		case "project":
+			clauses = append(clauses, "NOT EXISTS (SELECT 1 FROM repo_project_items rpi WHERE rpi.issue_id = i.id)")
+		}
+	}
+	if q.LockedFilter != nil {
+		if *q.LockedFilter {
+			clauses = append(clauses, "i.locked")
+		} else {
+			clauses = append(clauses, "NOT i.locked")
+		}
+	}
+	if q.VisibilityFilter != "" {
+		clauses = append(clauses, "r.visibility = "+nextPlaceholder(&args, q.VisibilityFilter)+"::repo_visibility")
+	}
+	if q.ArchivedFilter != nil {
+		if *q.ArchivedFilter {
+			clauses = append(clauses, "r.is_archived")
+		} else {
+			clauses = append(clauses, "NOT r.is_archived")
+		}
+	}
+	if q.ForkFilter != nil {
+		if *q.ForkFilter {
+			clauses = append(clauses, "r.fork_of_repo_id IS NOT NULL")
+		} else {
+			clauses = append(clauses, "r.fork_of_repo_id IS NULL")
+		}
+	}
+	if q.LanguageFilter != "" {
+		clauses = append(clauses, "LOWER(COALESCE(r.primary_language, '')) = LOWER("+nextPlaceholder(&args, q.LanguageFilter)+")")
+	}
+	for _, topic := range q.TopicFilters {
+		topicArg := nextPlaceholder(&args, topic)
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM repo_topics rt WHERE rt.repo_id = r.id AND rt.topic = "+topicArg+")")
+	}
+	clauses = appendGlobalIssueDateRangeClauses(clauses, &args, "i.created_at", q.CreatedFilter)
+	clauses = appendGlobalIssueDateRangeClauses(clauses, &args, "i.updated_at", q.UpdatedFilter)
+	clauses = appendGlobalIssueDateRangeClauses(clauses, &args, "i.closed_at", q.ClosedFilter)
+	clauses = appendGlobalIssueMergedDateRangeClauses(clauses, &args, q.MergedFilter)
+	switch q.MergedStateFilter {
+	case "merged":
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM pull_requests pr WHERE pr.issue_id = i.id AND pr.merged_at IS NOT NULL)")
+	case "unmerged":
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM pull_requests pr WHERE pr.issue_id = i.id AND pr.merged_at IS NULL)")
 	}
 
 	uid := nextPlaceholder(&args, viewerID)
@@ -402,12 +542,38 @@ func buildGlobalIssueWhere(actor policy.Actor, viewerID int64, kind, view, state
 		tk := threadKind()
 		clauses = append(clauses, "(i.author_user_id = "+uid+" OR EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id AND ia.user_id = "+uid+") OR EXISTS (SELECT 1 FROM notification_threads nt WHERE nt.recipient_user_id = "+uid+" AND nt.thread_kind = "+tk+" AND nt.thread_id = i.id AND nt.subscribed = true))")
 	case "review-requests":
-		tk := threadKind()
-		clauses = append(clauses, "(EXISTS (SELECT 1 FROM notifications n WHERE n.recipient_user_id = "+uid+" AND n.thread_kind = "+tk+" AND n.thread_id = i.id AND n.reason = 'review_requested') OR EXISTS (SELECT 1 FROM notification_threads nt WHERE nt.recipient_user_id = "+uid+" AND nt.thread_kind = "+tk+" AND nt.thread_id = i.id AND nt.reason = 'review_requested'))")
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM pr_review_requests prr WHERE prr.pr_issue_id = i.id AND prr.requested_user_id = "+uid+" AND prr.dismissed_at IS NULL AND prr.satisfied_by_review_id IS NULL)")
 	default:
 		clauses = append(clauses, "i.author_user_id = "+uid)
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func appendGlobalIssueDateRangeClauses(clauses []string, args *[]any, column string, dr *srch.DateRange) []string {
+	if dr == nil {
+		return clauses
+	}
+	if dr.HasFrom {
+		clauses = append(clauses, column+" >= "+nextPlaceholder(args, dr.From))
+	}
+	if dr.HasTo {
+		clauses = append(clauses, column+" < "+nextPlaceholder(args, dr.To))
+	}
+	return clauses
+}
+
+func appendGlobalIssueMergedDateRangeClauses(clauses []string, args *[]any, dr *srch.DateRange) []string {
+	if dr == nil {
+		return clauses
+	}
+	subclauses := []string{"pr.issue_id = i.id"}
+	if dr.HasFrom {
+		subclauses = append(subclauses, "pr.merged_at >= "+nextPlaceholder(args, dr.From))
+	}
+	if dr.HasTo {
+		subclauses = append(subclauses, "pr.merged_at < "+nextPlaceholder(args, dr.To))
+	}
+	return append(clauses, "EXISTS (SELECT 1 FROM pull_requests pr WHERE "+strings.Join(subclauses, " AND ")+")")
 }
 
 func buildGlobalRepoWhere(actor policy.Actor, viewerID int64, view, searchText string, requireIssues bool) (string, []any) {
@@ -499,32 +665,64 @@ func normalizeGlobalState(raw string) string {
 	}
 }
 
+func globalDashboardIssueQuery(raw string, state string) srch.ParsedQuery {
+	q := srch.ParseQuery(raw)
+	if state == "all" {
+		q.StateFilter = ""
+	} else if state != "" {
+		q.StateFilter = state
+	}
+	return q
+}
+
 func globalIssueSearchText(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	parts := strings.Fields(raw)
-	keep := make([]string, 0, len(parts))
-	for _, part := range parts {
-		token := strings.ToLower(strings.TrimSpace(part))
-		switch {
-		case token == "":
+	return globalIssueSearchTextFromParsed(srch.ParseQuery(raw))
+}
+
+func globalIssueSearchTextFromParsed(q srch.ParsedQuery) string {
+	parts := make([]string, 0, len(q.Terms))
+	for _, term := range q.Terms {
+		if term.Negated {
 			continue
-		case strings.HasPrefix(token, "is:"),
-			strings.HasPrefix(token, "state:"),
-			strings.HasPrefix(token, "archived:"),
-			strings.HasPrefix(token, "assignee:"),
-			strings.HasPrefix(token, "author:"),
-			strings.HasPrefix(token, "mentions:"),
-			strings.HasPrefix(token, "involves:"),
-			strings.HasPrefix(token, "review-requested:"),
-			strings.HasPrefix(token, "sort:"):
-			continue
-		default:
-			keep = append(keep, part)
 		}
+		if term.Phrase {
+			parts = append(parts, term.Value)
+			continue
+		}
+		parts = append(parts, term.Value)
 	}
-	return strings.Join(keep, " ")
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func globalIssueOrderBy(sort string) string {
+	switch sort {
+	case "comments-asc":
+		return "comment_count ASC, i.updated_at DESC, i.id DESC"
+	case "comments-desc":
+		return "comment_count DESC, i.updated_at DESC, i.id DESC"
+	case "created-asc":
+		return "i.created_at ASC, i.id ASC"
+	case "created-desc":
+		return "i.created_at DESC, i.id DESC"
+	case "updated-asc":
+		return "i.updated_at ASC, i.id ASC"
+	default:
+		return "i.updated_at DESC, i.id DESC"
+	}
+}
+
+func resolveGlobalIssueUserFilter(actor policy.Actor, raw string) (string, bool) {
+	value := strings.TrimSpace(strings.TrimPrefix(raw, "@"))
+	if value == "" {
+		return "", false
+	}
+	if strings.EqualFold(value, "me") {
+		if actor.IsAnonymous || actor.Username == "" {
+			return "", false
+		}
+		return actor.Username, true
+	}
+	return value, true
 }
 
 func globalQueryWithoutStateOperators(raw string) string {
@@ -576,15 +774,16 @@ func repoViewLabel(view string) string {
 }
 
 func defaultIssueQuery(view, state string) string {
+	statePart := globalStateQueryPart(state)
 	switch view {
 	case "created":
-		return "is:issue state:" + state + " archived:false author:@me sort:updated-desc"
+		return "is:issue" + statePart + " archived:false author:@me sort:updated-desc"
 	case "mentioned":
-		return "is:issue state:" + state + " archived:false mentions:@me sort:updated-desc"
+		return "is:issue" + statePart + " archived:false mentions:@me sort:updated-desc"
 	case "recent":
-		return "is:issue state:" + state + " archived:false involves:@me sort:updated-desc"
+		return "is:issue" + statePart + " archived:false involves:@me sort:updated-desc"
 	default:
-		return "is:issue state:" + state + " archived:false assignee:@me sort:updated-desc"
+		return "is:issue" + statePart + " archived:false assignee:@me sort:updated-desc"
 	}
 }
 
@@ -594,16 +793,24 @@ func defaultPullQuery(view, state, username string) string {
 	} else {
 		username = "@" + username
 	}
+	statePart := globalStateQueryPart(state)
 	switch view {
 	case "assigned":
-		return "is:pr state:" + state + " archived:false assignee:@me sort:updated-desc"
+		return "is:pr" + statePart + " archived:false assignee:@me sort:updated-desc"
 	case "mentioned":
-		return "is:pr state:" + state + " archived:false mentions:@me sort:updated-desc"
+		return "is:pr" + statePart + " archived:false mentions:@me sort:updated-desc"
 	case "review-requests":
-		return "is:pr state:" + state + " archived:false review-requested:@me sort:updated-desc"
+		return "is:pr" + statePart + " archived:false review-requested:@me sort:updated-desc"
 	default:
-		return "is:pr state:" + state + " archived:false author:" + username
+		return "is:pr" + statePart + " archived:false author:" + username
 	}
+}
+
+func globalStateQueryPart(state string) string {
+	if state == "" || state == "all" {
+		return ""
+	}
+	return " state:" + state
 }
 
 func issueViewTabs(active, query, state string) []globalNavTab {
