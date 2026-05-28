@@ -102,8 +102,10 @@ func RepoIndexCode(deps IndexCodeDeps) worker.Handler {
 			return fmt.Errorf("resolve %s: %w", ref, err)
 		}
 
-		// Walk the tree.
-		paths, err := repogit.ListAllPaths(ctx, gitDir, ref)
+		// Walk the tree once with git-reported sizes. Oversize blobs
+		// still get path rows, but we do not spawn cat-file just to
+		// rediscover that their content is too large to index.
+		files, err := repogit.ListFiles(ctx, gitDir, ref)
 		if err != nil {
 			return fmt.Errorf("ls-tree: %w", err)
 		}
@@ -114,18 +116,21 @@ func RepoIndexCode(deps IndexCodeDeps) worker.Handler {
 			path    string
 			content []byte // empty if skipped from content index
 		}
-		entries := make([]indexed, 0, len(paths))
-		for _, path := range paths {
+		entries := make([]indexed, 0, len(files))
+		for _, file := range files {
+			path := file.Path
 			if shouldSkipPath(path) {
 				continue
 			}
 			ent := indexed{path: path}
-			blob, err := repogit.ReadBlobBytes(ctx, gitDir, ref, path, maxFileBytes+1)
-			if err == nil && len(blob) <= maxFileBytes && isText(blob) {
-				if len(blob) > maxIndexBytes {
-					blob = blob[:maxIndexBytes]
+			if file.Size <= maxFileBytes {
+				blob, err := repogit.ReadBlobBytes(ctx, gitDir, ref, path, maxFileBytes)
+				if err == nil && isText(blob) {
+					if len(blob) > maxIndexBytes {
+						blob = blob[:maxIndexBytes]
+					}
+					ent.content = blob
 				}
-				ent.content = blob
 			}
 			entries = append(entries, ent)
 		}

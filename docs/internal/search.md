@@ -193,6 +193,10 @@ invalid `state:all` query text.
   a push advances the repo's default branch. The job is idempotent
   + atomic-swap, so concurrent pushes that land while the previous
   index is running re-trigger on the next push tick.
+* **Tree walk**: the worker uses one `git ls-tree -r --long -z` pass
+  to collect paths and blob sizes. Paths for oversize files are kept,
+  but the worker does not spawn `git cat-file` for blobs that already
+  exceed the content-index size gate.
 * **Atomic swap**: the worker runs `DELETE … + INSERT …` for the
   repo in one tx. Readers never see a partial index.
 * **Size + textness gates**:
