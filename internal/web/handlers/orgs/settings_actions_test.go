@@ -25,6 +25,7 @@ import (
 	orgsh "github.com/tenseleyFlow/shithub/internal/web/handlers/orgs"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 func TestOrgActionsSettingsSecretAndVariableCRUD(t *testing.T) {
@@ -379,6 +380,139 @@ func TestOrgAuditLogShowsOrgAndOwnedRepoEvents(t *testing.T) {
 	}
 }
 
+func TestOrgWebhooksCreateListAndFanout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	repoID := insertOrgAuditOrgRepo(t, pool, orgID, "project")
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := newOrgFormRequest(http.MethodPost, "/organizations/acme/settings/hooks", url.Values{
+		"url":              {"http://127.0.0.1:8080/hook"},
+		"content_type":     {"json"},
+		"events":           {"push, pull_request"},
+		"secret":           {"shared-secret"},
+		"active":           {"on"},
+		"ssl_verification": {"on"},
+	})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("POST org webhook status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var hookID int64
+	var ownerKind string
+	var ownerRef int64
+	var events []string
+	if err := pool.QueryRow(ctx,
+		`SELECT id, owner_kind::text, owner_id, events FROM webhooks WHERE owner_kind = 'org' AND owner_id = $1`,
+		orgID,
+	).Scan(&hookID, &ownerKind, &ownerRef, &events); err != nil {
+		t.Fatalf("query created webhook: %v", err)
+	}
+	if ownerKind != "org" || ownerRef != orgID {
+		t.Fatalf("webhook owner=%s/%d, want org/%d", ownerKind, ownerRef, orgID)
+	}
+	if strings.Join(events, ",") != "push,pull_request" {
+		t.Fatalf("events=%v, want push,pull_request", events)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/hooks", nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET org webhooks status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); !strings.Contains(got, "HOOK=http://127.0.0.1:8080/hook|org|"+strconv.FormatInt(orgID, 10)+";") {
+		t.Fatalf("created org webhook missing from list: %s", got)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO domain_events (actor_user_id, kind, repo_id, source_kind, source_id, public, payload)
+		 VALUES ($1, 'push', $2, 'push', 99, true, '{"ref":"refs/heads/trunk"}'::jsonb)`,
+		ownerID, repoID,
+	); err != nil {
+		t.Fatalf("insert domain event: %v", err)
+	}
+	processed, err := webhook.FanoutOnce(ctx, webhook.FanoutDeps{Pool: pool})
+	if err != nil {
+		t.Fatalf("FanoutOnce: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("FanoutOnce processed=%d, want 1", processed)
+	}
+	var deliveryCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM webhook_deliveries WHERE webhook_id = $1 AND event_kind = 'push'`,
+		hookID,
+	).Scan(&deliveryCount); err != nil {
+		t.Fatalf("query push deliveries: %v", err)
+	}
+	if deliveryCount != 1 {
+		t.Fatalf("push deliveries=%d, want 1", deliveryCount)
+	}
+
+	var auditCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM auth_audit_log WHERE action = 'webhook_created' AND target_type = 'org' AND target_id = $1`,
+		orgID,
+	).Scan(&auditCount); err != nil {
+		t.Fatalf("query webhook audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("webhook_created audit rows=%d, want 1", auditCount)
+	}
+}
+
+func TestOrgWebhooksRejectRepoOwnedHookID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	ownerID := insertOrgAvatarUser(t, pool, "owner")
+	orgID := insertOrgAvatarOrg(t, pool, ownerID, "acme")
+	repoID := insertOrgAuditOrgRepo(t, pool, orgID, "project")
+	var repoHookID int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO webhooks (
+			owner_kind, owner_id, url, content_type, events,
+			secret_ciphertext, secret_nonce, active, ssl_verification,
+			auto_disable_threshold, created_by_user_id
+		) VALUES (
+			'repo', $1, 'https://hooks.example.com/repo', 'json', ARRAY[]::text[],
+			'\x01'::bytea, '\x02'::bytea, true, true, 50, $2
+		) RETURNING id`,
+		repoID, ownerID,
+	).Scan(&repoHookID); err != nil {
+		t.Fatalf("seed repo webhook: %v", err)
+	}
+	h := newOrgActionsHandler(t, pool)
+	mux := chi.NewRouter()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			viewer := middleware.CurrentUser{ID: ownerID, Username: "owner"}
+			next.ServeHTTP(w, r.WithContext(middleware.WithCurrentUserForTest(r.Context(), viewer)))
+		})
+	})
+	h.MountCreate(mux)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/organizations/acme/settings/hooks/"+strconv.FormatInt(repoHookID, 10), nil)
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("GET repo-owned hook through org settings status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 	t.Helper()
 	tmplFS := fstest.MapFS{
@@ -388,6 +522,10 @@ func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 		"orgs/settings_secret_patterns.html": {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ with .WritesDisabledMessage }}LOCK={{ . }}{{ end }}{{ range .Patterns }}PATTERN={{ .Name }}:{{ .Enabled }};{{ end }}{{ end }}`)},
 		"orgs/settings_security.html":        {Data: []byte(`{{ define "page" }}{{ with .Notice }}NOTICE={{ . }}{{ end }}SETTING={{ .Settings.RequireTwoFactor }}{{ end }}`)},
 		"orgs/settings_audit.html":           {Data: []byte(`{{ define "page" }}{{ range .Rows }}ROW={{ .Action }}|{{ .TargetType }}|{{ if .TargetID.Valid }}{{ .TargetID.Int64 }}{{ end }};{{ end }}FILTERS={{ .Filters }};{{ end }}`)},
+		"orgs/settings_hooks.html":           {Data: []byte(`{{ define "page" }}{{ with .SetupError }}SETUP={{ . }}{{ end }}{{ range .Webhooks }}HOOK={{ .Url }}|{{ .OwnerKind }}|{{ .OwnerID }};{{ end }}{{ end }}`)},
+		"orgs/settings_hook_new.html":        {Data: []byte(`{{ define "page" }}{{ with .Error }}ERROR={{ . }}{{ end }}{{ end }}`)},
+		"orgs/settings_hook_edit.html":       {Data: []byte(`{{ define "page" }}WEBHOOK={{ .Webhook.Url }};{{ range .Deliveries }}DELIVERY={{ .EventKind }}|{{ .Status }};{{ end }}{{ end }}`)},
+		"orgs/settings_hook_delivery.html":   {Data: []byte(`{{ define "page" }}DELIVERY={{ .Delivery.EventKind }};{{ .PayloadPretty }}{{ end }}`)},
 		"errors/403.html":                    {Data: []byte(`{{ define "page" }}403{{ end }}`)},
 		"errors/404.html":                    {Data: []byte(`{{ define "page" }}404{{ end }}`)},
 		"errors/500.html":                    {Data: []byte(`{{ define "page" }}500{{ end }}`)},
@@ -410,6 +548,7 @@ func newOrgActionsHandler(t *testing.T, pool *pgxpool.Pool) *orgsh.Handlers {
 		Pool:        pool,
 		ObjectStore: storage.NewMemoryStore(),
 		SecretBox:   box,
+		WebhookSSRF: webhook.SSRFConfig{AllowPrivateNetworks: true},
 	})
 	if err != nil {
 		t.Fatalf("orgsh.New: %v", err)

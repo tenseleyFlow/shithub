@@ -1,0 +1,67 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      {{ with .Notice }}<p class="shithub-flash shithub-flash-notice" role="status">{{ . }}</p>{{ end }}
+      {{ with .SetupError }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Webhooks</h2>
+        <div class="Subhead-description">Send repository events from this organization to external services.</div>
+      </div>
+
+      <section class="shithub-org-settings-section">
+        <p class="shithub-hint">
+          Organization webhooks receive events for repositories owned by this organization.
+          Each delivery includes <code>X-Shithub-Signature-256</code> for receiver-side verification.
+        </p>
+        {{ if not .SetupError }}
+        <p>
+          <a href="/organizations/{{ .Org.Slug }}/settings/hooks/new" class="shithub-button shithub-button-primary">Add webhook</a>
+        </p>
+        {{ end }}
+
+        {{ if .Webhooks }}
+        <table class="shithub-branches-table">
+          <thead>
+            <tr><th>URL</th><th>Events</th><th>State</th><th>Last activity</th></tr>
+          </thead>
+          <tbody>
+            {{ range .Webhooks }}
+            <tr>
+              <td><a href="/organizations/{{ $.Org.Slug }}/settings/hooks/{{ .ID }}"><code>{{ .Url }}</code></a></td>
+              <td>{{ if .Events }}{{ range $i, $e := .Events }}{{ if $i }}, {{ end }}<code>{{ $e }}</code>{{ end }}{{ else }}<span class="shithub-fg-muted">all</span>{{ end }}</td>
+              <td>
+                {{ if .DisabledAt.Valid }}<span class="shithub-fg-muted">auto-disabled</span>
+                {{ else if .Active }}<span>active</span>
+                {{ else }}<span class="shithub-fg-muted">inactive</span>{{ end }}
+                {{ if gt .ConsecutiveFailures 0 }}<span class="shithub-fg-muted"> · {{ .ConsecutiveFailures }} consecutive failures</span>{{ end }}
+              </td>
+              <td>
+                {{ if .LastSuccessAt.Valid }}✓ {{ relativeTime .LastSuccessAt.Time }}
+                {{ else if .LastFailureAt.Valid }}✗ {{ relativeTime .LastFailureAt.Time }}
+                {{ else }}<span class="shithub-fg-muted">no deliveries yet</span>{{ end }}
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <p class="shithub-empty-note">No webhooks configured.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}
