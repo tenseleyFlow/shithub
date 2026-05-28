@@ -53,7 +53,7 @@ because both are time-sensitive inputs.
 Rules for paid-org copy:
 
 - Do not mention Copilot, AI agents, AI code review, or AI quotas.
-- Do not promise SAML, SCIM, LDAP, managed users, audit exports, data
+- Do not promise SAML, SCIM, LDAP, managed users, audit-log APIs, data
   residency, compliance attestations, contracts, or custom support
   until the matching implementation sprint ships.
 - Do not advertise product surfaces until they exist. Generic
@@ -240,7 +240,7 @@ Present but still moving toward full enforcement:
 
 Deferred:
 
-- SAML, SCIM, LDAP, enterprise account hierarchy, audit-log export, data
+- SAML, SCIM, LDAP, enterprise account hierarchy, audit-log API, data
   residency, compliance promises, and custom support SLAs.
 - Copilot/AI features are intentionally outside shithub's paid-org
   product.
