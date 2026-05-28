@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,29 @@ func TestGlobalIssueSearchTextDropsDashboardOperators(t *testing.T) {
 	got := globalIssueSearchText("is:issue state:open archived:false assignee:@me sort:updated-desc flaky deploy")
 	if got != "flaky deploy" {
 		t.Fatalf("globalIssueSearchText = %q, want %q", got, "flaky deploy")
+	}
+}
+
+func TestGlobalIssueSearchTextDropsExecutableQualifiers(t *testing.T) {
+	t.Parallel()
+
+	got := globalIssueSearchText(`is:pr review-requested:@me sort:comments-desc "flaky deploy"`)
+	if got != "flaky deploy" {
+		t.Fatalf("globalIssueSearchText = %q, want %q", got, "flaky deploy")
+	}
+}
+
+func TestDefaultQueriesOmitStateAllQualifier(t *testing.T) {
+	t.Parallel()
+
+	for _, query := range []string{
+		defaultIssueQuery("assigned", "all"),
+		defaultIssueQuery("recent", "all"),
+		defaultPullQuery("review-requests", "all", "mfwolffe"),
+	} {
+		if strings.Contains(query, "state:all") {
+			t.Fatalf("default query should omit state:all: %q", query)
+		}
 	}
 }
 

@@ -38,6 +38,18 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		}
 		effectiveKind = "pr"
 	}
+	if q.MergedFilter != nil {
+		if effectiveKind == "issue" {
+			return nil, 0, nil
+		}
+		effectiveKind = "pr"
+	}
+	if q.ReviewRequestedFilter != "" {
+		if effectiveKind == "issue" {
+			return nil, 0, nil
+		}
+		effectiveKind = "pr"
+	}
 
 	// At least one signal must drive the query: the FTS payload, a
 	// repo:/owner filter, an actor filter, label/milestone, date
@@ -159,6 +171,22 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 			whereExtras += " AND (" + strings.Join(clauses, " OR ") + ")"
 		}
 	}
+	if q.ReviewRequestedFilter != "" {
+		reviewer, ok := resolveIssueUserFilter(actor, q.ReviewRequestedFilter)
+		if !ok {
+			whereExtras += " AND FALSE"
+		} else {
+			reviewerPos := len(args) + 1
+			args = append(args, reviewer)
+			whereExtras += fmt.Sprintf(
+				" AND EXISTS (SELECT 1 FROM pr_review_requests prr"+
+					" JOIN users ru ON ru.id = prr.requested_user_id"+
+					" WHERE prr.pr_issue_id = s.issue_id AND ru.username = $%d"+
+					" AND prr.dismissed_at IS NULL AND prr.satisfied_by_review_id IS NULL)",
+				reviewerPos,
+			)
+		}
+	}
 	for _, label := range q.LabelFilters {
 		labelPos := len(args) + 1
 		args = append(args, label)
@@ -225,6 +253,7 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 	offPos := len(args) + 2
 	args = append(args, limit, offset)
 
+	orderBy := issueOrderBy(q.SortFilter)
 	queryStr := fmt.Sprintf(`
 		SELECT i.id, r.id, %[7]s, r.name, r.visibility::text, i.number, i.title,
 		       i.state::text, i.kind::text,
@@ -240,9 +269,9 @@ func SearchIssues(ctx context.Context, deps Deps, actor policy.Actor, q ParsedQu
 		WHERE %[2]s
 		  AND %[3]s
 		  %[4]s
-		ORDER BY rank DESC, i.updated_at DESC
+		ORDER BY %[10]s
 		LIMIT $%[5]d OFFSET $%[6]d
-	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"), pullJoin)
+	`, rankExpr, whereFTS, visClause, whereExtras, limPos, offPos, repoOwnerNameExpr("u", "o"), repoOwnerJoin("r", "u", "o"), pullJoin, orderBy)
 
 	rows, err := deps.Pool.Query(ctx, queryStr, args...)
 	if err != nil {
@@ -285,9 +314,31 @@ func hasIssueNarrowingFilter(q ParsedQuery, effectiveKind string) bool {
 		q.CommenterFilter != "" || q.MentionFilter != "" || len(q.InvolvesFilters) > 0 ||
 		q.StateFilter != "" || effectiveKind != "" || len(q.LabelFilters) > 0 ||
 		q.MilestoneFilter != "" || len(q.MissingFilters) > 0 || q.LockedFilter != nil ||
+		q.ReviewRequestedFilter != "" ||
 		q.VisibilityFilter != "" || q.ForkFilter != nil || q.ArchivedFilter != nil ||
 		len(q.TopicFilters) > 0 || q.CreatedFilter != nil || q.UpdatedFilter != nil ||
 		q.ClosedFilter != nil || q.MergedFilter != nil || q.MergedStateFilter != ""
+}
+
+func issueOrderBy(sort string) string {
+	switch sort {
+	case "comments-asc":
+		return "(SELECT COUNT(*) FROM issue_comments ic_order WHERE ic_order.issue_id = i.id) ASC, i.updated_at DESC, i.id DESC"
+	case "comments-desc":
+		return "(SELECT COUNT(*) FROM issue_comments ic_order WHERE ic_order.issue_id = i.id) DESC, i.updated_at DESC, i.id DESC"
+	case "created-asc":
+		return "i.created_at ASC, i.id ASC"
+	case "created-desc":
+		return "i.created_at DESC, i.id DESC"
+	case "updated-asc":
+		return "i.updated_at ASC, i.id ASC"
+	case "updated-desc":
+		return "i.updated_at DESC, i.id DESC"
+	case "relevance-asc":
+		return "rank ASC, i.updated_at DESC, i.id DESC"
+	default:
+		return "rank DESC, i.updated_at DESC, i.id DESC"
+	}
 }
 
 func resolveIssueUserFilter(actor policy.Actor, raw string) (string, bool) {

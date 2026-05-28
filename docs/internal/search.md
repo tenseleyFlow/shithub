@@ -108,8 +108,13 @@ The boundary is exercised by the search test suite at
 * `MentionFilter`, `InvolvesFilters` — participant filters. The execution
   layer resolves `@me` from the current actor so anonymous `@me` searches
   safely produce no rows.
+* `ReviewRequestedFilter` — `review-requested:handle` / `review-requested:@me`
+  for active, unsatisfied PR review requests.
 * `MissingFilters` — `no:label`, `no:milestone`, `no:assignee`,
   `no:project`.
+* `SortFilter` — normalized GitHub-style sort directives. Supported values are
+  `sort:updated`, `sort:created`, `sort:comments`, `sort:relevance`, and their
+  `-asc` / `-desc` variants. Bare values default to descending order.
 * `OwnerFilter` — `user:handle` and `org:handle` for owner scoping.
 * `LabelFilters`, `MilestoneFilter` — repeated labels are ANDed.
 * `LanguageFilter`, `VisibilityFilter`, `ForkFilter`, `ArchivedFilter`,
@@ -136,9 +141,11 @@ Global result pages currently execute these recognized qualifiers:
   `is:pr`, `type:issue`, `type:pr`, `is:open`, `is:closed`, `state:`,
   `is:merged`, `is:unmerged`, `is:locked`, `is:unlocked`, `author:`,
   `assignee:`, `assignee:*`, `commenter:`, `mentions:`, `involves:`,
+  `review-requested:`,
   `label:`, `milestone:`, `no:label`, `no:milestone`, `no:assignee`,
   `no:project`, repository metadata filters, `created:`, `updated:`,
-  `closed:`, `merged:`.
+  `closed:`, `merged:`, `sort:updated`, `sort:created`, `sort:comments`,
+  `sort:relevance`.
 * code: `repo:`, `user:`, `org:`, `language:`, repository metadata
   filters, `path:`, `extension:`, plus free text against indexed paths
   and small-file content.
@@ -156,6 +163,14 @@ Profile and organization repository tabs also parse the same repository
 qualifier subset, so `language:Go`, `topic:forge`, `is:public`,
 `fork:false`, and `repo:owner/name` behave like GitHub's repository list
 filters instead of becoming literal substring searches.
+
+Global dashboard issue and pull-request pages (`/issues/*`, `/pulls`) also use
+the shared parser for their filter box. Dashboard defaults are rendered as
+GitHub-style queries, and user-entered qualifiers now execute instead of being
+stripped to free text: `review-requested:@me` reads the pending
+`pr_review_requests` table, `sort:comments-desc` orders by issue comment count,
+and state tabs remove or override `state:` / `is:` operators without emitting
+invalid `state:all` query text.
 
 ## Ranking
 
