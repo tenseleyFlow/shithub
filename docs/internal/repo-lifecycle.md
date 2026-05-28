@@ -101,7 +101,10 @@ data layer; visibility flips don't cascade.
 * **Hard delete**: `lifecycle:sweep` worker job (registered in
   `cmd/shithubd/worker.go`) runs periodically. The handler:
   1. `ListRepoIDsPastSoftDeleteGrace` — finds rows past 7 days.
-  2. For each, `lifecycle.HardDelete` runs:
+  2. For each, `lifecycle.HardDelete` runs under a 45-second child
+     timeout. A timeout or other per-repo failure is logged and the
+     sweep continues with later tombstones so one stuck row cannot
+     consume the whole worker job timeout.
      * `OrphanForksOf(repoID)` — children's `fork_of_repo_id` set NULL.
      * `DELETE FROM repos WHERE id=$1`. FK ON DELETE CASCADE handles
        `push_events`, `repo_collaborators`, `repo_redirects` (rows
@@ -142,6 +145,11 @@ from "redirected" to "never existed."
   rather than the active canonical path. If disk pressure becomes an
   issue, configure the grace window down (it's a constant in
   `lifecycle.go::softDeleteGrace`; promote to config in S37 if needed).
+* Repeated `lifecycle:sweep` failures for the same `repo_id` usually
+  indicate a stuck hard-delete row, a slow filesystem tombstone delete,
+  or a database wait while taking the owner/name advisory lock. Later
+  rows should still progress because each hard-delete gets its own
+  timeout budget.
 * Renaming a repo doesn't require restarting any worker or hook.
   The atomic FS move + DB update means the next hook invocation will
   resolve the new path.

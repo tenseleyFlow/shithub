@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,6 +17,8 @@ import (
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/worker"
 )
+
+const lifecycleSweepHardDeleteTimeout = 45 * time.Second
 
 // LifecycleSweepDeps wires the periodic sweep handler.
 type LifecycleSweepDeps struct {
@@ -29,9 +32,9 @@ type LifecycleSweepDeps struct {
 //
 //  1. Hard-delete every repo whose deleted_at is past the grace window.
 //     Each repo gets the full lifecycle.HardDelete cascade — FS + DB
-//     + audit. We process inline rather than fanning out to one job
-//     per repo because hard-deletes are rare and the per-row cost is
-//     small.
+//     + audit. Each row gets a bounded child context so one stuck
+//     tombstone cannot consume the entire worker job timeout and starve
+//     later rows.
 //  2. Flip pending transfer requests past expires_at to "expired".
 //
 // Enqueue this kind from a cron timer (S37 ships the systemd cron
@@ -49,15 +52,10 @@ func LifecycleSweep(deps LifecycleSweepDeps) worker.Handler {
 			Pool: deps.Pool, RepoFS: deps.RepoFS,
 			Audit: deps.Audit, Logger: deps.Logger,
 		}
-		for _, id := range ids {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := lifecycle.HardDelete(ctx, ldeps, 0, id); err != nil {
-				deps.Logger.WarnContext(ctx, "lifecycle:sweep: hard delete failed",
-					"repo_id", id, "error", err)
-				// Keep going — one bad row shouldn't poison the sweep.
-			}
+		if err := runLifecycleSweepHardDeletes(ctx, ids, lifecycleSweepHardDeleteTimeout, deps.Logger, func(deleteCtx context.Context, id int64) error {
+			return lifecycle.HardDelete(deleteCtx, ldeps, 0, id)
+		}); err != nil {
+			return err
 		}
 
 		// 2. Expire pending transfers past their TTL.
@@ -77,17 +75,64 @@ func LifecycleSweep(deps LifecycleSweepDeps) worker.Handler {
 		ohd := orgs.HardDeleteDeps{Deps: odeps, RepoFS: deps.RepoFS, Audit: deps.Audit}
 		orgIDs, err := orgs.ListPastGraceOrgIDs(ctx, odeps)
 		if err != nil {
-			deps.Logger.WarnContext(ctx, "lifecycle:sweep: list past-grace orgs", "error", err)
+			warnLifecycleSweep(ctx, deps.Logger, "lifecycle:sweep: list past-grace orgs", "error", err)
 		}
-		for _, oid := range orgIDs {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := orgs.HardDelete(ctx, ohd, oid); err != nil {
-				deps.Logger.WarnContext(ctx, "lifecycle:sweep: org hard delete failed",
-					"org_id", oid, "error", err)
-			}
+		if err := runLifecycleSweepOrgHardDeletes(ctx, orgIDs, lifecycleSweepHardDeleteTimeout, deps.Logger, func(deleteCtx context.Context, id int64) error {
+			return orgs.HardDelete(deleteCtx, ohd, id)
+		}); err != nil {
+			return err
 		}
 		return nil
+	}
+}
+
+func runLifecycleSweepHardDeletes(
+	ctx context.Context,
+	ids []int64,
+	timeout time.Duration,
+	logger *slog.Logger,
+	hardDelete func(context.Context, int64) error,
+) error {
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		deleteCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := hardDelete(deleteCtx, id)
+		cancel()
+		if err != nil {
+			warnLifecycleSweep(ctx, logger, "lifecycle:sweep: hard delete failed",
+				"repo_id", id, "error", err)
+			// Keep going — one bad row shouldn't poison the sweep.
+		}
+	}
+	return nil
+}
+
+func runLifecycleSweepOrgHardDeletes(
+	ctx context.Context,
+	ids []int64,
+	timeout time.Duration,
+	logger *slog.Logger,
+	hardDelete func(context.Context, int64) error,
+) error {
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		deleteCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := hardDelete(deleteCtx, id)
+		cancel()
+		if err != nil {
+			warnLifecycleSweep(ctx, logger, "lifecycle:sweep: org hard delete failed",
+				"org_id", id, "error", err)
+		}
+	}
+	return nil
+}
+
+func warnLifecycleSweep(ctx context.Context, logger *slog.Logger, msg string, args ...any) {
+	if logger != nil {
+		logger.WarnContext(ctx, msg, args...)
 	}
 }
