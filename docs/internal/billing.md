@@ -119,7 +119,7 @@ Rules for paid-org copy:
 | Audit log API | Deferred | Deferred | Later Enterprise feature |
 | SBOMs | Public repositories and personal repos | SPDX JSON generation/storage for private org repos | Contact sales |
 | Artifact attestations | Public repositories and personal repos | Store/download in-toto statements for private org repos | Contact sales |
-| GitHub Apps / app-style integrations | Planned | Planned | Contact sales |
+| App-style integrations | Organization webhooks and external check runs | Organization webhooks, external check runs, and required checks for private org repositories | Contact sales |
 | Status checks | Included through branch protection | Included through branch protection | Contact sales |
 | Pre-receive hooks | Deferred | Deferred | Enterprise Server planning item |
 | Pages | Deferred until static Pages hosting is active | Deferred until static Pages hosting is active | Deferred |
@@ -228,9 +228,11 @@ Present but still moving toward full enforcement:
   rows from `/organizations/{org}/settings/audit-log` and export the
   filtered scope as capped CSV, repository SBOMs generate/download SPDX
   JSON from stored dependency snapshots, repository artifact attestations
-  store/download in-toto Statement JSON documents, GitHub Apps remain
-  planned, and audit-log API/pre-receive hooks remain Enterprise/deferred
-  placement.
+  store/download in-toto Statement JSON documents, and organization
+  webhooks plus external check runs provide the first app-style
+  integration surface. Full GitHub Apps installation/auth remains
+  planned, and audit-log API/pre-receive hooks remain
+  Enterprise/deferred placement.
 - Codespaces are not implemented. S41 Actions runner workspaces are
   ephemeral CI execution directories and must not be represented as
   hosted development environments. PAYMENTS SP28 marks this as a

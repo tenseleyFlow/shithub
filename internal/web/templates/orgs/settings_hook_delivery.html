@@ -1,0 +1,56 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Delivery #{{ .Delivery.ID }}</h2>
+        <div class="Subhead-description"><a href="/organizations/{{ .Org.Slug }}/settings/hooks/{{ .Webhook.ID }}">Back to webhook</a></div>
+      </div>
+
+      <section class="shithub-org-settings-section">
+        <h3>Summary</h3>
+        <ul>
+          <li>Event: <code>{{ .Delivery.EventKind }}</code></li>
+          <li>Status: <code>{{ .Delivery.Status }}</code></li>
+          <li>Attempt: {{ .Delivery.Attempt }} of {{ .Delivery.MaxAttempts }}</li>
+          <li>Started: {{ relativeTime .Delivery.StartedAt.Time }}</li>
+          {{ if .Delivery.CompletedAt.Valid }}<li>Completed: {{ relativeTime .Delivery.CompletedAt.Time }}</li>{{ end }}
+          {{ if .Delivery.NextRetryAt.Valid }}<li>Next retry: {{ relativeTime .Delivery.NextRetryAt.Time }}</li>{{ end }}
+          {{ if .Delivery.ResponseStatus.Valid }}<li>HTTP response: <code>{{ .Delivery.ResponseStatus.Int32 }}</code>{{ if .Delivery.ResponseTruncated }} (body truncated){{ end }}</li>{{ end }}
+          {{ if .Delivery.RedeliverOf.Valid }}<li>Redelivery of #{{ .Delivery.RedeliverOf.Int64 }}</li>{{ end }}
+          {{ if .Delivery.ErrorSummary.Valid }}<li>Error: <code>{{ .Delivery.ErrorSummary.String }}</code></li>{{ end }}
+        </ul>
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/hooks/{{ .Webhook.ID }}/deliveries/{{ .Delivery.ID }}/redeliver">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="shithub-button">Redeliver</button>
+        </form>
+      </section>
+
+      <section class="shithub-org-settings-section">
+        <h3>Payload</h3>
+        <pre class="shithub-code-pre">{{ .PayloadPretty }}</pre>
+      </section>
+
+      <section class="shithub-org-settings-section">
+        <h3>Response</h3>
+        {{ if .ResponseBody }}
+        <pre class="shithub-code-pre">{{ .ResponseBody }}</pre>
+        {{ else }}
+        <p class="shithub-empty-note">No response body recorded.</p>
+        {{ end }}
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}

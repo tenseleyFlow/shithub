@@ -1,8 +1,13 @@
 # Webhooks
 
 Webhooks send HTTP POSTs to your URL when something happens in a
-repo (push, PR opened, issue commented, etc.). Configured at
-Repository → Settings → Webhooks → "Add webhook".
+repo (push, PR opened, issue commented, etc.).
+
+- Repository webhooks are configured at Repository → Settings →
+  Webhooks → "Add webhook".
+- Organization webhooks are configured at Organization settings →
+  Integrations → Webhooks. They receive events for repositories owned
+  by that organization.
 
 ## Configuration
 

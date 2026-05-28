@@ -15,6 +15,8 @@
 //	GET  /organizations/{org}/settings/import               GitHub org import
 //	POST /organizations/{org}/settings/import               start GitHub org import
 //	GET  /organizations/{org}/imports/{importID}            GitHub org import progress
+//	GET  /organizations/{org}/settings/hooks                organization webhooks
+//	POST /organizations/{org}/settings/hooks                create organization webhook
 //	GET  /organizations/{org}/settings/{secrets,variables}/actions
 //	POST /organizations/{org}/settings/{secrets,variables}/actions
 //	GET  /invitations/{token}                               accept/decline view
@@ -59,6 +61,7 @@ import (
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
+	"github.com/tenseleyFlow/shithub/internal/webhook"
 )
 
 // Deps wires the handler set.
@@ -85,6 +88,10 @@ type Deps struct {
 	// operator has enabled only one tier.
 	StripeTeamPriceID string
 	StripeProPriceID  string
+	// WebhookSSRF is the SSRF policy applied at organization webhook
+	// create/update. Defaults to webhook.DefaultSSRFConfig() when zero;
+	// tests inject a loopback-permissive config.
+	WebhookSSRF webhook.SSRFConfig
 }
 
 // BillingPriceIDs returns the configured (team, pro) Stripe price
@@ -136,6 +143,16 @@ func (h *Handlers) MountCreate(r chi.Router) {
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/pause", h.settingsScheduledReminderPause)
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/resume", h.settingsScheduledReminderResume)
 	r.Post("/organizations/{org}/settings/scheduled-reminders/{reminderID}/delete", h.settingsScheduledReminderDelete)
+	r.Get("/organizations/{org}/settings/hooks", h.settingsHooks)
+	r.Get("/organizations/{org}/settings/hooks/new", h.settingsHookNew)
+	r.Post("/organizations/{org}/settings/hooks", h.settingsHookCreate)
+	r.Get("/organizations/{org}/settings/hooks/{id}", h.settingsHookEdit)
+	r.Post("/organizations/{org}/settings/hooks/{id}", h.settingsHookUpdate)
+	r.Post("/organizations/{org}/settings/hooks/{id}/delete", h.settingsHookDelete)
+	r.Post("/organizations/{org}/settings/hooks/{id}/toggle", h.settingsHookToggle)
+	r.Post("/organizations/{org}/settings/hooks/{id}/ping", h.settingsHookPing)
+	r.Get("/organizations/{org}/settings/hooks/{id}/deliveries/{deliveryID}", h.settingsHookDelivery)
+	r.Post("/organizations/{org}/settings/hooks/{id}/deliveries/{deliveryID}/redeliver", h.settingsHookRedeliver)
 	r.Get("/organizations/{org}/settings/security", h.settingsSecurity)
 	r.Post("/organizations/{org}/settings/security", h.settingsSecuritySubmit)
 	r.Get("/organizations/{org}/settings/security/secret-patterns", h.settingsSecretPatterns)
@@ -792,9 +809,9 @@ func orgPlanFeatureSections() []orgPlanFeatureSection {
 			Name: "Marketplace and integrations",
 			Rows: []orgPlanFeatureRow{
 				{
-					Name: "GitHub Apps", Description: "Install app-style integrations against organization repositories.",
-					Free: "Planned", Team: "Planned", Enterprise: "Contact sales", Owner: "SP29",
-					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Planned",
+					Name: "App-style integrations", Description: "Connect organization repositories to external systems with org webhooks and check runs.",
+					Free: "Organization webhooks", Team: "Organization webhooks and status checks", Enterprise: "Contact sales", Owner: "SP29",
+					OwnerPath: ".docs/sprints/PAYMENTS/SP29-platform-security-compliance-integrations.md", State: "Baseline shipped",
 				},
 				{
 					Name: "Status checks", Description: "Require named check runs before protected branches merge.",

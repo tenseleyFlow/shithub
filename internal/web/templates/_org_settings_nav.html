@@ -23,7 +23,7 @@
     {{ else }}
     <span aria-disabled="true">{{ octicon "credit-card" }} Billing and licensing</span>
     {{ end }}
-    <span aria-disabled="true">{{ octicon "gear" }} Integrations</span>
+    <a{{ if eq .OrgSettingsActive "integrations" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/hooks">{{ octicon "gear" }} Integrations</a>
     <a{{ if eq .OrgSettingsActive "audit" }} class="is-selected" aria-current="page"{{ end }} href="/organizations/{{ .Org.Slug }}/settings/audit-log">{{ octicon "history" }} Audit log</a>
   </nav>
 </aside>

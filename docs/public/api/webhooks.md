@@ -1,8 +1,9 @@
 # Webhooks
 
-The webhook **delivery format** (payloads, signing) and the
-webhook **management API** (CRUD over webhooks on a repo) are
-both shipped. The management endpoints are PAT-authenticated and
+The webhook **delivery format** (payloads, signing), the repository
+webhook **management API**, and the organization-owner web UI for
+organization webhooks are shipped. The REST management endpoints are
+currently repo-scoped, PAT-authenticated, and
 share the canonical [API conventions](overview.md) (JSON error
 envelopes, `X-RateLimit-*`, `X-OAuth-Scopes`, `Link`
 pagination).

@@ -1,0 +1,64 @@
+{{ define "page" -}}
+<section class="shithub-org-settings-page">
+  <header class="shithub-org-pagehead shithub-org-settings-pagehead">
+    <div class="shithub-org-pagehead-inner">
+      <a class="shithub-org-pagehead-title" href="/{{ .Org.Slug }}">
+        <img src="/avatars/{{ .Org.Slug }}" alt="" width="30" height="30">
+        <span>{{ if .Org.DisplayName }}{{ .Org.DisplayName }}{{ else }}{{ .Org.Slug }}{{ end }}</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="shithub-org-settings-layout">
+    {{ template "org-settings-nav" . }}
+
+    <div class="shithub-org-settings-main">
+      <div class="Subhead">
+        <h2 class="Subhead-heading Subhead-heading--large">Add webhook</h2>
+        <div class="Subhead-description">Create an organization-level subscriber for repository events.</div>
+      </div>
+      {{ with .Error }}<p class="shithub-flash shithub-flash-error" role="alert">{{ . }}</p>{{ end }}
+
+      <section class="shithub-org-settings-section">
+        <form method="POST" action="/organizations/{{ .Org.Slug }}/settings/hooks" class="shithub-org-settings-form" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <label>
+            <span>Payload URL</span>
+            <input type="text" name="url" required maxlength="2048" value="{{ .Form.URL }}" placeholder="https://example.com/webhook">
+            <small>HTTP/HTTPS only. Private and loopback IPs are rejected by default.</small>
+          </label>
+          <label>
+            <span>Content type</span>
+            <select name="content_type">
+              <option value="json" {{ if eq .Form.ContentType "json" }}selected{{ end }}>application/json</option>
+              <option value="form" {{ if eq .Form.ContentType "form" }}selected{{ end }}>application/x-www-form-urlencoded</option>
+            </select>
+          </label>
+          <label>
+            <span>Secret (optional)</span>
+            <input type="text" name="secret" maxlength="200" placeholder="auto-generated when blank">
+            <small>Used to sign each delivery via HMAC-SHA256.</small>
+          </label>
+          <label>
+            <span>Events (comma-separated; blank = all)</span>
+            <input type="text" name="events" value="{{ .EventsCSV }}" placeholder="push, issues, pull_request">
+          </label>
+          <fieldset class="shithub-settings-fieldset">
+            <legend>Options</legend>
+            <label class="shithub-settings-checkbox">
+              <input type="checkbox" name="active" {{ if .Form.Active }}checked{{ end }}>
+              <span>Active</span>
+            </label>
+            <label class="shithub-settings-checkbox">
+              <input type="checkbox" name="ssl_verification" {{ if .Form.SSL }}checked{{ end }}>
+              <span>Verify SSL</span>
+            </label>
+          </fieldset>
+          <button type="submit" class="shithub-button shithub-button-primary">Add webhook</button>
+          <a href="/organizations/{{ .Org.Slug }}/settings/hooks" class="shithub-button">Cancel</a>
+        </form>
+      </section>
+    </div>
+  </div>
+</section>
+{{- end }}
