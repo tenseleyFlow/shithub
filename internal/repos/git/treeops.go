@@ -129,6 +129,14 @@ type TreeBlob struct {
 	Size int64
 }
 
+// TreeFile is one regular file-like entry returned by a recursive tree
+// walk. It includes regular blobs and symlinks, but excludes trees and
+// submodule commit entries.
+type TreeFile struct {
+	Path string
+	Size int64
+}
+
 // LsTree lists entries at <ref>:<path>. Empty path lists the repo root.
 // Returns an empty slice when the path doesn't exist or is itself a
 // blob — callers should fall back to BlobInfo.
@@ -225,6 +233,46 @@ func ListBlobs(ctx context.Context, gitDir, ref string) ([]TreeBlob, error) {
 	}
 	sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
 	return blobs, nil
+}
+
+// ListFiles returns every regular file-like path under ref with its
+// git-reported byte size. Unlike ListBlobs, it keeps symlinks because
+// code search should still index the symlink path.
+func ListFiles(ctx context.Context, gitDir, ref string) ([]TreeFile, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+		"ls-tree", "-r", "--long", "--full-tree", "-z", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, wrapExecErr(err)
+	}
+
+	records := bytes.Split(bytes.TrimRight(out, "\x00"), []byte{0})
+	files := make([]TreeFile, 0, len(records))
+	for _, rec := range records {
+		if len(rec) == 0 {
+			continue
+		}
+		tabIdx := bytes.IndexByte(rec, '\t')
+		if tabIdx < 0 {
+			continue
+		}
+		left, name := string(rec[:tabIdx]), string(rec[tabIdx+1:])
+		fields := strings.Fields(left)
+		if len(fields) != 4 {
+			continue
+		}
+		kind := classifyEntry(fields[0], fields[1])
+		if kind != EntryBlob && kind != EntrySymlink {
+			continue
+		}
+		size, err := strconv.ParseInt(fields[3], 10, 64)
+		if err != nil {
+			continue
+		}
+		files = append(files, TreeFile{Path: name, Size: size})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
 }
 
 // classifyEntry maps git's mode+type fields to our four kinds.

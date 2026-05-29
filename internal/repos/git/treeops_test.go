@@ -105,3 +105,40 @@ func TestListBlobs_RecursiveSizes(t *testing.T) {
 		t.Errorf("readme blob size = %d", got["README.md"])
 	}
 }
+
+func TestListFiles_RecursiveSizes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "--initial-branch=trunk", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	build := gitops.InitialCommit{
+		GitDir:      dir,
+		AuthorName:  "Test Author",
+		AuthorEmail: "test@example.com",
+		Branch:      "trunk",
+		When:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Files: []gitops.FileEntry{
+			{Path: "README.md", Body: []byte("# demo\n")},
+			{Path: "big.txt", Body: []byte("0123456789")},
+		},
+	}
+	if _, err := build.Build(context.Background()); err != nil {
+		t.Fatalf("InitialCommit.Build: %v", err)
+	}
+
+	files, err := gitops.ListFiles(context.Background(), dir, "trunk")
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	got := map[string]int64{}
+	for _, f := range files {
+		got[f.Path] = f.Size
+	}
+	if got["README.md"] != int64(len("# demo\n")) {
+		t.Errorf("readme size = %d", got["README.md"])
+	}
+	if got["big.txt"] != int64(len("0123456789")) {
+		t.Errorf("big size = %d", got["big.txt"])
+	}
+}
