@@ -79,6 +79,14 @@ Cross-cutting:
 5. Templates render through `internal/web/render`. Markdown bodies
    pass through `internal/markdown` for sanitization.
 
+The renderer is **process-wide**: `server.go` constructs one
+`*render.Renderer` and passes it to every handler builder. One
+renderer costs ~40 MB of live heap (every page holds a private copy
+of the partials it reaches; html/template cannot share parse trees
+across template sets), so a renderer per handler set is a
+several-hundred-megabyte regression. See
+`docs/internal/caching.md`, "Template renderer: one per process".
+
 ## Request lifecycle (API)
 
 `/api/v1/*` is under a CSRF-exempt group with PAT auth:
