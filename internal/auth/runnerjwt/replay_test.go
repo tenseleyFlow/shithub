@@ -107,12 +107,12 @@ func (r fakeReplayRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	*(dest[0].(*string)) = "0123456789abcdef"
-	*(dest[1].(*int64)) = 7
-	*(dest[2].(*int64)) = 11
-	*(dest[3].(*int64)) = 13
-	*(dest[4].(*int64)) = 17
-	*(dest[5].(*pgtype.Timestamptz)) = pgtype.Timestamptz{Time: time.Unix(1000, 0), Valid: true}
-	*(dest[6].(*pgtype.Timestamptz)) = pgtype.Timestamptz{Time: time.Unix(900, 0), Valid: true}
+	*dest[0].(*string) = "0123456789abcdef"
+	*dest[1].(*int64) = 7
+	*dest[2].(*int64) = 11
+	*dest[3].(*int64) = 13
+	*dest[4].(*int64) = 17
+	*dest[5].(*pgtype.Timestamptz) = pgtype.Timestamptz{Time: time.Unix(1000, 0), Valid: true}
+	*dest[6].(*pgtype.Timestamptz) = pgtype.Timestamptz{Time: time.Unix(900, 0), Valid: true}
 	return nil
 }
