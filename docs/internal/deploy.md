@@ -87,7 +87,10 @@ changes, that's a config drift bug; investigate before continuing.
 In rough order:
 
 - **base** — apt baseline, ufw default-deny, fail2ban, system users
-  (`shithub`, `shithub-ssh`), data root at `/data`.
+  (`shithub`, `shithub-ssh`), data root at `/data`, a 4 GB swapfile
+  at `/data/swapfile` with `vm.swappiness=10`, and AIDE
+  file-integrity monitoring (nightly at 06:00 UTC; the packaged
+  `dailyaidecheck.timer` is disabled so only our wrapper runs).
 - **postgres** (`tags: [db]`) — installs PG16, initdb on `/data/pgdata`,
   applies our `postgresql.conf`/`pg_hba.conf`, wires the WAL archive
   command, creates the `shithub` and `shithub_hook` roles with
@@ -96,13 +99,15 @@ In rough order:
   `/usr/local/bin`, drops env files into `/etc/shithub/`, installs
   the three systemd units, restarts on change. The `web.service`
   ExecStartPre runs `shithubd migrate up` so a deploy with new
-  migrations is one command.
+  migrations is one command. The units carry cgroup memory ceilings
+  (`MemoryHigh`/`MemoryMax`, plus `GOMEMLIMIT` for web) — see the
+  2026-09-02 availability sitrep for the sizing rationale.
 - **caddy** (`tags: [edge]`) — installs Caddy + the templated
   `Caddyfile`. Auto-TLS via Let's Encrypt staging until the operator
   flips a vars flag; production after that.
 - **wireguard** (`tags: [net]`) — peers each host into the mesh.
-- **backup** (`tags: [backup]`) — installs the daily backup timer
-  on the db host and the cross-region sync timer on the backup host.
+- **backup** (`tags: [backup]`) — installs the daily backup cron on
+  the db host and the 6-hourly cross-region sync on the backup host.
 - **monitoring-client** (`tags: [monitoring]`) — node-exporter +
   promtail on every host pointing at the monitoring host.
 
@@ -126,7 +131,11 @@ Two layers, both mandatory:
    7 locally for fast recovery.
 
 Cross-region copy (`deploy/spaces/sync-cross-region.sh`) mirrors
-both buckets to a second region for DR. Lifecycle in
+both buckets to a second region for DR, every 6 h (01/07/13/19:23
+UTC) under a `flock` so runs cannot overlap. The WAL leg drops
+`--fast-list` — buffering a 161k-object listing cost ~1 GB of RSS on
+a 3.9 GB box. The full job schedule, and why the jobs are spaced the
+way they are, is in `runbooks/backups.md`. Lifecycle in
 `deploy/spaces/lifecycle.json` prunes WAL after 30 days and dumps
 after 90. Actions log/artifact objects use the primary object bucket's
 `actions/runs/` prefix; apply `deploy/spaces/actions-lifecycle.json`
