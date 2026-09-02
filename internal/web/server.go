@@ -134,11 +134,23 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
+	// Resolved at boot so a malformed CIDR is a startup failure, not a
+	// silently-disabled proxy trust list. Validate() already parsed
+	// these once; this is the copy the middleware keeps.
+	trustedProxies, err := cfg.Web.TrustedProxyNets()
+	if err != nil {
+		return err
+	}
+	if len(trustedProxies) == 0 {
+		logger.Warn("web: no trusted proxies configured; X-Forwarded-For is ignored",
+			"hint", "set SHITHUB_WEB__TRUSTED_PROXIES when a reverse proxy fronts shithub, or every client shares one rate-limit bucket")
+	}
+
 	r := chi.NewRouter()
 
 	// Middleware stack — outermost first.
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP(middleware.RealIPConfig{}))
+	r.Use(middleware.RealIP(middleware.RealIPConfig{TrustedProxies: trustedProxies}))
 	r.Use(middleware.AccessLog(logger))
 	r.Use(middleware.Metrics)
 	if cfg.Tracing.Enabled {
