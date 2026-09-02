@@ -250,7 +250,11 @@ unticked box in this phase is restated with exact commands in
 Everything that needs account access or a hand on the box, with the
 commands. Nothing here is done by merging a PR.
 
-### 1. Rotate the `doctl` token
+### 1. Rotate the `doctl` token — DONE 2026-09-02
+
+Done: new token stored via `doctl auth init` (the legacy top-level
+`access-token` key in doctl's config.yaml had to be blanked first,
+otherwise `auth init` silently reuses the dead token).
 
 The current token 401s, which blocks every other `doctl` item below.
 
@@ -262,7 +266,11 @@ doctl auth switch --context shithub
 doctl account get                      # must not 401
 ```
 
-### 2. Repoint the DO uptime check at `/healthz`
+### 2. Repoint the DO uptime check at `/healthz` — DONE 2026-09-02
+
+Done: old check deleted and `deploy/cutover/provision-do-alerts.sh`
+recreated it as `159fcb49-…` targeting `https://shithub.sh/healthz`
+with the down/ssl-expiry/latency alerts.
 
 `provision-do-alerts.sh` already defaults to
 `https://shithub.sh/healthz`, but `doctl` cannot change an existing
@@ -278,7 +286,11 @@ doctl monitoring uptime list --output json | jq '.[].target'
 
 Rationale and the 429 evidence: `runbooks/alerts.md`.
 
-### 3. Add the laptop egress IP to the runner SSH firewall
+### 3. Add the laptop egress IP to the runner SSH firewall — DONE 2026-09-02
+
+Done: `74.75.126.163/32` added to `shithub-actions-runners-shared-linux`;
+direct SSH to all three runners works again. Repeat when the home IP
+changes.
 
 ```sh
 curl -s https://ifconfig.me; echo                  # your egress IP
