@@ -96,8 +96,11 @@ if [ -n "$gomemlimit" ]; then
   fi
 fi
 
+# Matched as a literal negative integer rather than compared
+# numerically: `[ "$oom" -ge 0 ]` on a non-numeric value errors out
+# instead of returning false, which would let garbage through.
 oom=$(directive "$web" OOMScoreAdjust)
-if [ -z "$oom" ] || [ "$oom" -ge 0 ] 2>/dev/null; then
+if ! printf '%s' "$oom" | grep -qE '^-[0-9]+$'; then
   err "shithubd-web: OOMScoreAdjust must be set and negative (got '${oom:-unset}')"
 fi
 
