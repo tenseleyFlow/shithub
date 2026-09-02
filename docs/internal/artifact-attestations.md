@@ -34,7 +34,10 @@ normalized digest, predicate type, byte count, uploader, and creation time.
 - `source_run_id` optionally references `workflow_runs(id)` with
   `ON DELETE SET NULL`
 - `uploaded_by` optionally references `users(id)` with `ON DELETE SET NULL`
-- `statement` is `jsonb` and must be a JSON object
+- `statement` is `json` and must be a JSON object. `json`, not `jsonb`:
+  the column has to hand back the exact bytes the server compacted, since
+  `byte_count` describes them and DSSE-style verification is over them.
+  `jsonb` re-canonicalizes key order and whitespace on write.
 
 The optional run reference is reserved for a later Actions publishing flow. The
 current web surface leaves it null.
