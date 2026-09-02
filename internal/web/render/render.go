@@ -17,6 +17,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	texttemplate "text/template"
 	"text/template/parse"
 	"time"
 
@@ -88,9 +89,19 @@ func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 		octicon: opts.Octicons,
 	}
 
+	fns := funcMap(r.octicon)
+	idx, err := indexPartials(tmplFS, partialPaths, fns)
+	if err != nil {
+		return nil, err
+	}
+
 	parsePage := func(displayName, primary string) error {
-		t := template.New(path.Base(primary)).Funcs(funcMap(r.octicon))
-		all := append([]string{}, partialPaths...)
+		refs, err := templateRefsInFile(tmplFS, primary, fns)
+		if err != nil {
+			return fmt.Errorf("scan %s: %w", displayName, err)
+		}
+		t := template.New(path.Base(primary)).Funcs(fns)
+		all := idx.closure(refs)
 		all = append(all, primary)
 		parsed, err := t.ParseFS(tmplFS, all...)
 		if err != nil {
@@ -109,6 +120,135 @@ func New(tmplFS fs.FS, opts Options) (*Renderer, error) {
 		}
 	}
 	return r, nil
+}
+
+// partialIndex maps every `{{ define "name" }}` a partial declares back
+// to the partial file that declares it, plus each partial's own
+// `{{ template "name" }}` references. New() uses it to parse into each
+// page only the partials that page transitively reaches.
+//
+// This is the difference between an 83 MB renderer and a 41 MB one.
+// html/template cannot share parse trees between template sets (the
+// contextual auto-escaper rewrites trees in place, per set), so every
+// partial parsed into a page is a full private copy of that partial's
+// tree. Cloning all 26 partials — 91 KB of source, of which _layout
+// alone is 32 KB — into all 153 pages meant ~14 MB of duplicated
+// template source and ~80 MB of duplicated parse trees, and eight of
+// those renderers is what OOM-killed shithubd. Most pages reach only
+// the layout chrome, so pruning to the reachable set is nearly free.
+type partialIndex struct {
+	// definedBy maps a template name to the partial path that wins for
+	// it. Built in sorted path order so the last definition wins,
+	// matching ParseFS's own override semantics when every partial was
+	// parsed into every page.
+	definedBy map[string]string
+	// refs maps a partial path to the template names it references.
+	refs map[string][]string
+	// order is the sorted partial path list; closure() emits its result
+	// in this order so multiply-defined names resolve exactly as they
+	// did when every partial was parsed into every page.
+	order []string
+}
+
+// indexPartials parses each partial once, standalone, to learn what it
+// defines and what it references. The throwaway parse trees are garbage
+// after this returns; only the string index survives.
+func indexPartials(tmplFS fs.FS, partialPaths []string, fns template.FuncMap) (*partialIndex, error) {
+	idx := &partialIndex{
+		definedBy: make(map[string]string, len(partialPaths)*2),
+		refs:      make(map[string][]string, len(partialPaths)),
+		order:     partialPaths,
+	}
+	for _, p := range partialPaths {
+		parsed, err := parseStandalone(tmplFS, p, fns)
+		if err != nil {
+			return nil, fmt.Errorf("parse partial %s: %w", p, err)
+		}
+		seen := map[string]bool{}
+		var refs []string
+		for _, child := range parsed.Templates() {
+			idx.definedBy[child.Name()] = p
+			if child.Tree == nil {
+				continue
+			}
+			walkTemplateRefs(child.Root, func(name string) {
+				if seen[name] {
+					return
+				}
+				seen[name] = true
+				refs = append(refs, name)
+			})
+		}
+		idx.refs[p] = refs
+	}
+	return idx, nil
+}
+
+// closure returns the partial paths needed to satisfy refs, transitively,
+// in sorted-path order. "layout" is always seeded: Render executes it by
+// name on every page, so its definer is required whether or not the page
+// body names it.
+func (idx *partialIndex) closure(refs []string) []string {
+	need := make(map[string]bool, len(idx.order))
+	queue := make([]string, 0, len(refs)+1)
+	queue = append(queue, "layout")
+	queue = append(queue, refs...)
+	for len(queue) > 0 {
+		name := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		p, ok := idx.definedBy[name]
+		if !ok || need[p] {
+			continue
+		}
+		need[p] = true
+		queue = append(queue, idx.refs[p]...)
+	}
+	out := make([]string, 0, len(need))
+	for _, p := range idx.order {
+		if need[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// templateRefsInFile returns the template names a single file references.
+// It parses the file standalone with text/template: the page's refs to
+// partials are dangling at this point, which text/template tolerates at
+// parse time (it only resolves names at exec time).
+func templateRefsInFile(tmplFS fs.FS, p string, fns template.FuncMap) ([]string, error) {
+	parsed, err := parseStandalone(tmplFS, p, fns)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var refs []string
+	for _, child := range parsed.Templates() {
+		if child.Tree == nil {
+			continue
+		}
+		walkTemplateRefs(child.Root, func(name string) {
+			if seen[name] {
+				return
+			}
+			seen[name] = true
+			refs = append(refs, name)
+		})
+	}
+	return refs, nil
+}
+
+// parseStandalone parses one template file on its own with text/template.
+// We use text/template rather than html/template deliberately: the parse
+// is only ever read for its `define` / `template` names and is thrown away
+// immediately, so it must not pay for the contextual auto-escaper. The
+// func map is supplied because the parser rejects unknown function names.
+func parseStandalone(tmplFS fs.FS, p string, fns template.FuncMap) (*texttemplate.Template, error) {
+	textFns := make(texttemplate.FuncMap, len(fns))
+	for k, v := range fns {
+		textFns[k] = v
+	}
+	return texttemplate.New(path.Base(p)).Funcs(textFns).ParseFS(tmplFS, p)
 }
 
 // undefinedTemplateRefs returns the names of every `{{ template "name" }}`

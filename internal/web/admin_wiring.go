@@ -4,8 +4,6 @@ package web
 
 import (
 	"errors"
-	"fmt"
-	"io/fs"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,7 +25,7 @@ import (
 func buildAdminHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 	logger *slog.Logger,
 	version string,
 	emailSender email.Sender,
@@ -35,9 +33,8 @@ func buildAdminHandlers(
 	if pool == nil {
 		return nil, errors.New("admin: nil pool")
 	}
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, fmt.Errorf("admin: render.New: %w", err)
+	if rr == nil {
+		return nil, errors.New("admin: nil renderer")
 	}
 	return adminh.New(adminh.Deps{
 		Logger: logger,

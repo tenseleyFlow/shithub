@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -148,11 +147,10 @@ func buildAuthHandlers(
 	store session.Store,
 	objectStore storage.ObjectStore,
 	logger *slog.Logger,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 ) (*authh.Handlers, error) {
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, err
+	if rr == nil {
+		return nil, errors.New("auth: nil renderer")
 	}
 	sender, err := pickEmailSender(cfg)
 	if err != nil {

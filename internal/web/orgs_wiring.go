@@ -4,7 +4,6 @@ package web
 
 import (
 	"errors"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,18 +21,17 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
-// buildOrgHandlers wires the S30 organization handler set. Owns its
-// own renderer (same pattern as the search/notif builders).
+// buildOrgHandlers wires the S30 organization handler set. Takes the
+// process-wide shared renderer (see server.go).
 func buildOrgHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
 	objectStore storage.ObjectStore,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 	logger *slog.Logger,
 ) (*orgshandlers.Handlers, error) {
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, err
+	if rr == nil {
+		return nil, errors.New("orgs: nil renderer")
 	}
 	var stripeRemote stripebilling.Remote
 	if cfg.Billing.Enabled {

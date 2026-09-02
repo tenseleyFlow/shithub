@@ -115,12 +115,18 @@ commits behind origin/trunk**. All fixes must branch from
 
 ### Phase 2 — cut the static heap (PR)
 
-- [ ] Construct one shared `render.Renderer` in `server.go` and pass it
+- [x] Construct one shared `render.Renderer` in `server.go` and pass it
       to every handler builder (target: ≤ 100 MB template heap; measure
-      with the probe test)
-- [ ] Follow-up: stop cloning all 26 partials into every page (parse
-      partials once, `AddParseTree` per page) — measure before/after
-- [ ] Tests: memory probe as a benchmark with a ceiling assertion
+      with the probe test) — **664 MB → 41 MB**
+- [x] Follow-up: stop cloning all 26 partials into every page — done by
+      pruning to each page's transitively-referenced set, **83 MB → 41 MB
+      per renderer**; output parity checked over all 153 pages
+- [x] Tests: memory probe as a benchmark with a ceiling assertion
+      (`internal/web/renderer_heap_test.go`, 150 MB ceiling + an AST
+      scan that fails on a second `render.New` in package web)
+- [ ] Remaining: `_layout.html` is 32 KB of the ~54 KB every page still
+      pulls in, in one monolithic `{{ define "layout" }}`. Splitting it
+      is worth roughly another 20 MB but is a template refactor.
 
 ### Phase 3 — stop the crawler amplification (PR)
 
