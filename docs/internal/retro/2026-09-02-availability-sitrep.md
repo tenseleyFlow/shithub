@@ -96,7 +96,9 @@ commits behind origin/trunk**. All fixes must branch from
 The first four items are now also mirrored into Ansible (base +
 backup roles, `deploy/spaces/sync-cross-region.sh`), so the next
 `make deploy` re-applies them instead of reverting the hand edits.
-The verification items below are still the operator's.
+The verification items below are still the operator's. **Every
+unticked box in this phase is restated with exact commands in
+[Operator to-do](#operator-to-do) at the end of this file.**
 
 - [ ] Add 4 GB swapfile on `/data`, `vm.swappiness=10`, persist in fstab
 - [ ] Disable `dailyaidecheck.timer` (keep `shithub-aide-check` cron)
@@ -178,31 +180,240 @@ The verification items below are still the operator's.
 - [x] `actionsobserver`: the `octet_length` sum now runs every 5 min on its
       own cadence; the count and queue-depth gauges stay at 15 s
 
-### Phase 4 — observability and docs
+### Phase 4 — observability and docs (PR)
 
-- [ ] Enable `pg_stat_statements`
-- [ ] `docs/internal/observability.md` / `deploy.md`: replace the
-      WireGuard + monitoring-droplet story with the real Alloy →
-      Grafana Cloud pipeline; note there is no Alertmanager, so the
-      runbook backup alerts cannot fire
-- [ ] `runbooks/alerts.md:77`: box is 2 vCPU, not 4
-- [ ] Backup scripts log a timestamped success line; both logs are
-      0 bytes since May 10
-- [ ] Decide `postgresql.conf.j2`: revise for a shared 4 GB box
-      (shared_buffers 256 MB, work_mem 4 MB) and track it in
-      `check-droplet-drift.sh`, or delete it
-- [ ] Add `/etc/postgresql/16/main/postgresql.conf` and the Stripe
-      hand-edit in `web.env` to drift tracking
+- [x] `docs/internal/observability.md` / `deploy.md` /
+      `architecture.md` / `capacity.md`, plus
+      `runbooks/observability.md`, `alerts.md`, `incidents.md`:
+      the WireGuard + monitoring-droplet story is replaced with the
+      real Alloy → Grafana Cloud pipeline. `deploy.md` and
+      `architecture.md` now lead with a **single-box reference
+      deployment** section (topology, per-component memory budget
+      against the 3.9 GB + 4 GB swap, what the systemd ceilings
+      enforce); the multi-host design is kept as a clearly marked
+      aspirational section rather than deleted. Every doc now states
+      plainly that there is no Alertmanager, no local Prometheus, no
+      log shipping and no worker metrics endpoint, and enumerates the
+      alerts that therefore do not exist.
+- [x] `runbooks/incidents.md`: added a `memory-pressure` section —
+      how to read the box (`journalctl -k` for OOM class, `sar -r`
+      /`sar -S`/`sar -q` for the run-up, `systemctl show
+      -p MemoryCurrent` + `systemd-cgtop` for per-unit attribution,
+      `ps -eo rss` for the non-cgroup processes, and the `/metrics`
+      gauges worth reading), plus mitigation order.
+- [x] `deploy/monitoring/README.md`: states that none of the
+      committed Prometheus/Alertmanager/Loki configs are deployed,
+      which alerts are therefore inert, why several could not fire
+      even with a Prometheus attached (job labels, no worker
+      endpoint, no postgres exporter), and what adopting them would
+      take. Nothing deleted.
+- [x] `runbooks/alerts.md:77`: box is 2 vCPU, not 4
+- [x] Backup scripts log a timestamped start/end/exit-status line to
+      the cron-redirected stream and write a heartbeat file on
+      success only (`/var/lib/shithub/backup-last-success`,
+      `/var/lib/shithub/spaces-sync-last-success`). `set -euo
+      pipefail` semantics preserved: a failed rclone still exits
+      non-zero and leaves any previous heartbeat untouched. Covered
+      by `scripts/test-backup-scripts.sh` (stubbed rclone/pg_dump),
+      wired into `make ci` and CI alongside a `bash -n` sweep
+      (`scripts/lint-shell.sh`).
+- [x] The heartbeats are exported as
+      `shithub_backup_last_success_seconds{job="daily"|"spaces-sync"}`
+      (`internal/infra/metrics/backupobserver.go`), so backup
+      freshness reaches Grafana Cloud and a managed rule can finally
+      make `BackupOverdue` real. The rule in `rules.yml` named
+      `shithubd_backup_last_success_seconds`, which never existed.
+- [x] `postgresql.conf.j2` revised rather than deleted, for a 4 GB
+      box shared with a ~200 MB app + worker: `shared_buffers=256MB`,
+      `work_mem=4MB`, `effective_cache_size=1GB`,
+      `maintenance_work_mem=64MB`, `max_connections=60` (web pool 10
+      + worker 6 + short-lived cron/hook/ssh/admin pools + headroom),
+      `shared_preload_libraries='pg_stat_statements'`,
+      `pg_stat_statements.track=top`.
+- [x] `docs/internal/db.md` records that the template has never been
+      applied, the live-vs-template setting table, and a step-by-step
+      safe-apply procedure (snapshot, `--check`, `postgres -C`
+      validation, **restart** not reload, inside the 05:15–06:00
+      quiet window, never a blind `make deploy`).
+- [x] `check-droplet-drift.sh` tracks
+      `/etc/postgresql/16/main/postgresql.conf` and reports both it
+      and the `web.env` Stripe hand-edit as `KNOWN` drift with the
+      reason attached.
+- [x] `scripts/lint-docs-topology.sh` fails CI when `docs/internal`
+      mentions WireGuard / `wg0` / `10.50.0.` outside an explicit
+      `<!-- topology:aspirational-start -->` block. `docs/internal/retro/`
+      is excluded — retrospectives are dated snapshots.
+- [ ] Enable `pg_stat_statements` on the box — operator, see below.
 
-### Operator-only items (need account access)
+## Operator to-do
 
-- [ ] `doctl` token is revoked/expired (401); rotate it
-- [ ] Runner firewall: add current laptop egress IP to the SSH rule
-      (interim: `ssh -J root@24.199.108.81 root@<runner>`)
-- [ ] Spaces access key is plaintext in both env files; rotate if the
-      exposure set is wider than intended
-- [ ] Consider resizing the droplet to 8 GB if Phase 0–2 do not hold
-      peak memory under 75%
+Everything that needs account access or a hand on the box, with the
+commands. Nothing here is done by merging a PR.
+
+### 1. Rotate the `doctl` token
+
+The current token 401s, which blocks every other `doctl` item below.
+
+```sh
+# https://cloud.digitalocean.com/account/api/tokens → Generate New Token
+# Scopes needed: droplet read, monitoring read+write, firewall read+write.
+doctl auth init --context shithub      # paste the token when prompted
+doctl auth switch --context shithub
+doctl account get                      # must not 401
+```
+
+### 2. Repoint the DO uptime check at `/healthz`
+
+`provision-do-alerts.sh` already defaults to
+`https://shithub.sh/healthz`, but `doctl` cannot change an existing
+check's target in place — it needs a delete + recreate.
+
+```sh
+doctl monitoring uptime list                       # note the check id
+doctl monitoring uptime delete <check-id>
+deploy/cutover/provision-do-alerts.sh              # recreates check + 3 alerts
+doctl monitoring uptime list --output json | jq '.[].target'
+# expect "https://shithub.sh/healthz"
+```
+
+Rationale and the 429 evidence: `runbooks/alerts.md`.
+
+### 3. Add the laptop egress IP to the runner SSH firewall
+
+```sh
+curl -s https://ifconfig.me; echo                  # your egress IP
+doctl compute firewall list                        # find the runner firewall id
+doctl compute firewall add-rules <firewall-id> \
+  --inbound-rules "protocol:tcp,ports:22,address:<your-ip>/32"
+```
+
+Interim workaround that needs no firewall change (the app box is
+already allowed): `ssh -J root@24.199.108.81 root@<runner-ip>`.
+
+### 4. Persist the swapfile and `vm.swappiness`
+
+The 4 GB swapfile exists at runtime but is not in `fstab`, so it
+disappears on the next reboot — which is exactly when it is most
+needed.
+
+```sh
+ssh root@shithub.sh '
+  swapon --show
+  grep -q "^/data/swapfile" /etc/fstab || \
+    echo "/data/swapfile none swap sw 0 0" >> /etc/fstab
+  printf "vm.swappiness=10\n" > /etc/sysctl.d/60-shithub-swappiness.conf
+  sysctl --system
+  sysctl vm.swappiness                            # expect 10
+  swapon -a && swapon --show                      # fstab entry is usable
+'
+```
+
+### 5. Disable the duplicate AIDE timer
+
+The Debian-packaged timer still runs alongside our cron wrapper, so
+two AIDE scans overlap in the 03:00–05:00 window.
+
+```sh
+ssh root@shithub.sh '
+  systemctl disable --now dailyaidecheck.timer
+  systemctl is-enabled dailyaidecheck.timer      # expect: disabled
+  crontab -l | grep shithub-aide-check           # our 06:00 wrapper survives
+'
+```
+
+### 6. Install the defanged backup + sync scripts
+
+The box still runs the pre-Phase-4 copies: no status lines, no
+heartbeat, and the sync's `--fast-list` on the WAL bucket. Deploy
+re-copies these, but do not wait for an unrelated deploy.
+
+```sh
+# from a checkout of trunk after this PR merges
+scp deploy/spaces/sync-cross-region.sh  root@shithub.sh:/usr/local/bin/shithub-spaces-sync
+scp deploy/postgres/backup-daily.sh     root@shithub.sh:/usr/local/bin/shithub-backup-daily
+ssh root@shithub.sh '
+  chmod 0755 /usr/local/bin/shithub-spaces-sync /usr/local/bin/shithub-backup-daily
+  mkdir -p /var/lib/shithub /var/log/shithub
+  crontab -l | grep -E "shithub-(backup-daily|spaces-sync)"   # flock + 6h cadence
+'
+
+# Verify by running each once, off-peak, and checking the traces:
+ssh root@shithub.sh '
+  /usr/local/bin/shithub-backup-daily >> /var/log/shithub-backup.log 2>&1
+  tail -3 /var/log/shithub-backup.log
+  date -u -d @"$(cat /var/lib/shithub/backup-last-success)"
+'
+deploy/audit/check-droplet-drift.sh    # runs locally, ssh's to the box
+```
+
+Then confirm the gauge is live:
+`curl -fsS 127.0.0.1:8080/metrics | grep shithub_backup_last_success`.
+
+### 7. Apply `postgresql.conf.j2` and enable `pg_stat_statements`
+
+Needs a **Postgres restart**, inside the 05:15–06:00 UTC quiet
+window, never via a blind `make deploy`. The full procedure with
+snapshot and rollback is
+[`docs/internal/db.md`](../db.md#applying-it-safely) — follow it
+there rather than improvising. Ends with:
+
+```sh
+ssh root@shithub.sh 'sudo -u postgres psql -d shithub \
+  -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"'
+```
+
+### 8. Rotate the Spaces access key
+
+The key is plaintext in `/etc/rclone-shithub.conf`, `web.env` and
+`worker.env`. Rotate if the exposure set is wider than intended.
+
+```sh
+# https://cloud.digitalocean.com/account/api/spaces → generate a new key
+ssh root@shithub.sh '
+  sed -i "s/^access_key_id = .*/access_key_id = <NEW>/"     /etc/rclone-shithub.conf
+  sed -i "s/^secret_access_key = .*/secret_access_key = <NEW>/" /etc/rclone-shithub.conf
+  # same pair in /etc/shithub/web.env and /etc/shithub/worker.env
+  rclone --config /etc/rclone-shithub.conf lsd spaces-prod:   # must succeed
+  systemctl restart shithubd-web shithubd-worker
+'
+# Only after the check above passes: revoke the old key in the portal.
+```
+
+Note `web.env` also carries a hand-edited Stripe block absent from
+`web.env.j2`; a full `make deploy` re-renders the file and drops it.
+`check-droplet-drift.sh` now flags this as KNOWN drift.
+
+### 9. Enable pprof on the box
+
+Ansible sets it in `web.env.j2`, but the deploy pipeline does not
+re-render `/etc/shithub/web.env`.
+
+```sh
+ssh root@shithub.sh '
+  grep -q SHITHUB_WEB__PPROF_ADDR /etc/shithub/web.env ||
+    echo "SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060" >> /etc/shithub/web.env
+  systemctl restart shithubd-web
+  journalctl -u shithubd-web -n 20 --no-pager | grep pprof
+'
+# expect: pprof listener started (loopback only) addr=127.0.0.1:6060
+```
+
+### 10. Phase 0 verification, still open
+
+```sh
+ssh root@shithub.sh '
+  journalctl -k --since "7 days ago" | grep -i oom     # expect empty
+  sar -r | tail -20                                    # peak %memused < 75
+'
+# DR bucket integrity:
+ssh root@shithub.sh 'rclone --config /etc/rclone-shithub.conf \
+  check --size-only --one-way spaces-prod:shithub-backups spaces-dr:shithub-backups-dr'
+```
+
+### 11. Standing decision
+
+- [ ] Resize the droplet to 8 GB if Phases 0–3 do not hold peak
+      memory under 75%.
 
 ## Verification targets
 
