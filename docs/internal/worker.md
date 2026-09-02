@@ -41,6 +41,7 @@ backstop poll (every 5s by default) covers dropped notifications.
 | `workflow:cleanup`           | cron / manual ad-hoc                 | retention cutoff + idempotent deletes |
 | `trending:compute`           | recurring self-scheduled S42 job     | append-only snapshots            |
 | `org:scheduled_reminder_sweep` | cron / manual ad-hoc                | reminder delivery rows           |
+| `traffic:purge`              | cron / manual ad-hoc                 | retention cutoff recomputed per run; batched deletes |
 
 Adding a new kind: write the handler in `internal/worker/jobs/<kind>.go`,
 add the `Kind` constant to `internal/worker/types.go`, register it in

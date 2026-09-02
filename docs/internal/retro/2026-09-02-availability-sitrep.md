@@ -153,8 +153,16 @@ The verification items below are still the operator's.
 - [x] Key the anonymous HTML tier by `/24` for repo history/blob/raw
       routes (Meta rotates within `57.141.2.0/24`) — applied to the
       whole anonymous tier, not just those routes
-- [ ] Retention job for `repo_traffic_paths` / `repo_traffic_uniques`
-      (14-day window, matches the Traffic UI) + one-off prune migration
+- [x] Retention job for `repo_traffic_paths` / `repo_traffic_uniques`
+      (plus `_referrers`) — `traffic:purge`, nightly from
+      `shithubd-cron.service`, 30-day window rather than the UI's 14 so a
+      purge can never truncate the chart; `repo_traffic_daily` keeps 400
+      days. Deletes run in 5k-row batches, capped per run, so the first
+      pass over the 2.5 M-row backlog never holds a long transaction —
+      which is also why the backfill is the job's first run and not a
+      bulk DELETE in a migration. 0127 adds the `day` indexes the purge
+      needs (`repo_traffic_uniques` reuses its existing `created_at`
+      index). See `docs/internal/repository-insights.md`.
 - [ ] Cache per-entry last-commit for the code tab (single
       `git log --name-only` walk, or an LRU keyed by tree OID) and
       cache `rev-list --count` / recursive `ls-tree` per head OID
