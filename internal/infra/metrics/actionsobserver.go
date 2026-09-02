@@ -11,31 +11,95 @@ import (
 
 const actionsRunnerStaleAfter = 60 * time.Second
 
+// defaultActionsInterval is the cadence for the cheap gauges when the caller
+// does not pick one.
+const defaultActionsInterval = 15 * time.Second
+
+// actionsStorageBytesInterval bounds how often the hot log-chunk byte sum
+// runs. `sum(octet_length(chunk))` has to scan and detoast every row of
+// workflow_step_log_chunks, which costs the same whether or not anything is
+// running; at the 15s cadence of the other gauges it was a standing load on
+// the database. Chunk volume moves slowly enough that a 5 minute gauge is
+// still useful.
+const actionsStorageBytesInterval = 5 * time.Minute
+
 // ObserveActions starts a goroutine that periodically refreshes DB-backed
 // Actions gauges. The goroutine exits when ctx is canceled.
+//
+// interval drives the queue, runner and object-count gauges. The hot
+// log-chunk byte sum is refreshed on the slower actionsStorageBytesInterval
+// cadence; see refreshActionLogChunkBytes.
 func ObserveActions(ctx context.Context, pool *pgxpool.Pool, interval time.Duration) {
 	if pool == nil {
 		return
 	}
 	if interval <= 0 {
-		interval = 15 * time.Second
+		interval = defaultActionsInterval
 	}
+	slowEvery := ticksBetween(interval, actionsStorageBytesInterval)
+	t := time.NewTicker(interval)
 	go func() {
-		refreshActions(ctx, pool)
-		t := time.NewTicker(interval)
 		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				refreshActions(ctx, pool)
-			}
-		}
+		observeActionsLoop(ctx, t.C, slowEvery,
+			func(ctx context.Context) { refreshActionsFast(ctx, pool) },
+			func(ctx context.Context) { refreshActionLogChunkBytes(ctx, pool) },
+		)
 	}()
 }
 
+// ticksBetween returns how many ticks of length tick must elapse between two
+// runs of a task that should run at most once per every. It rounds up, so the
+// task never runs more often than requested, and never returns less than 1.
+func ticksBetween(tick, every time.Duration) int {
+	if tick <= 0 || every <= tick {
+		return 1
+	}
+	n := int((every + tick - 1) / tick)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+// observeActionsLoop runs fast on every tick and slow once every slowEvery
+// ticks. Both run once up front so the gauges are populated before the first
+// tick. It returns when ctx is canceled or ticks is closed.
+func observeActionsLoop(ctx context.Context, ticks <-chan time.Time, slowEvery int, fast, slow func(context.Context)) {
+	if slowEvery < 1 {
+		slowEvery = 1
+	}
+	fast(ctx)
+	slow(ctx)
+	sinceSlow := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-ticks:
+			if !ok {
+				return
+			}
+			fast(ctx)
+			sinceSlow++
+			if sinceSlow >= slowEvery {
+				sinceSlow = 0
+				slow(ctx)
+			}
+		}
+	}
+}
+
+// refreshActions refreshes every Actions gauge, cheap and expensive alike.
+// The observer loop splits the two cadences apart; this is the one-shot form.
 func refreshActions(ctx context.Context, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	refreshActionsFast(ctx, pool)
+	refreshActionLogChunkBytes(ctx, pool)
+}
+
+func refreshActionsFast(ctx context.Context, pool *pgxpool.Pool) {
 	if pool == nil {
 		return
 	}
@@ -155,13 +219,16 @@ GROUP BY r.id, r.name, r.status, r.capacity, r.last_heartbeat_at, r.draining_at,
 	ActionsRunnerStaleTotal.Set(stale)
 }
 
+// refreshActionStorageGauges publishes the object counts for all three storage
+// kinds plus the two byte sums that read a plain integer column. The
+// hot_log_chunks byte sum is deliberately absent: it is the only one that has
+// to detoast, so refreshActionLogChunkBytes owns that gauge.
 func refreshActionStorageGauges(ctx context.Context, pool *pgxpool.Pool) {
 	ActionsStorageObjects.WithLabelValues("artifacts").Set(0)
 	ActionsStorageObjects.WithLabelValues("step_logs").Set(0)
 	ActionsStorageObjects.WithLabelValues("hot_log_chunks").Set(0)
 	ActionsStorageBytes.WithLabelValues("artifacts").Set(0)
 	ActionsStorageBytes.WithLabelValues("step_logs").Set(0)
-	ActionsStorageBytes.WithLabelValues("hot_log_chunks").Set(0)
 
 	rows, err := pool.Query(ctx, `
 SELECT 'artifacts'::text AS kind, count(*)::double precision, COALESCE(sum(byte_count), 0)::double precision
@@ -171,7 +238,7 @@ SELECT 'step_logs'::text AS kind, count(*)::double precision, COALESCE(sum(log_b
 FROM workflow_steps
 WHERE log_object_key IS NOT NULL
 UNION ALL
-SELECT 'hot_log_chunks'::text AS kind, count(*)::double precision, COALESCE(sum(octet_length(chunk)), 0)::double precision
+SELECT 'hot_log_chunks'::text AS kind, count(*)::double precision, 0::double precision
 FROM workflow_step_log_chunks`)
 	if err != nil {
 		return
@@ -184,6 +251,27 @@ FROM workflow_step_log_chunks`)
 			return
 		}
 		ActionsStorageObjects.WithLabelValues(kind).Set(objects)
+		if kind == "hot_log_chunks" {
+			continue
+		}
 		ActionsStorageBytes.WithLabelValues(kind).Set(bytes)
 	}
+}
+
+// refreshActionLogChunkBytes publishes shithub_actions_storage_bytes for the
+// hot chunk table. Every row is a bytea that Postgres has to fetch out of the
+// TOAST heap to measure, so this runs on actionsStorageBytesInterval rather
+// than with the cheap gauges.
+func refreshActionLogChunkBytes(ctx context.Context, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	var bytes float64
+	err := pool.QueryRow(ctx, `
+SELECT COALESCE(sum(octet_length(chunk)), 0)::double precision
+FROM workflow_step_log_chunks`).Scan(&bytes)
+	if err != nil {
+		return
+	}
+	ActionsStorageBytes.WithLabelValues("hot_log_chunks").Set(bytes)
 }

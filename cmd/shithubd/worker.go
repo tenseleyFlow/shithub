@@ -33,6 +33,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/infra/storage"
 	"github.com/tenseleyFlow/shithub/internal/notifications"
 	"github.com/tenseleyFlow/shithub/internal/orgs"
+	repotraffic "github.com/tenseleyFlow/shithub/internal/repos/traffic"
 	"github.com/tenseleyFlow/shithub/internal/secretscan"
 	"github.com/tenseleyFlow/shithub/internal/webhook"
 	"github.com/tenseleyFlow/shithub/internal/webhookrelay"
@@ -159,6 +160,9 @@ var workerCmd = &cobra.Command{
 			Pool: pool, Logger: logger,
 		}))
 		p.Register(worker.KindJobsPurge, jobs.JobsPurge(jobs.JobsPurgeDeps{
+			Pool: pool, Logger: logger,
+		}))
+		p.Register(repotraffic.KindTrafficPurge, jobs.TrafficPurge(jobs.TrafficPurgeDeps{
 			Pool: pool, Logger: logger,
 		}))
 		p.Register(worker.KindLifecycleSweep, jobs.LifecycleSweep(jobs.LifecycleSweepDeps{

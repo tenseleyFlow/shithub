@@ -94,6 +94,26 @@ rows for a 1M-row table; "medium" 1–10k; "low" most-of-the-table.
 | `signup_ip_throttle` PK `(cidr)` | per-/24 lookup | high | UPSERT |
 | `signup_ip_throttle_window_started_idx (window_started_at)` | periodic prune | low | scan-friendly |
 
+## Repo traffic (S38 + retention, availability campaign)
+
+| Index | Covers query | Selectivity | Cost notes |
+|---|---|---|---|
+| `repo_traffic_daily` PK `(repo_id, day)` | Traffic chart for one repo | high | UPSERT hot path |
+| `repo_traffic_daily_day_idx (day DESC)` | 400-day retention purge | low | scan-friendly |
+| `repo_traffic_paths` PK `(repo_id, day, path)` | popular-content rollup | high | UPSERT hot path |
+| `repo_traffic_paths_day_idx (day)` | 30-day retention purge | low | 0129; without it every purge batch is a seq scan |
+| `repo_traffic_referrers` PK `(repo_id, day, referrer)` | referrer rollup | high | UPSERT hot path |
+| `repo_traffic_referrers_day_idx (day)` | 30-day retention purge | low | 0129 |
+| `repo_traffic_uniques` PK `(repo_id, day, metric, key, visitor_hash)` | dedupe a visitor within a day | high | INSERT ... ON CONFLICT DO NOTHING, one per pageview |
+| `repo_traffic_uniques_created_idx (created_at)` | 30-day retention purge | low | 0112; the purge filters this table on `created_at` rather than `day` so it can reuse this index instead of adding a second one to a table that takes an insert per pageview |
+
+The purge (`traffic:purge`) deletes with
+`WHERE ctid IN (SELECT ctid FROM <table> WHERE <cutoff column> < $1 LIMIT $2)`.
+The `day`/`created_at` index drives the subselect; the outer delete is a
+tid scan. Without the index the plan is a sequential scan **per batch**,
+which on the production table sizes (1.26 M paths, 1.34 M uniques as of
+2026-09-02) is a few hundred full scans per run.
+
 ## Future considerations (deferred)
 
 - **`pg_stat_statements` extension.** S37's deploy doc owns the

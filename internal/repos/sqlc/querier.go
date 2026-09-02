@@ -277,6 +277,23 @@ type Querier interface {
 	// handler guarantees we don't pause an already-archived repo, but
 	// the constraint defends in depth.
 	PauseRepo(ctx context.Context, db DBTX, arg PauseRepoParams) error
+	// Batched retention purge; see PurgeRepoTrafficUniquesBatch. The daily
+	// rollup is one row per repo per day, so it keeps a far longer window
+	// than the per-path and per-visitor tables.
+	PurgeRepoTrafficDailyBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficDailyBatchParams) (int64, error)
+	// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+	// repo_traffic_paths_day_idx (0129).
+	PurgeRepoTrafficPathsBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficPathsBatchParams) (int64, error)
+	// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+	// repo_traffic_referrers_day_idx (0129).
+	PurgeRepoTrafficReferrersBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficReferrersBatchParams) (int64, error)
+	// Retention purge for the `traffic:purge` worker job: deletes at most
+	// batch_size rows so a first run over a multi-million-row backlog never
+	// holds a long transaction. The job loops until a batch comes back
+	// short. Filtered on created_at rather than day because created_at is
+	// stamped by the same request that derives day and is the column this
+	// table already has an index on.
+	PurgeRepoTrafficUniquesBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficUniquesBatchParams) (int64, error)
 	RecordDependencyAutoTriageEvent(ctx context.Context, db DBTX, arg RecordDependencyAutoTriageEventParams) (DependencyAutoTriageEvent, error)
 	RemoveIssueFromRepoProject(ctx context.Context, db DBTX, arg RemoveIssueFromRepoProjectParams) error
 	RemoveRepoSecurityAdvisoryTeamCollaborator(ctx context.Context, db DBTX, arg RemoveRepoSecurityAdvisoryTeamCollaboratorParams) error

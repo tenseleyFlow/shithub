@@ -25,6 +25,36 @@ addresses, user agents, authenticated user IDs, and full referrer URLs are not
 persisted. Referrers are reduced to an external host and same-site referrers are
 dropped.
 
+## Traffic retention
+
+The traffic tables are pruned by the `traffic:purge` worker job, enqueued
+nightly from `deploy/systemd/shithubd-cron.service`. Retention windows live in
+`internal/repos/traffic/purge.go`:
+
+| Table | Window | Cutoff column | Why |
+|---|---|---|---|
+| `repo_traffic_uniques` | 30 days | `created_at` | one row per visitor digest per repo/day/metric |
+| `repo_traffic_paths` | 30 days | `day` | one row per distinct path per repo/day; crawlers inflate this hardest |
+| `repo_traffic_referrers` | 30 days | `day` | one row per external host per repo/day |
+| `repo_traffic_daily` | 400 days | `day` | one row per repo/day; the only long-term history, and small enough to keep |
+
+Thirty days is deliberately more than double the fourteen the Traffic UI reads
+(`traffic.DefaultWindowDays`), so a purge can never eat a bar the chart would
+draw. `repo_traffic_uniques` is filtered on `created_at` rather than `day`
+because that is the column it already has an index on, and the request path
+stamps both from the same instant.
+
+The job deletes in batches of 5,000 rows, each its own statement, up to 2,000
+batches per table per run; the payload (`retention_days`, `daily_retention_days`,
+`batch_size`, `max_batches`) overrides any of that for an ad-hoc
+`shithubd admin run-job traffic:purge`. Nothing is done in one big transaction:
+the tables were left unpruned from 2026-05-18 until the 2026-09-02 availability
+sitrep, by which point they held 881 MB of a 988 MB database, and a single
+DELETE over that backlog would have locked the write path for minutes. A run
+that stops on the batch cap re-enqueues itself so the backlog drains without
+waiting for the next cron beat. Re-running is always safe — the cutoff is
+recomputed from the clock and rows inside the window are never touched.
+
 ## Refresh Flow
 
 `push:process` enqueues `repo:insights_recalc` whenever the repository default

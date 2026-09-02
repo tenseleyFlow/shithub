@@ -82,3 +82,52 @@ WHERE repo_id = $1
 GROUP BY referrer
 ORDER BY views DESC, referrer ASC
 LIMIT $3;
+
+-- name: PurgeRepoTrafficUniquesBatch :execrows
+-- Retention purge for the `traffic:purge` worker job: deletes at most
+-- batch_size rows so a first run over a multi-million-row backlog never
+-- holds a long transaction. The job loops until a batch comes back
+-- short. Filtered on created_at rather than day because created_at is
+-- stamped by the same request that derives day and is the column this
+-- table already has an index on.
+DELETE FROM repo_traffic_uniques
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_uniques
+    WHERE created_at < sqlc.arg(cutoff)::timestamptz
+    LIMIT sqlc.arg(batch_size)::bigint
+);
+
+-- name: PurgeRepoTrafficPathsBatch :execrows
+-- Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+-- repo_traffic_paths_day_idx (0129).
+DELETE FROM repo_traffic_paths
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_paths
+    WHERE day < sqlc.arg(cutoff)::date
+    LIMIT sqlc.arg(batch_size)::bigint
+);
+
+-- name: PurgeRepoTrafficReferrersBatch :execrows
+-- Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+-- repo_traffic_referrers_day_idx (0129).
+DELETE FROM repo_traffic_referrers
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_referrers
+    WHERE day < sqlc.arg(cutoff)::date
+    LIMIT sqlc.arg(batch_size)::bigint
+);
+
+-- name: PurgeRepoTrafficDailyBatch :execrows
+-- Batched retention purge; see PurgeRepoTrafficUniquesBatch. The daily
+-- rollup is one row per repo per day, so it keeps a far longer window
+-- than the per-path and per-visitor tables.
+DELETE FROM repo_traffic_daily
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_daily
+    WHERE day < sqlc.arg(cutoff)::date
+    LIMIT sqlc.arg(batch_size)::bigint
+);
