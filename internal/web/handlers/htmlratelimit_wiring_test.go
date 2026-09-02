@@ -156,3 +156,49 @@ func TestHTMLRateLimit_NilMiddlewareIsNoop(t *testing.T) {
 		t.Fatalf("hello with nil HTMLRateLimit: status=%d, want 200", rw.Code)
 	}
 }
+
+// TestHealthz_NeverThrottled pins the availability contract the DO
+// uptime check relies on: even with a limiter that refuses every
+// request it is given, /healthz answers 200. The probe targets
+// /healthz precisely because a throttled probe reads as an outage
+// (see docs/internal/runbooks/alerts.md).
+//
+// Unlike the wiring test above — which stubs a pass-through and
+// counts hits — this one hard-fails the request, so a future edit
+// that moves /healthz inside the limiter group turns the assertion
+// red rather than merely changing a counter.
+func TestHealthz_NeverThrottled(t *testing.T) {
+	t.Parallel()
+
+	denyAll := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		})
+	}
+
+	mux := http.NewServeMux()
+	if err := Register(mux, Deps{
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TemplatesFS:   testTemplatesFS(t),
+		StaticFS:      testStaticFS(t),
+		LogoSVG:       `<svg xmlns="http://www.w3.org/2000/svg"><title>shithub</title></svg>`,
+		HTMLRateLimit: denyAll,
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Sanity: the limiter really is refusing the application group.
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rw.Code != http.StatusTooManyRequests {
+		t.Fatalf("gated route: status=%d, want 429 (deny-all limiter not wired)", rw.Code)
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rw := httptest.NewRecorder()
+		mux.ServeHTTP(rw, httptest.NewRequest(method, "/healthz", nil))
+		if rw.Code != http.StatusOK {
+			t.Errorf("%s /healthz: status=%d, want 200", method, rw.Code)
+		}
+	}
+}
