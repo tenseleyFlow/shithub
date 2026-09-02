@@ -14,6 +14,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/git"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/treecache"
 )
 
 type repoAboutData struct {
@@ -68,11 +69,15 @@ type repoLanguageAggregate struct {
 	size  int64
 }
 
-func (h *Handlers) repoAbout(ctx context.Context, gitDir, ref, owner string, row reposdb.Repo, rootEntries []git.TreeEntry) repoAboutData {
+// repoAbout builds the About sidebar. commitOID is the resolved OID
+// of the commit being rendered; it keys the contributor and language
+// caches, so a push (new OID) is what invalidates them. Pass "" to
+// bypass the caches.
+func (h *Handlers) repoAbout(ctx context.Context, cc *codeContext, commitOID string, rootEntries []git.TreeEntry) repoAboutData {
 	return repoAboutData{
-		Resources:    repoAboutResources(owner, row.Name, ref, row, rootEntries),
-		Contributors: h.repoAboutContributors(ctx, gitDir, ref),
-		Languages:    h.repoAboutLanguages(ctx, gitDir, ref, row),
+		Resources:    repoAboutResources(cc.owner, cc.row.Name, cc.ref, cc.row, rootEntries),
+		Contributors: h.repoAboutContributors(ctx, cc, commitOID),
+		Languages:    h.repoAboutLanguages(ctx, cc, commitOID),
 	}
 }
 
@@ -225,8 +230,48 @@ func repoOverviewDocumentLabel(resource repoAboutResource) string {
 	return resource.Label
 }
 
-func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string) []repoAboutContributor {
-	commits, err := git.Log(ctx, gitDir, git.LogOptions{Ref: ref, MaxCount: 500})
+// contributorWalkDepth is how far back the About sidebar's
+// contributor strip counts. It is a `git log -n 500` on every repo
+// home view, so the tally it reduces to is cached per commit OID.
+const contributorWalkDepth = 500
+
+// repoAboutContributorTally runs the bounded walk and reduces it to
+// one row per distinct author. Only this reduction is cached —
+// identity resolution stays per-request because it reads the users
+// table and its answer can change without any git ref moving.
+func (h *Handlers) repoAboutContributorTally(ctx context.Context, cc *codeContext, commitOID string) ([]treecache.ContributorTally, error) {
+	return h.d.TreeCache.Contributors(ctx,
+		treecache.RevKey{RepoID: cc.row.ID, CommitOID: commitOID},
+		func(ctx context.Context) ([]treecache.ContributorTally, error) {
+			commits, err := git.Log(ctx, cc.gitDir, git.LogOptions{Ref: cc.ref, MaxCount: contributorWalkDepth})
+			if err != nil {
+				return nil, err
+			}
+			order := make([]string, 0, len(commits))
+			byKey := map[string]*treecache.ContributorTally{}
+			for _, c := range commits {
+				key := strings.ToLower(strings.TrimSpace(c.AuthorEmail))
+				if key == "" {
+					key = "name:" + strings.ToLower(strings.TrimSpace(c.AuthorName))
+				}
+				tally, ok := byKey[key]
+				if !ok {
+					tally = &treecache.ContributorTally{Name: c.AuthorName, Email: c.AuthorEmail}
+					byKey[key] = tally
+					order = append(order, key)
+				}
+				tally.Count++
+			}
+			out := make([]treecache.ContributorTally, 0, len(order))
+			for _, key := range order {
+				out = append(out, *byKey[key])
+			}
+			return out, nil
+		})
+}
+
+func (h *Handlers) repoAboutContributors(ctx context.Context, cc *codeContext, commitOID string) []repoAboutContributor {
+	tallies, err := h.repoAboutContributorTally(ctx, cc, commitOID)
 	if err != nil {
 		if h.d.Logger != nil {
 			h.d.Logger.WarnContext(ctx, "repo about: contributors", "error", err)
@@ -238,8 +283,8 @@ func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string
 	}
 	byAuthor := map[string]*aggregate{}
 	resolver := identity.New(h.d.Pool)
-	for _, c := range commits {
-		resolved := resolver.Resolve(ctx, c.AuthorEmail)
+	for _, c := range tallies {
+		resolved := resolver.Resolve(ctx, c.Email)
 		key := ""
 		contributor := repoAboutContributor{}
 		if resolved.User {
@@ -253,16 +298,16 @@ func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string
 				contributor.Label = resolved.Username
 			}
 		} else {
-			email := strings.ToLower(strings.TrimSpace(c.AuthorEmail))
-			name := strings.ToLower(strings.TrimSpace(c.AuthorName))
+			email := strings.ToLower(strings.TrimSpace(c.Email))
+			name := strings.ToLower(strings.TrimSpace(c.Name))
 			if email != "" {
 				key = "email:" + email
 			} else if name != "" {
 				key = "name:" + name
 			}
-			contributor.Label = strings.TrimSpace(c.AuthorName)
+			contributor.Label = strings.TrimSpace(c.Name)
 			if contributor.Label == "" {
-				contributor.Label = strings.TrimSpace(c.AuthorEmail)
+				contributor.Label = strings.TrimSpace(c.Email)
 			}
 			contributor.IdenticonSeed = resolved.IdenticonSeed
 		}
@@ -274,7 +319,7 @@ func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string
 			agg = &aggregate{contributor: contributor}
 			byAuthor[key] = agg
 		}
-		agg.contributor.Count++
+		agg.contributor.Count += c.Count
 	}
 
 	contributors := make([]repoAboutContributor, 0, len(byAuthor))
@@ -297,40 +342,54 @@ func (h *Handlers) repoAboutContributors(ctx context.Context, gitDir, ref string
 	return contributors
 }
 
-func (h *Handlers) repoAboutLanguages(ctx context.Context, gitDir, ref string, row reposdb.Repo) []repoAboutLanguage {
-	blobs, err := git.ListBlobs(ctx, gitDir, ref)
+// repoAboutLanguageBytes is the `git ls-tree -r`-derived language
+// aggregate: one entry per language, in bytes. The recursive walk
+// itself is never cached (it can be megabytes of path text on a big
+// repo); its reduction to a handful of numbers is, keyed per commit
+// OID.
+func (h *Handlers) repoAboutLanguageBytes(ctx context.Context, cc *codeContext, commitOID string) (map[string]int64, error) {
+	return h.d.TreeCache.Languages(ctx,
+		treecache.RevKey{RepoID: cc.row.ID, CommitOID: commitOID},
+		func(ctx context.Context) (map[string]int64, error) {
+			blobs, err := git.ListBlobs(ctx, cc.gitDir, cc.ref)
+			if err != nil {
+				return nil, err
+			}
+			byName := map[string]int64{}
+			for _, blob := range blobs {
+				if blob.Size <= 0 {
+					continue
+				}
+				name, _, ok := repoLanguageForPath(blob.Path)
+				if !ok {
+					continue
+				}
+				byName[name] += blob.Size
+			}
+			return byName, nil
+		})
+}
+
+func (h *Handlers) repoAboutLanguages(ctx context.Context, cc *codeContext, commitOID string) []repoAboutLanguage {
+	byName, err := h.repoAboutLanguageBytes(ctx, cc, commitOID)
 	if err != nil {
 		if h.d.Logger != nil {
 			h.d.Logger.WarnContext(ctx, "repo about: languages", "error", err)
 		}
-		return fallbackPrimaryLanguage(row)
+		return fallbackPrimaryLanguage(cc.row)
 	}
 
-	byName := map[string]*repoLanguageAggregate{}
 	var total int64
-	for _, blob := range blobs {
-		if blob.Size <= 0 {
-			continue
-		}
-		name, color, ok := repoLanguageForPath(blob.Path)
-		if !ok {
-			continue
-		}
-		agg, ok := byName[name]
-		if !ok {
-			agg = &repoLanguageAggregate{name: name, color: color}
-			byName[name] = agg
-		}
-		agg.size += blob.Size
-		total += blob.Size
+	for _, size := range byName {
+		total += size
 	}
 	if total == 0 {
-		return fallbackPrimaryLanguage(row)
+		return fallbackPrimaryLanguage(cc.row)
 	}
 
 	ordered := make([]repoLanguageAggregate, 0, len(byName))
-	for _, agg := range byName {
-		ordered = append(ordered, *agg)
+	for name, size := range byName {
+		ordered = append(ordered, repoLanguageAggregate{name: name, color: repoLanguageColor(name), size: size})
 	}
 	sort.Slice(ordered, func(i, j int) bool {
 		if ordered[i].size != ordered[j].size {

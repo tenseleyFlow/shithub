@@ -150,9 +150,14 @@ func EntryLastCommits(ctx context.Context, gitDir string, o LastCommitOptions) (
 		}
 	}
 	scanErr := sc.Err()
-	// Kill git before reaping: when we broke out early it is still
-	// writing into a pipe nobody reads, and Wait alone would block.
-	stop()
+	// Kill git before reaping ONLY when we stopped reading early: it is
+	// then still writing into a pipe nobody drains and Wait would
+	// block. On a clean EOF git has already closed stdout and is on its
+	// way out, so cancelling would turn a successful walk into a
+	// spurious "context canceled".
+	if complete || scanErr != nil {
+		stop()
+	}
 	waitErr := cmd.Wait()
 
 	if complete {

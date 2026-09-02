@@ -20,6 +20,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/ratelimit"
 	repoh "github.com/tenseleyFlow/shithub/internal/web/handlers/repo"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/treecache"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
@@ -30,6 +31,16 @@ import (
 const (
 	commitsPageCacheCap = 256
 	commitsPageCacheTTL = 60 * time.Second
+)
+
+// Code-tab cache sizing. 2,048 entries covers the working set of a
+// crawler walking every directory of every repo we host several times
+// over; the 10-minute TTL is only the memory-release backstop, since
+// correctness comes from the commit OID in the key. See
+// docs/internal/caching.md and internal/web/handlers/repo/treecache.
+const (
+	treeCacheCap = treecache.DefaultCapacity
+	treeCacheTTL = treecache.DefaultTTL
 )
 
 // buildRepoHandlers wires the repo-create + empty-home handlers. The
@@ -99,5 +110,6 @@ func buildRepoHandlers(
 		},
 		BillingEnforce:   cfg.Billing.Enforce,
 		CommitsPageCache: httpcache.NewPageCache(commitsPageCacheCap, commitsPageCacheTTL),
+		TreeCache:        treecache.New(treeCacheCap, treeCacheTTL),
 	})
 }

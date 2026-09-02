@@ -38,6 +38,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/templates"
 	usersdb "github.com/tenseleyFlow/shithub/internal/users/sqlc"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/httpcache"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/treecache"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
@@ -98,6 +99,14 @@ type Deps struct {
 	// ETag layer is process-independent and stays correct
 	// regardless.
 	CommitsPageCache *httpcache.PageCache
+	// TreeCache memoizes the code tab's git reads (last-commit per
+	// tree entry, `rev-list --count`, the language aggregate, the
+	// contributor tally) per rendered commit OID. nil disables
+	// caching, which is what tests and degraded boot paths get: every
+	// call simply falls through to git. Production wires one per
+	// process from repo_wiring.go. There is no invalidation hook —
+	// the key carries the commit OID, so a push changes the key.
+	TreeCache *treecache.Cache
 }
 
 // Handlers is the registered handler set. Construct via New.
