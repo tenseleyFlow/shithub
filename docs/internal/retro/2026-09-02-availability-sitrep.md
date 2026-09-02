@@ -163,9 +163,18 @@ The verification items below are still the operator's.
       bulk DELETE in a migration. 0129 adds the `day` indexes the purge
       needs (`repo_traffic_uniques` reuses its existing `created_at`
       index). See `docs/internal/repository-insights.md`.
-- [ ] Cache per-entry last-commit for the code tab (single
-      `git log --name-only` walk, or an LRU keyed by tree OID) and
-      cache `rev-list --count` / recursive `ls-tree` per head OID
+- [x] Cache per-entry last-commit for the code tab — one streamed
+      `git log --name-only` walk per directory
+      (`repogit.EntryLastCommits`) replacing one `git log -1` per
+      entry, plus an OID-keyed LRU
+      (`internal/web/handlers/repo/treecache`) over that, the
+      `rev-list --count`, the `ls-tree -r` language aggregate and the
+      `log -n 500` contributor tally. Measured on the handler test
+      fixture: a cold root-tree render of an 81-entry directory went
+      **90 git forks → 10**, and 6 warm; a 6-entry directory 15 → 10.
+      Fork counts are now constant in the entry count
+      (`repogit.ForkCount()` + `code_tree_forks_test.go`). Read-only
+      git calls on these paths also gained a 30 s deadline.
 - [x] `actionsobserver`: the `octet_length` sum now runs every 5 min on its
       own cadence; the count and queue-depth gauges stay at 15 s
 

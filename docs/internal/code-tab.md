@@ -125,11 +125,50 @@ default Code tab so independently-created mirrors don't produce dead
 links. Unknown, external, absent, or malformed remotes stay as plain
 `name @ shortsha` rows.
 
-The S17 ship excludes the htmx-driven "last commit per entry" column
-that the spec describes — an extra round-trip we can add later without
-a schema change. The current page renders the listing immediately.
-**Deferred to S18 (commits-per-entry)** — the spec calls out this
-deferral path; the tree template has the column slot ready.
+### Last commit per entry
+
+Every row carries the most recent commit that touched it. The first
+implementation ran one `git log -1 -- <path>` per entry, serially, so
+a 100-entry directory forked git 100 times for a single anonymous
+page view — and the repo home is the most-crawled page on the site.
+
+It is now **one** invocation for the whole directory
+(`repogit.EntryLastCommits`, `internal/repos/git/lastcommit.go`):
+
+```
+git log --max-count=2000 --name-only --no-renames \
+        --format=<RS>%H<US>%h<US>%an<US>%ae<US>%at<US>%s <oid> [-- <dir>]
+```
+
+read in reverse-chronological order off a pipe. The first time a path
+under `dir/<name>/` appears, `<name>`'s answer is that commit. Once
+every listed entry has an answer the walk kills git mid-stream rather
+than draining the rest of history, so the common case reads only as
+far back as the directory's least-recently-touched entry.
+
+Two escape hatches keep the rendered output byte-identical to the
+N-fork version:
+
+- **The 2,000-commit bound.** An entry untouched inside the bound
+  comes back unresolved and the handler runs the old per-path
+  `git log -1` for exactly that entry.
+- **Quoted paths.** Git quotes paths containing a newline or a double
+  quote even under `core.quotePath=false`; those never compare equal
+  to an `ls-tree` basename, so they too fall through to the per-path
+  query.
+
+Merge commits emit no file list under `--name-only`, which matches
+what `git log -1 -- <path>` reports anyway: the attribution lands on
+the side-branch commit that actually changed the file.
+
+Measured on the handler test fixture
+(`code_tree_forks_test.go`), one cold anonymous render of the root
+tree:
+
+| Directory | Before | After (cold) | After (warm cache) |
+|---|---|---|---|
+| 6 entries | 15 forks | 10 forks | 6 forks |
+| 81 entries | 90 forks | 10 forks | 6 forks |
 
 ## Check status indicators
 
@@ -262,17 +301,58 @@ the floor S17 commits to.
 
 ## Caching
 
-Currently **no caching layer**. Every request runs `git for-each-ref`,
-`git ls-tree`, etc. That's fine for small-to-medium repos; the cost
-shows up on big repos with deep trees. The S17 spec proposes a cache
-keyed on `(repo_id, ref_oid, dir_path)` invalidated on push (S14's
-`push:process` job is the right invalidation hook).
+`internal/web/handlers/repo/treecache` is the in-process cache behind
+the repo home / code tab. One `*treecache.Cache` per process, built in
+`internal/web/repo_wiring.go` and threaded through
+`repo.Deps.TreeCache` — the same shape as `httpcache.PageCache`. It
+memoizes the four git reads a tree render performs whose answers
+depend only on the commit being rendered:
 
-**Deferred** — the cache is purely performance polish. When we hit a
-real-world repo where it matters, wire it in: file `internal/cache/`
-plus a callback in `worker/jobs/push_process.go`. The handlers already
-take a per-request `policy.Cache` so adding a per-process git cache is
-mechanically straightforward.
+| Value | Key | Replaces |
+|---|---|---|
+| basename → last commit | (repo_id, commit_oid, subpath) | the single `log --name-only` walk |
+| commit count | (repo_id, commit_oid) | `rev-list --count` |
+| language → bytes | (repo_id, commit_oid) | recursive `ls-tree -r` |
+| author tally | (repo_id, commit_oid) | `log -n 500` |
+
+**Invalidation is structural, not hooked.** Every key carries the
+rendered commit OID, so a push produces a different key; the pre-push
+entries are never served again and age out on the 10-minute TTL or LRU
+eviction. Nothing in `push:process` has to remember to call anything.
+Sizes: 2,048 entries for the two cheap caches, 512 for the two heavier
+ones. `nil` disables the cache entirely (tests, degraded boot) and
+every read simply falls through to git.
+
+Only the *derived* values are cached, never the raw walk output: the
+recursive `ls-tree -r` on a large repo is megabytes of path text but
+reduces to a handful of language byte counts, and the 500-commit
+contributor walk reduces to one row per distinct author. Identity
+resolution stays per-request — it reads the users table, and its
+answer can change without any git ref moving.
+
+Two things are deliberately still uncached per request: `for-each-ref`
+(the ref list is what resolves the URL in the first place, so there is
+no OID to key on yet) and `ls-tree` for the directory itself (cheap,
+and it is what produces the entry names the other caches are keyed
+against).
+
+### Read deadlines
+
+Every read-only git invocation on these paths runs under
+`repogit.ReadTimeout` (30 s, `internal/repos/git/exec.go`).
+`context.WithTimeout` keeps the earlier of the two deadlines, so a
+tighter request deadline still wins. Blob *streaming* is excluded —
+its duration is bounded by the client's download speed, not by git.
+Pack/transport (`internal/git/protocol`, `handlers/githttp`) is a
+separate path and is untouched.
+
+### Counting git forks
+
+`repogit.ForkCount()` is a process-wide counter incremented by the one
+helper every subprocess in `internal/repos/git` goes through. It is
+the measurement lever for this page: tests read it before and after a
+request and assert the delta is constant in the entry count rather
+than linear in it.
 
 ## Pitfalls + protections
 
@@ -302,12 +382,6 @@ mechanically straightforward.
 
 These items are spec deliverables we ship in a later pass:
 
-* **Last-commit-per-entry column** with htmx lazy load and pre-walked
-  `git log --name-status` cache → wire into S18 (commit history) where
-  the same walk powers the per-file history page.
-* **Tree caching keyed on (repo_id, ref_oid, dir_path)**, push-event
-  invalidation → wire into S36 (performance pass) once we have a real
-  workload to measure.
 * **Pagination at 1000 entries per directory** → cosmetic for huge
   trees; add when someone hits `node_modules`-grade inflation.
 * **Encoding detection for non-UTF-8 source files** → file reads are
