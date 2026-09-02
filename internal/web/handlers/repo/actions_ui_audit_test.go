@@ -435,7 +435,16 @@ func newActionsUIAuditFixture(t *testing.T) *repoFixture {
 
 func (f *repoFixture) seedActionsUIAuditData(t *testing.T, runIndex int64, workflowName string) actionsUIAuditIDs {
 	t.Helper()
-	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	// The usage/performance metrics pages aggregate over the current
+	// billing month, so the seed has to land inside it. A hard-coded
+	// date was "today" when this was written and silently emptied both
+	// metrics tables from the next month onwards. The clamp keeps the
+	// fixture's negative created-at offsets inside the period when the
+	// suite runs in the first hour of a new UTC month.
+	now := time.Now().UTC()
+	if start := currentActionsMetricsPeriodStart(now); now.Sub(start) < time.Hour {
+		now = start.Add(time.Hour)
+	}
 	runID := f.insertWorkflowRun(t, workflowRunFixture{
 		RunIndex:      runIndex,
 		WorkflowFile:  ".shithub/workflows/ci.yml",
