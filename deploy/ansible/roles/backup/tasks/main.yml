@@ -52,11 +52,21 @@
     minute: "17"
     hour: "3"
 
-- name: cron — hourly cross-region sync
+# Every 6 h, not hourly, and never inside 03:00-05:00. On the
+# single-droplet deployment this rclone shares 3.9 GB with the web
+# process; hourly runs at 1.0-1.6 GB RSS were half of the OOM story
+# in the 2026-09-02 availability sitrep. flock -n makes a long run
+# skip the next tick instead of stacking a second rclone on top of
+# it — the failure mode that turned a slow sync into an outage.
+- name: cron — cross-region sync every 6h, non-overlapping
   cron:
     name: shithub-spaces-sync
-    job: /usr/local/bin/shithub-spaces-sync >> /var/log/shithub-spaces-sync.log 2>&1
+    job: >-
+      flock -n /run/lock/shithub-spaces-sync.lock
+      /usr/local/bin/shithub-spaces-sync
+      >> /var/log/shithub-spaces-sync.log 2>&1
     minute: "23"
+    hour: "1,7,13,19"
 
 # Weekly restore drill. The runbook still calls for a *manual* drill
 # every quarter (the operator inspects the result), but exercising
