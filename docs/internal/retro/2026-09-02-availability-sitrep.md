@@ -141,13 +141,18 @@ The verification items below are still the operator's.
 
 ### Phase 3 — stop the crawler amplification (PR)
 
-- [ ] `metrics.go`: label unmatched routes as `"unmatched"`; add test
-- [ ] Add `web.trusted_proxies` config (default `127.0.0.0/8, ::1/128`)
+- [x] `metrics.go`: label unmatched routes as `"unmatched"`; add test
+- [x] Add `web.trusted_proxies` config (default `127.0.0.0/8, ::1/128`)
       and pass it to `middleware.RealIP` so X-Forwarded-For from Caddy
       is honoured; test with a forged XFF from an untrusted address
-- [ ] Exempt `/healthz` (or the DO probe UA) from the HTML limiter
-- [ ] Key the anonymous HTML tier by `/24` for repo history/blob/raw
-      routes (Meta rotates within `57.141.2.0/24`)
+- [x] Exempt `/healthz` (or the DO probe UA) from the HTML limiter —
+      `/healthz` was already outside the limiter group; the DO uptime
+      check probed `/`, so it was repointed at `/healthz` in
+      `provision-do-alerts.sh` (needs a delete + recreate on the
+      account, see `runbooks/alerts.md`)
+- [x] Key the anonymous HTML tier by `/24` for repo history/blob/raw
+      routes (Meta rotates within `57.141.2.0/24`) — applied to the
+      whole anonymous tier, not just those routes
 - [ ] Retention job for `repo_traffic_paths` / `repo_traffic_uniques`
       (14-day window, matches the Traffic UI) + one-off prune migration
 - [ ] Cache per-entry last-commit for the code tab (single
