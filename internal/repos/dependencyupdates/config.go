@@ -573,9 +573,13 @@ func hasErrorAt(diags []Diagnostic, p string) bool {
 	return false
 }
 
+// mustJSON renders a jsonb column value, falling back when the value has
+// no useful JSON form. A nil Go slice or map marshals to "null", which
+// fails the jsonb_typeof(...) = 'array' / 'object' check constraints on
+// dependency_update_configs — absent means the empty array/object.
 func mustJSON(v any, fallback []byte) []byte {
 	b, err := json.Marshal(v)
-	if err != nil || len(b) == 0 {
+	if err != nil || len(b) == 0 || string(b) == "null" {
 		return fallback
 	}
 	return b
