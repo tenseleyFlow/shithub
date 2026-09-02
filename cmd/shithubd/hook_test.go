@@ -117,6 +117,7 @@ func TestEnforcePreReceiveSecretProtectionRejectsPublicRepoSecret(t *testing.T) 
 	pool := dbtest.NewTestDB(t)
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 
 	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
@@ -205,6 +206,7 @@ func TestEnforcePreReceiveSecretProtectionDefersWhenAboveCommitCap(t *testing.T)
 	pool := dbtest.NewTestDB(t)
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 
 	var stderr bytes.Buffer
 	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, &stderr, repo, gitDir, []refUpdate{{
@@ -231,6 +233,33 @@ func TestEnforcePreReceiveSecretProtectionDefersWhenAboveCommitCap(t *testing.T)
 	}
 }
 
+// TestEnforcePreReceiveSecretProtectionScansNewBranchOnExistingRepo
+// pins the initial-push fast path to *actual* initial pushes. Creating
+// a branch on a repo that already has refs reports the same all-zero
+// before-OID for every ref in the push, so an all-zero test alone made
+// `git push origin HEAD:refs/heads/new` skip push protection outright.
+func TestEnforcePreReceiveSecretProtectionScansNewBranchOnExistingRepo(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewTestDB(t)
+	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
+	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
+
+	var stderr bytes.Buffer
+	err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, &stderr, repo, gitDir, []refUpdate{{
+		before: strings.Repeat("0", 40),
+		after:  commit,
+		ref:    "refs/heads/feature",
+	}})
+	var secretErr errHookSecretProtection
+	if !errors.As(err, &secretErr) {
+		t.Fatalf("new-branch push err = %v, want errHookSecretProtection", err)
+	}
+	if strings.Contains(stderr.String(), "initial push detected") {
+		t.Errorf("new-branch push took the initial-push deferral: %q", stderr.String())
+	}
+}
+
 func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewTestDB(t)
@@ -245,6 +274,7 @@ func TestEnforcePreReceiveSecretProtectionHonorsAllowlist(t *testing.T) {
 		t.Fatalf("InsertSecretScanAllowlist: %v", err)
 	}
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 
 	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
 		before: strings.Repeat("0", 40),
@@ -260,6 +290,7 @@ func TestEnforcePreReceiveSecretProtectionHonorsApprovedBypass(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(24*time.Hour))
 
 	if err := enforcePreReceiveSecretProtection(ctx, ctx, &hookCtx{pool: pool, userID: user.ID}, io.Discard, repo, gitDir, []refUpdate{{
@@ -276,6 +307,7 @@ func TestEnforcePreReceiveSecretProtectionDeniedBypassStillRejects(t *testing.T)
 	pool := dbtest.NewTestDB(t)
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 	seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusDenied, time.Time{})
 
 	var secretErr errHookSecretProtection
@@ -293,6 +325,7 @@ func TestEnforcePreReceiveSecretProtectionExpiredBypassReturnsToPending(t *testi
 	pool := dbtest.NewTestDB(t)
 	user, repo := createHookUserRepo(t, pool, reposdb.RepoVisibilityPublic)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 	row := seedSecretBypassRequest(t, pool, repo.ID, user.ID, commit, secretscandb.SecretScanBypassStatusApproved, time.Now().UTC().Add(-time.Hour))
 
 	var secretErr errHookSecretProtection
@@ -318,6 +351,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateOrgRequiresTeam(t *testing.T) {
 	pool := dbtest.NewTestDB(t)
 	user, repo, orgID := createHookOrgRepo(t, pool, reposdb.RepoVisibilityPrivate)
 	gitDir, commit := danglingSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 	refs := []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
@@ -358,6 +392,7 @@ func TestEnforcePreReceiveSecretProtectionPrivateTeamOrgCustomPattern(t *testing
 		t.Fatalf("CreateSecretScanCustomPattern: %v", err)
 	}
 	gitDir, commit := danglingCustomSecretCommit(t)
+	seedHookExistingRef(t, gitDir)
 	refs := []refUpdate{{
 		before: strings.Repeat("0", 40),
 		after:  commit,
@@ -487,6 +522,31 @@ func danglingCommitWithBody(t *testing.T, path, body string) (string, string) {
 		t.Fatalf("delete temp ref: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return gitDir, commit
+}
+
+// seedHookExistingRef makes gitDir a non-empty repository by landing an
+// unrelated root commit on refs/heads/trunk. Push protection defers only
+// on a genuine initial push (all-zero refs *and* an empty repo); tests
+// that want the inline scan to actually run need the repo to look like
+// one that has already been pushed to. The commit is a separate root,
+// so `rev-list <after> --not --all` still reports the dangling secret
+// commit as new.
+func seedHookExistingRef(t *testing.T, gitDir string) {
+	t.Helper()
+	base := repogit.InitialCommit{
+		GitDir:      gitDir,
+		AuthorName:  "Alice",
+		AuthorEmail: "alice@example.test",
+		Message:     "Base commit",
+		Branch:      "trunk",
+		Files: []repogit.FileEntry{{
+			Path: "README.md",
+			Body: []byte("base\n"),
+		}},
+	}
+	if _, err := base.Build(context.Background()); err != nil {
+		t.Fatalf("seed base ref: %v", err)
+	}
 }
 
 func seedSecretBypassRequest(t *testing.T, pool *pgxpool.Pool, repoID, userID int64, commit string, status secretscandb.SecretScanBypassStatus, approvedUntil time.Time) secretscandb.SecretScanBypassRequest {

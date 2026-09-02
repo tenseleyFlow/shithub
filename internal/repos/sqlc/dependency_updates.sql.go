@@ -887,7 +887,10 @@ INSERT INTO dependency_update_configs (
     $1, $2, $3, $4,
     $5, $6, $7, $8, $9,
     $10, $11, $16::jsonb, $17::jsonb,
-    $18::jsonb, $19::jsonb, $20::text[],
+    $18::jsonb, $19::jsonb,
+    -- A Go nil slice arrives as NULL; the column is NOT NULL and
+    -- "no unsupported keys" is the empty array, not the absence of one.
+    COALESCE($20::text[], '{}'::text[]),
     $12, $13, $14, $15, $21::timestamptz
 )
 ON CONFLICT (repo_id, ecosystem, directory) DO UPDATE

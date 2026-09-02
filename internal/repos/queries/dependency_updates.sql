@@ -13,7 +13,10 @@ INSERT INTO dependency_update_configs (
     $1, $2, $3, $4,
     $5, $6, $7, $8, $9,
     $10, $11, sqlc.arg(allow_rules)::jsonb, sqlc.arg(ignore_rules)::jsonb,
-    sqlc.arg(groups)::jsonb, sqlc.arg(registries)::jsonb, sqlc.arg(unsupported_keys)::text[],
+    sqlc.arg(groups)::jsonb, sqlc.arg(registries)::jsonb,
+    -- A Go nil slice arrives as NULL; the column is NOT NULL and
+    -- "no unsupported keys" is the empty array, not the absence of one.
+    COALESCE(sqlc.arg(unsupported_keys)::text[], '{}'::text[]),
     $12, $13, $14, $15, sqlc.narg(next_run_at)::timestamptz
 )
 ON CONFLICT (repo_id, ecosystem, directory) DO UPDATE

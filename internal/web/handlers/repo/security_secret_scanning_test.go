@@ -103,8 +103,29 @@ func TestSecretScanning_AllowlistRejectsEmptyFields(t *testing.T) {
 
 // TestSecretScanning_RunScanEnforceBlocksFree pins the Pro-gate
 // behaviour on the "Run scan now" button: enforce mode refuses, no
-// job is enqueued.
+// job is enqueued. The gate is scoped to *private* personal repos —
+// public repositories get supported-pattern scanning as an SP26
+// baseline — so the private fixture repo is the one under test.
 func TestSecretScanning_RunScanEnforceBlocksFree(t *testing.T) {
+	t.Parallel()
+	f := newRepoFixtureWithEnforce(t, config.EnforceConfig{UserSecretScanHistory: true})
+	mux := f.securityScanningMux(f.owner.ID, f.owner.Username)
+
+	resp := httptest.NewRecorder()
+	req := newFormRequest(http.MethodPost, "/alice/private-repo/security/secret-scanning/scan", url.Values{})
+	mux.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status: got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if jobs := jobsEnqueuedCount(t, f, "secret_scan:history"); jobs != 0 {
+		t.Errorf("enforce-mode Free should not enqueue a scan job, got %d", jobs)
+	}
+}
+
+// TestSecretScanning_RunScanPublicRepoEnqueuesWithoutPro pins the other
+// half of the SP26 contract: public repositories keep baseline scanning
+// even with the user enforce flag on.
+func TestSecretScanning_RunScanPublicRepoEnqueuesWithoutPro(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixtureWithEnforce(t, config.EnforceConfig{UserSecretScanHistory: true})
 	mux := f.securityScanningMux(f.owner.ID, f.owner.Username)
@@ -115,13 +136,13 @@ func TestSecretScanning_RunScanEnforceBlocksFree(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status: got %d body=%s", resp.Code, resp.Body.String())
 	}
-	if jobs := jobsEnqueuedCount(t, f, "secret_scan:history"); jobs != 0 {
-		t.Errorf("enforce-mode Free should not enqueue a scan job, got %d", jobs)
+	if jobs := jobsEnqueuedCount(t, f, "secret_scan:history"); jobs != 1 {
+		t.Errorf("public repo should enqueue exactly 1 job, got %d", jobs)
 	}
 }
 
 // TestSecretScanning_RunScanProEnqueues verifies a Pro owner clicking
-// the button queues exactly one job.
+// the button queues exactly one job on a private repo.
 func TestSecretScanning_RunScanProEnqueues(t *testing.T) {
 	t.Parallel()
 	f := newRepoFixtureWithEnforce(t, config.EnforceConfig{UserSecretScanHistory: true})
@@ -129,7 +150,7 @@ func TestSecretScanning_RunScanProEnqueues(t *testing.T) {
 	mux := f.securityScanningMux(f.owner.ID, f.owner.Username)
 
 	resp := httptest.NewRecorder()
-	req := newFormRequest(http.MethodPost, "/alice/public-repo/security/secret-scanning/scan", url.Values{})
+	req := newFormRequest(http.MethodPost, "/alice/private-repo/security/secret-scanning/scan", url.Values{})
 	mux.ServeHTTP(resp, req)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status: got %d body=%s", resp.Code, resp.Body.String())

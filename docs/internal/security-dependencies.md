@@ -84,6 +84,8 @@ workflows in `internal/web/handlers/repo/security_advisories.go`.
 - `repo_security_advisory_collaborators` stores per-advisory user/team
   disclosure collaborators and their recorded roles.
 - `repo_sbom_exports` stores the latest generated repository SBOM per format.
+  `document` is `json`, not `jsonb`, so the download and its `byte_count`
+  are the exact bytes the generator produced.
   The v1 format is SPDX 2.3 JSON derived from the latest stored dependency
   snapshot.
 

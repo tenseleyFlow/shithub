@@ -252,6 +252,7 @@
                       <span class="shithub-dependency-review-package">{{ .Row.PackageName }}</span>
                       <span class="shithub-muted">{{ .ChangeLabel }} {{ .VersionDelta }} in {{ .Row.ManifestPath }}</span>
                       {{ if .HasAdvisory }}<span class="shithub-dependency-review-severity shithub-dependency-review-severity-{{ .SeverityClass }}">{{ .SeverityLabel }}</span>{{ end }}
+                      {{ if .Row.AdvisorySummary }}<span class="shithub-muted">{{ .Row.AdvisorySummary }}</span>{{ end }}
                     </li>
                     {{ end }}
                   </ul>

@@ -131,6 +131,8 @@ func TestScheduledReminderDeliveryIsIdempotentAndSkipsSuspendedRecipients(t *tes
 	suspended := env.createUser(t, "suspended")
 	env.addMember(t, reviewer.ID)
 	env.addMember(t, suspended.ID)
+	env.grantRepoRead(t, repo.ID, reviewer.ID)
+	env.grantRepoRead(t, repo.ID, suspended.ID)
 	env.suspendUser(t, suspended.ID)
 	prID := env.createPullRequest(t, repo.ID, env.owner.ID, "Needs review")
 	env.requestUserReview(t, prID, reviewer.ID)
@@ -253,6 +255,20 @@ func (e *scheduledReminderEnv) addMember(t *testing.T, userID int64) {
 		InvitedByUserID: pgtype.Int8{Int64: e.owner.ID, Valid: true},
 	}); err != nil {
 		t.Fatalf("AddOrgMember: %v", err)
+	}
+}
+
+// grantRepoRead gives userID a direct read grant on repoID. Delivery
+// gates every recipient on ActionRepoRead, and plain org membership
+// confers no role on a private repo (policy.effectiveRole promotes only
+// org owners), so members need a real grant or every candidate is
+// filtered out before delivery.
+func (e *scheduledReminderEnv) grantRepoRead(t *testing.T, repoID, userID int64) {
+	t.Helper()
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO repo_collaborators (repo_id, user_id, role) VALUES ($1, $2, 'read')`,
+		repoID, userID); err != nil {
+		t.Fatalf("insert repo collaborator: %v", err)
 	}
 }
 

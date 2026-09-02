@@ -4,12 +4,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -343,11 +345,20 @@ func pushMayAddReachableObjects(refs []refUpdate) bool {
 	return false
 }
 
-// isInitialPush reports whether every ref in the push is a create from
-// the all-zero sentinel — i.e. the first push to a brand-new bare repo.
-// Used by the secret-protection enforcer to defer inline scanning on
-// initial imports where the per-commit diff-tree cost is unbounded.
-func isInitialPush(refs []refUpdate) bool {
+// isInitialPush reports whether this push is the first one to a
+// brand-new bare repo: every ref is a create from the all-zero
+// sentinel AND the repo has no refs yet. Used by the secret-protection
+// enforcer to defer inline scanning on initial imports where the
+// per-commit diff-tree cost is unbounded.
+//
+// The refs-only half is not sufficient on its own. Creating a *branch*
+// on an existing repo also reports the all-zero sentinel for every ref
+// in the push, so an all-zero test alone let `git push origin
+// HEAD:refs/heads/anything-new` skip push protection entirely — a
+// one-command bypass of the whole feature. The repo-is-empty half is
+// what makes the deferral rationale ("nothing here to protect yet, the
+// background history scan will cover it") actually true.
+func isInitialPush(ctx context.Context, gitDir string, refs []refUpdate) bool {
 	if len(refs) == 0 {
 		return false
 	}
@@ -356,7 +367,20 @@ func isInitialPush(refs []refUpdate) bool {
 			return false
 		}
 	}
-	return true
+	return repoHasNoRefs(ctx, gitDir)
+}
+
+// repoHasNoRefs reports whether gitDir currently holds zero refs. In
+// pre-receive the ref updates have not been applied yet, so this is the
+// repository's state before the push. Errors are reported as "has
+// refs": failing closed keeps the inline scan running rather than
+// silently skipping it.
+func repoHasNoRefs(ctx context.Context, gitDir string) bool {
+	out, err := exec.CommandContext(ctx, "git", "-C", gitDir, "for-each-ref", "--count=1", "--format=%(refname)").Output()
+	if err != nil {
+		return false
+	}
+	return len(bytes.TrimSpace(out)) == 0
 }
 
 func isZeroObjectID(s string) bool {

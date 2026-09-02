@@ -238,3 +238,40 @@ func countSeverity(diags []Diagnostic, severity Severity) int {
 	}
 	return count
 }
+
+// TestParseRendersEmptyJSONColumnsNotNull pins the jsonb shapes the
+// dependency_update_configs check constraints require: a minimal config
+// declares no allow/ignore rules, groups or registries, and those must
+// serialize as [] / {}, not null.
+func TestParseRendersEmptyJSONColumnsNotNull(t *testing.T) {
+	t.Parallel()
+	src := []byte(`
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+`)
+	file, _, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if file == nil || len(file.Configs) != 1 {
+		t.Fatalf("file/configs = %+v", file)
+	}
+	cfg := file.Configs[0]
+	for name, got := range map[string][]byte{
+		"AllowRulesJSON":      cfg.AllowRulesJSON,
+		"IgnoreRulesJSON":     cfg.IgnoreRulesJSON,
+		"RegistriesJSON":      cfg.RegistriesJSON,
+		"UnsupportedKeysJSON": cfg.UnsupportedKeysJSON,
+	} {
+		if string(got) != "[]" {
+			t.Errorf("%s = %s, want []", name, got)
+		}
+	}
+	if string(cfg.GroupsJSON) != "{}" {
+		t.Errorf("GroupsJSON = %s, want {}", cfg.GroupsJSON)
+	}
+}

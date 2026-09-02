@@ -197,3 +197,22 @@ func aliasValues(rows []reposdb.DependencyAdvisoryAlias) string {
 	}
 	return strings.Join(values, ",")
 }
+
+// TestMustJSONRendersEmptyArrayForNilSlice pins the jsonb array shape
+// the dependency_advisories check constraints require: an advisory with
+// no CWE IDs or no references must store [], not null.
+func TestMustJSONRendersEmptyArrayForNilSlice(t *testing.T) {
+	var nilSlice []string
+	for name, value := range map[string]interface{}{
+		"nil slice":   nilSlice,
+		"nil":         nil,
+		"empty slice": []string{},
+	} {
+		if got := string(mustJSON(value)); got != "[]" {
+			t.Errorf("mustJSON(%s) = %s, want []", name, got)
+		}
+	}
+	if got := string(mustJSON([]string{"CWE-79"})); got != `["CWE-79"]` {
+		t.Errorf(`mustJSON(["CWE-79"]) = %s`, got)
+	}
+}

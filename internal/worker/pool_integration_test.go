@@ -70,7 +70,15 @@ func TestPool_HappyPath(t *testing.T) {
 
 	waitFor(t, 5*time.Second, func() bool { return seen.Load() == 1 })
 
+	// The handler increments seen before it returns, and the pool writes
+	// completed_at after it returns, so waiting on the counter alone
+	// races the completion UPDATE. Wait on the row, like the sibling
+	// tests do.
 	q := workerdb.New()
+	waitFor(t, 5*time.Second, func() bool {
+		j, err := q.GetJob(context.Background(), pool, id)
+		return err == nil && j.CompletedAt.Valid
+	})
 	job, err := q.GetJob(context.Background(), pool, id)
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
