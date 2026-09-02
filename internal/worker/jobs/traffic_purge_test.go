@@ -52,16 +52,16 @@ func TestTrafficPurgeKeepsTheRetentionWindow(t *testing.T) {
 		t.Fatalf("traffic:purge handler: %v", err)
 	}
 
-	assertTrafficDays(t, ctx, pool, "repo_traffic_paths", []time.Time{inWindow, onCutoff})
-	assertTrafficDays(t, ctx, pool, "repo_traffic_referrers", []time.Time{inWindow, onCutoff})
-	assertTrafficDays(t, ctx, pool, "repo_traffic_uniques", []time.Time{inWindow, onCutoff})
+	assertTrafficDays(t, ctx, pool, "repo_traffic_paths", []time.Time{onCutoff, inWindow})
+	assertTrafficDays(t, ctx, pool, "repo_traffic_referrers", []time.Time{onCutoff, inWindow})
+	assertTrafficDays(t, ctx, pool, "repo_traffic_uniques", []time.Time{onCutoff, inWindow})
 	assertTrafficDays(t, ctx, pool, "repo_traffic_daily", []time.Time{dailyInWindow, inWindow})
 
 	// Idempotent: a second run over the already-trimmed tables is a no-op.
 	if err := handler(ctx, nil); err != nil {
 		t.Fatalf("traffic:purge second run: %v", err)
 	}
-	assertTrafficDays(t, ctx, pool, "repo_traffic_paths", []time.Time{inWindow, onCutoff})
+	assertTrafficDays(t, ctx, pool, "repo_traffic_paths", []time.Time{onCutoff, inWindow})
 	assertTrafficDays(t, ctx, pool, "repo_traffic_daily", []time.Time{dailyInWindow, inWindow})
 }
 
