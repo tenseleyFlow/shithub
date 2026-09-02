@@ -319,6 +319,44 @@ type WebConfig struct {
 	// heap/CPU profiles leak memory layout and command line, so this
 	// must not be reachable through the edge proxy.
 	PprofAddr string `toml:"pprof_addr"`
+	// TrustedProxies lists the CIDR blocks whose X-Forwarded-For
+	// header the real-IP middleware honours. Anything arriving from
+	// outside these networks keys on its own RemoteAddr, so a forged
+	// XFF can't move a client into someone else's rate-limit bucket.
+	//
+	// The default covers the reference deployment, where Caddy
+	// reverse-proxies from loopback. Empty (explicitly set to "")
+	// disables XFF parsing entirely. Setting a network you do not
+	// actually control lets its clients spoof their own IP, so widen
+	// this only as far as the real proxy hop.
+	TrustedProxies []string `toml:"trusted_proxies"`
+}
+
+// TrustedProxyNets parses Web.TrustedProxies into networks. Bare IPs
+// are accepted and treated as single-host networks (/32, /128) so an
+// operator can write "10.0.0.7" without the mask.
+func (c WebConfig) TrustedProxyNets() ([]*net.IPNet, error) {
+	nets := make([]*net.IPNet, 0, len(c.TrustedProxies))
+	for _, raw := range c.TrustedProxies {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(entry); err == nil {
+			nets = append(nets, n)
+			continue
+		}
+		ip := net.ParseIP(entry)
+		if ip == nil {
+			return nil, fmt.Errorf("config: web.trusted_proxies: %q is not a CIDR block or IP address", entry)
+		}
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+	}
+	return nets, nil
 }
 
 // DBConfig holds Postgres settings.
@@ -480,6 +518,10 @@ func Defaults() Config {
 			ReadTimeout:     30 * time.Second,
 			WriteTimeout:    30 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
+			// Caddy terminates TLS on loopback in the reference
+			// deployment, so trusting loopback is the baseline that
+			// makes rate limiting key on the real client.
+			TrustedProxies: []string{"127.0.0.0/8", "::1/128"},
 		},
 		DB: DBConfig{
 			MaxConns:       10,
@@ -610,6 +652,9 @@ func Validate(c *Config) error {
 		return errors.New("config: web.addr is required")
 	}
 	if err := ValidateLoopbackAddr("web.pprof_addr", c.Web.PprofAddr); err != nil {
+		return err
+	}
+	if _, err := c.Web.TrustedProxyNets(); err != nil {
 		return err
 	}
 	if c.Tracing.Enabled && c.Tracing.Endpoint == "" {
@@ -920,8 +965,28 @@ func setField(v reflect.Value, t reflect.Type, raw string) error {
 			return fmt.Errorf("invalid float: %w", err)
 		}
 		v.SetFloat(f)
+	case reflect.Slice:
+		if t.Elem().Kind() != reflect.String {
+			return fmt.Errorf("unsupported slice element kind %s", t.Elem().Kind())
+		}
+		v.Set(reflect.ValueOf(splitList(raw)))
 	default:
 		return fmt.Errorf("unsupported field kind %s", t.Kind())
 	}
 	return nil
+}
+
+// splitList parses a comma-separated env/flag value into a string
+// slice. Whitespace around entries is trimmed and empty entries are
+// dropped, so "" yields an empty (non-nil) slice — the way an
+// operator turns a defaulted list off.
+func splitList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
