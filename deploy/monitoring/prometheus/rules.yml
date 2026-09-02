@@ -196,8 +196,13 @@ groups:
   - name: shithubd-backups
     interval: 5m
     rules:
+      # `shithubd_backup_last_success_seconds` never existed — our
+      # namespace is `shithub_`. The gauge is real now, sourced from
+      # the heartbeat files the backup scripts write
+      # (internal/infra/metrics/backupobserver.go). It is absent until
+      # the first success on a host, hence the absent() arm.
       - alert: BackupOverdue
-        expr: time() - shithubd_backup_last_success_seconds > 60 * 60 * 30
+        expr: absent(shithub_backup_last_success_seconds{job="daily"}) or time() - shithub_backup_last_success_seconds{job="daily"} > 60 * 60 * 30
         for: 0m
         labels: {severity: page}
         annotations:

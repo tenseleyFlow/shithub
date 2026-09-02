@@ -37,6 +37,10 @@ shithub ships four sinks: structured logging, Prometheus metrics, OpenTelemetry 
   - `shithub_billing_past_due_principals{subject_kind}` (gauge)
   - `shithub_billing_org_seat_drift` (gauge)
   - `shithub_billing_quota_overage_orgs{quota}` (gauge)
+  - `shithub_backup_last_success_seconds{job}` (gauge; read at scrape
+    time from the heartbeat file each backup cron job writes on
+    success. The series is **absent** until a job has succeeded once
+    on that host, so alert on `absent()` as well as on age.)
   - Standard Go runtime + process metrics (registered automatically).
 - **Cardinality discipline.** Route labels come from chi's `RoutePattern()` so we get `/owner/{repo}` instead of per-repo concrete paths. Never label by `user_id` or `repo_id`.
 - Per-domain metrics (added in later sprints) MUST register against `metrics.Registry` so a single `/metrics` scrape sees everything.
