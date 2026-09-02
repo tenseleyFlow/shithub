@@ -72,7 +72,7 @@ assets: ## Copy Primer CSS into internal/web/static/ for embedding.
 		echo "warn: .refs/primer-css/dist not found; run 'git clone https://github.com/primer/css .refs/primer-css' first"; \
 	fi
 
-ci: lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations lint-systemd-units verify-api-docs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
+ci: lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations lint-systemd-units lint-shell test-backup-scripts verify-api-docs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
 	@echo "ci: ok"
 
 lint-policy: ## Enforce policy-package boundary (no inline auth checks in handlers/git/cmd).
@@ -98,6 +98,12 @@ lint-migrations: ## Fail when goose migration numeric versions collide.
 
 lint-systemd-units: ## Fail when a shipped systemd unit loses its memory ceiling or collides with the backup window.
 	@scripts/lint-systemd-units.sh
+
+lint-shell: ## Syntax-check every shell script (deploy/ runs unattended from cron).
+	@scripts/lint-shell.sh
+
+test-backup-scripts: ## Functional test for the backup cron scripts (logging, heartbeat, failure exit).
+	@scripts/test-backup-scripts.sh
 
 verify-api-docs: ## Fail when an /api/v1 route in code is missing from docs/public/api/.
 	@scripts/verify-api-docs.sh

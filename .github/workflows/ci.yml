@@ -70,6 +70,16 @@ jobs:
         # memory ceiling before the box does.
         run: scripts/lint-systemd-units.sh
 
+      - name: Lint - shell syntax
+        run: scripts/lint-shell.sh
+
+      - name: Test - backup cron scripts
+        # deploy/postgres/backup-daily.sh and
+        # deploy/spaces/sync-cross-region.sh run unattended from root
+        # crontab and are not covered by go test; both logged nothing
+        # for four months before anyone noticed.
+        run: scripts/test-backup-scripts.sh
+
       - name: Test
         run: go test -trimpath ./...
 
