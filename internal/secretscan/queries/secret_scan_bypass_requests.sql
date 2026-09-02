@@ -82,9 +82,12 @@ SET status = $3,
     reviewed_by = $4,
     reviewed_at = now(),
     review_note = $5,
+    -- Both branches need an explicit timestamptz cast: with $6 and a
+    -- bare NULL both untyped, Postgres resolves the CASE to text and
+    -- rejects the assignment (42804).
     approved_until = CASE
-        WHEN $3 = 'approved'::secret_scan_bypass_status THEN $6
-        ELSE NULL
+        WHEN $3 = 'approved'::secret_scan_bypass_status THEN sqlc.narg(approved_until)::timestamptz
+        ELSE NULL::timestamptz
     END
 WHERE id = $1
   AND repo_id = $2
