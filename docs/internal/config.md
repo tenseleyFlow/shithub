@@ -28,6 +28,7 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `web.read_timeout` | duration | `30s` | Per-request read timeout. |
 | `web.write_timeout` | duration | `30s` | Per-request write timeout. |
 | `web.shutdown_timeout` | duration | `10s` | Graceful drain on SIGTERM. |
+| `web.pprof_addr` | string | `""` | When set, `shithubd web` starts a *separate* listener serving only `net/http/pprof`. Empty disables it. Must be a loopback IP literal + port (`127.0.0.1:6060`, `[::1]:6060`); hostnames and non-loopback addresses are refused at startup. Never mounted on the main router. See `runbooks/observability.md`. |
 | `db.url` | string | `""` | Postgres DSN. Aliased by `SHITHUB_DATABASE_URL`. |
 | `db.max_conns` | int | `10` | pgxpool max conns. |
 | `db.min_conns` | int | `0` | pgxpool min conns. |
@@ -100,6 +101,9 @@ appear in `config print`:
 ```sh
 # Listen elsewhere
 export SHITHUB_WEB__ADDR=:9090
+
+# Loopback-only pprof listener (off by default)
+export SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060
 
 # Connect to Postgres
 export SHITHUB_DATABASE_URL=postgres://shithub:dev@127.0.0.1:5432/shithub?sslmode=disable

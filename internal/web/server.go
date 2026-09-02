@@ -94,6 +94,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer func() { _ = flushTracing(context.Background()) }()
 
+	// pprof on its own loopback listener (web.pprof_addr; empty =
+	// disabled). Deliberately not mounted on the main router — see
+	// internal/web/pprof.go and runbooks/observability.md.
+	stopPprof, err := startPprof(cfg.Web.PprofAddr, logger)
+	if err != nil {
+		return err
+	}
+	defer stopPprof()
+
 	logoBytes, err := LogoSVG()
 	if err != nil {
 		return fmt.Errorf("load logo: %w", err)

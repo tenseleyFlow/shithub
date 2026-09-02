@@ -3,6 +3,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -361,5 +362,70 @@ func TestMergeEnv_RateLimitHTML(t *testing.T) {
 	}
 	if cfg.RateLimit.HTML.AuthedRefill != 20 {
 		t.Errorf("AuthedRefill: got %d, want 20", cfg.RateLimit.HTML.AuthedRefill)
+	}
+}
+
+func TestValidateLoopbackAddr(t *testing.T) {
+	ok := []string{"", "127.0.0.1:6060", "127.0.0.1:0", "127.9.9.9:6060", "[::1]:6060"}
+	for _, addr := range ok {
+		if err := ValidateLoopbackAddr("web.pprof_addr", addr); err != nil {
+			t.Errorf("ValidateLoopbackAddr(%q) = %v, want nil", addr, err)
+		}
+	}
+	bad := []string{
+		":6060",              // every interface
+		"0.0.0.0:6060",       // every interface, explicit
+		"[::]:6060",          // every interface, v6
+		"10.50.0.2:6060",     // mesh
+		"24.199.108.81:6060", // public
+		"localhost:6060",     // hostname, not resolved on purpose
+		"127.0.0.1",          // no port
+		"not an address",
+	}
+	for _, addr := range bad {
+		if err := ValidateLoopbackAddr("web.pprof_addr", addr); err == nil {
+			t.Errorf("ValidateLoopbackAddr(%q) = nil, want an error", addr)
+		}
+	}
+}
+
+// The knob has to fail the whole config load, not just its own
+// helper — an operator who binds pprof to 0.0.0.0 should get a
+// refusing-to-start error, not a listening profiler.
+func TestValidateRejectsNonLoopbackPprofAddr(t *testing.T) {
+	cfg := Defaults()
+	cfg.Storage.ReposRoot = "/tmp/repos"
+	cfg.Auth.BaseURL = "http://127.0.0.1:8080"
+	cfg.Auth.SiteName = "shithub"
+	cfg.Auth.EmailFrom = "noreply@example.test"
+	cfg.Web.PprofAddr = "0.0.0.0:6060"
+
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("Validate accepted web.pprof_addr=0.0.0.0:6060")
+	}
+
+	cfg.Web.PprofAddr = "127.0.0.1:6060"
+	if err := Validate(&cfg); err != nil {
+		t.Fatalf("Validate rejected a loopback pprof addr: %v", err)
+	}
+}
+
+func TestDefaultsDisablePprof(t *testing.T) {
+	if got := Defaults().Web.PprofAddr; got != "" {
+		t.Fatalf("Defaults().Web.PprofAddr = %q, want empty (disabled)", got)
+	}
+}
+
+func TestPprofAddrFromEnv(t *testing.T) {
+	t.Setenv("SHITHUB_WEB__PPROF_ADDR", "127.0.0.1:6060")
+	t.Setenv("SHITHUB_STORAGE__REPOS_ROOT", "/tmp/repos")
+	t.Setenv("SHITHUB_CONFIG", filepath.Join(t.TempDir(), "absent.toml"))
+
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Web.PprofAddr != "127.0.0.1:6060" {
+		t.Fatalf("web.pprof_addr = %q, want 127.0.0.1:6060", cfg.Web.PprofAddr)
 	}
 }
