@@ -294,19 +294,34 @@ already allowed): `ssh -J root@24.199.108.81 root@<runner-ip>`.
 
 The 4 GB swapfile exists at runtime but is not in `fstab`, so it
 disappears on the next reboot — which is exactly when it is most
-needed.
+needed. `roles/base/tasks/swap.yml` does this idempotently; use the
+**same** fstab line and sysctl filename by hand so the next
+`make deploy` is a no-op rather than leaving a second sysctl file
+behind.
 
 ```sh
 ssh root@shithub.sh '
   swapon --show
-  grep -q "^/data/swapfile" /etc/fstab || \
-    echo "/data/swapfile none swap sw 0 0" >> /etc/fstab
-  printf "vm.swappiness=10\n" > /etc/sysctl.d/60-shithub-swappiness.conf
+  grep -q "^/data/swapfile[[:space:]]" /etc/fstab ||
+    echo "/data/swapfile none swap sw,nofail 0 0" >> /etc/fstab
+  printf "vm.swappiness = 10\n" > /etc/sysctl.d/60-shithub-swap.conf
   sysctl --system
-  sysctl vm.swappiness                            # expect 10
-  swapon -a && swapon --show                      # fstab entry is usable
+  sysctl vm.swappiness            # expect 10
+  findmnt --verify --fstab 2>&1 | tail -5   # fstab parses
 '
 ```
+
+Do **not** verify by `swapoff`-ing: that forces every swapped page
+back into a 3.9 GB box and is the one command guaranteed to cause the
+outage this item exists to prevent. `swapon -a` is a no-op when the
+file is already active, so the fstab line is only really exercised at
+the next reboot.
+
+Or, equivalently and preferably, just run the role:
+`ANSIBLE_INVENTORY=production ANSIBLE_TAGS=base make deploy-check`
+first, then `make deploy` — the swap tasks are guarded by `creates`,
+the on-disk signature, `/proc/swaps` and a path-matched fstab line, so
+they converge without touching the live swapfile.
 
 ### 5. Disable the duplicate AIDE timer
 
