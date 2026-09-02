@@ -175,6 +175,111 @@ func (q *Queries) ListRepoTrafficReferrers(ctx context.Context, db DBTX, arg Lis
 	return items, nil
 }
 
+const purgeRepoTrafficDailyBatch = `-- name: PurgeRepoTrafficDailyBatch :execrows
+DELETE FROM repo_traffic_daily
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_daily
+    WHERE day < $1::date
+    LIMIT $2::bigint
+)
+`
+
+type PurgeRepoTrafficDailyBatchParams struct {
+	Cutoff    pgtype.Date
+	BatchSize int64
+}
+
+// Batched retention purge; see PurgeRepoTrafficUniquesBatch. The daily
+// rollup is one row per repo per day, so it keeps a far longer window
+// than the per-path and per-visitor tables.
+func (q *Queries) PurgeRepoTrafficDailyBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficDailyBatchParams) (int64, error) {
+	result, err := db.Exec(ctx, purgeRepoTrafficDailyBatch, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeRepoTrafficPathsBatch = `-- name: PurgeRepoTrafficPathsBatch :execrows
+DELETE FROM repo_traffic_paths
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_paths
+    WHERE day < $1::date
+    LIMIT $2::bigint
+)
+`
+
+type PurgeRepoTrafficPathsBatchParams struct {
+	Cutoff    pgtype.Date
+	BatchSize int64
+}
+
+// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+// repo_traffic_paths_day_idx (0127).
+func (q *Queries) PurgeRepoTrafficPathsBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficPathsBatchParams) (int64, error) {
+	result, err := db.Exec(ctx, purgeRepoTrafficPathsBatch, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeRepoTrafficReferrersBatch = `-- name: PurgeRepoTrafficReferrersBatch :execrows
+DELETE FROM repo_traffic_referrers
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_referrers
+    WHERE day < $1::date
+    LIMIT $2::bigint
+)
+`
+
+type PurgeRepoTrafficReferrersBatchParams struct {
+	Cutoff    pgtype.Date
+	BatchSize int64
+}
+
+// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
+// repo_traffic_referrers_day_idx (0127).
+func (q *Queries) PurgeRepoTrafficReferrersBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficReferrersBatchParams) (int64, error) {
+	result, err := db.Exec(ctx, purgeRepoTrafficReferrersBatch, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeRepoTrafficUniquesBatch = `-- name: PurgeRepoTrafficUniquesBatch :execrows
+DELETE FROM repo_traffic_uniques
+WHERE ctid IN (
+    SELECT ctid
+    FROM repo_traffic_uniques
+    WHERE created_at < $1::timestamptz
+    LIMIT $2::bigint
+)
+`
+
+type PurgeRepoTrafficUniquesBatchParams struct {
+	Cutoff    pgtype.Timestamptz
+	BatchSize int64
+}
+
+// Retention purge for the `traffic:purge` worker job: deletes at most
+// batch_size rows so a first run over a multi-million-row backlog never
+// holds a long transaction. The job loops until a batch comes back
+// short. Filtered on created_at rather than day because created_at is
+// stamped by the same request that derives day and is the column this
+// table already has an index on.
+func (q *Queries) PurgeRepoTrafficUniquesBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficUniquesBatchParams) (int64, error) {
+	result, err := db.Exec(ctx, purgeRepoTrafficUniquesBatch, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertRepoTrafficDailyClone = `-- name: UpsertRepoTrafficDailyClone :exec
 INSERT INTO repo_traffic_daily (
     repo_id, day, clones, unique_clones
