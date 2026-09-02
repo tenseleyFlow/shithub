@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -83,7 +82,7 @@ func Blame(ctx context.Context, gitDir string, opts BlameOptions) ([]BlameChunk,
 		return nil, ErrBlameTooLarge
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"blame", "--line-porcelain", opts.Ref, "--", opts.Path)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

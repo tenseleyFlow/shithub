@@ -21,6 +21,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/repos/highlight"
 	"github.com/tenseleyFlow/shithub/internal/repos/identity"
 	reposdb "github.com/tenseleyFlow/shithub/internal/repos/sqlc"
+	"github.com/tenseleyFlow/shithub/internal/web/handlers/repo/treecache"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
 )
 
@@ -223,7 +224,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 	if headFound {
 		headCheckSummary = h.codeCommitCheckSummary(r.Context(), cc.owner, cc.row.Name, cc.row.ID, head.OID)
 	}
-	commitCount, countErr := repogit.CountCommits(r.Context(), cc.gitDir, cc.ref)
+	commitCount, countErr := h.repoCommitCount(r.Context(), cc, head.OID)
 	if countErr != nil {
 		h.d.Logger.WarnContext(r.Context(), "code: CountCommits", "error", countErr)
 	}
@@ -236,7 +237,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 			h.d.Logger.WarnContext(r.Context(), "code: about root LsTree", "error", rerr)
 		}
 	}
-	about := h.repoAbout(r.Context(), cc.gitDir, cc.ref, cc.owner, cc.row, aboutEntries)
+	about := h.repoAbout(r.Context(), cc, head.OID, aboutEntries)
 	// Subdirectories keep GitHub's plain local README behavior. The root tree
 	// gets GitHub-style overview document tabs that swap README, license,
 	// contributing, security, and conduct files in the same card.
@@ -263,7 +264,7 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"Path":          cc.subpath,
 		"Crumbs":        breadcrumbs(cc.owner, cc.row.Name, cc.ref, cc.subpath),
 		"Entries":       entries,
-		"EntryRows":     h.codeTreeEntryRows(r.Context(), cc, entries),
+		"EntryRows":     h.codeTreeEntryRows(r.Context(), cc, entries, head.OID),
 		"Branches":      cc.refs.Branches,
 		"Tags":          cc.refs.Tags,
 		"Head":          head,
@@ -287,6 +288,17 @@ func (h *Handlers) renderRepoTree(w http.ResponseWriter, r *http.Request, cc *co
 		"CanSettings":   h.canViewSettings(middleware.CurrentUserFromContext(r.Context())),
 		"ActiveSubnav":  "code",
 	})
+}
+
+// repoCommitCount is `git rev-list --count`, memoized per head OID.
+// The repo home runs it on every view; the value can only change when
+// the commit being rendered changes, which changes the cache key.
+func (h *Handlers) repoCommitCount(ctx context.Context, cc *codeContext, commitOID string) (int, error) {
+	return h.d.TreeCache.CommitCount(ctx,
+		treecache.RevKey{RepoID: cc.row.ID, CommitOID: commitOID},
+		func(ctx context.Context) (int, error) {
+			return repogit.CountCommits(ctx, cc.gitDir, cc.ref)
+		})
 }
 
 func refNames(refs repogit.RefListing) []string {

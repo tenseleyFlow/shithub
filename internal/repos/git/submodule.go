@@ -24,6 +24,8 @@ type Submodule struct {
 // Submodules reads and parses <ref>:.gitmodules. Missing or non-blob files
 // return an empty map so callers can render plain gitlink rows.
 func Submodules(ctx context.Context, gitDir, ref string) (map[string]Submodule, error) {
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
 	kind, _, size, err := StatPath(ctx, gitDir, ref, ".gitmodules")
 	if err != nil {
 		if errors.Is(err, ErrPathNotFound) {

@@ -14,11 +14,32 @@ is a bug factory.
 | Cache | Key | Value | Invalidator | Bound |
 |---|---|---|---|---|
 | `repos/git.AheadBehindCached` | (repo_id, base_oid, head_oid) | (ahead, behind) | OID change ⇒ different key; LRU eviction | 4096 entries |
+| `repo/treecache` last-commits | (repo_id, commit_oid, subpath) | basename → last `Commit` | OID change ⇒ different key; 10 min TTL; LRU | 2048 entries |
+| `repo/treecache` commit count | (repo_id, commit_oid) | `rev-list --count` int | same | 2048 entries |
+| `repo/treecache` languages | (repo_id, commit_oid) | language → bytes (from `ls-tree -r`) | same | 512 entries |
+| `repo/treecache` contributors | (repo_id, commit_oid) | author tally (from `log -n 500`) | same | 512 entries |
 
 Concrete uses:
 - `branchesList` (S20 deferral H4) — replaces N `git rev-list`
   invocations per page load with one cached lookup per branch.
   Single-flight collapses concurrent misses on hot branches.
+- The repo home / code tab (`internal/web/handlers/repo/treecache`,
+  built once in `internal/web/repo_wiring.go`, threaded through
+  `repo.Deps.TreeCache`). It is the most-crawled page on the site and
+  `meta-externalagent` walks it anonymously; before this cache one
+  cold render of an 81-entry directory forked git 90 times. It now
+  forks 10 times cold and 6 warm, independent of entry count. See
+  `docs/internal/code-tab.md`.
+
+All four `treecache` entries are keyed on the **rendered commit OID**,
+so there is no invalidation hook to wire and none to forget: a push
+moves the ref, the OID changes, the new key misses, and the pre-push
+entries age out on TTL and LRU eviction. The 10-minute TTL exists to
+release memory from repos that stop being visited, not for
+correctness. The heavier language and contributor caches take
+capacity/4 slots because their values are not uniformly sized.
+Sizing rationale and worst-case memory live in the package doc
+comment.
 
 ## Planned caches (next iterations)
 
@@ -27,7 +48,6 @@ back grow large enough to bench-justify the cache.
 
 | Cache | Key | Value | Invalidator |
 |---|---|---|---|
-| Tree at root | (repo_id, ref_oid) | rendered ls-tree result | push:process bumps default-OID |
 | Ref list | (repo_id) | branches + tags | push:process |
 | File list (finder) | (repo_id, ref_oid) | flat path slice | push:process |
 | Default-branch OID | (repo_id) | OID string | push:process + default-branch swap |

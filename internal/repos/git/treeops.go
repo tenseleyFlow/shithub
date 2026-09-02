@@ -33,7 +33,9 @@ type RefEntry struct {
 // ListRefs enumerates branches and tags. Empty repos return empty
 // slices, not an error.
 func ListRefs(ctx context.Context, gitDir string) (RefListing, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"for-each-ref", "--format=%(refname)\x1f%(objectname)",
 		"refs/heads/", "refs/tags/")
 	out, err := cmd.Output()
@@ -141,11 +143,13 @@ type TreeFile struct {
 // Returns an empty slice when the path doesn't exist or is itself a
 // blob — callers should fall back to BlobInfo.
 func LsTree(ctx context.Context, gitDir, ref, path string) ([]TreeEntry, error) {
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
 	target := ref + ":" + path
 	if path == "" {
 		target = ref + ":"
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"ls-tree", "--long", "--full-tree", target)
 	out, err := cmd.Output()
 	if err != nil {
@@ -203,7 +207,9 @@ func LsTree(ctx context.Context, gitDir, ref, path string) ([]TreeEntry, error) 
 // keeps only blobs because callers use it for file-level summaries such
 // as language bars.
 func ListBlobs(ctx context.Context, gitDir, ref string) ([]TreeBlob, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"ls-tree", "-r", "--long", "--full-tree", "-z", ref)
 	out, err := cmd.Output()
 	if err != nil {
@@ -239,7 +245,9 @@ func ListBlobs(ctx context.Context, gitDir, ref string) ([]TreeBlob, error) {
 // git-reported byte size. Unlike ListBlobs, it keeps symlinks because
 // code search should still index the symlink path.
 func ListFiles(ctx context.Context, gitDir, ref string) ([]TreeFile, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"ls-tree", "-r", "--long", "--full-tree", "-z", ref)
 	out, err := cmd.Output()
 	if err != nil {
@@ -312,12 +320,14 @@ type BlobInfo struct {
 // the handler to decide whether to render tree or blob without a
 // second round-trip.
 func StatPath(ctx context.Context, gitDir, ref, path string) (kind TreeEntryKind, oid string, size int64, err error) {
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
 	target := ref + ":" + path
 	if path == "" {
 		target = ref + ":"
 	}
 	// `git cat-file -t <ref>:<path>` returns the type.
-	tCmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-t", target)
+	tCmd := gitCmd(ctx, "-C", gitDir, "cat-file", "-t", target)
 	tOut, tErr := tCmd.Output()
 	if tErr != nil {
 		var ee *exec.ExitError
@@ -344,7 +354,7 @@ func StatPath(ctx context.Context, gitDir, ref, path string) (kind TreeEntryKind
 		return "", "", 0, fmt.Errorf("git: unexpected type %q", gitType)
 	}
 
-	sCmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-s", target)
+	sCmd := gitCmd(ctx, "-C", gitDir, "cat-file", "-s", target)
 	sOut, err := sCmd.Output()
 	if err != nil {
 		return "", "", 0, wrapExecErr(err)
@@ -361,16 +371,23 @@ func StatPath(ctx context.Context, gitDir, ref, path string) (kind TreeEntryKind
 // stream. Pass 0 for "no cap"; otherwise an oversize read returns
 // ErrBlobTooLarge.
 func ReadBlobBytes(ctx context.Context, gitDir, ref, path string, maxBytes int64) ([]byte, error) {
+	ctx, cancel := readCtx(ctx)
 	target := ref + ":" + path
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-p", target)
+	cmd := gitCmd(ctx, "-C", gitDir, "cat-file", "-p", target)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		cancel()
 		return nil, err
 	}
-	defer func() { _ = cmd.Wait() }()
+	// Cancel BEFORE Wait: when the LimitReader stops short of the blob
+	// (an oversize file), git is still blocked writing into a full
+	// pipe and Wait alone would never return. Cancelling kills it, then
+	// Wait reaps.
+	defer func() { cancel(); _ = cmd.Wait() }()
 	var r io.Reader = stdout
 	if maxBytes > 0 {
 		// LimitReader so giant blobs don't OOM us.
@@ -390,7 +407,7 @@ func ReadBlobBytes(ctx context.Context, gitDir, ref, path string, maxBytes int64
 // buffer; this lets the response stream as `git cat-file -p` produces.
 func StreamBlob(ctx context.Context, gitDir, ref, path string, w io.Writer) error {
 	target := ref + ":" + path
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-p", target)
+	cmd := gitCmd(ctx, "-C", gitDir, "cat-file", "-p", target)
 	cmd.Stdout = w
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -408,7 +425,9 @@ var ErrBlobTooLarge = errors.New("git: blob exceeds size cap")
 // out submodule-style entries (commit type) which shouldn't surface
 // in the file finder.
 func ListAllPaths(ctx context.Context, gitDir, ref string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"ls-tree", "-r", "--full-tree", "--name-only", ref)
 	out, err := cmd.Output()
 	if err != nil {

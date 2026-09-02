@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -49,7 +48,7 @@ func fetchRemoteHeadsAndTags(ctx context.Context, gitDir, remoteURL, token strin
 		env = append(env, "GIT_ASKPASS="+askpass)
 	}
 	//nolint:gosec // G204: gitDir is RepoFS-derived at call sites; remoteURL is caller-allowlisted and passed as argv, not shell.
-	cmd := exec.CommandContext(ctx, "git",
+	cmd := gitCmd(ctx,
 		"-c", "protocol.ext.allow=never",
 		"-C", gitDir,
 		"fetch",
