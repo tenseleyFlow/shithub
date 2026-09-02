@@ -19,7 +19,7 @@ import (
 // When base or head doesn't exist on the repo we surface the typed
 // ErrRefNotFound so callers can render "—" instead of a number.
 func AheadBehind(ctx context.Context, gitDir, base, head string) (ahead, behind int, err error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"rev-list", "--left-right", "--count", base+"..."+head)
 	out, runErr := cmd.Output()
 	if runErr != nil {
@@ -50,8 +50,8 @@ func CommitsBetween(ctx context.Context, gitDir, base, head string, max int) ([]
 	const sep = "\x1f"
 	const recordEnd = "\x1e"
 	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%at", "%s"}, sep) + sep + "%b" + recordEnd
-	cmd := exec.CommandContext(
-		ctx, "git", "-C", gitDir,
+	cmd := gitCmd(
+		ctx, "-C", gitDir,
 		"log",
 		"--max-count="+strconv.Itoa(max),
 		"--format="+format,
@@ -78,7 +78,7 @@ func CommitsBetween(ctx context.Context, gitDir, base, head string, max int) ([]
 // passing it gives git's exact-match semantics (no off-by-one
 // races even when oldvalue happens to equal newvalue).
 func UpdateRefCAS(ctx context.Context, gitDir, ref, newOID, oldOID string) error {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"update-ref", ref, newOID, oldOID)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -107,7 +107,7 @@ func DeleteBranch(ctx context.Context, gitDir, branch, oldOID string) error {
 	if branch == "" || strings.HasPrefix(branch, "-") {
 		return ErrRefNotFound
 	}
-	check := exec.CommandContext(ctx, "git", "-C", gitDir, "check-ref-format", "--branch", branch)
+	check := gitCmd(ctx, "-C", gitDir, "check-ref-format", "--branch", branch)
 	if out, err := check.CombinedOutput(); err != nil {
 		return fmt.Errorf("check-ref-format %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))
 	}
@@ -116,7 +116,7 @@ func DeleteBranch(ctx context.Context, gitDir, branch, oldOID string) error {
 	if strings.TrimSpace(oldOID) != "" {
 		args = append(args, oldOID)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitCmd(ctx, args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
@@ -143,7 +143,7 @@ func DeleteBranch(ctx context.Context, gitDir, branch, oldOID string) error {
 // refspec just updates the dst ref.
 func FetchIntoNamespace(ctx context.Context, dstRepoDir, srcRepoDir, srcRef, dstRef string) error {
 	refspec := srcRef + ":" + dstRef
-	cmd := exec.CommandContext(ctx, "git", "-C", dstRepoDir,
+	cmd := gitCmd(ctx, "-C", dstRepoDir,
 		"fetch", "--quiet", "--no-tags", srcRepoDir, refspec)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("fetch %s into %s: %w (%s)", srcRef, dstRef, err, strings.TrimSpace(string(out)))
@@ -155,7 +155,7 @@ func FetchIntoNamespace(ctx context.Context, dstRepoDir, srcRepoDir, srcRef, dst
 // Used by the pre-receive force-push detector: a fast-forward is
 // `IsAncestor(old, new)`.
 func IsAncestor(ctx context.Context, gitDir, a, b string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"merge-base", "--is-ancestor", a, b)
 	err := cmd.Run()
 	if err == nil {
@@ -174,7 +174,7 @@ func IsAncestor(ctx context.Context, gitDir, a, b string) (bool, error) {
 // SetSymbolicRef updates HEAD (or any other symbolic ref) atomically.
 // Used by the default-branch change to point HEAD at the new branch.
 func SetSymbolicRef(ctx context.Context, gitDir, ref, target string) error {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"symbolic-ref", ref, target)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("symbolic-ref %s -> %s: %w (%s)", ref, target, err, out)

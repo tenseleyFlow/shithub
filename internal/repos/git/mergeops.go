@@ -18,7 +18,7 @@ import (
 // ResolveRefOID returns the full SHA for `ref` via `git rev-parse`.
 // Returns ErrRefNotFound when git can't resolve.
 func ResolveRefOID(ctx context.Context, gitDir, ref string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "rev-parse", "--verify", ref+"^{commit}")
+	cmd := gitCmd(ctx, "-C", gitDir, "rev-parse", "--verify", ref+"^{commit}")
 	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError
@@ -44,7 +44,7 @@ type MergeTreeResult struct {
 // merge (TreeOID set); exit 1 = conflicts (ConflictPaths populated).
 // Anything else is wrapped.
 func ProbeMerge(ctx context.Context, gitDir, baseOID, headOID string) (MergeTreeResult, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"merge-tree", "--write-tree", "--no-messages",
 		baseOID, headOID)
 	var stdout, stderr bytes.Buffer
@@ -90,8 +90,8 @@ func CommitsBetweenDetail(ctx context.Context, gitDir, baseOID, headOID string, 
 		"%cn", "%ce", "%ct",
 		"%s",
 	}, sep) + sep + "%b" + recordEnd
-	cmd := exec.CommandContext(
-		ctx, "git", "-C", gitDir,
+	cmd := gitCmd(
+		ctx, "-C", gitDir,
 		"log", "--reverse",
 		"--max-count="+strconv.Itoa(max),
 		"--format="+format,
@@ -148,8 +148,8 @@ func parseCommitDetail(out []byte) []CommitDetail {
 // changes from merge-base to head). Status is git's letter code,
 // renames carry the old path as the second column.
 func FilesChangedBetween(ctx context.Context, gitDir, baseOID, headOID string) ([]PRFileChange, error) {
-	cmd := exec.CommandContext(
-		ctx, "git", "-C", gitDir,
+	cmd := gitCmd(
+		ctx, "-C", gitDir,
 		"diff", "--name-status", "-M", "-C",
 		baseOID+"..."+headOID,
 	)
@@ -161,8 +161,8 @@ func FilesChangedBetween(ctx context.Context, gitDir, baseOID, headOID string) (
 		}
 		return nil, wrapExecErr(err)
 	}
-	cmd = exec.CommandContext(
-		ctx, "git", "-C", gitDir,
+	cmd = gitCmd(
+		ctx, "-C", gitDir,
 		"diff", "--numstat", "-M", "-C",
 		baseOID+"..."+headOID,
 	)
@@ -286,7 +286,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 	// Set up the worktree at base_oid (detached). Using detached HEAD
 	// keeps the worktree from polluting the bare repo's branch refs;
 	// we only push the resulting commit back to base_ref at the end.
-	addCmd := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+	addCmd := gitCmd(ctx, "-C", opts.GitDir,
 		"worktree", "add", "--detach", wt, opts.BaseOID)
 	if out, err := addCmd.CombinedOutput(); err != nil {
 		return MergeResult{}, fmt.Errorf("worktree add: %w (%s)", err, out)
@@ -317,7 +317,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 		if opts.Body != "" {
 			msg += "\n\n" + opts.Body
 		}
-		mergeCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		mergeCmd := gitCmd(ctx, "-C", wt,
 			"merge", "--no-ff", "--no-edit", "-m", msg, opts.HeadOID)
 		mergeCmd.Env = envBase
 		if out, err := mergeCmd.CombinedOutput(); err != nil {
@@ -327,7 +327,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 		// `git merge --squash` stages the squashed change without
 		// committing; `git commit` makes the squash commit with a
 		// single author/committer pair.
-		squashCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		squashCmd := gitCmd(ctx, "-C", wt,
 			"merge", "--squash", opts.HeadOID)
 		squashCmd.Env = envBase
 		if out, err := squashCmd.CombinedOutput(); err != nil {
@@ -337,7 +337,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 		if opts.Body != "" {
 			msg += "\n\n" + opts.Body
 		}
-		commitCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		commitCmd := gitCmd(ctx, "-C", wt,
 			"commit", "-m", msg)
 		commitCmd.Env = envBase
 		if out, err := commitCmd.CombinedOutput(); err != nil {
@@ -347,7 +347,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 		// Replay head_oid onto base_oid. --rebase-merges off means we
 		// flatten merge commits into linear history; this matches the
 		// standard "rebase merge" UX.
-		rebaseCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		rebaseCmd := gitCmd(ctx, "-C", wt,
 			"rebase", "--onto", opts.BaseOID, opts.BaseOID, opts.HeadOID)
 		rebaseCmd.Env = envBase
 		if out, err := rebaseCmd.CombinedOutput(); err != nil {
@@ -361,7 +361,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 	}
 
 	// Capture the resulting tip of HEAD in the worktree.
-	revOut, err := exec.CommandContext(ctx, "git", "-C", wt, "rev-parse", "HEAD").Output()
+	revOut, err := gitCmd(ctx, "-C", wt, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return MergeResult{}, fmt.Errorf("rev-parse HEAD: %w", err)
 	}
@@ -369,7 +369,7 @@ func PerformMerge(ctx context.Context, opts MergeOptions) (MergeResult, error) {
 
 	// Update base_ref atomically via update-ref, gated on the expected
 	// old OID to defend against concurrent pushes during the merge.
-	updateCmd := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+	updateCmd := gitCmd(ctx, "-C", opts.GitDir,
 		"update-ref", opts.BaseRef, newOID, opts.BaseOID)
 	if out, err := updateCmd.CombinedOutput(); err != nil {
 		return MergeResult{}, fmt.Errorf("update-ref %s: %w (%s)", opts.BaseRef, err, out)
@@ -420,7 +420,7 @@ type UpdateBranchResult struct {
 // tests against a vapor endpoint.
 func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (UpdateBranchResult, error) {
 	// Already up-to-date: base is an ancestor of head → nothing to do.
-	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+	if out, err := gitCmd(ctx, "-C", opts.GitDir,
 		"merge-base", "--is-ancestor", opts.BaseOID, opts.HeadOID).CombinedOutput(); err == nil {
 		return UpdateBranchResult{}, ErrBranchAlreadyUpToDate
 	} else {
@@ -448,7 +448,7 @@ func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (Update
 
 	// Worktree at head_oid (detached). We'll merge/rebase base into
 	// it, then push the resulting tip to head_ref.
-	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+	if out, err := gitCmd(ctx, "-C", opts.GitDir,
 		"worktree", "add", "--detach", wt, opts.HeadOID).CombinedOutput(); err != nil {
 		return UpdateBranchResult{}, fmt.Errorf("worktree add: %w (%s)", err, out)
 	}
@@ -471,7 +471,7 @@ func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (Update
 	switch opts.Method {
 	case "", "merge":
 		msg := "Merge base into " + strings.TrimPrefix(opts.HeadRef, "refs/heads/")
-		mergeCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		mergeCmd := gitCmd(ctx, "-C", wt,
 			"merge", "--no-ff", "--no-edit", "-m", msg, opts.BaseOID)
 		mergeCmd.Env = envBase
 		if out, err := mergeCmd.CombinedOutput(); err != nil {
@@ -479,7 +479,7 @@ func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (Update
 		}
 	case "rebase":
 		// Replay head's commits onto base_oid.
-		rebaseCmd := exec.CommandContext(ctx, "git", "-C", wt,
+		rebaseCmd := gitCmd(ctx, "-C", wt,
 			"rebase", "--onto", opts.BaseOID, opts.BaseOID, opts.HeadOID)
 		rebaseCmd.Env = envBase
 		if out, err := rebaseCmd.CombinedOutput(); err != nil {
@@ -490,14 +490,14 @@ func UpdateBranchFromBase(ctx context.Context, opts UpdateBranchOptions) (Update
 		return UpdateBranchResult{}, fmt.Errorf("unknown update-branch method %q", opts.Method)
 	}
 
-	revOut, err := exec.CommandContext(ctx, "git", "-C", wt, "rev-parse", "HEAD").Output()
+	revOut, err := gitCmd(ctx, "-C", wt, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return UpdateBranchResult{}, fmt.Errorf("rev-parse HEAD: %w", err)
 	}
 	newOID := strings.TrimSpace(string(revOut))
 
 	// Atomic update-ref CAS on the head ref.
-	if out, err := exec.CommandContext(ctx, "git", "-C", opts.GitDir,
+	if out, err := gitCmd(ctx, "-C", opts.GitDir,
 		"update-ref", opts.HeadRef, newOID, opts.HeadOID).CombinedOutput(); err != nil {
 		return UpdateBranchResult{}, fmt.Errorf("update-ref %s: %w (%s)", opts.HeadRef, err, out)
 	}

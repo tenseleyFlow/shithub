@@ -108,7 +108,7 @@ func (ic InitialCommit) Build(ctx context.Context) (string, error) {
 // returns the resulting OID.
 func (ic InitialCommit) hashObject(ctx context.Context, body []byte) (string, error) {
 	//nolint:gosec // G204: gitDir is constrained by storage.RepoFS path validation.
-	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "hash-object", "-w", "--stdin")
+	cmd := gitCmd(ctx, "-C", ic.GitDir, "hash-object", "-w", "--stdin")
 	cmd.Stdin = bytes.NewReader(body)
 	out, err := cmd.Output()
 	if err != nil {
@@ -123,7 +123,7 @@ func (ic InitialCommit) hashObject(ctx context.Context, body []byte) (string, er
 func (ic InitialCommit) updateIndex(ctx context.Context, indexPath, oid, path string) error {
 	cacheinfo := fmt.Sprintf("100644,%s,%s", oid, path)
 	//nolint:gosec // G204: gitDir + path are validated upstream.
-	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "update-index", "--add", "--cacheinfo", cacheinfo)
+	cmd := gitCmd(ctx, "-C", ic.GitDir, "update-index", "--add", "--cacheinfo", cacheinfo)
 	cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", wrapExecErr(err), strings.TrimSpace(string(out)))
@@ -134,7 +134,7 @@ func (ic InitialCommit) updateIndex(ctx context.Context, indexPath, oid, path st
 // writeTree turns the staged index into a tree object and returns its OID.
 func (ic InitialCommit) writeTree(ctx context.Context, indexPath string) (string, error) {
 	//nolint:gosec // G204: gitDir validated upstream.
-	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "write-tree")
+	cmd := gitCmd(ctx, "-C", ic.GitDir, "write-tree")
 	cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
 	out, err := cmd.Output()
 	if err != nil {
@@ -148,7 +148,7 @@ func (ic InitialCommit) writeTree(ctx context.Context, indexPath string) (string
 // both timestamps so the test suite gets deterministic OIDs.
 func (ic InitialCommit) commitTree(ctx context.Context, tree string) (string, error) {
 	//nolint:gosec // G204: tree is git's stdout (40-char OID); gitDir validated.
-	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "commit-tree", tree, "-m", ic.Message)
+	cmd := gitCmd(ctx, "-C", ic.GitDir, "commit-tree", tree, "-m", ic.Message)
 	stamp := ic.When.Format(time.RFC3339)
 	cmd.Env = append(
 		os.Environ(),
@@ -172,7 +172,7 @@ func (ic InitialCommit) commitTree(ctx context.Context, tree string) (string, er
 func (ic InitialCommit) updateRef(ctx context.Context, commit string) error {
 	ref := "refs/heads/" + ic.Branch
 	//nolint:gosec // G204: ref is constructed from a non-empty branch name we set.
-	cmd := exec.CommandContext(ctx, "git", "-C", ic.GitDir, "update-ref", ref, commit)
+	cmd := gitCmd(ctx, "-C", ic.GitDir, "update-ref", ref, commit)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", wrapExecErr(err), strings.TrimSpace(string(out)))
 	}
@@ -193,7 +193,9 @@ type HeadCommit struct {
 // ref under refs/heads/. Used by the repo home view to fork between the
 // "quick setup" empty-state and the post-push view.
 func HasAnyBranch(ctx context.Context, gitDir string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"for-each-ref", "--count=1", "--format=%(refname)", "refs/heads/")
 	out, err := cmd.Output()
 	if err != nil {
@@ -216,11 +218,13 @@ func HeadOf(ctx context.Context, gitDir, branch string) (HeadCommit, bool, error
 }
 
 func commitAt(ctx context.Context, gitDir, rev string) (HeadCommit, bool, error) {
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
 	// Single git invocation — %x1f is ASCII unit-separator, an unambiguous
 	// delimiter that won't appear in commit subjects/authors.
 	const sep = "\x1f"
 	format := strings.Join([]string{"%H", "%s", "%an", "%ae", "%ct"}, sep)
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"log", "-1", "--format="+format, rev, "--")
 	out, err := cmd.Output()
 	if err != nil {

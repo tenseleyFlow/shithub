@@ -48,6 +48,8 @@ type LogOptions struct {
 // unit-separators (\x1f), with body terminated by ASCII record-separator
 // (\x1e) so newlines inside the body don't break parsing.
 func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
 	if o.MaxCount <= 0 {
 		o.MaxCount = 30
 	}
@@ -80,7 +82,7 @@ func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
 		args = append(args, "--", o.Path)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitCmd(ctx, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, wrapExecErr(err)
@@ -90,7 +92,9 @@ func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
 
 // CountCommits returns the number of commits reachable from ref.
 func CountCommits(ctx context.Context, gitDir, ref string) (int, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "rev-list", "--count", ref)
+	ctx, cancel := readCtx(ctx)
+	defer cancel()
+	cmd := gitCmd(ctx, "-C", gitDir, "rev-list", "--count", ref)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, wrapExecErr(err)
@@ -104,7 +108,7 @@ func CountCommits(ctx context.Context, gitDir, ref string) (int, error) {
 
 // CommitExists reports whether sha resolves to a commit in this repository.
 func CommitExists(ctx context.Context, gitDir, sha string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-e", sha+"^{commit}")
+	cmd := gitCmd(ctx, "-C", gitDir, "cat-file", "-e", sha+"^{commit}")
 	if _, err := cmd.Output(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && isMissingGitObjectError(ee.Stderr) {
@@ -133,7 +137,7 @@ func WeeklyCommitActivity(ctx context.Context, gitDir, ref string, bucketCount i
 	end := weekStart.AddDate(0, 0, 7)
 
 	//nolint:gosec // G204: gitDir is constrained by RepoFS path validation; ref is an argv value.
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "log",
+	cmd := gitCmd(ctx, "-C", gitDir, "log",
 		"--format=%ct",
 		"--since="+start.Format(time.RFC3339),
 		"--until="+end.Format(time.RFC3339),
@@ -233,7 +237,7 @@ func GetCommit(ctx context.Context, gitDir, sha string) (CommitDetail, error) {
 		"%cn", "%ce", "%ct", "%P", "%T", "%s",
 	}, sep) + sep + "%B"
 
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir,
+	cmd := gitCmd(ctx, "-C", gitDir,
 		"log", "-1", "--format="+format, sha, "--")
 	out, err := cmd.Output()
 	if err != nil {
@@ -302,13 +306,13 @@ func DiffStat(ctx context.Context, gitDir, sha string) ([]FileChange, error) {
 	// `--root` makes the initial (parentless) commit show its files
 	// against the empty tree; without it diff-tree emits nothing for
 	// root commits.
-	nsOut, err := exec.CommandContext(ctx, "git", "-C", gitDir,
+	nsOut, err := gitCmd(ctx, "-C", gitDir,
 		"diff-tree", "-r", "--root", "--name-status", "--no-commit-id", "-M", "-C", sha).Output()
 	if err != nil {
 		return nil, wrapExecErr(err)
 	}
 	// --numstat: "<add>\t<del>\t<path>" or "-\t-\t<path>" for binary.
-	numOut, err := exec.CommandContext(ctx, "git", "-C", gitDir,
+	numOut, err := gitCmd(ctx, "-C", gitDir,
 		"diff-tree", "-r", "--root", "--numstat", "--no-commit-id", "-M", "-C", sha).Output()
 	if err != nil {
 		return nil, wrapExecErr(err)
@@ -390,7 +394,7 @@ func ChangedPaths(ctx context.Context, gitDir, before, after string) ([]string, 
 	if isZeroSHAGit(before) {
 		return ListAllPaths(ctx, gitDir, after)
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", gitDir,
+	out, err := gitCmd(ctx, "-C", gitDir,
 		"diff", "--name-only", "-z", before+".."+after).Output()
 	if err != nil {
 		var ee *exec.ExitError
