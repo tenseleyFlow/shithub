@@ -87,10 +87,31 @@ func NewTestDB(t testing.TB) *pgxpool.Pool {
 
 // ensureTemplate creates the template database (if absent) and applies all
 // migrations to it. Idempotent: subsequent runs reuse the existing template.
+// templateLockKey is the pg_advisory_lock key that serializes template
+// setup across test *processes*. templateOnce only covers one process,
+// but `go test ./...` runs packages concurrently against the same
+// Postgres, and two packages migrating the template at once collide
+// on CREATE TYPE / CREATE INDEX (SQLSTATE 23505 / 42P07).
+const templateLockKey int64 = 7413200902
+
 func ensureTemplate(bootURL string) (string, error) {
 	const name = "shithub_test_template"
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	// Hold a session-level advisory lock on the boot connection for the
+	// whole create+migrate sequence. The lock lives on this connection,
+	// so it must stay open until we are done; migrations use their own
+	// connection to the template database.
+	lockConn, err := pgx.Connect(ctx, bootURL)
+	if err != nil {
+		return "", fmt.Errorf("dbtest: connect: %w", err)
+	}
+	defer func() { _ = lockConn.Close(context.Background()) }()
+	if _, err := lockConn.Exec(ctx, "SELECT pg_advisory_lock($1)", templateLockKey); err != nil {
+		return "", fmt.Errorf("dbtest: template lock: %w", err)
+	}
+	defer func() { _, _ = lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", templateLockKey) }()
 
 	exists, err := dbExists(ctx, bootURL, name)
 	if err != nil {
@@ -101,18 +122,14 @@ func ensureTemplate(bootURL string) (string, error) {
 			return "", err
 		}
 	}
-
-	// Apply migrations to the template.
 	tplURL := replaceDBName(bootURL, name)
 	if err := db.Migrate(ctx, db.Config{URL: tplURL}, db.MigrateUp); err != nil {
 		return "", fmt.Errorf("dbtest: migrate template: %w", err)
 	}
-
-	// Mark the database as a template so CREATE ... TEMPLATE works without
-	// requiring superuser. (PG allows a non-template database as TEMPLATE
-	// when no other connections exist; marking it explicitly is cleaner.)
+	// Marking IS_TEMPLATE lets non-superusers clone it; ignore failures
+	// (e.g. insufficient privilege) because cloning by the owner works
+	// regardless.
 	if err := execBoot(bootURL, "ALTER DATABASE "+quoteIdent(name)+" IS_TEMPLATE TRUE"); err != nil {
-		// Some Postgres versions/configs reject this; tolerate.
 		_ = err
 	}
 	return name, nil
