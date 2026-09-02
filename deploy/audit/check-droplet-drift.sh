@@ -37,6 +37,11 @@ declare -a MANAGED=(
   "/etc/alloy/credentials.env::TEMPLATE"
   "/etc/systemd/system/alloy.service.d/shithub.conf::TEMPLATE"
   "/etc/postgresql/16/main/conf.d/99_shithub_archive.conf::TEMPLATE"
+  # Known drift, tracked deliberately: the box runs Debian defaults
+  # here. deploy/ansible/roles/postgres/templates/postgresql.conf.j2
+  # has never been applied (see docs/internal/db.md); applying it needs
+  # a Postgres restart in the 05:15-06:00 window, not a `make deploy`.
+  "/etc/postgresql/16/main/postgresql.conf::TEMPLATE"
   "/etc/aide/aide.conf.d/99_shithub_exclude::deploy/ansible/roles/base/files/aide-shithub.conf"
   "/etc/cron.daily/aide::TEMPLATE"
   "/etc/caddy/Caddyfile::TEMPLATE"
@@ -44,10 +49,32 @@ declare -a MANAGED=(
   "/etc/fail2ban/filter.d/shithubd-auth.conf::TEMPLATE"
   "/etc/systemd/system/shithubd-web.service::TEMPLATE"
   "/etc/systemd/system/shithubd-worker.service::TEMPLATE"
+  # Known drift: web.env carries a hand-edited Stripe block that is
+  # not in web.env.j2. A `make deploy` re-renders this file from the
+  # template and WILL drop those keys — see KNOWN_DRIFT below.
   "/etc/shithub/web.env::TEMPLATE"
   "/etc/shithub/worker.env::TEMPLATE"
   "/etc/ssh/sshd_config::TEMPLATE"
 )
+
+# Paths whose drift is known and accepted. Reported as KNOWN rather
+# than silently passing: the point is that the next operator reads the
+# reason instead of rediscovering it.
+declare -a KNOWN_DRIFT=(
+  "/etc/postgresql/16/main/postgresql.conf::postgresql.conf.j2 has never been applied; needs a restart, see docs/internal/db.md"
+  "/etc/shithub/web.env::hand-edited Stripe block not present in web.env.j2; a full deploy re-renders this file and drops it"
+)
+
+known_drift_note() {
+  local entry
+  for entry in "${KNOWN_DRIFT[@]}"; do
+    if [ "${entry%%::*}" = "$1" ]; then
+      printf '%s' "${entry##*::}"
+      return 0
+    fi
+  done
+  return 1
+}
 
 DRIFT_COUNT=0
 
@@ -94,7 +121,11 @@ while IFS='|' read -r dpath status remote_md5 remote_stat; do
   fi
 
   if [ "$src" = "TEMPLATE" ]; then
-    printf "%-60s  \033[36m%-10s\033[0m  %s  (template — manual check)\n" "$dpath" "TEMPLATE" "$remote_stat"
+    if note=$(known_drift_note "$dpath"); then
+      printf "%-60s  \033[33m%-10s\033[0m  %s\n" "$dpath" "KNOWN" "$note"
+    else
+      printf "%-60s  \033[36m%-10s\033[0m  %s  (template — manual check)\n" "$dpath" "TEMPLATE" "$remote_stat"
+    fi
     continue
   fi
 
@@ -120,4 +151,6 @@ if [ "$DRIFT_COUNT" -gt 0 ]; then
   exit 1
 fi
 echo "No drift detected on copy: files. TEMPLATE rows still need manual review."
+echo "KNOWN rows are accepted drift with a reason attached — do not 'fix' one"
+echo "by running a full deploy without reading the note."
 exit 0
