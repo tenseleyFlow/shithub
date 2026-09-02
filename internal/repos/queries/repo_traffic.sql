@@ -100,7 +100,7 @@ WHERE ctid IN (
 
 -- name: PurgeRepoTrafficPathsBatch :execrows
 -- Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
--- repo_traffic_paths_day_idx (0127).
+-- repo_traffic_paths_day_idx (0129).
 DELETE FROM repo_traffic_paths
 WHERE ctid IN (
     SELECT ctid
@@ -111,7 +111,7 @@ WHERE ctid IN (
 
 -- name: PurgeRepoTrafficReferrersBatch :execrows
 -- Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
--- repo_traffic_referrers_day_idx (0127).
+-- repo_traffic_referrers_day_idx (0129).
 DELETE FROM repo_traffic_referrers
 WHERE ctid IN (
     SELECT ctid

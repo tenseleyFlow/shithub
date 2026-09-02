@@ -217,7 +217,7 @@ type PurgeRepoTrafficPathsBatchParams struct {
 }
 
 // Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
-// repo_traffic_paths_day_idx (0127).
+// repo_traffic_paths_day_idx (0129).
 func (q *Queries) PurgeRepoTrafficPathsBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficPathsBatchParams) (int64, error) {
 	result, err := db.Exec(ctx, purgeRepoTrafficPathsBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
@@ -242,7 +242,7 @@ type PurgeRepoTrafficReferrersBatchParams struct {
 }
 
 // Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
-// repo_traffic_referrers_day_idx (0127).
+// repo_traffic_referrers_day_idx (0129).
 func (q *Queries) PurgeRepoTrafficReferrersBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficReferrersBatchParams) (int64, error) {
 	result, err := db.Exec(ctx, purgeRepoTrafficReferrersBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {

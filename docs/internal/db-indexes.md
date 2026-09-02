@@ -101,9 +101,9 @@ rows for a 1M-row table; "medium" 1–10k; "low" most-of-the-table.
 | `repo_traffic_daily` PK `(repo_id, day)` | Traffic chart for one repo | high | UPSERT hot path |
 | `repo_traffic_daily_day_idx (day DESC)` | 400-day retention purge | low | scan-friendly |
 | `repo_traffic_paths` PK `(repo_id, day, path)` | popular-content rollup | high | UPSERT hot path |
-| `repo_traffic_paths_day_idx (day)` | 30-day retention purge | low | 0127; without it every purge batch is a seq scan |
+| `repo_traffic_paths_day_idx (day)` | 30-day retention purge | low | 0129; without it every purge batch is a seq scan |
 | `repo_traffic_referrers` PK `(repo_id, day, referrer)` | referrer rollup | high | UPSERT hot path |
-| `repo_traffic_referrers_day_idx (day)` | 30-day retention purge | low | 0127 |
+| `repo_traffic_referrers_day_idx (day)` | 30-day retention purge | low | 0129 |
 | `repo_traffic_uniques` PK `(repo_id, day, metric, key, visitor_hash)` | dedupe a visitor within a day | high | INSERT ... ON CONFLICT DO NOTHING, one per pageview |
 | `repo_traffic_uniques_created_idx (created_at)` | 30-day retention purge | low | 0112; the purge filters this table on `created_at` rather than `day` so it can reuse this index instead of adding a second one to a table that takes an insert per pageview |
 

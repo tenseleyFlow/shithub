@@ -282,10 +282,10 @@ type Querier interface {
 	// than the per-path and per-visitor tables.
 	PurgeRepoTrafficDailyBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficDailyBatchParams) (int64, error)
 	// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
-	// repo_traffic_paths_day_idx (0127).
+	// repo_traffic_paths_day_idx (0129).
 	PurgeRepoTrafficPathsBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficPathsBatchParams) (int64, error)
 	// Batched retention purge; see PurgeRepoTrafficUniquesBatch. Uses
-	// repo_traffic_referrers_day_idx (0127).
+	// repo_traffic_referrers_day_idx (0129).
 	PurgeRepoTrafficReferrersBatch(ctx context.Context, db DBTX, arg PurgeRepoTrafficReferrersBatchParams) (int64, error)
 	// Retention purge for the `traffic:purge` worker job: deletes at most
 	// batch_size rows so a first run over a multi-million-row backlog never
