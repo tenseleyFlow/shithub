@@ -89,14 +89,22 @@ All exported through the standard `/metrics` registry:
 
 ## Operational notes
 
-* Default pool size is 4. Override via `--workers <n>` on the CLI or
-  `SHITHUB_WORKERS=<n>` in the environment.
+* Default pool size is `worker.DefaultWorkers` (4). Override via
+  `--workers <n>` on the CLI or `SHITHUB_WORKERS=<n>` in the
+  environment; the CLI flag wins. `cmd/shithubd/worker.go`'s
+  `resolveWorkerCount` applies that precedence *before* the pgx pool
+  is opened (see below) and clamps the result to 64.
 * Graceful shutdown: SIGINT/SIGTERM cancels the root context. Workers
   stop pulling new jobs and let in-flight handlers finish (bounded by
   `JobTimeout`, default 5 minutes). The LISTEN goroutine drops its
   conn cleanly.
-* The pool size on the Postgres connection is sized to `Workers + 2`
-  (one for LISTEN, one slack for enqueues during shutdown).
+* The Postgres connection pool is sized to `Workers + 2` (one for
+  LISTEN, one slack for enqueues during shutdown), using the
+  *resolved* worker count. Until the 2026-09-02 availability fix the
+  sizing read the raw flag/env instead, so a deploy with
+  `SHITHUB_WORKERS` unset opened a 2-connection pool and then ran 4
+  workers against it — one connection permanently held by LISTEN.
+  Ansible now sets `SHITHUB_WORKERS` explicitly in `worker.env`.
 * `LISTEN/NOTIFY` semantics: when the hook calls `pg_notify` inside a
   transaction, the notification is *only* delivered after commit. So
   failed inserts never wake workers for nothing.

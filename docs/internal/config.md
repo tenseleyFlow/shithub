@@ -83,6 +83,18 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `billing.enforce.user_advanced_branch_protection` | bool | `false` | Hard-enforce the Pro gate for advanced branch protection on private personal repos. |
 | `billing.enforce.user_profile_pins_beyond_free` | bool | `false` | Hard-enforce the Pro gate for profile pins above the Free cap. |
 
+## Env-only knobs
+
+A couple of settings are read straight from the environment rather
+than through the loader above, so they have no TOML key and do not
+appear in `config print`:
+
+| Env var | Default | Notes |
+|---|---|---|
+| `SHITHUB_WORKERS` | `4` | Worker-pool size for `shithubd worker`. `--workers <n>` overrides it; values are clamped to 64. The pgx pool is sized to this + 2, so it also sets the worker's connection budget — see `docs/internal/worker.md`. |
+| `SHITHUB_CONFIG` | `/etc/shithub/config.toml` | Path to the TOML layer. |
+| `SHITHUB_SESSION_KEY`, `SHITHUB_TOTP_KEY`, `SHITHUB_DATABASE_URL` | — | Aliases for the config keys listed above, not separate settings. |
+
 ## Env-var examples
 
 ```sh

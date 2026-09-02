@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,16 +73,19 @@ var workerCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		// Worker count: flag overrides env override default.
-		count := workersFlag
-		if count <= 0 {
-			if v, _ := strconv.Atoi(os.Getenv("SHITHUB_WORKERS")); v > 0 {
-				count = v
-			}
-		}
+		// Worker count has to be *resolved* here, not left for
+		// NewPool: the pgx pool below is sized off it. Pre-fix this
+		// read the raw flag/env (zero in prod, where SHITHUB_WORKERS
+		// was never set), opened a 2-conn pool, and then NewPool
+		// defaulted to 4 workers — four goroutines contending for two
+		// connections, one of which the LISTEN goroutine holds for
+		// the process lifetime.
+		count := resolveWorkerCount(workersFlag, os.Getenv("SHITHUB_WORKERS"))
 
+		//nolint:gosec // G115: count is clamped to [1, maxWorkerCount] by resolveWorkerCount.
+		maxConns := int32(count) + 2
 		pool, err := db.Open(ctx, db.Config{
-			URL: cfg.DB.URL, MaxConns: int32(count) + 2, MinConns: 1,
+			URL: cfg.DB.URL, MaxConns: maxConns, MinConns: 1,
 		})
 		if err != nil {
 			return fmt.Errorf("db: %w", err)
@@ -89,6 +93,8 @@ var workerCmd = &cobra.Command{
 		defer pool.Close()
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		logger.Info("worker: pool sizing resolved",
+			"workers", count, "db_max_conns", maxConns)
 		objectStore, err := buildWorkerObjectStore(cfg.Storage.S3, logger)
 		if err != nil {
 			return fmt.Errorf("object storage: %w", err)
@@ -325,8 +331,35 @@ var workerCmd = &cobra.Command{
 }
 
 func init() {
-	workerCmd.Flags().Int("workers", 0, "Number of worker goroutines (default 4)")
+	workerCmd.Flags().Int("workers", 0,
+		fmt.Sprintf("Number of worker goroutines (default %d)", worker.DefaultWorkers))
 	rootCmd.AddCommand(workerCmd)
+}
+
+// maxWorkerCount caps the resolved worker count. A fat-fingered
+// SHITHUB_WORKERS=1000 would otherwise ask pgx for 1002 connections
+// and get rejected by Postgres' max_connections at startup, taking
+// the whole worker unit into a restart loop.
+const maxWorkerCount = 64
+
+// resolveWorkerCount applies the documented precedence — CLI flag,
+// then SHITHUB_WORKERS, then worker.DefaultWorkers — and clamps the
+// result. Callers need the concrete number before NewPool sees it
+// because the pgx pool is sized to count+2.
+func resolveWorkerCount(flag int, env string) int {
+	count := flag
+	if count <= 0 {
+		if v, err := strconv.Atoi(strings.TrimSpace(env)); err == nil && v > 0 {
+			count = v
+		}
+	}
+	if count <= 0 {
+		count = worker.DefaultWorkers
+	}
+	if count > maxWorkerCount {
+		count = maxWorkerCount
+	}
+	return count
 }
 
 func buildWorkerObjectStore(s config.S3StorageConfig, logger *slog.Logger) (storage.ObjectStore, error) {
