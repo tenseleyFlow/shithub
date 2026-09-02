@@ -35,7 +35,7 @@ unverified destinations).
 
 ### Uptime check `shithub.sh`
 
-`https://shithub.sh` probed every minute from `us_east` and
+`https://shithub.sh/healthz` probed every minute from `us_east` and
 `eu_west`. Three alerts hang off it:
 
 | Name | Type | Threshold | Period |
@@ -53,6 +53,23 @@ positives on a previous setup.
 auto-renew if it doesn't fire on its own. Caddy's renewal window
 is normally 30 days before expiry, so by the time this alert
 fires we're already off the happy path.
+
+**The probe must target `/healthz`, not `/`.** `/healthz` is
+registered in the CSRF-exempt group in
+`internal/web/handlers/handlers.go` alongside `/static` and
+`/robots.txt`: it is outside the HTML rate-limiter group, makes no
+database call, and renders no template. `/` is inside that group,
+so when one crawler exhausts the anonymous bucket the probe gets a
+429 and DO reports the site down. That was the source of the false
+"site down" emails through 2026-09-02 — 118 of 449 probe requests
+in one log file were 429s. `/readyz` is not a substitute: it pings
+Postgres, so a slow database turns a degradation into an outage
+page.
+
+`doctl` cannot change an uptime check's target in place. To
+repoint an existing check: `doctl monitoring uptime delete
+<check-id>` then re-run `provision-do-alerts.sh`, which recreates
+the check and its three alerts against the `/healthz` default.
 
 ## When an alert fires
 
@@ -74,11 +91,15 @@ fires we're already off the happy path.
    - **Disk > 80%** — first check `du -sh /var/log/* /data/* /root/*
      /var/lib/postgresql/* | sort -h`. Most likely Postgres logs
      accumulating; check `log_rotation_age`.
-   - **Load1 > 4** for a 4-vCPU droplet means we're saturated. If
+   - **Load1 > 4** on this 2-vCPU droplet means we're saturated. If
      it's also a CPU alert, same diagnosis. If load is high but CPU
      isn't, look at I/O wait (`top` → `1` to expand cores → `wa`).
-   - **down_global** — `curl -v https://shithub.sh/` from your
-     laptop. Caddy log: `ssh root@shithub.sh 'tail -100
+   - **down_global** — `curl -v https://shithub.sh/healthz` from
+     your laptop, then `curl -v https://shithub.sh/`. A 429 on `/`
+     with a 200 on `/healthz` means the anonymous rate-limit bucket
+     is exhausted, not that the site is down: check
+     `ratelimit.html_throttled` lines in `journalctl -u
+     shithubd-web` for the offending key. Caddy log: `ssh root@shithub.sh 'tail -100
      /var/log/caddy/access.log | jq .'`. shithubd journal:
      `journalctl -u shithubd-web -n 100`.
    - **ssl_expiry** — `ssh root@shithub.sh 'systemctl status caddy;

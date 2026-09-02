@@ -3,6 +3,7 @@
 package config
 
 import (
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -427,5 +428,98 @@ func TestPprofAddrFromEnv(t *testing.T) {
 	}
 	if cfg.Web.PprofAddr != "127.0.0.1:6060" {
 		t.Fatalf("web.pprof_addr = %q, want 127.0.0.1:6060", cfg.Web.PprofAddr)
+	}
+}
+
+// TestDefaults_TrustedProxies pins the reference-deployment default:
+// Caddy proxies from loopback, so loopback is trusted out of the box.
+// Without it every anonymous request behind the proxy keys on
+// 127.0.0.1 and shares one rate-limit bucket.
+func TestDefaults_TrustedProxies(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	want := []string{"127.0.0.0/8", "::1/128"}
+	if len(cfg.Web.TrustedProxies) != len(want) {
+		t.Fatalf("Web.TrustedProxies: got %v, want %v", cfg.Web.TrustedProxies, want)
+	}
+	for i, w := range want {
+		if cfg.Web.TrustedProxies[i] != w {
+			t.Errorf("Web.TrustedProxies[%d]: got %q, want %q", i, cfg.Web.TrustedProxies[i], w)
+		}
+	}
+	nets, err := cfg.Web.TrustedProxyNets()
+	if err != nil {
+		t.Fatalf("TrustedProxyNets: %v", err)
+	}
+	if len(nets) != 2 {
+		t.Fatalf("TrustedProxyNets: got %d nets, want 2", len(nets))
+	}
+	if !nets[0].Contains(net.ParseIP("127.0.0.1")) {
+		t.Errorf("TrustedProxyNets[0] does not contain 127.0.0.1")
+	}
+	if !nets[1].Contains(net.ParseIP("::1")) {
+		t.Errorf("TrustedProxyNets[1] does not contain ::1")
+	}
+}
+
+func TestMergeEnv_TrustedProxiesCommaSeparated(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	env := []string{"SHITHUB_WEB__TRUSTED_PROXIES=10.0.0.0/8, 172.16.0.0/12 ,"}
+	if err := mergeEnv(&cfg, env); err != nil {
+		t.Fatalf("mergeEnv: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "172.16.0.0/12"}
+	if len(cfg.Web.TrustedProxies) != len(want) {
+		t.Fatalf("Web.TrustedProxies: got %v, want %v", cfg.Web.TrustedProxies, want)
+	}
+	for i, w := range want {
+		if cfg.Web.TrustedProxies[i] != w {
+			t.Errorf("Web.TrustedProxies[%d]: got %q, want %q", i, cfg.Web.TrustedProxies[i], w)
+		}
+	}
+}
+
+// An explicitly empty value turns the default off — the operator's
+// way of saying "there is no proxy in front of me".
+func TestMergeEnv_TrustedProxiesEmptyDisables(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if err := mergeEnv(&cfg, []string{"SHITHUB_WEB__TRUSTED_PROXIES="}); err != nil {
+		t.Fatalf("mergeEnv: %v", err)
+	}
+	if len(cfg.Web.TrustedProxies) != 0 {
+		t.Fatalf("Web.TrustedProxies: got %v, want empty", cfg.Web.TrustedProxies)
+	}
+}
+
+func TestTrustedProxyNets_BareIPAndErrors(t *testing.T) {
+	t.Parallel()
+	nets, err := WebConfig{TrustedProxies: []string{"10.0.0.7", "2001:db8::1"}}.TrustedProxyNets()
+	if err != nil {
+		t.Fatalf("TrustedProxyNets: %v", err)
+	}
+	if len(nets) != 2 {
+		t.Fatalf("got %d nets, want 2", len(nets))
+	}
+	if !nets[0].Contains(net.ParseIP("10.0.0.7")) || nets[0].Contains(net.ParseIP("10.0.0.8")) {
+		t.Errorf("bare IPv4 did not become a /32: %v", nets[0])
+	}
+	if !nets[1].Contains(net.ParseIP("2001:db8::1")) || nets[1].Contains(net.ParseIP("2001:db8::2")) {
+		t.Errorf("bare IPv6 did not become a /128: %v", nets[1])
+	}
+
+	if _, err := (WebConfig{TrustedProxies: []string{"not-an-ip"}}).TrustedProxyNets(); err == nil {
+		t.Fatal("TrustedProxyNets: want error for malformed entry")
+	}
+}
+
+func TestValidate_RejectsBadTrustedProxy(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Web.TrustedProxies = []string{"127.0.0.0/8", "300.1.2.3/24"}
+	err := Validate(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "web.trusted_proxies") {
+		t.Fatalf("Validate: got %v, want web.trusted_proxies error", err)
 	}
 }

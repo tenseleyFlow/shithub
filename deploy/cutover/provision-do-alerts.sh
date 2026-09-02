@@ -14,7 +14,7 @@
 #     - Disk > 80% for 10m
 #     - Load1 > 4 for 10m
 #
-#   Uptime check (https://shithub.sh from us_east + eu_west) plus:
+#   Uptime check (https://shithub.sh/healthz from us_east + eu_west) plus:
 #     - down_global → page on full outage (not single-region blip)
 #     - ssl_expiry < 14d → catch a Caddy auto-renew failure with buffer
 #     - latency p95 > 2s
@@ -34,7 +34,12 @@ set -euo pipefail
 
 DROPLET_NAME="${DROPLET_NAME:-shithub-app}"
 EMAIL="${ALERT_EMAIL:-$(doctl account get --output json | jq -r '.email')}"
-UPTIME_TARGET="${UPTIME_TARGET:-https://shithub.sh}"
+# Probe /healthz, not /. /healthz is a static 200 outside the HTML
+# rate-limiter group and touches no database, so the probe cannot
+# be throttled into a false "site down" page. An existing check
+# pointed at / must be deleted and recreated — doctl cannot edit
+# an uptime check's target in place.
+UPTIME_TARGET="${UPTIME_TARGET:-https://shithub.sh/healthz}"
 UPTIME_NAME="${UPTIME_NAME:-shithub.sh}"
 
 if ! command -v doctl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then

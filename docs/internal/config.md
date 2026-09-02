@@ -29,6 +29,7 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `web.write_timeout` | duration | `30s` | Per-request write timeout. |
 | `web.shutdown_timeout` | duration | `10s` | Graceful drain on SIGTERM. |
 | `web.pprof_addr` | string | `""` | When set, `shithubd web` starts a *separate* listener serving only `net/http/pprof`. Empty disables it. Must be a loopback IP literal + port (`127.0.0.1:6060`, `[::1]:6060`); hostnames and non-loopback addresses are refused at startup. Never mounted on the main router. See `runbooks/observability.md`. |
+| `web.trusted_proxies` | []string | `127.0.0.0/8, ::1/128` | CIDR blocks (or bare IPs) whose `X-Forwarded-For` header is honoured when resolving the client IP. Requests from anywhere else key on their own `RemoteAddr`. Comma-separated in env form; set it to the empty string when nothing proxies to shithub. |
 | `db.url` | string | `""` | Postgres DSN. Aliased by `SHITHUB_DATABASE_URL`. |
 | `db.max_conns` | int | `10` | pgxpool max conns. |
 | `db.min_conns` | int | `0` | pgxpool min conns. |
@@ -104,6 +105,10 @@ export SHITHUB_WEB__ADDR=:9090
 
 # Loopback-only pprof listener (off by default)
 export SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060
+# Trust the reverse proxy in front (comma-separated CIDRs). The
+# default already covers a loopback Caddy/nginx; widen it only to
+# networks you control, since a trusted hop can set any client IP.
+export SHITHUB_WEB__TRUSTED_PROXIES=127.0.0.0/8,::1/128
 
 # Connect to Postgres
 export SHITHUB_DATABASE_URL=postgres://shithub:dev@127.0.0.1:5432/shithub?sslmode=disable

@@ -125,8 +125,17 @@ func burstToPolicy(scope string, burst, refillPerSec int) ratelimit.Policy {
 
 // pickHTMLBucket selects the (policy, key) pair for the request.
 // Authenticated viewers bucket by user id; everyone else buckets
-// by IP. Returns a zero policy + empty key when no key is
-// derivable — the caller treats that as fail-open.
+// by the client's /24 (v4) or /48 (v6) network. Returns a zero
+// policy + empty key when no key is derivable — the caller treats
+// that as fail-open.
+//
+// The anonymous tier is deliberately coarser than one bucket per
+// address. Commercial crawlers rotate source addresses inside a
+// single allocation (Meta's externalagent walks every commit SHA
+// from 57.141.2.0/24), so a per-address key hands each rotation a
+// fresh 60-hit budget and the tier stops bounding anything. The
+// cost is that a large NAT shares one budget; authenticated users
+// behind it are unaffected because they key by user id.
 func pickHTMLBucket(r *http.Request, user CurrentUser, anon, authed ratelimit.Policy) (ratelimit.Policy, string) {
 	if !user.IsAnonymous() {
 		return authed, "user:" + strconv.FormatInt(user.ID, 10)
@@ -135,7 +144,7 @@ func pickHTMLBucket(r *http.Request, user CurrentUser, anon, authed ratelimit.Po
 	if ip == "" {
 		return anon, ""
 	}
-	return anon, "anon:" + ip
+	return anon, "anon:" + ratelimit.NetworkKey(ip)
 }
 
 // writeHTMLThrottle renders the 429 response body. Browsers get a

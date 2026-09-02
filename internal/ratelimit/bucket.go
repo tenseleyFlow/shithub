@@ -227,6 +227,27 @@ func max0(n int) int {
 	return n
 }
 
+// NetworkKey masks ip to its /24 (v4) or /48 (v6) network and renders
+// it in CIDR form for use as a rate-limit bucket key. Callers that
+// bucket anonymous traffic by network use this so a crawler pool
+// rotating addresses within one allocation shares a single budget
+// instead of minting a fresh bucket per source address.
+//
+// An unparseable ip is returned unchanged: the caller still gets a
+// stable key, just a per-host one.
+func NetworkKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap()
+	masked := maskToNetwork(addr)
+	if masked.Is4() {
+		return masked.String() + "/24"
+	}
+	return masked.String() + "/48"
+}
+
 // maskToNetwork zeros the host bits of ip so per-/24 (v4) or /48 (v6)
 // throttle keys collapse to one network row. The choice of /24 + /48
 // matches GitHub's reported anti-abuse defaults.
