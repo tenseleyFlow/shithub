@@ -169,6 +169,34 @@ func TestMaskToNetwork(t *testing.T) {
 	}
 }
 
+func TestNetworkKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		in, want string
+	}{
+		{"v4 host bits zeroed", "57.141.2.200", "57.141.2.0/24"},
+		{"v4 same network as above", "57.141.2.9", "57.141.2.0/24"},
+		{"v4 different network", "57.141.3.9", "57.141.3.0/24"},
+		{"v6 masked to /48", "2001:db8:dead:beef::1", "2001:db8:dead::/48"},
+		{"v6 same /48", "2001:db8:dead:0:1234::9", "2001:db8:dead::/48"},
+		{"ipv4-mapped v6 unwraps to v4", "::ffff:57.141.2.200", "57.141.2.0/24"},
+		// Unparseable input keeps the caller's key stable rather
+		// than collapsing every bad value into one shared bucket.
+		{"garbage passes through", "not-an-ip", "not-an-ip"},
+		{"empty passes through", "", ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := NetworkKey(tc.in); got != tc.want {
+				t.Errorf("NetworkKey(%q) = %q; want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAllowSignupIP(t *testing.T) {
 	t.Parallel()
 	l := New(dbtest.NewTestDB(t))

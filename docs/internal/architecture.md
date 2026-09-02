@@ -63,15 +63,21 @@ Cross-cutting:
 
 ## Request lifecycle (web)
 
-1. Caddy terminates TLS, forwards to `127.0.0.1:8080`.
+1. Caddy terminates TLS, forwards to `127.0.0.1:8080`, appending
+   the client to `X-Forwarded-For`.
 2. The chi router matches the route. Middleware stack on every
    request:
    - Request ID + access log
+   - Real IP — resolves the client address by walking
+     `X-Forwarded-For` rightwards, honouring it only for hops
+     inside `web.trusted_proxies` (default: loopback). Everything
+     below that keys on the result, so the trust list is what
+     keeps rate-limit buckets from collapsing into one.
    - `OptionalUser` (resolves session cookie or anon)
    - CSRF (nosurf-derived) — enabled by default; `/api/v1/` and
      git transports are explicit exemptions
-   - Rate limit (per-IP for anon, per-user for logged-in on hot
-     paths)
+   - Rate limit (per-/24 or /48 network for anon, per-user for
+     logged-in, on hot paths)
 3. Auth-gated routes have `RequireUser` or `RequireSiteAdmin`
    middleware in their group.
 4. The handler resolves the domain object, calls `policy.Can(...)`

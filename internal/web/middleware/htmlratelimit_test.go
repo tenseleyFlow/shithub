@@ -4,6 +4,7 @@ package middleware
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -165,35 +166,84 @@ func TestHTMLRateLimit_SiteAdminBypasses(t *testing.T) {
 	}
 }
 
-func TestHTMLRateLimit_DistinctIPsAreIndependent(t *testing.T) {
-	t.Parallel()
-	f := newHTMLLimitFixture(t, HTMLRateLimitConfig{
-		AnonBurst: 1, AnonRefill: 1, AuthedBurst: 100, AuthedRefill: 10,
-	})
-	// First IP burns its single-hit allowance.
+// anonFrom serves one anonymous request originating from ip.
+func (f *htmlLimitFixture) anonFrom(ip string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "203.0.113.1:1111"
+	req.RemoteAddr = net.JoinHostPort(ip, "1111")
 	req.Header.Set("Accept", "text/html")
 	req = req.WithContext(context.WithValue(req.Context(), currentUserKey, CurrentUser{}))
 	rw := httptest.NewRecorder()
 	f.chain.ServeHTTP(rw, req)
-	if rw.Code != http.StatusOK {
-		t.Fatalf("first IP first hit: status=%d, want 200", rw.Code)
+	return rw
+}
+
+func TestHTMLRateLimit_DistinctNetworksAreIndependent(t *testing.T) {
+	t.Parallel()
+	f := newHTMLLimitFixture(t, HTMLRateLimitConfig{
+		AnonBurst: 1, AnonRefill: 1, AuthedBurst: 100, AuthedRefill: 10,
+	})
+	// First network burns its single-hit allowance.
+	if rw := f.anonFrom("203.0.113.1"); rw.Code != http.StatusOK {
+		t.Fatalf("first network first hit: status=%d, want 200", rw.Code)
 	}
-	rw = httptest.NewRecorder()
-	f.chain.ServeHTTP(rw, req)
-	if rw.Code != http.StatusTooManyRequests {
-		t.Fatalf("first IP second hit: status=%d, want 429", rw.Code)
+	if rw := f.anonFrom("203.0.113.1"); rw.Code != http.StatusTooManyRequests {
+		t.Fatalf("first network second hit: status=%d, want 429", rw.Code)
 	}
-	// Second IP should still be at full allowance.
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	req2.RemoteAddr = "203.0.113.2:2222"
-	req2.Header.Set("Accept", "text/html")
-	req2 = req2.WithContext(context.WithValue(req2.Context(), currentUserKey, CurrentUser{}))
-	rw2 := httptest.NewRecorder()
-	f.chain.ServeHTTP(rw2, req2)
-	if rw2.Code != http.StatusOK {
-		t.Fatalf("second IP: status=%d, want 200", rw2.Code)
+	// A different /24 is still at full allowance.
+	if rw := f.anonFrom("198.51.100.2"); rw.Code != http.StatusOK {
+		t.Fatalf("second network: status=%d, want 200", rw.Code)
+	}
+}
+
+// A rotating crawler pool inside one /24 must share a budget — the
+// whole reason the anonymous tier keys by network. Meta's
+// externalagent rotates within 57.141.2.0/24; per-address keys gave
+// each rotation a fresh 60-hit allowance.
+func TestHTMLRateLimit_SameNetworkSharesBucket(t *testing.T) {
+	t.Parallel()
+	f := newHTMLLimitFixture(t, HTMLRateLimitConfig{
+		AnonBurst: 1, AnonRefill: 1, AuthedBurst: 100, AuthedRefill: 10,
+	})
+	if rw := f.anonFrom("57.141.2.9"); rw.Code != http.StatusOK {
+		t.Fatalf("first address: status=%d, want 200", rw.Code)
+	}
+	if rw := f.anonFrom("57.141.2.200"); rw.Code != http.StatusTooManyRequests {
+		t.Fatalf("rotated address in the same /24: status=%d, want 429", rw.Code)
+	}
+}
+
+// Authenticated viewers keep their per-user key, so a user behind a
+// NAT whose /24 is exhausted by a crawler is unaffected.
+func TestPickHTMLBucket_Keys(t *testing.T) {
+	t.Parallel()
+	anon := ratelimit.Policy{Scope: "html:anon", Max: 60}
+	authed := ratelimit.Policy{Scope: "html:authed", Max: 600}
+
+	tests := []struct {
+		name      string
+		user      CurrentUser
+		ip        string
+		wantScope string
+		wantKey   string
+	}{
+		{"anon v4 masks to /24", CurrentUser{}, "57.141.2.200", "html:anon", "anon:57.141.2.0/24"},
+		{"anon v6 masks to /48", CurrentUser{}, "2001:db8:dead:beef::1", "html:anon", "anon:2001:db8:dead::/48"},
+		{"authed keys by user id", CurrentUser{ID: 7}, "57.141.2.200", "html:authed", "user:7"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = net.JoinHostPort(tc.ip, "1111")
+			policy, key := pickHTMLBucket(req, tc.user, anon, authed)
+			if policy.Scope != tc.wantScope {
+				t.Errorf("scope = %q, want %q", policy.Scope, tc.wantScope)
+			}
+			if key != tc.wantKey {
+				t.Errorf("key = %q, want %q", key, tc.wantKey)
+			}
+		})
 	}
 }
 
