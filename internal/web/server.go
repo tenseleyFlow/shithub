@@ -40,6 +40,7 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/version"
 	"github.com/tenseleyFlow/shithub/internal/web/handlers"
 	"github.com/tenseleyFlow/shithub/internal/web/middleware"
+	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
 // Options configures the web server. Addr overrides config when non-empty
@@ -146,9 +147,24 @@ func Run(ctx context.Context, opts Options) error {
 	r.Use(middleware.PolicyCache())
 	r.Use(middleware.EntitlementsCache())
 
+	// One renderer per process. render.New parses every page template
+	// with all partials cloned in, which costs ~83 MB of live heap; the
+	// pre-2026-09 wiring built one per handler set and carried ~660 MB
+	// of static heap, which is what OOM-killed shithubd on the 4 GB
+	// box. Every handler builder below takes this instance — do not
+	// call render.New again in the web wiring. See
+	// docs/internal/caching.md, "Renderer invariant".
+	sharedRenderer, err := render.New(TemplatesFS(), render.Options{
+		Octicons: render.BuiltinOcticons(),
+	})
+	if err != nil {
+		return fmt.Errorf("renderer: %w", err)
+	}
+
 	deps := handlers.Deps{
 		Logger:       logger,
 		TemplatesFS:  TemplatesFS(),
+		Renderer:     sharedRenderer,
 		StaticFS:     StaticFS(),
 		LogoSVG:      string(logoBytes),
 		SessionStore: sessionStore,
@@ -169,7 +185,7 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("object store: %w", err)
 		}
 
-		auth, err := buildAuthHandlers(cfg, pool, sessionStore, objectStore, logger, deps.TemplatesFS)
+		auth, err := buildAuthHandlers(cfg, pool, sessionStore, objectStore, logger, sharedRenderer)
 		if err != nil {
 			return fmt.Errorf("auth handlers: %w", err)
 		}
@@ -212,7 +228,7 @@ func Run(ctx context.Context, opts Options) error {
 			Logger:       logger,
 		})
 
-		profile, err := buildProfileHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
+		profile, err := buildProfileHandlers(cfg, pool, objectStore, sharedRenderer, logger)
 		if err != nil {
 			return fmt.Errorf("profile handlers: %w", err)
 		}
@@ -220,7 +236,7 @@ func Run(ctx context.Context, opts Options) error {
 		deps.ProfileMounter = profile.MountProfile
 		deps.OrgRepositoriesMounter = profile.MountOrgRepositories
 
-		repoH, err := buildRepoHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
+		repoH, err := buildRepoHandlers(cfg, pool, objectStore, sharedRenderer, logger)
 		if err != nil {
 			return fmt.Errorf("repo handlers: %w", err)
 		}
@@ -293,13 +309,13 @@ func Run(ctx context.Context, opts Options) error {
 		// /search/quick (audit 2026-05-10 H4). Independent instance
 		// from auth's RateLimiter; both share DB-backed counter
 		// state, segregated by Policy.Scope.
-		searchH, err := buildSearchHandlers(pool, deps.TemplatesFS, logger, ratelimit.New(pool), cfg.Billing.Enforce)
+		searchH, err := buildSearchHandlers(pool, sharedRenderer, logger, ratelimit.New(pool), cfg.Billing.Enforce)
 		if err != nil {
 			return fmt.Errorf("search handlers: %w", err)
 		}
 		deps.SearchMounter = searchH.Mount
 
-		notifH, err := buildNotifHandlers(cfg, pool, deps.TemplatesFS, logger)
+		notifH, err := buildNotifHandlers(cfg, pool, sharedRenderer, logger)
 		if err != nil {
 			return fmt.Errorf("notif handlers: %w", err)
 		}
@@ -312,7 +328,7 @@ func Run(ctx context.Context, opts Options) error {
 		deps.NotifPublicMounter = notifH.MountPublic
 
 		// S30 — orgs.
-		orgH, err := buildOrgHandlers(cfg, pool, objectStore, deps.TemplatesFS, logger)
+		orgH, err := buildOrgHandlers(cfg, pool, objectStore, sharedRenderer, logger)
 		if err != nil {
 			return fmt.Errorf("org handlers: %w", err)
 		}
@@ -350,8 +366,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		// S34 — site admin. Gated by RequireUser + RequireSiteAdmin
-		// (404 not 403 for non-admins). Uses its own renderer so the
-		// admin templates are loaded once at boot.
+		// (404 not 403 for non-admins). Shares the process renderer.
 		//
 		// Email sender is the same one auth uses; the admin "Reset
 		// password" action sends through it (SR2 C3). Version is the
@@ -361,7 +376,7 @@ func Run(ctx context.Context, opts Options) error {
 		if err != nil {
 			return fmt.Errorf("admin handlers: pick email sender: %w", err)
 		}
-		adminH, err := buildAdminHandlers(cfg, pool, deps.TemplatesFS, logger, version.Version, adminSender)
+		adminH, err := buildAdminHandlers(cfg, pool, sharedRenderer, logger, version.Version, adminSender)
 		if err != nil {
 			return fmt.Errorf("admin handlers: %w", err)
 		}

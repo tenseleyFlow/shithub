@@ -5,7 +5,7 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"io/fs"
+	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,17 +15,16 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
-// buildNotifHandlers wires the S29 notification handlers. Owns its
-// own renderer (same pattern as the other handler builders).
+// buildNotifHandlers wires the S29 notification handlers. Takes the
+// process-wide shared renderer (see server.go).
 func buildNotifHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 	logger *slog.Logger,
 ) (*notifhandlers.Handlers, error) {
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, err
+	if rr == nil {
+		return nil, errors.New("notif: nil renderer")
 	}
 	return notifhandlers.New(notifhandlers.Deps{
 		Logger:         logger,

@@ -3,7 +3,7 @@
 package web
 
 import (
-	"io/fs"
+	"errors"
 	"log/slog"
 	"path/filepath"
 
@@ -39,12 +39,11 @@ func buildObjectStore(s config.S3StorageConfig, logger *slog.Logger) (storage.Ob
 // buildProfileHandlers constructs the read-only profile handler set.
 // objectStore may be nil — handlers fall back to the identicon path.
 func buildProfileHandlers(
-	cfg config.Config, pool *pgxpool.Pool, objectStore storage.ObjectStore, tmplFS fs.FS,
+	cfg config.Config, pool *pgxpool.Pool, objectStore storage.ObjectStore, rr *render.Renderer,
 	logger *slog.Logger,
 ) (*profileh.Handlers, error) {
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, err
+	if rr == nil {
+		return nil, errors.New("profile: nil renderer")
 	}
 	var repoFS *storage.RepoFS
 	if cfg.Storage.ReposRoot != "" {

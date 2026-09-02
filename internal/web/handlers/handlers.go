@@ -28,8 +28,18 @@ import (
 // embedded filesystems and constructs Deps; this package stays decoupled
 // from the embed.FS instances so it remains testable.
 type Deps struct {
-	Logger       *slog.Logger
-	TemplatesFS  fs.FS
+	Logger      *slog.Logger
+	TemplatesFS fs.FS
+	// Renderer is the process-wide shared *render.Renderer. Every
+	// handler set must share one: a renderer parses all ~180 page
+	// templates with every partial cloned in and costs ~83 MB of live
+	// heap, so one per handler set put ~660 MB of static heap on the
+	// box and got shithubd OOM-killed (see docs/internal/caching.md,
+	// "Renderer invariant"). server.go builds it once and threads it
+	// everywhere. When nil, RegisterChi falls back to constructing one
+	// from TemplatesFS — that path exists only for tests that wire
+	// handlers directly.
+	Renderer     *render.Renderer
 	StaticFS     fs.FS
 	LogoSVG      string
 	SessionStore session.Store
@@ -209,11 +219,17 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 		return nil, nil, nil, fmt.Errorf("handlers.RegisterChi: nil StaticFS")
 	}
 
-	rr, err := render.New(deps.TemplatesFS, render.Options{
-		Octicons: render.BuiltinOcticons(),
-	})
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("renderer: %w", err)
+	rr := deps.Renderer
+	if rr == nil {
+		// Test-only fallback: production wiring always supplies the
+		// shared renderer built in web.Run.
+		var err error
+		rr, err = render.New(deps.TemplatesFS, render.Options{
+			Octicons: render.BuiltinOcticons(),
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("renderer: %w", err)
+		}
 	}
 
 	csrf := middleware.CSRF(middleware.CSRFConfig{

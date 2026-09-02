@@ -3,7 +3,7 @@
 package web
 
 import (
-	"io/fs"
+	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,8 +14,9 @@ import (
 	"github.com/tenseleyFlow/shithub/internal/web/render"
 )
 
-// buildSearchHandlers wires the S28 search handler set. Owns its own
-// renderer (same pattern as the other handler builders).
+// buildSearchHandlers wires the S28 search handler set. Takes the
+// process-wide shared renderer (see server.go) — handler builders must
+// never construct their own.
 //
 // Limiter is the per-request rate-limit entrypoint applied to /search
 // (audit 2026-05-10 H4). Pass nil from tests when you don't care
@@ -23,14 +24,13 @@ import (
 // per shithubd-web process and threads it everywhere.
 func buildSearchHandlers(
 	pool *pgxpool.Pool,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 	logger *slog.Logger,
 	limiter *ratelimit.Limiter,
 	enforce config.EnforceConfig,
 ) (*searchhandlers.Handlers, error) {
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, err
+	if rr == nil {
+		return nil, errors.New("search: nil renderer")
 	}
 	return searchhandlers.New(searchhandlers.Deps{
 		Logger: logger, Render: rr, Pool: pool, Limiter: limiter,

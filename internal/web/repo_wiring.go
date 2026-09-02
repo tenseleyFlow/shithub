@@ -5,7 +5,6 @@ package web
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -40,11 +39,14 @@ func buildRepoHandlers(
 	cfg config.Config,
 	pool *pgxpool.Pool,
 	objectStore storage.ObjectStore,
-	tmplFS fs.FS,
+	rr *render.Renderer,
 	logger *slog.Logger,
 ) (*repoh.Handlers, error) {
 	if cfg.Storage.ReposRoot == "" {
 		return nil, errors.New("repo: cfg.Storage.ReposRoot is empty")
+	}
+	if rr == nil {
+		return nil, errors.New("repo: nil renderer")
 	}
 	root, err := filepath.Abs(cfg.Storage.ReposRoot)
 	if err != nil {
@@ -53,10 +55,6 @@ func buildRepoHandlers(
 	rfs, err := storage.NewRepoFS(root)
 	if err != nil {
 		return nil, fmt.Errorf("repo: NewRepoFS: %w", err)
-	}
-	rr, err := render.New(tmplFS, render.Options{Octicons: render.BuiltinOcticons()})
-	if err != nil {
-		return nil, fmt.Errorf("repo: render.New: %w", err)
 	}
 	// shithubdPath is the running binary, baked into hook shims by
 	// repos.Create. os.Executable can rarely fail (e.g. exec name
