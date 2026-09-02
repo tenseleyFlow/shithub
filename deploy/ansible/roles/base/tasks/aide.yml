@@ -51,6 +51,21 @@
       exit 0
     mode: "0755"
 
+# aide-common also ships a systemd timer that runs the same scan the
+# neutralized cron.daily script would have. Disabling only the cron
+# left BOTH firing on some boxes: two concurrent AIDE processes at
+# ~0.5 GB each, inside the 03:17 backup window, on a box with no swap
+# (2026-09-02 availability sitrep, root cause #4). ignore_errors
+# because the unit doesn't exist on every aide-common version.
+- name: AIDE — disable the packaged dailyaidecheck timer
+  systemd:
+    name: dailyaidecheck.timer
+    enabled: false
+    state: stopped
+  register: aide_timer_disable
+  failed_when: false
+  changed_when: aide_timer_disable.changed | default(false)
+
 - name: AIDE — initialize baseline DB if missing
   # Use creates: so this is a one-shot. Re-baselining is an explicit
   # operator action (runbook), not an Ansible side-effect. The DB
@@ -61,13 +76,16 @@
     cmd: /usr/sbin/aideinit -y -f
     creates: /var/lib/aide/aide.db
 
-- name: cron — nightly aide check at 03:30 UTC
-  # Slightly after the 03:17 backup so the backup's transient files
-  # (in /var/backups/shithub) have settled. /var/backups isn't in
-  # our exclude list so it WILL flag — operator confirms via the
-  # daily backup log that the new file matches the expected dump.
+- name: cron — nightly aide check at 06:00 UTC
+  # Was 03:30, which put a ~0.5 GB scan on top of the 03:17 pg_dump,
+  # the rclone mirror and shithubd-cron. 06:00 is clear of all of
+  # them (backup 03:17, shithubd-cron 05:15, spaces-sync 01/07/13/19).
+  # The backup's transient files in /var/backups/shithub have long
+  # settled by then; /var/backups isn't in our exclude list so it
+  # WILL flag — operator confirms via the daily backup log that the
+  # new file matches the expected dump.
   cron:
     name: shithub-aide-check
     job: /usr/local/bin/shithub-aide-check
-    minute: "30"
-    hour: "3"
+    minute: "0"
+    hour: "6"
