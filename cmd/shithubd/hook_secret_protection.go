@@ -117,7 +117,11 @@ func enforcePreReceiveSecretProtection(ctx, scanRoot context.Context, h *hookCtx
 	// Defense in depth: the user can't leak in an initial push anything
 	// that wasn't already in their local copy; the background scan still
 	// catches it as a security alert. Firedrill v5, 2026-05-25.
-	if isInitialPush(refs) {
+	//
+	// isInitialPush also requires the repo to be empty — pushing a new
+	// branch to an existing repo has the same all-zero ref shape but is
+	// not an import, and must not skip the scan.
+	if isInitialPush(ctx, gitDir, refs) {
 		fmt.Fprintln(stderr,
 			"shithub: secret scan: initial push detected; deferring to background scan. Any findings will surface as repository security alerts.")
 		return nil
