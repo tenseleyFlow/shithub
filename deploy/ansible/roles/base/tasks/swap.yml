@@ -1,0 +1,77 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Swap. The production droplet ran 115 days with zero swap, so every
+# memory spike went straight to the kernel's global OOM killer, which
+# picks the largest process — usually shithubd, occasionally rclone.
+# Nine kills in the week before the 2026-09-02 availability sitrep.
+#
+# Swap is not a substitute for the memory ceilings in
+# deploy/systemd/*.service; it is the shock absorber underneath them.
+# 4 GB on the data volume, and vm.swappiness=10 so the kernel only
+# reaches for it under real pressure rather than paging out an idle
+# web process's template heap during a backup.
+#
+# All tasks are idempotent: allocation is guarded by `creates`,
+# mkswap by the on-disk signature, swapon by /proc/swaps, and the
+# fstab line is matched by path.
+
+- name: Swap — allocate the swapfile
+  command: "fallocate -l {{ shithub_swapfile_size }} {{ shithub_swapfile_path }}"
+  args:
+    creates: "{{ shithub_swapfile_path }}"
+
+# mkswap refuses a world-readable file, and a readable swapfile is a
+# memory-disclosure hole regardless.
+- name: Swap — restrict permissions
+  file:
+    path: "{{ shithub_swapfile_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# Keyed off the on-disk signature rather than the allocate task's
+# changed flag, so a run interrupted between fallocate and mkswap
+# still converges on the next pass.
+- name: Swap — probe for an existing swap signature
+  command: "blkid -p -s TYPE -o value {{ shithub_swapfile_path }}"
+  register: shithub_swapfile_sig
+  changed_when: false
+  failed_when: false
+
+- name: Swap — format
+  command: "mkswap {{ shithub_swapfile_path }}"
+  when: (shithub_swapfile_sig.stdout | default('') | trim) != 'swap'
+
+# nofail: if the data volume is ever missing at boot, a swap entry
+# must not drop the box into emergency mode.
+- name: Swap — persist in /etc/fstab
+  lineinfile:
+    path: /etc/fstab
+    regexp: "^{{ shithub_swapfile_path | regex_escape }}\\s"
+    line: "{{ shithub_swapfile_path }} none swap sw,nofail 0 0"
+    state: present
+
+- name: Swap — read active swap devices
+  command: swapon --noheadings --show=NAME
+  register: shithub_active_swap
+  changed_when: false
+
+- name: Swap — enable
+  command: "swapon {{ shithub_swapfile_path }}"
+  when: shithub_swapfile_path not in (shithub_active_swap.stdout_lines | map('trim') | list)
+
+- name: Swap — vm.swappiness
+  copy:
+    dest: /etc/sysctl.d/60-shithub-swap.conf
+    content: |
+      # Managed by Ansible (roles/base/tasks/swap.yml).
+      # Low swappiness: swap is an OOM shock absorber here, not a
+      # tier we want the kernel using for routine page reclaim.
+      vm.swappiness = {{ shithub_vm_swappiness }}
+    mode: "0644"
+  register: shithub_swappiness_conf
+
+- name: Swap — apply sysctl
+  command: sysctl --system
+  when: shithub_swappiness_conf.changed

@@ -1,0 +1,10 @@
+---
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Defaults for the base role. Override per environment in
+# deploy/ansible/inventory/<env>.
+
+# Swapfile (see tasks/swap.yml). Lives on the data volume because the
+# droplet's root disk is the smaller of the two.
+shithub_swapfile_path: "{{ shithub_data_root }}/swapfile"
+shithub_swapfile_size: "4G"
+shithub_vm_swappiness: 10

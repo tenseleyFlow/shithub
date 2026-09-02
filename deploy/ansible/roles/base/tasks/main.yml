@@ -107,6 +107,11 @@
     group: "{{ shithub_group }}"
     mode: "0755"
 
+# Swap lives in its own task file. Imported after the data root
+# exists because the swapfile sits inside it.
+- name: Swapfile + swappiness
+  import_tasks: swap.yml
+
 # Caddy access log carries the real client IP (Caddy terminates TLS
 # and shithubd only ever sees 127.0.0.1 over the loopback proxy).
 # This filter scans Caddy's JSON-formatted access log for failed
