@@ -126,3 +126,48 @@ func TestListen_BadPayloadSwallowed(t *testing.T) {
 		t.Fatal("listener stuck after bad payload — must keep processing")
 	}
 }
+
+// TestListen_ReleasesConnOnCancel pins the shutdown contract: once the
+// context is canceled, Listen must release its LISTEN connection so a
+// following pool.Close() returns promptly. Before the 2026-09-02 fix the
+// web server never canceled this context on SIGTERM, pool.Close()
+// blocked on the held connection, and systemd SIGKILLed the process
+// after 90 s of 502s on every deploy.
+func TestListen_ReleasesConnOnCancel(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.NewTestDB(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pagecache.Listen(ctx, pool, func(int64, string) {}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for pool.Stat().AcquiredConns() == 0 {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("listener never acquired a connection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Listen did not return after cancel")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		pool.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pool.Close blocked after listener cancel")
+	}
+}

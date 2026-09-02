@@ -16,6 +16,9 @@ ExecStartPre=/usr/local/bin/shithubd migrate up
 ExecStart=/usr/local/bin/shithubd web
 Restart=on-failure
 RestartSec=2
+# Bound the stop phase. Run() drains for web.shutdown_timeout (10s)
+# and then force-closes; anything beyond this is a bug, not a drain.
+TimeoutStopSec=30
 LimitNOFILE=65535
 
 # Memory ceiling. The 2026-09-02 availability sitrep

@@ -51,6 +51,14 @@ type Options struct {
 
 // Run boots the web server and blocks until shutdown.
 func Run(ctx context.Context, opts Options) error {
+	// Everything started below (pagecache LISTEN, metrics observers,
+	// pprof) hangs off this context. It is canceled on shutdown so
+	// goroutines holding pool connections release them before the
+	// deferred pool.Close(), which otherwise blocks until systemd's
+	// stop timeout SIGKILLs the process (observed: 90 s of 502s per
+	// deploy, 2026-09-02 sitrep).
+	ctx, cancelAll := context.WithCancel(ctx)
+	defer cancelAll()
 	cfg, err := config.Load(nil)
 	if err != nil {
 		return err
@@ -475,8 +483,18 @@ func Run(ctx context.Context, opts Options) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Web.ShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown: %w", err)
+	shutdownErr := srv.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		// Drain window elapsed with connections still active (long
+		// polls, SSE). Close them so their handlers see a canceled
+		// request context and release whatever they hold.
+		logger.Warn("shutdown: drain timed out; closing remaining connections", "error", shutdownErr)
+		_ = srv.Close()
+	}
+	// Stop background goroutines before the deferred pool.Close().
+	cancelAll()
+	if shutdownErr != nil {
+		return fmt.Errorf("shutdown: %w", shutdownErr)
 	}
 	return nil
 }
