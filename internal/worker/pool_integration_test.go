@@ -111,10 +111,21 @@ func TestPool_RetryThenSucceed(t *testing.T) {
 	_ = worker.Notify(context.Background(), pool)
 
 	// Force the rescheduled run_at to "now" so we don't wait the full
-	// backoff. We do this by polling: after the first attempt fails,
-	// the row's run_at is base * 2 ≈ 60s. We bypass via direct UPDATE.
+	// backoff (≈60s after the first failure). The pool persists that
+	// reschedule *after* the handler returns, so waiting on the
+	// attempts counter alone races it: our UPDATE could land first and
+	// be overwritten by the backoff. Wait for the row itself to show
+	// the failed attempt released (attempts=1, lock cleared) before
+	// overriding run_at.
 	q := workerdb.New()
-	waitFor(t, 5*time.Second, func() bool { return attempts.Load() >= 1 })
+	waitFor(t, 5*time.Second, func() bool {
+		var dbAttempts int32
+		var locked bool
+		err := pool.QueryRow(context.Background(),
+			`SELECT attempts, locked_by IS NOT NULL FROM jobs WHERE id = $1`, id,
+		).Scan(&dbAttempts, &locked)
+		return err == nil && dbAttempts >= 1 && !locked
+	})
 	if _, err := pool.Exec(context.Background(), `UPDATE jobs SET run_at = now() WHERE id = $1`, id); err != nil {
 		t.Fatalf("force run_at: %v", err)
 	}
