@@ -218,7 +218,7 @@ func writeLabelsError(w http.ResponseWriter, err error) {
 	default:
 		// CreateLabel returns plain errors for bad-name validation; map
 		// generically as 422 since those are user-input failures.
-		if err != nil && err.Error() != "" && (containsPrefix(err.Error(), "issues:")) {
+		if err != nil && err.Error() != "" && containsPrefix(err.Error(), "issues:") {
 			writeAPIError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
