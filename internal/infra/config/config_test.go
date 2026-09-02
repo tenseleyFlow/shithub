@@ -3,8 +3,8 @@
 package config
 
 import (
-	"path/filepath"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
