@@ -302,7 +302,11 @@ doctl compute firewall add-rules <firewall-id> \
 Interim workaround that needs no firewall change (the app box is
 already allowed): `ssh -J root@24.199.108.81 root@<runner-ip>`.
 
-### 4. Persist the swapfile and `vm.swappiness`
+### 4. Persist the swapfile and `vm.swappiness` — DONE 2026-09-02
+
+Done: fstab line `/data/swapfile none swap sw,nofail 0 0`,
+`/etc/sysctl.d/60-shithub-swap.conf` with `vm.swappiness = 10`
+(same paths the Ansible swap task writes).
 
 The 4 GB swapfile exists at runtime but is not in `fstab`, so it
 disappears on the next reboot — which is exactly when it is most
@@ -335,7 +339,10 @@ first, then `make deploy` — the swap tasks are guarded by `creates`,
 the on-disk signature, `/proc/swaps` and a path-matched fstab line, so
 they converge without touching the live swapfile.
 
-### 5. Disable the duplicate AIDE timer
+### 5. Disable the duplicate AIDE timer — DONE 2026-09-02
+
+Done: `dailyaidecheck.timer` disabled and stopped; only the
+06:00 `shithub-aide-check` cron remains.
 
 The Debian-packaged timer still runs alongside our cron wrapper, so
 two AIDE scans overlap in the 03:00–05:00 window.
@@ -348,7 +355,12 @@ ssh root@shithub.sh '
 '
 ```
 
-### 6. Install the defanged backup + sync scripts
+### 6. Install the defanged backup + sync scripts — DONE 2026-09-02
+
+Done: trunk `deploy/spaces/sync-cross-region.sh` and
+`deploy/postgres/backup-daily.sh` installed from `/root/src/shithub`
+(previous copies kept as `/root/*.bak-20260902`). WAL leg now runs
+`--transfers 4 --checkers 8` without `--fast-list`.
 
 The box still runs the pre-Phase-4 copies: no status lines, no
 heartbeat, and the sync's `--fast-list` on the WAL bucket. Deploy
@@ -410,7 +422,14 @@ Note `web.env` also carries a hand-edited Stripe block absent from
 `web.env.j2`; a full `make deploy` re-renders the file and drops it.
 `check-droplet-drift.sh` now flags this as KNOWN drift.
 
-### 9. Enable pprof on the box
+### 9. Enable pprof on the box — DONE 2026-09-02
+
+Done: `web.env` now sets `SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060`,
+plus `SHITHUB_ENV=prod` and stable
+`SHITHUB_ACTIONS__SECRETS__BOX_PRIVATE_KEY_B64` /
+`SHITHUB_NOTIF__UNSUBSCRIBE_KEY_B64` (the process had been running as
+`env=dev` with per-restart generated keys). Startup log confirms
+`pprof listener started (loopback only)` and `env=prod`.
 
 Ansible sets it in `web.env.j2`, but the deploy pipeline does not
 re-render `/etc/shithub/web.env`.
