@@ -158,7 +158,8 @@ The verification items below are still the operator's.
 - [ ] Cache per-entry last-commit for the code tab (single
       `git log --name-only` walk, or an LRU keyed by tree OID) and
       cache `rev-list --count` / recursive `ls-tree` per head OID
-- [ ] `actionsobserver`: drop the `octet_length` sum or run it every 5 min
+- [x] `actionsobserver`: the `octet_length` sum now runs every 5 min on its
+      own cadence; the count and queue-depth gauges stay at 15 s
 
 ### Phase 4 — observability and docs
 

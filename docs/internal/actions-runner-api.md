@@ -303,3 +303,9 @@ runner posts terminal job status `cancelled`.
 - `shithub_actions_step_timeouts_total`
 - `shithub_actions_storage_objects{kind="artifacts|step_logs|hot_log_chunks"}`
 - `shithub_actions_storage_bytes{kind="artifacts|step_logs|hot_log_chunks"}`
+
+The gauge observer refreshes queue, runner and object-count gauges every
+15 s. `shithub_actions_storage_bytes{kind="hot_log_chunks"}` is refreshed
+every 5 min instead: summing `octet_length(chunk)` detoasts every row of
+`workflow_step_log_chunks`, so it is scraped on a slower cadence and can
+lag the other gauges by up to five minutes.
