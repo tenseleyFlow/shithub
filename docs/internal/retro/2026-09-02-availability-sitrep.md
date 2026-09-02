@@ -31,8 +31,15 @@ state, workers timing out on SCRAM auth to Postgres on loopback.
 Nine OOM kills in the last week, alternating between `shithubd` and
 `rclone` (`global_oom`, so the kernel picks the largest process).
 
-The DigitalOcean uptime probe is also being **rate-limited (429)**
-by the app, so some "site down" emails are false positives.
+Separately, **all anonymous visitors share one rate-limit bucket.**
+`server.go:131` wires `middleware.RealIP(RealIPConfig{})` with no
+trusted proxies, so behind Caddy every anonymous request keys on
+`127.0.0.1`. The HTML limiter's anonymous tier is 60 hits / 60 s
+per key, Meta's crawler burns it continuously, and every other
+anonymous visitor gets 429 — including the DigitalOcean uptime
+probe (118 of 449 probe requests in the last log file), which is
+the source of the false "site down" emails. 23% of all responses
+are 429.
 
 ## Evidence (collected 2026-09-02, read-only)
 
@@ -63,10 +70,11 @@ forensics, infra assessment in the session scratchpad.
 | 5 | Metrics label leak: `route := r.URL.Path` fallback for unmatched routes (`internal/web/middleware/metrics.go:30`) → immortal series per scanner probe | high (small memory, large Alloy/Grafana cost) | code |
 | 6 | Code tab forks `git log -1 -- <path>` per tree entry, plus `rev-list --count`, `git log -n 500`, `ls-tree -r` per repo home view; crawlers hit these anonymously | high (CPU) | code |
 | 7 | `repo_traffic_*` has no retention job; grows ~30k rows/day/table from crawler paths | high | code |
-| 8 | Worker opens `MaxConns = workers+2` before `workers` defaults to 4 → 4 workers on a 2-conn pool (`cmd/shithubd/worker.go:76-84`, `internal/worker/pool.go:49`); `SHITHUB_WORKERS` unset in prod | high (latent; queue currently drained) | code/deploy |
-| 9 | `actionsobserver` runs `sum(octet_length(chunk))` over the whole log-chunk table every 15 s | medium | code |
-| 10 | Actions SSE log stream pins a pool connection for stream lifetime against a 10-conn pool | medium | code |
-| 11 | No pprof endpoint; no `pg_stat_statements` | — (blocks diagnosis) | code/deploy |
+| 8 | `RealIP` has no trusted proxies (`internal/web/server.go:131`) → all anon traffic keys on `127.0.0.1`; HTML/API/signup limiters collapse to one shared bucket | very high | code |
+| 9 | Worker opens `MaxConns = workers+2` before `workers` defaults to 4 → 4 workers on a 2-conn pool (`cmd/shithubd/worker.go:76-84`, `internal/worker/pool.go:49`); `SHITHUB_WORKERS` unset in prod | high (latent; queue currently drained) | code/deploy |
+| 10 | `actionsobserver` runs `sum(octet_length(chunk))` over the whole log-chunk table every 15 s | medium | code |
+| 11 | Actions SSE log stream pins a pool connection for stream lifetime against a 10-conn pool | medium | code |
+| 12 | No pprof endpoint; no `pg_stat_statements` | — (blocks diagnosis) | code/deploy |
 
 ### Ruled out
 
@@ -117,9 +125,11 @@ commits behind origin/trunk**. All fixes must branch from
 ### Phase 3 — stop the crawler amplification (PR)
 
 - [ ] `metrics.go`: label unmatched routes as `"unmatched"`; add test
-- [ ] Exempt the DigitalOcean uptime probe UA (or `/healthz`) from the
-      limiter that is returning 429 to it; locate that limiter first
-- [ ] Anonymous rate limit keyed by `/24` for repo history/blob/raw
+- [ ] Add `web.trusted_proxies` config (default `127.0.0.0/8, ::1/128`)
+      and pass it to `middleware.RealIP` so X-Forwarded-For from Caddy
+      is honoured; test with a forged XFF from an untrusted address
+- [ ] Exempt `/healthz` (or the DO probe UA) from the HTML limiter
+- [ ] Key the anonymous HTML tier by `/24` for repo history/blob/raw
       routes (Meta rotates within `57.141.2.0/24`)
 - [ ] Retention job for `repo_traffic_paths` / `repo_traffic_uniques`
       (14-day window, matches the Traffic UI) + one-off prune migration
