@@ -133,50 +133,55 @@ role used at deploy time.
 
 ## Deployment topology
 
+shithub.sh runs on **one droplet**. Web, worker, cron, Caddy,
+Postgres 16, Grafana Alloy, node_exporter, AIDE and the backup cron
+jobs are all co-located on `shithub-app` (2 vCPU / 3.9 GB + a 4 GB
+swapfile).
+
 ```
                 +----------------------------+
    public --->  |  Caddy (TLS, rate limits)  |  :443
                 +----------------------------+
                        |  127.0.0.1:8080
-                +----------------------------+
-                |  shithubd web (systemd)    |
-                |  shithubd worker (systemd) |
-                |  shithubd cron  (timer)    |
-                +----------------------------+
-                       |
-                +-----------+         +-----------------+
-                | Postgres  |         | Spaces (S3)     |
-                +-----------+         | - WAL archive   |
-                                      | - daily dumps   |
-                                      | - LFS / blobs   |
-                                      +-----------------+
-                       \                    /
-                        \      WireGuard mesh (10.50.0.0/24)
-                         \________ ________/
-                                  |
-                          +----------------+
-                          |  Monitoring    |
-                          |  Prom/Loki/AM  |
-                          |  Grafana       |
-                          +----------------+
+   +--------------------------------------------------------+
+   |  droplet `shithub-app`                                 |
+   |   shithubd web / worker / cron                         |
+   |   Postgres 16 (localhost:5432)                         |
+   |   Caddy, Grafana Alloy, node_exporter, AIDE, cron      |
+   +--------------------------------------------------------+
+          |                                    |
+          v                                    v
+   Spaces (S3): WAL archive,            Grafana Cloud
+   daily dumps, LFS/blobs,              (remote_write, push-only;
+   Actions logs                          no inbound port)
+
+   3 × Actions runner droplets (SSH inbound from the app box only)
 ```
 
-Monitoring is on the WireGuard mesh; metrics ports never face the
-public internet. See [deploy.md](./deploy.md) for the full
-operator guide.
+There is no private network and no separate database, backup, or
+monitoring host. Postgres binds `localhost`; `/metrics` is served on
+`127.0.0.1:8080` and read only by the local Alloy process.
+
+The memory budget for this box, the systemd ceilings that enforce it,
+and the aspirational multi-host design are in
+[deploy.md](./deploy.md).
 
 ## Observability
 
-Three independent channels:
-
-- **Structured logs** (`internal/infra/log`) → stdout → journald
-  → promtail → Loki.
-- **Metrics** (Prometheus) at `/metrics`, basic-auth gated in
+- **Structured logs** (`internal/infra/log`) → stdout → journald.
+  There is no log shipping: reading logs means SSH + `journalctl`.
+- **Metrics** (Prometheus exposition) at `/metrics`, basic-auth
+  gateable, scraped locally by Grafana Alloy and pushed to Grafana
+  Cloud. Only the web process exposes an endpoint; the worker does
+  not.
+- **Tracing** (OTel HTTP) optional, sample-rate controlled, off in
   prod.
-- **Tracing** (OTel HTTP) optional, sample-rate controlled.
 - **Error reporting** (Sentry-protocol DSN, GlitchTip-compatible).
 
-See [observability.md](./observability.md).
+There is **no Alertmanager and no local Prometheus**; the rules in
+`deploy/monitoring/prometheus/rules.yml` are an expression catalogue,
+not a running alert pipeline. See [observability.md](./observability.md)
+and `deploy/monitoring/README.md`.
 
 ## What's deliberately not here
 

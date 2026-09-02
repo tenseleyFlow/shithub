@@ -14,14 +14,27 @@ which is summary-only; this file carries the run-by-run detail.
 
 ## Test environment
 
-- Staging compute matches the production reference deployment
-  (`docs/public/self-host/prerequisites.md`):
+> **Reality check (2026-09-02).** Production is **one** 2 vCPU /
+> 3.9 GB droplet running web, worker, cron, Caddy and Postgres
+> together, with a 4 GB swapfile — see
+> `docs/internal/deploy.md#single-box-reference-deployment-what-shithubsh-runs`.
+> The multi-host staging shape below was never provisioned; treat
+> the per-host split as aspirational and re-baseline these numbers
+> against the single box before trusting them.
+
+<!-- topology:aspirational-start -->
+
+- Staging compute was specified to match the multi-host reference
+  deployment (`docs/public/self-host/prerequisites.md`):
   - 2× web (2 vCPU / 4 GB)
   - 1× worker (2 vCPU / 4 GB)
   - 1× postgres (2 vCPU / 8 GB / 100 GB SSD)
   - 1× backup, 1× monitoring (smaller)
 - Caddy at the edge with TLS terminated.
 - WireGuard mesh between hosts.
+
+<!-- topology:aspirational-end -->
+
 - Staging seeded with synthetic data:
   - 5,000 users, 50,000 repos, ~500,000 issues, ~1M comments.
   - Largest repo: ~50 MB packed; 95th percentile under 5 MB.

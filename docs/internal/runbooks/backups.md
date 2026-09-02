@@ -80,20 +80,56 @@ ships zero WAL segments until the operator runs through this once:
 
 ## Verifying that backups are healthy
 
-The monitoring stack does this for you:
+**Nothing pages on a missed backup today.** There is no Alertmanager
+and no local Prometheus, so the `BackupOverdue` rule in
+`deploy/monitoring/prometheus/rules.yml` never evaluates
+(`deploy/monitoring/README.md`). Checking is the operator's job until
+a Grafana-managed rule exists.
 
-- `BackupOverdue` alert fires if `time() -
-  shithubd_backup_last_success_seconds > 30h`. The backup script
-  pushes the timestamp to the metrics endpoint on success.
-- `pg_stat_archiver.failed_count > 0` is paged via the
-  `archive-failing` runbook.
+Each job leaves two traces:
 
-If you want to confirm by hand:
+| Job | Cron log | Heartbeat (success only) |
+|---|---|---|
+| `shithub-backup-daily` (03:17) | `/var/log/shithub-backup.log` | `/var/lib/shithub/backup-last-success` |
+| `shithub-spaces-sync` (01/07/13/19:23) | `/var/log/shithub-spaces-sync.log` (status lines) and `/var/log/shithub/spaces-sync.log` (status + rclone detail) | `/var/lib/shithub/spaces-sync-last-success` |
+
+Both scripts bracket every run with
+`... start ...` / `... end status=ok exit=0` (or `status=FAILED
+exit=N`) lines, and write the heartbeat **only** on a fully
+successful run, so a stale heartbeat is never refreshed by a broken
+one. Before 2026-09-02 neither log had a byte in it since 2026-05-10,
+which is indistinguishable from the job never having been installed.
+
+Quick check:
 
 ```sh
-ssh db
-sudo -u postgres rclone --config /etc/rclone-shithub.conf \
-     lsf spaces-prod:shithub-backups/daily/$(date -u +%Y/%m/%d)/
+ssh root@shithub.sh '
+  tail -5 /var/log/shithub-backup.log /var/log/shithub-spaces-sync.log
+  for f in /var/lib/shithub/backup-last-success /var/lib/shithub/spaces-sync-last-success; do
+    printf "%s: %s\n" "$f" "$(date -u -d @"$(cat "$f")" 2>/dev/null || echo MISSING)"
+  done
+'
+```
+
+The heartbeats are also exported as
+`shithub_backup_last_success_seconds{job="daily"|"spaces-sync"}` on
+`/metrics`, which Alloy pushes to Grafana Cloud — so
+`time() - shithub_backup_last_success_seconds > 30h` (plus an
+`absent()` clause, since the series does not exist until the first
+success) is a one-rule Grafana-managed alert whenever someone wants
+it.
+
+`pg_stat_archiver.failed_count > 0` is checked hourly at :47 by
+`shithub-verify-wal-archive`, which logs to
+`/var/log/shithub/wal-archive.log` and journals under
+`shithub-wal-archive` — also not a page. See the `archive-failing`
+runbook.
+
+To confirm the objects landed by hand:
+
+```sh
+ssh root@shithub.sh 'rclone --config /etc/rclone-shithub.conf \
+     lsf spaces-prod:shithub-backups/daily/$(date -u +%Y/%m/%d)/'
 ```
 
 ## Quarterly restore drill
@@ -113,13 +149,23 @@ means our backups can't actually restore; we treat that as P0.
 
 ## Missed backup
 
-**Symptom:** `BackupOverdue` alert.
+**Symptom:** the heartbeat is older than a day, or the cron log has
+a `status=FAILED` line. (`BackupOverdue` is not wired — see above.)
 
-1. SSH to db host. `systemctl status shithub-backup-daily.timer`
-   and `journalctl -u shithub-backup-daily.service -n 200`.
-2. Most likely: the script ran but `rclone copyto` failed (creds,
-   network). Re-run by hand:
-   `sudo -u postgres /usr/local/bin/shithub-backup-daily`.
-3. If the script has been failing silently for >24h, file an
+1. SSH to the box. There is no systemd timer; the job is a root
+   crontab entry. `crontab -l | grep shithub-backup-daily` confirms
+   it is installed, and
+   `tail -50 /var/log/shithub-backup.log` shows the last few runs.
+2. `status=FAILED exit=N` names the failing step by position: the
+   line right before it in the log is the last thing that ran.
+   Most likely: the script ran but `rclone copyto` failed (creds,
+   network).
+3. No `start` line at the expected time at all means cron did not
+   fire it — check `journalctl -u cron --since yesterday`.
+4. Re-run by hand: `/usr/local/bin/shithub-backup-daily`. It takes
+   `sudo -u postgres` internally, so run it as root, and it is safe
+   to re-run: a second dump is a new timestamped file and retention
+   trims to seven.
+5. If the script has been failing silently for >24h, file an
    incident — every additional day extends the RPO of an actual
    recovery.

@@ -1,5 +1,16 @@
 # Alerts
 
+**DigitalOcean alerts are the only thing that pages.** There is no
+Alertmanager and no local Prometheus in this deployment, so nothing
+loads `deploy/monitoring/prometheus/rules.yml` — every alert defined
+there (`ShithubdWebDown`, `ShithubdWorkerDown`, `PostgresDown`,
+`HighRequestLatencyP95`, `HighDBQueryRate`, `JobBacklogGrowing`,
+`WebhookDeliveryFailing`, the `shithubd-billing` and
+`shithubd-actions` groups, and `BackupOverdue`) is inert. Grafana
+Cloud receives the metrics and *can* host managed alert rules, but
+only the ones an operator has provisioned there actually exist; see
+`runbooks/observability.md` and `deploy/monitoring/README.md`.
+
 DigitalOcean's built-in monitoring is the cheap-and-good alerting
 tier. Two layers, both managed via `doctl`:
 
@@ -129,10 +140,24 @@ recreate via the script.)
 ## What's NOT here
 
 - **shithubd-internal metrics** (request latency p95, DB pool
-  saturation, job queue depth, throttle rejections, archive
-  failures from Postgres). Those need a Prometheus scrape of
-  `127.0.0.1:8080/metrics` plus a Grafana Cloud free-tier — see
-  task #263 / `runbooks/observability.md` (TBD).
+  saturation, job queue depth, throttle rejections). These *are*
+  collected — Grafana Alloy scrapes `127.0.0.1:8080/metrics` and
+  pushes to Grafana Cloud (`runbooks/observability.md`) — but no DO
+  alert reads them, and a Grafana-managed rule has to be created per
+  signal before any of them pages.
+- **Backup failure.** Neither DO nor Grafana Cloud alerts on it. The
+  backup and DR-sync scripts write a timestamped start/end/exit line
+  to their logs and a heartbeat file on success
+  (`/var/lib/shithub/backup-last-success`,
+  `/var/lib/shithub/spaces-sync-last-success`), which the web process
+  exports as `shithub_backup_last_success_seconds{job=...}`. That
+  gauge reaches Grafana Cloud, so a managed rule on it is the cheapest
+  way to make `BackupOverdue` real. Until then, checking is manual —
+  `runbooks/backups.md`.
+- **Postgres and Caddy exporters.** Not installed, so
+  `pg_stat_archiver.failed_count` (the archive-failing signal) is only
+  visible to the hourly `shithub-verify-wal-archive` cron job, which
+  logs and journals but does not page.
 - **Slack delivery.** Today everything emails. The DO API supports
   Slack webhooks; add `--slack-channels` + `--slack-urls` to the
   provision script when there's a destination.

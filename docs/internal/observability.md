@@ -37,6 +37,10 @@ shithub ships four sinks: structured logging, Prometheus metrics, OpenTelemetry 
   - `shithub_billing_past_due_principals{subject_kind}` (gauge)
   - `shithub_billing_org_seat_drift` (gauge)
   - `shithub_billing_quota_overage_orgs{quota}` (gauge)
+  - `shithub_backup_last_success_seconds{job}` (gauge; read at scrape
+    time from the heartbeat file each backup cron job writes on
+    success. The series is **absent** until a job has succeeded once
+    on that host, so alert on `absent()` as well as on age.)
   - Standard Go runtime + process metrics (registered automatically).
 - **Cardinality discipline.** Route labels come from chi's `RoutePattern()` so we get `/owner/{repo}` instead of per-repo concrete paths. Never label by `user_id` or `repo_id`.
 - Per-domain metrics (added in later sprints) MUST register against `metrics.Registry` so a single `/metrics` scrape sees everything.
@@ -79,8 +83,55 @@ The `request_id` is the correlation key tying logs, metrics, traces, and error r
 4. `middleware.Recover` includes it on panic logs and on the Sentry/GlitchTip event.
 5. The styled error pages (`errors/{404,403,429,500}.html`) display it for end-user support reference.
 
+## How this reaches an operator in production
+
+shithub.sh is a single droplet (`docs/internal/deploy.md`). The
+pipeline is:
+
+```
+shithubd web  /metrics (127.0.0.1:8080) --.
+                                          +--> Grafana Alloy --remote_write--> Grafana Cloud
+node_exporter (127.0.0.1:9100) ----------'                                     (Prometheus/Mimir)
+```
+
+- Alloy is installed by the `monitoring-client` Ansible role. It
+  scrapes with job labels `shithubd` and `node`, and pushes; **no
+  inbound monitoring port is open on the droplet.**
+- **The worker exposes no `/metrics` endpoint.** `shithubd worker`
+  starts no HTTP listener, so `shithub_worker_*` and any other
+  worker-side series are collected by nothing. Worker health has to be
+  read from `journalctl -u shithubd-worker` or from DB state.
+- **There is no log pipeline.** No Promtail, no Loki, no Alloy logs
+  component. Logs live in journald on the box and nowhere else, so
+  log-based correlation (including the `request_id` flow below) is an
+  SSH-and-grep exercise.
+- **There is no Alertmanager and no local Prometheus.** Nothing loads
+  `deploy/monitoring/prometheus/rules.yml`. Every alert defined there
+  — `ShithubdWebDown`, `ShithubdWorkerDown`, `PostgresDown`,
+  `HighRequestLatencyP95`, `HighDBQueryRate`, `JobBacklogGrowing`,
+  `WebhookDeliveryFailing`, the seven `shithubd-billing` alerts, the
+  five `shithubd-actions` alerts, and `BackupOverdue` — **does not
+  fire.** Several of them could not fire even with a Prometheus
+  attached, because they select on job labels (`shithubd-web`,
+  `shithubd-worker`, `postgres`, `caddy`) that this deployment never
+  emits.
+- What *does* page today: DigitalOcean droplet resource alerts and
+  the uptime check (`runbooks/alerts.md`), plus any Grafana-managed
+  alert rule provisioned into the Cloud stack by hand or by
+  `deploy/monitoring/grafana/provision-actions-alerts.sh`.
+
+Operator setup, dashboard queries, pprof procedure and the
+"metrics stopped landing" checklist: `runbooks/observability.md`.
+Why the committed monitoring configs are inert:
+`deploy/monitoring/README.md`.
+
 ## Operational notes
 
-- `pg_stat_statements` is loaded by the dev compose Postgres (S01) and required in prod (S37).
-- GlitchTip and the OTLP collector run on bare metal in our prod topology (S37); the droplet's `/metrics` is scraped by Prometheus over WireGuard.
+- `pg_stat_statements` is loaded by the dev compose Postgres (S01).
+  It is **not** installed on the production box; the Ansible
+  `postgresql.conf.j2` that would load it has never been applied
+  (`docs/internal/db.md`).
+- GlitchTip and the OTLP collector are not deployed;
+  `error_reporting.dsn` and `tracing.enabled` are unset in prod, so
+  both packages are no-ops there.
 - Configuration documented in `docs/internal/config.md`.

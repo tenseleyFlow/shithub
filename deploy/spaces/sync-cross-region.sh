@@ -35,23 +35,55 @@ DR="${SHITHUB_DR_BUCKET:-spaces-dr:shithub-backups-dr}"
 WAL_PRIMARY="${SHITHUB_WAL_BUCKET:-spaces-prod:shithub-wal}"
 WAL_DR="${SHITHUB_WAL_DR_BUCKET:-spaces-dr:shithub-wal-dr}"
 
-LOG="/var/log/shithub/spaces-sync.log"
+LOG="${SHITHUB_SPACES_SYNC_LOG:-/var/log/shithub/spaces-sync.log}"
 mkdir -p "$(dirname "$LOG")"
+
+# Read by shithub_backup_last_success_seconds{job="spaces-sync"} — see
+# internal/infra/metrics/backupobserver.go. Epoch seconds, one line.
+HEARTBEAT="${SHITHUB_SPACES_SYNC_HEARTBEAT:-/var/lib/shithub/spaces-sync-last-success}"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-{
-  echo "[$(ts)] sync start"
+# Status lines go to BOTH the script's own log and stdout, which cron
+# appends to /var/log/shithub-spaces-sync.log. Before this, everything
+# was swallowed into $LOG and the cron-redirected file sat at 0 bytes
+# from 2026-05-10 to 2026-09-02 — indistinguishable from "the job was
+# never installed". rclone's own chatter stays in $LOG only; it is far
+# too noisy for the cron log.
+status() { printf '[%s] %s\n' "$(ts)" "$*" | tee -a "$LOG"; }
 
-  # Small bucket: --fast-list is cheap and cuts API calls.
-  rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
-         copy --transfers 8 --checkers 16 --fast-list \
-         "$PRIMARY" "$DR"
+# `set -e` routes any rclone failure here with its exit status, and
+# the trap re-raises it, so a failed sync is still a non-zero exit for
+# cron and for the flock wrapper.
+on_exit() {
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    status "spaces-sync end status=ok exit=0"
+  else
+    status "spaces-sync end status=FAILED exit=$rc"
+  fi
+  return "$rc"
+}
+trap on_exit EXIT
 
-  # WAL bucket: no --fast-list, lower concurrency. See header.
-  rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
-         copy --transfers 4 --checkers 8 \
-         "$WAL_PRIMARY" "$WAL_DR"
+status "spaces-sync start primary=$PRIMARY dr=$DR wal=$WAL_PRIMARY wal_dr=$WAL_DR"
 
-  echo "[$(ts)] sync end"
-} >> "$LOG" 2>&1
+# Redirected per-command rather than as one `{ ... } >> "$LOG"` block:
+# when `set -e` aborts inside a redirected compound command, the EXIT
+# trap inherits that redirection and the FAILED line lands in $LOG
+# instead of the cron log — exactly the stream we are trying to fix.
+
+# Small bucket: --fast-list is cheap and cuts API calls.
+rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
+       copy --transfers 8 --checkers 16 --fast-list \
+       "$PRIMARY" "$DR" >> "$LOG" 2>&1
+
+# WAL bucket: no --fast-list, lower concurrency. See header.
+rclone --config /etc/rclone-shithub.conf --s3-no-check-bucket \
+       copy --transfers 4 --checkers 8 \
+       "$WAL_PRIMARY" "$WAL_DR" >> "$LOG" 2>&1
+
+# Success only: both legs copied without error.
+mkdir -p "$(dirname "$HEARTBEAT")"
+printf '%s\n' "$(date -u +%s)" > "$HEARTBEAT.tmp"
+mv "$HEARTBEAT.tmp" "$HEARTBEAT"

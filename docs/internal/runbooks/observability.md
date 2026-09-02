@@ -25,6 +25,28 @@ Alloy `remote_write`s both into Grafana Cloud's Prometheus
 endpoint (Mimir under the hood). No inbound port on the droplet —
 push-only. No Prometheus or Grafana running locally.
 
+### What is NOT wired
+
+- **No Alertmanager, no local Prometheus.** Nothing loads
+  `deploy/monitoring/prometheus/rules.yml`, so none of the alerts in
+  it fire — including `BackupOverdue`, `ShithubdWebDown`,
+  `PostgresDown`, `JobBacklogGrowing` and the billing/actions groups.
+  Backup failure is currently detected by an operator reading
+  `/var/log/shithub/*.log`, not by a page. See
+  `deploy/monitoring/README.md`.
+- **No log shipping.** No Promtail, no Loki, no Alloy logs
+  component. Logs are journald-only; `journalctl` over SSH is the
+  interface.
+- **No worker metrics.** `shithubd worker` starts no HTTP listener,
+  so the `shithub_worker_*` series never leave the process. Alloy
+  scrapes only `127.0.0.1:8080` (web) and `127.0.0.1:9100` (node).
+- **No Postgres or Caddy exporter.** `postgres_exporter` and Caddy's
+  admin metrics are not installed, so `pg_stat_*`-derived panels and
+  edge-level latency are unavailable from Grafana Cloud.
+- Scrape job labels here are `shithubd` and `node`. The committed
+  Prometheus config assumes `shithubd-web`, `shithubd-worker`,
+  `postgres` and `caddy`; queries copied from it need relabelling.
+
 ### Notable shithubd metrics
 
 | Name | Type | Meaning |
@@ -179,7 +201,9 @@ Add these once paid plans are enabled:
 
 Production uses Grafana-managed alerts because Alloy pushes metrics to Grafana
 Cloud with `remote_write`; there is no local Prometheus process loading
-`deploy/monitoring/prometheus/rules.yml`.
+`deploy/monitoring/prometheus/rules.yml`, and there is no Alertmanager
+anywhere in the deployment. A rule in that file is documentation until
+someone recreates it as a Grafana-managed rule.
 
 The committed Prometheus rule file remains the source-of-truth expression
 catalog for self-hosted deployments. For shithub.sh's Grafana Cloud stack, use
@@ -232,7 +256,8 @@ Suggested first three alerts (Cloud UI):
 
 Billing alert rules are committed in
 `deploy/monitoring/prometheus/rules.yml` under `shithubd-billing`.
-Load them before live billing launch. The corresponding response steps
+**They are not loaded by anything today** — recreate them as
+Grafana-managed rules before live billing launch. The corresponding response steps
 live in [`stripe-billing.md`](./stripe-billing.md#billing-alerts).
 
 ## When metrics stop landing

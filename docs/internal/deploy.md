@@ -1,13 +1,107 @@
 # Deployment
 
-This is the operator's guide to taking a fresh box from "Ubuntu 24.04
+This is the operator's guide to taking a fresh box from "Debian/Ubuntu
 with sshd" to "running shithubd in production." It is opinionated:
 DigitalOcean for compute, DigitalOcean Spaces for object storage,
-Postgres on a dedicated droplet, Caddy as the edge, WireGuard for the
-monitoring mesh. If you're running on something else, the Ansible
-roles are the source of truth — read them.
+Caddy as the edge, Postgres 16, Grafana Alloy pushing metrics to
+Grafana Cloud. If you're running on something else, the Ansible roles
+are the source of truth — read them.
 
-## Topology
+Two topologies are described below. The **single-box reference
+deployment** is what shithub.sh actually runs and what the Ansible
+roles are tuned for. The **multi-host design** is the aspirational
+shape we'd grow into; nothing in it is deployed today.
+
+## Single-box reference deployment (what shithub.sh runs)
+
+```
+                +----------------------------+
+   public --->  |  Caddy (TLS, rate limits)  |  :443
+                +----------------------------+
+                       |  127.0.0.1:8080
+   +--------------------------------------------------------+
+   |  droplet `shithub-app`  — 2 vCPU / 3.9 GB / 4 GB swap   |
+   |                                                        |
+   |   shithubd web (systemd)    ---.                       |
+   |   shithubd worker (systemd)  ---+--> Postgres 16       |
+   |   shithubd cron (timer, 05:15) -'    (localhost:5432,  |
+   |   Caddy                               peer + SCRAM)    |
+   |   Grafana Alloy + node_exporter                        |
+   |   root crontab: pg_dump, rclone DR sync, AIDE,         |
+   |                 WAL-archive verify                     |
+   +--------------------------------------------------------+
+          |                                    |
+          v                                    v
+   Spaces (S3)                          Grafana Cloud
+   - WAL archive                        (Prometheus/Mimir,
+   - daily dumps                         remote_write, push-only)
+   - LFS / blobs / Actions logs
+
+   3 × runner droplets — outbound HTTPS to the app box only;
+   inbound SSH restricted by cloud firewall to the app box.
+```
+
+Everything is on one host. There is **no private network, no VPN, and
+no separate database, backup, or monitoring host.** Postgres listens on
+`localhost` only; `/metrics` is served on `127.0.0.1:8080` and is
+reached only by the local Alloy process. Alloy `remote_write`s to
+Grafana Cloud, so no inbound monitoring port exists at all.
+
+### Memory budget
+
+3.9 GB of RAM plus a 4 GB swapfile on `/data` (`vm.swappiness=10`).
+Baseline figures are the measurements in the 2026-09-02 availability
+sitrep; the ceilings are what the shipped units enforce.
+
+| Component | Ceiling | Observed / expected |
+|---|---|---|
+| `shithubd-web` | `GOMEMLIMIT=1200MiB`, `MemoryHigh=1600M`, `MemoryMax=2000M`, `OOMScoreAdjust=-500` | 1.33 GB RSS before Phase 2; the eight duplicate template renderers (664 MB) are now one (41 MB), so steady-state target is < 600 MB |
+| `shithubd-worker` | `MemoryHigh=768M`, `MemoryMax=1024M` (cgroup-wide, so forked `git` counts) | small; spikes with pack operations |
+| `shithubd-cron` | inherits the worker-class footprint; runs 05:15 UTC | short-lived |
+| Postgres 16 | none (not a cgroup we manage) | 447 MB aggregate at the Debian-default `shared_buffers=128MB`; ~600 MB if `postgresql.conf.j2` is ever applied (see `db.md`) |
+| Grafana Alloy | none | 317 MB scraping an 11.7k-series `/metrics` (Phase 3 should cut the series count by an order of magnitude) |
+| Caddy, node_exporter, sshd, journald | none | ~100 MB combined |
+| `rclone` DR sync | 4×/day under `flock`, off the 03:00–05:00 window | 1.0–1.6 GB for ~28 min per run; this is the single largest transient |
+| AIDE check | 06:00 UTC, one wrapper only | ~0.5 GB for ~12 min |
+
+The failure mode this budget exists to prevent: baseline ~2.4 GB +
+AIDE ~0.5 GB + rclone 1.0–1.6 GB exceeded 3.9 GB with no swap, and the
+kernel picked the largest process — nine `global_oom` kills in the week
+before 2026-09-02, alternating between `shithubd` and `rclone`.
+
+### Observability on this box
+
+- **Metrics.** node_exporter on `127.0.0.1:9100`, shithubd on
+  `127.0.0.1:8080/metrics`. Grafana Alloy scrapes both and
+  `remote_write`s to Grafana Cloud. Scrape job labels are `node` and
+  `shithubd` — not the `shithubd-web` / `shithubd-worker` / `postgres`
+  / `caddy` jobs the committed Prometheus config assumes.
+- **The worker exposes no metrics endpoint.** `shithubd worker` never
+  starts an HTTP listener, so every `shithub_worker_*` series exists in
+  the binary and reaches nothing.
+- **Logs.** journald only. There is **no log shipping** — no Promtail,
+  no Loki, no Alloy logs pipeline. Reading logs means SSH +
+  `journalctl`.
+- **Alerting.** DigitalOcean droplet alerts and the uptime check
+  (`runbooks/alerts.md`) plus whatever Grafana-managed alert rules the
+  operator has provisioned in Grafana Cloud. **There is no
+  Alertmanager and no local Prometheus**, so nothing in
+  `deploy/monitoring/prometheus/rules.yml` can fire — see
+  `deploy/monitoring/README.md`.
+
+Details, queries and the operator setup flow:
+`runbooks/observability.md`.
+
+<!-- topology:aspirational-start -->
+
+## Multi-host design (aspirational — not deployed)
+
+Nothing in this section is running. It is the shape we would grow
+into if one box stops being enough, and it is what
+`deploy/ansible/roles/wireguard/`, `deploy/monitoring/` and the
+`monitoring-host` language elsewhere in the tree assume. Treat every
+reference to a mesh address, a monitoring host, Prometheus, Loki or
+Alertmanager as a design note, not as production.
 
 ```
                 +----------------------------+
@@ -37,15 +131,24 @@ roles are the source of truth — read them.
                           +----------------+
 ```
 
-The monitoring host is *not* on the public internet. App processes
-listen on `127.0.0.1` and on the wg0 mesh interface only; nothing
-about the metrics port is reachable from outside the mesh.
+In that design the monitoring host is *not* on the public internet;
+app processes listen on `127.0.0.1` and on the `wg0` mesh interface
+only, and nothing about the metrics port is reachable from outside the
+mesh. Adopting it means provisioning the mesh
+(`deploy/ansible/roles/wireguard/`), standing up the monitoring host,
+and repointing the scrape config — see `deploy/monitoring/README.md`
+for the gap list.
+
+<!-- topology:aspirational-end -->
 
 ## One-time bootstrap
 
-1. **Provision the droplets.** Three for staging is enough (web,
-   db, monitoring). Production starts at five (2× web, db, backup,
-   monitoring) and grows the web tier first.
+1. **Provision the droplet.** One box runs everything (see the
+   reference deployment above); 4 GB is the practical floor, 8 GB is
+   comfortable. Actions runners are separate droplets with a cloud
+   firewall allowing inbound SSH from the app box only. The
+   multi-host split (2× web, db, backup, monitoring) is the
+   aspirational shape, not the starting point.
 2. **Get sshd public-key login working** for the operator user. The
    Ansible base role narrows it from there.
 3. **Populate `deploy/ansible/inventory/<env>`** by copying
@@ -105,16 +208,24 @@ In rough order:
 - **caddy** (`tags: [edge]`) — installs Caddy + the templated
   `Caddyfile`. Auto-TLS via Let's Encrypt staging until the operator
   flips a vars flag; production after that.
-- **wireguard** (`tags: [net]`) — peers each host into the mesh.
-- **backup** (`tags: [backup]`) — installs the daily backup cron on
-  the db host and the 6-hourly cross-region sync on the backup host.
-- **monitoring-client** (`tags: [monitoring]`) — node-exporter +
-  promtail on every host pointing at the monitoring host.
+- **backup** (`tags: [backup]`) — installs the daily `pg_dump` cron
+  (03:17) and the 6-hourly cross-region Spaces sync (01/07/13/19:23,
+  under `flock`). On the single-box deployment both land on the app
+  host.
+- **monitoring-client** (`tags: [monitoring]`) — `node_exporter` on
+  `127.0.0.1:9100` plus Grafana Alloy, which scrapes node_exporter and
+  shithubd's `/metrics` and `remote_write`s to Grafana Cloud. Metrics
+  only; it ships no logs.
+<!-- topology:aspirational-start -->
 
-The monitoring host itself is provisioned by a separate Ansible play
-that lives outside this repo (it depends on operator-specific TLS
-material). The configs in `deploy/monitoring/` are the source of
-truth for *what* runs there.
+- **wireguard** (`tags: [net]`) — peers each host into the WireGuard
+  mesh. Part of the aspirational multi-host design; **not run today**
+  (a single-host inventory has no peers).
+
+<!-- topology:aspirational-end -->
+
+There is no monitoring host. The configs in `deploy/monitoring/` are
+not deployed anywhere — see `deploy/monitoring/README.md`.
 
 ## Backups
 
@@ -171,7 +282,8 @@ back is "redeploy the previous binary." Two paths:
 | sshd (incl. AKC for git)      | `deploy/sshd_config.j2`                        |
 | Postgres scripts              | `deploy/postgres/`                             |
 | Spaces lifecycle + DR         | `deploy/spaces/`                               |
-| WireGuard mesh                | `deploy/wireguard/wg0.conf.j2`                 |
-| Monitoring configs            | `deploy/monitoring/`                           |
+| Metrics agent (deployed)      | `deploy/ansible/roles/monitoring-client/`      |
+| Monitoring configs (undeployed)| `deploy/monitoring/` — see its `README.md`    |
+| Mesh role (aspirational)      | see the multi-host section above               |
 | Restore drill                 | `deploy/restore-drill/`                        |
 | Operator runbooks             | `docs/internal/runbooks/`                      |
