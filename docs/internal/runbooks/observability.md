@@ -270,6 +270,70 @@ Common failures:
   `curl http://127.0.0.1:12345/api/v0/web/components/prometheus.scrape.shithubd`
   → look for `health: up`.
 
+## Heap and CPU profiles (pprof)
+
+`shithubd web` can run a second HTTP listener that serves only
+`net/http/pprof`. It is off unless `web.pprof_addr` is set, it is a
+separate `http.Server` (nothing is mounted on the app router, so Caddy
+cannot reach it), and shithubd refuses to start if the address is not
+a loopback IP literal.
+
+Ansible sets `SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060` in
+`web.env.j2`. **The deploy pipeline does not re-render
+`/etc/shithub/web.env`** — only a full `make deploy` does — so on a
+box provisioned before this landed, add the line by hand:
+
+```sh
+ssh root@shithub.sh '
+  grep -q SHITHUB_WEB__PPROF_ADDR /etc/shithub/web.env ||
+    echo "SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060" >> /etc/shithub/web.env
+  systemctl restart shithubd-web
+  journalctl -u shithubd-web -n 20 --no-pager | grep pprof
+'
+```
+
+Expect `pprof listener started (loopback only) addr=127.0.0.1:6060`.
+
+### Taking a heap profile
+
+Run this **on the box** — port 6060 is loopback-only and UFW blocks
+it anyway:
+
+```sh
+curl -s 127.0.0.1:6060/debug/pprof/heap > heap.pb.gz
+go tool pprof -top heap.pb.gz        # needs Go; else scp it to a laptop
+go tool pprof -top /usr/local/bin/shithubd heap.pb.gz
+```
+
+Without Go on the box, copy it back and analyse locally:
+
+```sh
+scp root@shithub.sh:heap.pb.gz .
+go tool pprof -top heap.pb.gz
+go tool pprof -http=: heap.pb.gz     # flame graph in a browser
+```
+
+Useful variants:
+
+```sh
+# live heap (what's retained now) vs. cumulative allocations
+curl -s '127.0.0.1:6060/debug/pprof/heap?gc=1' > heap.pb.gz
+curl -s 127.0.0.1:6060/debug/pprof/allocs > allocs.pb.gz
+
+# 30s CPU profile
+curl -s '127.0.0.1:6060/debug/pprof/profile?seconds=30' > cpu.pb.gz
+
+# goroutine dump, human-readable (leak hunting)
+curl -s '127.0.0.1:6060/debug/pprof/goroutine?debug=1' | head -40
+```
+
+Compare two heaps to find growth: `go tool pprof -top -base
+heap-before.pb.gz heap-after.pb.gz`.
+
+Leave the knob on. The listener is idle until curled, and the
+2026-09-02 outage investigation cost a day precisely because there
+was no profile to read.
+
 ## Why Grafana Cloud over self-hosted Prometheus
 
 - Self-hosted needs Prom + Grafana on the droplet → ~500 MB RAM,

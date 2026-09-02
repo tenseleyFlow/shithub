@@ -2,7 +2,7 @@
 # Targets mirror what CI runs. The Makefile is the source of truth.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations verify-api-docs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging docs docs-serve docs-verify gen-third-party-notices audit-actions-ga audit-actions-ui audit-a11y audit-a11y-pa11y audit-a11y-axe load-test
+.PHONY: help dev build test test-race lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations lint-systemd-units verify-api-docs fmt tidy clean ci assets install-tools version deploy deploy-check restore-drill bench-staging docs docs-serve docs-verify gen-third-party-notices audit-actions-ga audit-actions-ui audit-a11y audit-a11y-pa11y audit-a11y-axe load-test
 
 # Build metadata embedded into the binary via -ldflags.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -72,7 +72,7 @@ assets: ## Copy Primer CSS into internal/web/static/ for embedding.
 		echo "warn: .refs/primer-css/dist not found; run 'git clone https://github.com/primer/css .refs/primer-css' first"; \
 	fi
 
-ci: lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations verify-api-docs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
+ci: lint lint-policy lint-markdown lint-org-plan lint-secret-logs lint-spdx lint-unused lint-migrations lint-systemd-units verify-api-docs test build ## Full CI pipeline (matches .github/workflows/ci.yml).
 	@echo "ci: ok"
 
 lint-policy: ## Enforce policy-package boundary (no inline auth checks in handlers/git/cmd).
@@ -95,6 +95,9 @@ lint-unused: ## Fail when source carries dead-code 'silence unused import' shims
 
 lint-migrations: ## Fail when goose migration numeric versions collide.
 	@scripts/lint-migration-versions.sh
+
+lint-systemd-units: ## Fail when a shipped systemd unit loses its memory ceiling or collides with the backup window.
+	@scripts/lint-systemd-units.sh
 
 verify-api-docs: ## Fail when an /api/v1 route in code is missing from docs/public/api/.
 	@scripts/verify-api-docs.sh

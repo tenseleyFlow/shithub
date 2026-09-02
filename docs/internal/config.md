@@ -28,6 +28,7 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `web.read_timeout` | duration | `30s` | Per-request read timeout. |
 | `web.write_timeout` | duration | `30s` | Per-request write timeout. |
 | `web.shutdown_timeout` | duration | `10s` | Graceful drain on SIGTERM. |
+| `web.pprof_addr` | string | `""` | When set, `shithubd web` starts a *separate* listener serving only `net/http/pprof`. Empty disables it. Must be a loopback IP literal + port (`127.0.0.1:6060`, `[::1]:6060`); hostnames and non-loopback addresses are refused at startup. Never mounted on the main router. See `runbooks/observability.md`. |
 | `db.url` | string | `""` | Postgres DSN. Aliased by `SHITHUB_DATABASE_URL`. |
 | `db.max_conns` | int | `10` | pgxpool max conns. |
 | `db.min_conns` | int | `0` | pgxpool min conns. |
@@ -83,11 +84,26 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `billing.enforce.user_advanced_branch_protection` | bool | `false` | Hard-enforce the Pro gate for advanced branch protection on private personal repos. |
 | `billing.enforce.user_profile_pins_beyond_free` | bool | `false` | Hard-enforce the Pro gate for profile pins above the Free cap. |
 
+## Env-only knobs
+
+A couple of settings are read straight from the environment rather
+than through the loader above, so they have no TOML key and do not
+appear in `config print`:
+
+| Env var | Default | Notes |
+|---|---|---|
+| `SHITHUB_WORKERS` | `4` | Worker-pool size for `shithubd worker`. `--workers <n>` overrides it; values are clamped to 64. The pgx pool is sized to this + 2, so it also sets the worker's connection budget — see `docs/internal/worker.md`. |
+| `SHITHUB_CONFIG` | `/etc/shithub/config.toml` | Path to the TOML layer. |
+| `SHITHUB_SESSION_KEY`, `SHITHUB_TOTP_KEY`, `SHITHUB_DATABASE_URL` | — | Aliases for the config keys listed above, not separate settings. |
+
 ## Env-var examples
 
 ```sh
 # Listen elsewhere
 export SHITHUB_WEB__ADDR=:9090
+
+# Loopback-only pprof listener (off by default)
+export SHITHUB_WEB__PPROF_ADDR=127.0.0.1:6060
 
 # Connect to Postgres
 export SHITHUB_DATABASE_URL=postgres://shithub:dev@127.0.0.1:5432/shithub?sslmode=disable

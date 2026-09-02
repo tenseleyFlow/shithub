@@ -45,6 +45,12 @@ jobs:
       - name: Lint - migration versions
         run: scripts/lint-migration-versions.sh
 
+      - name: Lint - systemd units
+        # deploy/redeploy.sh installs deploy/systemd/*.service verbatim
+        # on every push to trunk; this catches a unit that loses its
+        # memory ceiling before the box does.
+        run: scripts/lint-systemd-units.sh
+
       - name: Test
         run: go test -trimpath ./...
 

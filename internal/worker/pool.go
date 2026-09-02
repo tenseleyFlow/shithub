@@ -22,10 +22,16 @@ import (
 	workerdb "github.com/tenseleyFlow/shithub/internal/worker/sqlc"
 )
 
+// DefaultWorkers is the pool size applied when PoolConfig.Workers is
+// zero. Exported so callers that size adjacent resources off the
+// worker count (the pgx pool in `shithubd worker`, say) can resolve
+// the same number *before* handing the config to NewPool.
+const DefaultWorkers = 4
+
 // PoolConfig configures Pool. Leave fields zero for the documented
 // defaults.
 type PoolConfig struct {
-	Workers    int           // default 4
+	Workers    int           // default DefaultWorkers
 	IdlePoll   time.Duration // default 5s — backstop when LISTEN drops a wake
 	JobTimeout time.Duration // default 5min, applied per-job via context
 	InstanceID string        // default "<hostname>:<pid>"
@@ -47,7 +53,7 @@ type Pool struct {
 // handlers before calling Run.
 func NewPool(db *pgxpool.Pool, cfg PoolConfig) *Pool {
 	if cfg.Workers <= 0 {
-		cfg.Workers = 4
+		cfg.Workers = DefaultWorkers
 	}
 	if cfg.IdlePoll <= 0 {
 		cfg.IdlePoll = 5 * time.Second

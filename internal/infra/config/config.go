@@ -16,6 +16,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"reflect"
@@ -311,6 +312,13 @@ type WebConfig struct {
 	// echoed any `Origin` header — which would have been a CSRF
 	// surface the moment Allow-Credentials switched on.
 	CORSAllowedOrigins []string `toml:"cors_allowed_origins"`
+	// PprofAddr, when non-empty, starts a *separate* HTTP listener
+	// serving only net/http/pprof. Empty (the default) disables it
+	// entirely. The profiling endpoints are never mounted on the main
+	// router, and Validate refuses any address that isn't loopback —
+	// heap/CPU profiles leak memory layout and command line, so this
+	// must not be reachable through the edge proxy.
+	PprofAddr string `toml:"pprof_addr"`
 }
 
 // DBConfig holds Postgres settings.
@@ -601,6 +609,9 @@ func Validate(c *Config) error {
 	if c.Web.Addr == "" {
 		return errors.New("config: web.addr is required")
 	}
+	if err := ValidateLoopbackAddr("web.pprof_addr", c.Web.PprofAddr); err != nil {
+		return err
+	}
 	if c.Tracing.Enabled && c.Tracing.Endpoint == "" {
 		return errors.New("config: tracing.endpoint is required when tracing.enabled=true")
 	}
@@ -718,6 +729,39 @@ func validateBilling(c *Config) error {
 	}
 	if err := validateOptionalHTTPURL("auth.base_url", c.Auth.BaseURL); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidateLoopbackAddr accepts an empty address (feature disabled) or
+// a host:port whose host is a loopback IP literal. Everything else is
+// a hard config error.
+//
+// Hostnames are rejected rather than resolved: "localhost" is only
+// loopback by convention (/etc/hosts can say otherwise), and a config
+// key whose safety depends on name resolution is not a safety
+// property. Exported so the listener that consumes the address can
+// re-check it at construction time.
+func ValidateLoopbackAddr(key, addr string) error {
+	if addr == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("config: %s: must be host:port, got %q", key, addr)
+	}
+	if port == "" {
+		return fmt.Errorf("config: %s: port is required, got %q", key, addr)
+	}
+	if host == "" {
+		return fmt.Errorf("config: %s: %q binds every interface; use 127.0.0.1:%s", key, addr, port)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("config: %s: host must be an IP literal (127.0.0.1 or ::1), got %q", key, host)
+	}
+	if !ip.IsLoopback() {
+		return fmt.Errorf("config: %s: host must be loopback (127.0.0.0/8 or ::1), got %q", key, host)
 	}
 	return nil
 }

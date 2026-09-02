@@ -93,6 +93,11 @@ commits behind origin/trunk**. All fixes must branch from
 
 ### Phase 0 — stop the bleeding (operator, on the box, no deploy)
 
+The first four items are now also mirrored into Ansible (base +
+backup roles, `deploy/spaces/sync-cross-region.sh`), so the next
+`make deploy` re-applies them instead of reverting the hand edits.
+The verification items below are still the operator's.
+
 - [ ] Add 4 GB swapfile on `/data`, `vm.swappiness=10`, persist in fstab
 - [ ] Disable `dailyaidecheck.timer` (keep `shithub-aide-check` cron)
 - [ ] Move `shithub-spaces-sync` from hourly to every 6 h, off the
@@ -104,14 +109,20 @@ commits behind origin/trunk**. All fixes must branch from
 
 ### Phase 1 — bound the process (PR, deploys automatically)
 
-- [ ] `deploy/systemd/shithubd-web.service`: `Environment=GOMEMLIMIT=1200MiB`,
+- [x] `deploy/systemd/shithubd-web.service`: `Environment=GOMEMLIMIT=1200MiB`,
       `MemoryHigh=1600M`, `MemoryMax=2000M`, `OOMScoreAdjust=-500`
-- [ ] `deploy/systemd/shithubd-worker.service`: `MemoryMax=512M`
-- [ ] `worker.env.j2`: set `SHITHUB_WORKERS=4` **and** fix `MaxConns`
+- [x] `deploy/systemd/shithubd-worker.service`: `MemoryHigh=768M`,
+      `MemoryMax=1024M` (cgroup-wide, so it also covers git forked by jobs)
+- [x] `worker.env.j2`: set `SHITHUB_WORKERS=4` **and** fix `MaxConns`
       computation to use the resolved worker count
-- [ ] pprof on loopback (`/debug/pprof` bound to 127.0.0.1 only, or a
-      separate loopback listener) so the next investigation has a heap profile
-- [ ] Tests: unit test for worker pool sizing; systemd unit lint in CI
+      (`resolveWorkerCount` in `cmd/shithubd/worker.go`)
+- [x] pprof on loopback — `web.pprof_addr` starts a separate
+      `http.Server` serving only `net/http/pprof`, refuses any
+      non-loopback address, and is never mounted on the app router.
+      Heap-profile procedure in `runbooks/observability.md`.
+- [x] Tests: unit test for worker pool sizing; systemd unit lint in CI
+      (`scripts/lint-systemd-units.sh`)
+- [x] `shithubd-cron.timer` moved to 05:15 UTC, out of the backup window
 
 ### Phase 2 — cut the static heap (PR)
 
