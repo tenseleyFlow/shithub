@@ -639,7 +639,11 @@ func TestLogin_ConstantTime(t *testing.T) {
 	tok := extractTokenFromMessage(t, sender.all()[0], "/verify-email")
 	_ = cli.get(t, "/verify-email/"+tok).Body.Close()
 
-	const trials = 15
+	// The login throttle allows 6 attempts per (ip, identifier) per
+	// window; the 7th onwards short-circuits before any hashing, which
+	// would poison the medians (and did, when this test used 10–15
+	// trials). Stay under the limit for each identifier.
+	const trials = 5
 	median := func(samples []time.Duration) time.Duration {
 		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 		return samples[len(samples)/2]
