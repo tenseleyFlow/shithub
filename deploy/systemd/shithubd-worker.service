@@ -18,8 +18,8 @@ LimitNOFILE=65535
 # sitrep. The worker's steady state is well under 200 MB; the cap is
 # here so a runaway handler (a huge pack, a pathological diff) gets
 # killed and restarted instead of taking the web process down with it.
-MemoryHigh=384M
-MemoryMax=512M
+MemoryHigh=768M
+MemoryMax=1024M
 
 NoNewPrivileges=yes
 ProtectSystem=strict

@@ -111,8 +111,8 @@ The verification items below are still the operator's.
 
 - [x] `deploy/systemd/shithubd-web.service`: `Environment=GOMEMLIMIT=1200MiB`,
       `MemoryHigh=1600M`, `MemoryMax=2000M`, `OOMScoreAdjust=-500`
-- [x] `deploy/systemd/shithubd-worker.service`: `MemoryHigh=384M`,
-      `MemoryMax=512M`
+- [x] `deploy/systemd/shithubd-worker.service`: `MemoryHigh=768M`,
+      `MemoryMax=1024M` (cgroup-wide, so it also covers git forked by jobs)
 - [x] `worker.env.j2`: set `SHITHUB_WORKERS=4` **and** fix `MaxConns`
       computation to use the resolved worker count
       (`resolveWorkerCount` in `cmd/shithubd/worker.go`)
