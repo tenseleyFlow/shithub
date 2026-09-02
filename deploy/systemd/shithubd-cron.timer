@@ -2,8 +2,12 @@
 Description=shithub periodic housekeeping timer
 
 [Timer]
-# Daily at 03:30 UTC, after the 03:17 database backup window.
-OnCalendar=*-*-* 03:30:00 UTC
+# Daily at 05:15 UTC. It used to run at 03:30, which landed inside the
+# 03:17 logical-backup window and on top of the nightly AIDE scan —
+# the pile-up that the 2026-09-02 availability sitrep identified as
+# one of the OOM triggers. Backup finishes well before 05:00 and AIDE
+# now runs at 06:00, so 05:15 sits in the gap.
+OnCalendar=*-*-* 05:15:00 UTC
 # Run once at boot, ~5min in, so a fresh deploy doesn't wait a day.
 OnBootSec=5min
 Persistent=true
