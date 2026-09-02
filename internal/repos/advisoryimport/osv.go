@@ -631,9 +631,12 @@ func timestamptz(ts *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: ts.UTC(), Valid: true}
 }
 
+// mustJSON renders a JSON array column value. A nil Go slice marshals
+// to "null", which fails the jsonb_typeof(...) = 'array' check
+// constraints on dependency_advisories; empty means the empty array.
 func mustJSON(value interface{}) []byte {
 	body, err := json.Marshal(value)
-	if err != nil {
+	if err != nil || len(body) == 0 || string(body) == "null" {
 		return []byte("[]")
 	}
 	return body
