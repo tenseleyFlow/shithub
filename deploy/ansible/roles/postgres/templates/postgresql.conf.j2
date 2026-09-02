@@ -1,23 +1,68 @@
 # Managed by Ansible — edits here are overwritten on next deploy.
-# Tunes for shithub's MVP single-droplet workload.
+#
+# Sized for the single-box deployment: 2 vCPU / 3.9 GB shared with
+# shithubd web + worker (~200 MB steady state after the Phase 2
+# renderer fix, ceilinged at 1.6/2.0 GB and 0.75/1.0 GB by systemd),
+# Caddy, Alloy (~320 MB) and the backup crons (rclone peaks at
+# 1.0-1.6 GB). Postgres does NOT get the usual 25%-of-RAM share here,
+# because the 25% rule assumes a dedicated database host.
+#
+# NOTE: this template has never been applied to shithub-app. The live
+# box runs Debian defaults (shared_buffers 128MB, work_mem 4MB,
+# max_connections 100, no pg_stat_statements). Applying it needs a
+# Postgres RESTART, not a reload. Read docs/internal/db.md before
+# doing it.
 
-listen_addresses = 'localhost'        # over WG only; no public Postgres
+listen_addresses = 'localhost'        # loopback only; no public Postgres
 port = 5432
-max_connections = 100
-shared_buffers = 512MB                # ~25% of 2GB droplet RAM
-effective_cache_size = 1500MB         # rough working set hint
-maintenance_work_mem = 64MB
-work_mem = 8MB
+
+# 60, not 100. Actual demand: web pool 10 (db.max_conns), worker
+# 6 (SHITHUB_WORKERS=4 + 2), cron/hook/ssh/admin invocations at 2-4
+# each and short-lived. 60 leaves ~35 of headroom over the steady
+# ~19 observed on 2026-09-02 and caps the worst case at a bounded
+# per-backend footprint; 100 backends each able to take work_mem is
+# how a shared box gets OOM-killed.
+max_connections = 60
+
+# 256MB, not 512MB. Double the live Debian default (which is what the
+# 447 MB aggregate RSS on the box was measured against), but small
+# enough that Postgres + shithubd + Alloy + a 1.6 GB rclone still fit
+# under 3.9 GB with the 4 GB swapfile as slack rather than as a
+# working surface.
+shared_buffers = 256MB
+
+# What the kernel is likely caching, not an allocation. The DB is
+# ~1 GB and the page cache on this box is regularly squeezed by
+# rclone and AIDE, so 1GB is the honest hint; overstating it pushes
+# the planner toward index scans that are not actually cheap here.
+effective_cache_size = 1GB
+
+maintenance_work_mem = 64MB           # VACUUM/CREATE INDEX; one at a time
+
+# 4MB (the Debian default the box already runs). This is per sort/hash
+# *node*, not per connection, so the ceiling is roughly
+# max_connections x nodes x work_mem. At 60 connections a bump to 8MB
+# doubles a tail risk we cannot afford on a shared box; raise it per
+# session (SET LOCAL work_mem) for a specific heavy query instead.
+work_mem = 4MB
 wal_level = replica                   # required for WAL archiving (S37)
 archive_mode = on
 archive_command = '/usr/local/bin/shithub-pg-archive %p %f'
 archive_timeout = 60                  # at least one segment per minute
 checkpoint_completion_target = 0.9
 
-# pg_stat_statements (S36 perf-pass requirement; S37 deploy installs).
+# pg_stat_statements. Not installed on the live box — the extension
+# needs this preload line AND a restart AND `CREATE EXTENSION`, and
+# none of that has happened, which is why the 2026-09-02 outage
+# investigation had no query attribution to work from.
+#
+# track = top (not all): `all` also records statements executed inside
+# PL/pgSQL function bodies, which multiplies entries and shared-memory
+# pressure for attribution we do not need. Top-level statements are
+# what maps back to a handler or a job.
 shared_preload_libraries = 'pg_stat_statements'
 pg_stat_statements.max = 5000
-pg_stat_statements.track = all
+pg_stat_statements.track = top
 
 # Logging — minimal noise, slow-query attention.
 log_destination = 'stderr'
