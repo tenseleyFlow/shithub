@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -638,9 +639,13 @@ func TestLogin_ConstantTime(t *testing.T) {
 	tok := extractTokenFromMessage(t, sender.all()[0], "/verify-email")
 	_ = cli.get(t, "/verify-email/"+tok).Body.Close()
 
-	const trials = 10
+	const trials = 15
+	median := func(samples []time.Duration) time.Duration {
+		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+		return samples[len(samples)/2]
+	}
 	measure := func(username string) time.Duration {
-		var total time.Duration
+		samples := make([]time.Duration, 0, trials)
 		for i := 0; i < trials; i++ {
 			cli2 := newClient(t, srv)
 			csrf := cli2.extractCSRF(t, "/login")
@@ -650,22 +655,35 @@ func TestLogin_ConstantTime(t *testing.T) {
 				"username":   {username},
 				"password":   {"any-wrong-password"},
 			})
-			total += time.Since(start)
+			samples = append(samples, time.Since(start))
 			_ = resp.Body.Close()
 		}
-		return total / trials
+		return median(samples)
 	}
+	// Baseline: what one argon2 verify costs on this machine right now.
+	// The property under test is that the missing-user branch still
+	// pays for a hash instead of short-circuiting on the lookup, so
+	// compare against that cost directly rather than against the
+	// existing-user request, which also does throttle/audit writes
+	// whose latency swings with CI database load.
+	hashSamples := make([]time.Duration, 0, trials)
+	for i := 0; i < trials; i++ {
+		start := time.Now()
+		password.VerifyAgainstDummy("any-wrong-password")
+		hashSamples = append(hashSamples, time.Since(start))
+	}
+	hashCost := median(hashSamples)
+
 	existing := measure("dave")
 	missing := measure("does-not-exist")
-	delta := existing - missing
-	if delta < 0 {
-		delta = -delta
+	if missing < hashCost/2 {
+		t.Fatalf("missing-user login skipped the hash: missing=%v hash=%v existing=%v", missing, hashCost, existing)
 	}
-	// On the test argon params (~5–15ms) any user-existence shortcut would
-	// shave off most of the time; allow generous slack for CI noise but
-	// reject a 5x divergence.
-	if existing > missing*5 || missing > existing*5 {
-		t.Fatalf("login timing diverges too much: existing=%v missing=%v delta=%v", existing, missing, delta)
+	// Still reject an egregious divergence in either direction; the
+	// bound is loose because the existing-user path legitimately does
+	// more database work and medians on a loaded CI runner are noisy.
+	if existing > missing*10 || missing > existing*10 {
+		t.Fatalf("login timing diverges too much: existing=%v missing=%v hash=%v", existing, missing, hashCost)
 	}
 }
 
