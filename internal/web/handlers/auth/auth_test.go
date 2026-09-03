@@ -680,7 +680,16 @@ func TestLogin_ConstantTime(t *testing.T) {
 
 	existing := measure("dave")
 	missing := measure("does-not-exist")
-	if missing < hashCost/2 {
+	// A shortcut that skips hashing makes the missing-user request
+	// ~1 ms. Compare against the cheaper of the two reference costs
+	// (a bare hash, or a full existing-user login which includes one)
+	// with a wide margin, because on a loaded CI runner either
+	// reference can be inflated several-fold by neighbouring tests.
+	ref := hashCost
+	if existing < ref {
+		ref = existing
+	}
+	if missing < ref/4 {
 		t.Fatalf("missing-user login skipped the hash: missing=%v hash=%v existing=%v", missing, hashCost, existing)
 	}
 	// Still reject an egregious divergence in either direction; the
