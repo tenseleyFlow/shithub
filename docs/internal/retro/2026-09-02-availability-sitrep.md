@@ -455,7 +455,17 @@ ssh root@shithub.sh '
 # expect: pprof listener started (loopback only) addr=127.0.0.1:6060
 ```
 
-### 10. Phase 0 verification, still open
+### 10. Phase 0 verification — DONE 2026-09-03 06:47 UTC
+
+First full night after the campaign: OOM kills 0; overnight peak
+`%memused` 20.9% (was 88.2% on 2026-09-02); swap used 42 MB of 4 GB;
+postgres/web/worker active; `backup-daily` ok at 03:17:45 with
+heartbeat; spaces-sync ok at 02:19 (01:23 run, ~56 min without
+`--fast-list`); AIDE check 06:00–06:29; DO uptime probe 98/98 `200`
+over two hours; 429s are crawler-only. DR check on the backups
+bucket: 120 objects match, 1 difference = the 03:17 dump not yet
+mirrored by the 07:23 sync. Traffic tables 717k/770k rows after the
+first purge (DB 1057 MB; space is reclaimed by autovacuum over time).
 
 ```sh
 ssh root@shithub.sh '
