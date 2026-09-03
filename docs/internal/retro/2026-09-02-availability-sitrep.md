@@ -388,7 +388,18 @@ deploy/audit/check-droplet-drift.sh    # runs locally, ssh's to the box
 Then confirm the gauge is live:
 `curl -fsS 127.0.0.1:8080/metrics | grep shithub_backup_last_success`.
 
-### 7. Apply `postgresql.conf.j2` and enable `pg_stat_statements`
+### 7. Apply `postgresql.conf.j2` and enable `pg_stat_statements` — DONE 2026-09-03
+
+Done at 05:17–05:19 UTC inside the quiet window, by hand (no Ansible on
+the operator machine): snapshot at `postgresql.conf.pre-tune`, six
+settings edited (`shared_buffers=256MB`, `work_mem=4MB`,
+`effective_cache_size=1GB`, `maintenance_work_mem=64MB`,
+`max_connections=60`, `shared_preload_libraries='pg_stat_statements'`),
+Postgres restarted (healthy in 8.5 s; web and worker bounced with it),
+`CREATE EXTENSION pg_stat_statements` applied. Verified via
+`pg_settings`. The first `traffic:purge` had already completed at
+05:15:21 (18 s; paths 1.26M→716k, uniques 1.34M→769k). No OOM
+overnight.
 
 Needs a **Postgres restart**, inside the 05:15–06:00 UTC quiet
 window, never via a blind `make deploy`. The full procedure with
