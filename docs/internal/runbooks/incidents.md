@@ -186,6 +186,55 @@ no secret-bearing logs.
 4. If the controlled workflow is not masked, stop affected runners, rotate the
    exposed secret, and open a security incident.
 
+## crawl-saturation
+
+**Symptom:** DO `cpu > 80%` and `load1 > 4` alerts together, uptime
+latency alerts, pages that do not fork git (`/explore`, `/`) timing
+out at 30s and surfacing as Caddy 502s. Memory and disk look fine.
+First seen 2026-11-25: 6–9k req/min from ~45k distinct addresses per
+ten minutes, 88% of them making one request, almost all for
+`/{owner}/{repo}/commits/<sha>` and `blob|raw|tree/<sha>`.
+
+### 1. Confirm the shape
+
+```sh
+journalctl -u shithubd-web --since -10min -o cat | grep msg=request > /tmp/r
+wc -l < /tmp/r
+grep -oE 'remote_ip=[^ ]+' /tmp/r | sort -u | wc -l          # distinct addresses
+grep -oE 'path=[^ ]+' /tmp/r | awk -F/ '{print $4}' | sort | uniq -c | sort -rn | head
+```
+
+Distinct addresses close to the request count means a proxy pool. The
+HTML rate limit keys anonymous traffic per /24, so it does not bound
+this, and neither does fail2ban or a firewall rule.
+
+### 2. What already holds the line
+
+`web.anon_git_concurrency` caps anonymous concurrency on the
+git-backed read routes and sheds the rest with a 503 before the rate
+limiter's Postgres write. Check it is doing the work:
+
+```sh
+curl -s localhost:8080/metrics | grep shithub_http_anon_git_requests_total
+```
+
+A `shed` count climbing while `/explore` stays fast is the gate
+working. Signed-in users are not gated.
+
+### 3. Mitigate at the edge
+
+If the box is still saturated (TLS handshakes and access logging for
+the crawl cost CPU on their own), reject the crawl in Caddy: set
+`shithub_caddy_shed_anon_sha_urls: true` and re-render the Caddyfile,
+or add the `@anon_sha` block from `deploy/Caddyfile.j2` by hand, then
+`caddy validate` and `systemctl reload caddy`. This blocks logged-out
+SHA permalinks, so remove it when the crawl stops.
+
+### 4. Check fail2ban is not part of the load
+
+`top` showing `fail2ban-server` near 100% means its filter is missing
+`datepattern` (see the comment in `roles/base/tasks/main.yml`).
+
 ## memory-pressure
 
 **Symptom:** DO `memory > 90%` alert, `load1 > 4` with low CPU,
