@@ -246,6 +246,15 @@ func (h *Handlers) compareView(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.Trim(chi.URLParam(r, "*"), "/")
 	hasSelection := rest != ""
+	// Comparing two refs is for signed-in viewers. Every pair of
+	// refs is its own URL and each one renders a full diff (several
+	// MB and seconds of CPU between distant tags), so to an anonymous
+	// crawler the ref picker is a quadratic URL space. The bare
+	// /compare landing page stays public.
+	if hasSelection && middleware.CurrentUserFromContext(r.Context()).IsAnonymous() {
+		http.Redirect(w, r, loginHref(r), http.StatusSeeOther)
+		return
+	}
 	base := row.DefaultBranch
 	head := row.DefaultBranch
 	if hasSelection {

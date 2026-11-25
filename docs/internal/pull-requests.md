@@ -60,6 +60,11 @@ the head is ahead of base, compare links into
 compare when no head ref is supplied so the GitHub-style branch picker
 remains the canonical entry point.
 
+Comparing a ref pair (`/compare/{base}...{head}`) requires sign-in;
+anonymous requests are redirected to `/login?next=…`. Each pair is its
+own URL rendering a full diff, which made the ref picker a quadratic
+URL space for crawlers. The bare `/compare` page is public.
+
 ## Auto-synchronize on head push
 
 `internal/worker/jobs/push_process.go` is extended: after a push to

@@ -52,6 +52,12 @@
       </details>
 
       <div class="shithub-commit-filter-stack">
+        {{ if not .CanFilter }}
+        <a class="shithub-commit-menu-button" href="{{ .LoginHref }}" rel="nofollow">
+          {{ octicon "person" }}
+          <span>Sign in to filter by author or date</span>
+        </a>
+        {{ else }}
         <details class="shithub-commit-menu shithub-commit-author-menu">
           <summary class="shithub-commit-menu-button">
             {{ octicon "person" }}
@@ -130,6 +136,7 @@
             </div>
           </div>
         </details>
+        {{ end }}
       </div>
     </div>
 

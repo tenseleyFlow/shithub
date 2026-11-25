@@ -85,6 +85,10 @@ func Log(ctx context.Context, gitDir string, o LogOptions) ([]Commit, error) {
 	cmd := gitCmd(ctx, args...)
 	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && isMissingGitObjectError(ee.Stderr) {
+			return nil, fmt.Errorf("%w: %s", ErrCommitNotFound, o.Ref)
+		}
 		return nil, wrapExecErr(err)
 	}
 	return parseLogOutput(out)

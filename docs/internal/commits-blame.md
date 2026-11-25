@@ -23,6 +23,23 @@ segments). Same logic the code-tab uses.
 
 `{sha}` accepts 7..40 hex chars; git itself disambiguates short SHAs.
 
+## Anonymous access
+
+Plain history, paging and per-file history (`?path=`) are public on
+public repos. The author and date filters (`author`, `since`, `until`)
+and the date picker's `calendar_month` are for signed-in viewers: an
+anonymous request carrying any of them is redirected to
+`/login?next=…` before a git process is started, and the anonymous
+page renders a sign-in link in place of the two filter menus.
+
+The reason is that the filter links are an unbounded URL space. Every
+author, every day and every month on every ref (including every SHA)
+is a distinct URL that forks `git log`, and the month links never run
+out. On 2026-11-25 a link-following scraper spent 82% of a 9k req/min
+crawl inside them (`runbooks/incidents.md#crawl-saturation`).
+
+A well-formed SHA or ref name that is not in the repository is a 404.
+
 ## git plumbing
 
 * `repogit.Log(ctx, gitDir, opts)` — single `git log --format=...` call
@@ -89,12 +106,18 @@ documented here so the S21 enhancer doesn't have to re-derive it.
 
 ## Caching
 
-Currently **no caching layer** — every request runs the relevant git
-plumbing fresh. The S18 spec calls out cache keys
-(`(repo_id, ref_oid, page, filters)` for commit lists,
-`(repo_id, ref_oid, path)` for blame, `(repo_id, sha)` for single
-commits) and push-event invalidation. Wiring lives with the rest of
-the code-tab caching deferral in **S36**.
+The commit list has an ETag and an in-process page cache keyed on
+`(repo_id, head_oid, page)`, invalidated on push (`caching.md`). Two
+rules bound it:
+
+- **Anonymous renders only.** The key has no viewer in it and the
+  rendered page carries the viewer's nav, account switcher and CSRF
+  tokens. A signed-in request neither reads nor writes the cache and
+  gets no `ETag` or `Cache-Control: public`.
+- **Unfiltered only.** `path`/`author`/`since`/`until` change the
+  content under the same key, so filtered requests bypass it.
+
+Blame and single-commit views run their git plumbing fresh.
 
 ## Pitfalls handled
 
