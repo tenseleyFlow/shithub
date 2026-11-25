@@ -112,9 +112,14 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	// Bot crawls hit unfiltered pages — that's the optimization
 	// target. headOID is empty when rev-parse fails or the request
 	// is filtered, in which case neither layer is active.
+	//
+	// Only anonymous views are cached. The rendered page carries the
+	// viewer's nav, account switcher and CSRF tokens, and the key has
+	// no viewer in it, so a page rendered for a signed-in user must
+	// never be stored where the next visitor would be handed it.
 	filtered := pathFilter != "" || authorFilter != "" || sinceRaw != "" || untilRaw != ""
 	var headOID string
-	if !filtered {
+	if !filtered && viewer.IsAnonymous() {
 		var oidErr error
 		headOID, oidErr = git.ResolveRefOID(r.Context(), gitDir, ref)
 		if oidErr != nil {
