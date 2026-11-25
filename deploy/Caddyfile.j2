@@ -57,6 +57,27 @@
         reverse_proxy 127.0.0.1:8080
     }
 
+{% if shithub_caddy_shed_anon_sha_urls | default(false) %}
+    # Crawl shed — incident switch, off by default. Rejects cookieless
+    # requests for commit-pinned history URLs before they reach
+    # shithubd. Those URLs each fork git and are the whole surface of
+    # a residential-proxy crawl (one request per address, so no
+    # per-client limit applies). Branch and tag URLs, and any browser
+    # holding a session cookie, are unaffected. The cost is that
+    # logged-out visitors lose SHA permalinks, so turn it back off
+    # once the crawl ends. shithubd's own gate (web.anon_git_concurrency)
+    # is the always-on defence; this is the heavier hammer. See
+    # docs/internal/runbooks/incidents.md#crawl-saturation.
+    @anon_sha {
+        path_regexp anonsha ^/[^/]+/[^/]+/(commits|commit|blob|raw|tree|blame|compare|find)/[0-9a-f]{40}(/.*)?$
+        not header_regexp Cookie (^|;\s*)_shithub_session=
+    }
+    handle @anon_sha {
+        header Cache-Control "no-store"
+        respond "Sign in to view commit-pinned URLs: https://{{ shithub_domain }}/login" 403
+    }
+
+{% endif %}
     handle {
         reverse_proxy 127.0.0.1:8080 {
             transport http {
