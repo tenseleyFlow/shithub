@@ -54,6 +54,17 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Author and date filters are for signed-in viewers. Each filter
+	// link is a distinct URL that forks `git log`, and the calendar
+	// links never run out (every day, every month, on every ref), so
+	// for an anonymous crawler the filtered history is an unbounded
+	// URL space: on 2026-11-25 82% of a 9k req/min crawl was these
+	// URLs. Turn them away before any git process is started.
+	viewer := middleware.CurrentUserFromContext(r.Context())
+	if viewer.IsAnonymous() && hasCommitHistoryFilter(r.URL.Query()) {
+		http.Redirect(w, r, loginHref(r), http.StatusSeeOther)
+		return
+	}
 	gitDir, err := h.d.RepoFS.RepoPath(owner.Username, row.Name)
 	if err != nil {
 		h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
@@ -228,6 +239,8 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		"NewerHref":        newerHref,
 		"OlderHref":        olderHref,
 		"HasActiveFilters": filtered,
+		"CanFilter":        !viewer.IsAnonymous(),
+		"LoginHref":        loginHref(r),
 	}
 
 	// F01 PR-3: when the page is cacheable, render into a buffer so
@@ -252,6 +265,25 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.d.Render.RenderPage(w, r, "repo/commits", data)
+}
+
+// hasCommitHistoryFilter reports whether the query asks for the
+// author/date-filtered history or moves the date picker. `path` is
+// not included: per-file history is ordinary browsing and is bounded
+// by the tree.
+func hasCommitHistoryFilter(q url.Values) bool {
+	for _, k := range []string{"author", "since", "until", "calendar_month"} {
+		if strings.TrimSpace(q.Get(k)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// loginHref is the sign-in URL that returns the viewer to the page
+// they asked for.
+func loginHref(r *http.Request) string {
+	return "/login?" + url.Values{"next": []string{r.URL.RequestURI()}}.Encode()
 }
 
 // commitView renders the single-commit page: subject + body, parents,
