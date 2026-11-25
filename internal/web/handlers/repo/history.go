@@ -159,6 +159,10 @@ func (h *Handlers) commitsList(w http.ResponseWriter, r *http.Request) {
 		Follow:   pathFilter != "",
 	})
 	if err != nil {
+		if errors.Is(err, git.ErrCommitNotFound) {
+			h.d.Render.HTTPError(w, r, http.StatusNotFound, "")
+			return
+		}
 		h.d.Logger.WarnContext(r.Context(), "commits: Log", "error", err)
 		h.d.Render.HTTPError(w, r, http.StatusInternalServerError, "")
 		return
