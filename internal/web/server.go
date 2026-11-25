@@ -192,6 +192,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	deps := handlers.Deps{
 		Logger:       logger,
+		AnonGitShed:  middleware.AnonGitShed(middleware.DefaultAnonGitShedConfig(cfg.Web.AnonGitConcurrency)),
 		TemplatesFS:  TemplatesFS(),
 		Renderer:     sharedRenderer,
 		StaticFS:     StaticFS(),

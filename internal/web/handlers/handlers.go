@@ -192,6 +192,12 @@ type Deps struct {
 	// (its own limiter) and /stripe/webhook (idempotent + signed) live
 	// outside this group and are never gated.
 	HTMLRateLimit func(http.Handler) http.Handler
+	// AnonGitShed, when non-nil, is mounted in the application group
+	// ahead of HTMLRateLimit. It caps concurrent anonymous requests to
+	// git-backed read routes and sheds the overflow with a 503 (see
+	// internal/web/middleware/anongitshed.go). It runs first so a shed
+	// request never reaches the rate limiter's Postgres counter.
+	AnonGitShed func(http.Handler) http.Handler
 }
 
 // panicHandler implements middleware.PanicHandler. The recover middleware
@@ -322,6 +328,9 @@ func RegisterChi(r *chi.Mux, deps Deps) (*chi.Mux, middleware.PanicHandler, http
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Compress)
 		r.Use(middleware.Timeout(30 * time.Second))
+		if deps.AnonGitShed != nil {
+			r.Use(deps.AnonGitShed)
+		}
 		if deps.HTMLRateLimit != nil {
 			r.Use(deps.HTMLRateLimit)
 		}

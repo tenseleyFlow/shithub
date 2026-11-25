@@ -118,6 +118,12 @@
 # auth attempts. Field order in Caddy's JSON output is stable in
 # practice; the regex is deliberately substring-anchored so the
 # `<HOST>` group always lands on the request.remote_ip value.
+#
+# `datepattern` is load-bearing. Without it fail2ban runs its whole
+# date-template search over every ~1.5 KB JSON line: measured on the
+# box at ~13 ms/line, which pinned a core by itself during the
+# 2026-11-25 crawl (8k lines/min). Pointing it at Caddy's epoch `ts`
+# field brings that to ~0.4 ms/line.
 - name: fail2ban — shithubd auth filter (Caddy access log)
   copy:
     dest: /etc/fail2ban/filter.d/shithubd-auth.conf
@@ -125,6 +131,7 @@
       [Definition]
       failregex = ^.*"remote_ip":"<HOST>".*?"method":"POST".*?"uri":"/(login|signup|password/reset|password/forgot|2fa(/[^"]*)?|settings/security/2fa/[^"]*)".*?"status":(401|403|429)\b
       ignoreregex =
+      datepattern = "ts":{EPOCH}
     mode: "0644"
   notify: restart fail2ban
 

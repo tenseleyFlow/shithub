@@ -57,6 +57,16 @@ var (
 			Help: "Total panics caught by the recover middleware.",
 		},
 	)
+	// AnonGitRequestsTotal counts anonymous requests to git-backed
+	// read routes by what the load-shedding gate did with them:
+	// admitted (slot free), queued (waited, then ran), shed (503).
+	AnonGitRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shithub_http_anon_git_requests_total",
+			Help: "Anonymous git-backed read requests by load-shed outcome.",
+		},
+		[]string{"outcome"},
+	)
 )
 
 // DB pool metrics. Updated periodically by an observer goroutine that the
@@ -405,6 +415,7 @@ func init() {
 		HTTPRequestDuration,
 		HTTPInFlight,
 		PanicsTotal,
+		AnonGitRequestsTotal,
 		DBConnsAcquired,
 		DBConnsIdle,
 		DBConnsTotal,
