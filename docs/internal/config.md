@@ -29,6 +29,7 @@ shithubd version          # includes a one-line summary of which sinks are confi
 | `web.write_timeout` | duration | `30s` | Per-request write timeout. |
 | `web.shutdown_timeout` | duration | `10s` | Graceful drain on SIGTERM. |
 | `web.pprof_addr` | string | `""` | When set, `shithubd web` starts a *separate* listener serving only `net/http/pprof`. Empty disables it. Must be a loopback IP literal + port (`127.0.0.1:6060`, `[::1]:6060`); hostnames and non-loopback addresses are refused at startup. Never mounted on the main router. See `runbooks/observability.md`. |
+| `web.anon_git_concurrency` | int | `max(2, NumCPU)` | How many anonymous requests may run inside git-backed read handlers (`commits`, `commit`, `blob`, `raw`, `tree`, `blame`, `compare`, `find`) at once. Up to four more per slot wait up to 2s; the rest get `503` + `Retry-After: 10`. Signed-in users are never counted. `0` selects the default; a negative value disables the gate. Outcomes are counted in `shithub_http_anon_git_requests_total{outcome}`. See `runbooks/incidents.md#crawl-saturation`. |
 | `web.trusted_proxies` | []string | `127.0.0.0/8, ::1/128` | CIDR blocks (or bare IPs) whose `X-Forwarded-For` header is honoured when resolving the client IP. Requests from anywhere else key on their own `RemoteAddr`. Comma-separated in env form; set it to the empty string when nothing proxies to shithub. |
 | `db.url` | string | `""` | Postgres DSN. Aliased by `SHITHUB_DATABASE_URL`. |
 | `db.max_conns` | int | `10` | pgxpool max conns. |
