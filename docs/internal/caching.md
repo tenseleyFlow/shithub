@@ -87,6 +87,12 @@ Default to no-TTL with explicit invalidation. Use TTL only when:
 Avoid TTL on personalized content. The "you see your friend's old
 comment for 30s" UX surprise is not worth the cache hit-rate.
 
+A cache of rendered pages is personalized content unless the key says
+otherwise: every full page embeds the viewer's nav and CSRF tokens.
+Either put the viewer in the key or only read and write the cache for
+anonymous requests, as the commits page cache does. It originally did
+neither and handed one signed-in viewer's page to the next visitor.
+
 ## Reading hit-rates
 
 Every cache exposes `Stats() lru.Stats{Hits, Misses, Evictions}`.
