@@ -171,3 +171,17 @@ func buildSeedRepo(t *testing.T) string {
 	}
 	return dir
 }
+
+// TestLog_MissingObjectIsErrCommitNotFound: a well-formed SHA that is
+// not in the repo, or an unknown ref name, must surface as
+// ErrCommitNotFound so handlers answer 404 rather than 500.
+func TestLog_MissingObjectIsErrCommitNotFound(t *testing.T) {
+	t.Parallel()
+	gitDir := buildSeedRepo(t)
+	for _, ref := range []string{"0000000000000000000000000000000000000001", "no-such-branch"} {
+		_, err := gitops.Log(context.Background(), gitDir, gitops.LogOptions{Ref: ref})
+		if !errors.Is(err, gitops.ErrCommitNotFound) {
+			t.Errorf("Log(%q): err = %v, want ErrCommitNotFound", ref, err)
+		}
+	}
+}
