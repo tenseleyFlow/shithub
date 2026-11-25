@@ -5,6 +5,7 @@ package config
 import (
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -522,4 +523,42 @@ func TestValidate_RejectsBadTrustedProxy(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "web.trusted_proxies") {
 		t.Fatalf("Validate: got %v, want web.trusted_proxies error", err)
 	}
+}
+
+// TestAnonGitConcurrency pins the three shapes of the knob: unset
+// resolves to max(2, NumCPU) during validation, an explicit value is
+// kept, and a negative value survives as the "disabled" sentinel.
+func TestAnonGitConcurrency(t *testing.T) {
+	load := func(t *testing.T, env string) Config {
+		t.Helper()
+		t.Setenv("SHITHUB_STORAGE__REPOS_ROOT", "/tmp/repos")
+		t.Setenv("SHITHUB_CONFIG", filepath.Join(t.TempDir(), "absent.toml"))
+		if env != "" {
+			t.Setenv("SHITHUB_WEB__ANON_GIT_CONCURRENCY", env)
+		}
+		cfg, err := Load(nil)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		return cfg
+	}
+	t.Run("default", func(t *testing.T) {
+		if got := Defaults().Web.AnonGitConcurrency; got != 0 {
+			t.Fatalf("Defaults().Web.AnonGitConcurrency = %d, want 0 (resolved in Validate)", got)
+		}
+		want := max(2, runtime.NumCPU())
+		if got := load(t, "").Web.AnonGitConcurrency; got != want {
+			t.Fatalf("web.anon_git_concurrency = %d, want %d", got, want)
+		}
+	})
+	t.Run("explicit", func(t *testing.T) {
+		if got := load(t, "7").Web.AnonGitConcurrency; got != 7 {
+			t.Fatalf("web.anon_git_concurrency = %d, want 7", got)
+		}
+	})
+	t.Run("disabled", func(t *testing.T) {
+		if got := load(t, "-1").Web.AnonGitConcurrency; got != -1 {
+			t.Fatalf("web.anon_git_concurrency = %d, want -1", got)
+		}
+	})
 }

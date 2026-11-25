@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -319,6 +320,13 @@ type WebConfig struct {
 	// heap/CPU profiles leak memory layout and command line, so this
 	// must not be reachable through the edge proxy.
 	PprofAddr string `toml:"pprof_addr"`
+	// AnonGitConcurrency caps how many anonymous requests may run
+	// inside git-backed read handlers (commits, commit, blob, raw,
+	// tree, blame, compare, find) at once; the overflow queues
+	// briefly and is then shed with a 503. Signed-in users are not
+	// counted. Zero picks the default, max(2, NumCPU); a negative
+	// value disables the gate.
+	AnonGitConcurrency int `toml:"anon_git_concurrency"`
 	// TrustedProxies lists the CIDR blocks whose X-Forwarded-For
 	// header the real-IP middleware honours. Anything arriving from
 	// outside these networks keys on its own RemoteAddr, so a forged
@@ -656,6 +664,9 @@ func Validate(c *Config) error {
 	}
 	if _, err := c.Web.TrustedProxyNets(); err != nil {
 		return err
+	}
+	if c.Web.AnonGitConcurrency == 0 {
+		c.Web.AnonGitConcurrency = max(2, runtime.NumCPU())
 	}
 	if c.Tracing.Enabled && c.Tracing.Endpoint == "" {
 		return errors.New("config: tracing.endpoint is required when tracing.enabled=true")
